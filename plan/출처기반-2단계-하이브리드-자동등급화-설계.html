@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>출처 기반 · 2단계 하이브리드 자동 등급화 설계</title>
+</head>
+<body>
+<style>
+  :root{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+    --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","맑은 고딕",-apple-system,"Apple SD Gothic Neo",system-ui,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","Cascadia Mono",Consolas,"D2Coding",monospace;
+    --maxw:themevar;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+      --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+      --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+      --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+    --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+    --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+    --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.7;-webkit-font-smoothing:antialiased;font-size:16px;
+    letter-spacing:-0.003em;}
+  .wrap{max-width:920px;margin:0 auto;padding:0 24px 96px;}
+
+  /* ---- header ---- */
+  header.doc{padding:56px 0 34px;border-bottom:1px solid var(--line);margin-bottom:40px;}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;display:flex;gap:10px;align-items:center;margin-bottom:20px;}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);border-radius:2px;}
+  h1.title{font-size:clamp(28px,4.6vw,44px);line-height:1.12;margin:0 0 14px;font-weight:800;
+    letter-spacing:-0.02em;text-wrap:balance;}
+  .lede{font-size:clamp(16px,2.1vw,19px);color:var(--muted);max-width:60ch;margin:0;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 10px;margin-top:26px;}
+  .chip{font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--surface-2);
+    border:1px solid var(--line);border-radius:999px;padding:5px 12px;letter-spacing:.01em;}
+  .chip b{color:var(--ink);font-weight:600;}
+
+  /* ---- section ---- */
+  section{margin:52px 0;scroll-margin-top:20px;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:22px;}
+  .sec-num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);
+    border:1px solid var(--line-strong);border-radius:7px;padding:3px 9px;flex:none;line-height:1.3;}
+  h2{font-size:clamp(21px,3vw,27px);margin:0;font-weight:750;letter-spacing:-0.015em;line-height:1.25;text-wrap:balance;}
+  h3{font-size:17px;margin:30px 0 12px;font-weight:700;letter-spacing:-0.01em;}
+  p{margin:0 0 15px;max-width:66ch;}
+  a{color:var(--accent-2);text-underline-offset:3px;text-decoration-thickness:1px;}
+
+  /* ---- TL;DR callout ---- */
+  .tldr{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:12px;padding:22px 24px;box-shadow:var(--shadow);}
+  .tldr .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:10px;}
+  .tldr p{margin:0;font-size:17px;color:var(--ink);}
+  .tldr b{color:var(--accent-2);}
+
+  /* ---- principle cards ---- */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 18px;}
+  .card .cap{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--faint);
+    text-transform:uppercase;margin-bottom:8px;}
+  .card .h{font-weight:700;margin-bottom:6px;font-size:15.5px;}
+  .card .d{font-size:14px;color:var(--muted);margin:0;}
+
+  /* ---- pipeline ---- */
+  .pipe{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:26px 22px;box-shadow:var(--shadow);}
+  .stage{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--surface-2);
+    position:relative;}
+  .stage.s1{border-top:3px solid var(--accent);}
+  .stage.gate{border-top:3px solid var(--s);background:var(--s-soft);border-color:color-mix(in srgb,var(--s) 30%,var(--line));}
+  .stage.s2{border-top:3px solid var(--o);}
+  .stage.final{border-top:3px solid var(--accent-2);}
+  .stage .tag{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--accent);margin-bottom:6px;display:block;}
+  .stage.gate .tag{color:var(--s);} .stage.s2 .tag{color:var(--o);}
+  .stage .st{font-weight:750;font-size:16px;margin-bottom:4px;}
+  .stage .sd{font-size:13.5px;color:var(--muted);margin:0;}
+  .paths{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px;}
+  .paths .pp{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;}
+  .paths .pp b{font-family:var(--mono);color:var(--accent);display:block;font-size:11px;letter-spacing:.03em;margin-bottom:2px;}
+  .flowline{display:flex;justify-content:center;color:var(--faint);font-size:20px;margin:6px 0;line-height:1;}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:6px;}
+  .branch-lbl{text-align:center;font-family:var(--mono);font-size:11.5px;color:var(--muted);margin:4px 0 2px;}
+  .branch-lbl.ok{color:var(--o);} .branch-lbl.warn{color:var(--s);}
+  @media (max-width:620px){ .paths{grid-template-columns:1fr;} .split{grid-template-columns:1fr;} }
+
+  /* ---- tables ---- */
+  .twrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);}
+  table{border-collapse:collapse;width:100%;font-size:14px;min-width:520px;background:var(--surface);}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{background:var(--surface-2);font-size:12px;letter-spacing:.03em;color:var(--muted);
+    text-transform:uppercase;font-weight:700;white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,.mono-cell{font-family:var(--mono);font-size:13px;}
+  td b{font-weight:700;}
+  .wt{font-family:var(--mono);font-weight:700;color:var(--accent);}
+
+  /* grade pills in tables */
+  .g{font-family:var(--mono);font-weight:800;font-size:12px;padding:2px 8px;border-radius:6px;letter-spacing:.02em;white-space:nowrap;}
+  .g.c{color:var(--c);background:var(--c-soft);border:1px solid color-mix(in srgb,var(--c) 35%,transparent);}
+  .g.s{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+  .g.o{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+
+  /* ---- grade cards ---- */
+  .grades{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;}
+  .gcard{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface);}
+  .gcard .top{display:flex;align-items:center;gap:12px;padding:16px 18px;}
+  .gcard .letter{font-family:var(--mono);font-weight:800;font-size:22px;width:44px;height:44px;
+    display:grid;place-items:center;border-radius:10px;color:#fff;flex:none;}
+  .gcard.c .top{background:var(--c-soft);} .gcard.c .letter{background:var(--c);}
+  .gcard.s .top{background:var(--s-soft);} .gcard.s .letter{background:var(--s);}
+  .gcard.o .top{background:var(--o-soft);} .gcard.o .letter{background:var(--o);}
+  .gcard .nm{font-weight:750;font-size:16px;line-height:1.2;}
+  .gcard .en{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.04em;}
+  .gcard ul{margin:0;padding:14px 18px 16px;list-style:none;display:flex;flex-direction:column;gap:9px;}
+  .gcard li{font-size:13.5px;color:var(--muted);padding-left:16px;position:relative;}
+  .gcard li::before{content:"";position:absolute;left:0;top:9px;width:5px;height:5px;border-radius:50%;background:var(--line-strong);}
+  .gcard li b{color:var(--ink);font-weight:600;}
+
+  /* ---- code ---- */
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;
+    overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.65;box-shadow:var(--shadow);
+    color:var(--ink);}
+  pre .cm{color:var(--o);} pre .kw{color:var(--accent-2);font-weight:600;} pre .fn{color:var(--c);}
+  code.inl{font-family:var(--mono);font-size:.9em;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;}
+
+  /* ---- roadmap ---- */
+  .road{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--line-strong);margin-left:8px;}
+  .phase{position:relative;padding:0 0 24px 26px;}
+  .phase:last-child{padding-bottom:0;}
+  .phase::before{content:"";position:absolute;left:-9px;top:2px;width:15px;height:15px;border-radius:50%;
+    background:var(--surface);border:2.5px solid var(--accent);}
+  .phase .pn{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.05em;}
+  .phase .ph{font-weight:700;margin:2px 0 3px;font-size:15.5px;}
+  .phase .pd{font-size:14px;color:var(--muted);margin:0;}
+
+  /* ---- note / failsafe callout ---- */
+  .note{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:16px 18px;
+    font-size:14.5px;display:flex;gap:12px;align-items:flex-start;}
+  .note .badge{font-family:var(--mono);font-size:10.5px;font-weight:800;letter-spacing:.06em;
+    padding:3px 8px;border-radius:6px;flex:none;text-transform:uppercase;}
+  .note.safe .badge{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+  .note.warn .badge{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+  .note p{margin:0;color:var(--muted);}
+  .note b{color:var(--ink);}
+
+  hr.soft{border:none;border-top:1px solid var(--line);margin:0;}
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);
+    font-size:13px;color:var(--faint);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+    font-family:var(--mono);letter-spacing:.02em;}
+  @media print{ body{background:#fff;} .pipe,.tldr,pre,.twrap{box-shadow:none;} }
+</style>
+
+<div class="wrap">
+
+  <header class="doc">
+    <div class="eyebrow">상세 설계 · Information Discovery</div>
+    <h1 class="title">출처 기반 · 2단계 하이브리드 자동 등급화</h1>
+    <p class="lede">출처만으로 대부분을 즉시 확정하고, 애매하거나 위험 신호가 있는 파일만 내용으로 재확인한다 — 속도와 정확도, 그리고 프라이버시를 동시에.</p>
+    <div class="meta">
+      <span class="chip"><b>문서유형</b> 상세설계</span>
+      <span class="chip"><b>대상</b> InfoDiscovery + 사내 RAG 거버넌스</span>
+      <span class="chip"><b>등급체계</b> C / S / O</span>
+      <span class="chip"><b>작성일</b> 2026-08-11</span>
+    </div>
+  </header>
+
+  <!-- TLDR -->
+  <div class="tldr">
+    <div class="k">한 줄 요약</div>
+    <p><b>Stage 1(출처)</b> 로 70~85%를 내용 열람 없이 확정하고, <b>Gatekeeper</b> 가 "불명·충돌·고위험" 파일만 골라 <b>Stage 2(내용)</b> 로 넘긴다. 충돌 시엔 항상 높은 등급 우선(Fail-safe), 최종 등급은 그대로 <b>AI/RAG 인덱싱의 관문</b>이 된다.</p>
+  </div>
+
+  <!-- 1. 원칙 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>설계 원칙</h2></div>
+    <p>출처 기반은 <em>빠르지만 흔적에 의존</em>하고, 내용 기반은 <em>정확하지만 무겁고 프라이버시 부담</em>이 있다. 두 방식을 순차로 엮어 서로의 약점을 메운다.</p>
+    <div class="cards">
+      <div class="card"><div class="cap">Fast-path</div><div class="h">출처 우선 확정</div><p class="d">출처만으로 확신되는 파일은 내용 스캔 없이 즉시 확정. 목표 커버리지 70~85%.</p></div>
+      <div class="card"><div class="cap">Selective</div><div class="h">의심 파일만 정밀검사</div><p class="d">불명·충돌·고위험 신호가 있는 파일만 Stage 2로 라우팅. 비용을 아낀다.</p></div>
+      <div class="card"><div class="cap">Fail-safe</div><div class="h">안전측 기본값</div><p class="d">판정 불가·충돌 시 낮은 등급이 아니라 <b>높은 등급</b>으로 보수 처리.</p></div>
+      <div class="card"><div class="cap">Privacy</div><div class="h">내용 노출 최소화</div><p class="d">Stage 2도 사람이 아닌 기계가 패턴만 확인. 로그엔 검출 결과만 남긴다.</p></div>
+      <div class="card"><div class="cap">Auditable</div><div class="h">근거·신뢰도 기록</div><p class="d">모든 판정에 근거 경로·신뢰도·룰 버전 기록 → 감사·이의제기 대응.</p></div>
+    </div>
+  </section>
+
+  <!-- 2. 파이프라인 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>전체 파이프라인</h2></div>
+    <p>PC 내 문서가 확정 등급을 받아 AI 활용 정책으로 연결되기까지의 흐름. 각 단계는 순서를 가진 실제 처리 경로다.</p>
+    <div class="pipe">
+      <div class="stage s1">
+        <span class="tag">Stage 1 — 내용 열지 않음</span>
+        <div class="st">출처 기반 고속 분류</div>
+        <p class="sd">세 경로를 교차 검증해 출처 신뢰도 점수 <code class="inl">S_origin</code> 산출</p>
+        <div class="paths">
+          <div class="pp"><b>PATH 01</b>Zone.Identifier 은닉 출처 URL</div>
+          <div class="pp"><b>PATH 02</b>NTFS $MFT·$LogFile 경로 이력</div>
+          <div class="pp"><b>PATH 03</b>브라우저 다운로드 DB</div>
+        </div>
+      </div>
+      <div class="flowline">↓</div>
+      <div class="stage gate">
+        <span class="tag">Gatekeeper</span>
+        <div class="st">라우팅 결정 — "출처로 확정 가능한가?"</div>
+        <p class="sd">확신되면 즉시 확정, 아니면 정밀검사로 분기</p>
+      </div>
+      <div class="split">
+        <div>
+          <div class="branch-lbl ok">확정 가능 · Fast-path 70~85%</div>
+          <div class="stage final"><span class="tag">즉시 확정</span><div class="st">등급 확정</div><p class="sd">내용을 보지 않고 출처만으로 부여</p></div>
+        </div>
+        <div>
+          <div class="branch-lbl warn">불명 / 충돌 / 고위험</div>
+          <div class="stage s2"><span class="tag">Stage 2 — 정밀</span><div class="st">내용 기반 분류</div><p class="sd">정규식·사전·엔티티·(선택)ML → <code class="inl">C_content</code></p></div>
+        </div>
+      </div>
+      <div class="flowline">↓</div>
+      <div class="stage final">
+        <span class="tag">Decision</span>
+        <div class="st">최종 등급 결정 — 충돌 해소 <code class="inl">max(출처, 내용)</code></div>
+        <p class="sd">→ AI 활용 정책 연동 · C 차단 / S 승인 / O 허용 · RAG 인덱싱 게이트</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2.5 초기 코퍼스 부트스트랩 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">2.5</span><h2>초기 코퍼스 부트스트랩 — Cold-start</h2></div>
+    <p>위 파이프라인은 <b>정상 유입(steady-state)</b> 을 전제로 한다. 그러나 저장소에 <b>이미 쌓여 있던 최초 문서 덩어리</b>는 출처 흔적이 거의 없어 <code class="inl">S_origin ≈ 0</code> 으로 떨어진다 — 이건 별도의 일회성 문제다.</p>
+
+    <div class="note warn">
+      <span class="badge">진단</span>
+      <p><b>초기 문서엔 출처기반을 쓰지 않는다.</b> Zone.Identifier는 사내·USB·로컬 파일엔 없고 <b>저장소로 수집(복사)하는 행위가 오히려 벗겨낸다</b>. 저장소 볼륨의 $MFT는 "저장소에서 생성됨"만 말할 뿐 원본 머신의 MFT는 손에 없으며, 브라우저 DB는 과거분을 못 덮는다.</p>
+    </div>
+
+    <h3>재정의 — 비율을 뒤집고, CSOClassify 인덱싱에 인라인</h3>
+    <p>정상상태가 "출처 우선, 내용은 예외"라면, 부트스트랩은 <b>"내용·맥락 우선, 출처는 보너스"</b> 로 뒤집는다. 그리고 이 일회성 분류를 <b>CSOClassify 인덱싱 단계 안에 붙인다</b> — 텍스트와 벡터가 이미 그 자리에서 생성되므로 분류 신호가 사실상 공짜로 딸려온다.</p>
+    <pre>문서 → [사이냅] 텍스트 → <span class="kw">┌─</span> 분류신호 추출(경로·PII·키워드)  <span class="kw">┐</span>
+                          <span class="kw">│</span>                                  <span class="kw">├→</span> 등급라벨 → 인덱싱(등급태그)
+        [ONNX] 벡터 <span class="kw">──────┴─</span> 임베딩 라벨 전파 <span class="kw">───────────────┘</span></pre>
+
+    <h3>부트스트랩 신호 계층 (값싼 것부터)</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>계층</th><th>신호</th><th>파일 여는가</th><th>초기 코퍼스 유효성</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">B1</td><td>컨테이너/경로 택소노미 — 수집원 폴더·파일서버 <b>ACL</b>·소유자 SID·기존 DRM 태그</td><td>✕</td><td><b>★★★</b> 원본 경로를 기록했다면 최고의 "출처 대용"</td></tr>
+          <tr><td class="mono">B2</td><td>파일명·확장자·문서 속성 패턴 (<code class="inl">계약서_</code>, <code class="inl">대외비</code>, 작성자)</td><td>✕</td><td>★★☆</td></tr>
+          <tr><td class="mono">B3</td><td>내용 규칙 스캔 — <b>CSOClassify가 이미 뽑은 텍스트</b>에 정규식·기밀 사전 적용</td><td>이미 추출됨</td><td><b>★★★</b> 어차피 임베딩하려 연 텍스트 → 무겁지 않다</td></tr>
+          <tr><td class="mono">B4</td><td>임베딩 라벨 전파 — <b>CSOClassify 벡터</b>로 seed→미분류 준지도 전파</td><td>✕</td><td><b>★★★</b> 초기 코퍼스의 주 엔진</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>B4 — 임베딩 라벨 전파 (킬러 카드)</h3>
+    <div class="cards">
+      <div class="card"><div class="cap">Seed</div><div class="h">라벨 씨앗</div><p class="d">B1~B3에서 고신뢰로 등급이 붙은 문서 + 등급/주제별 소량의 사람 검증 앵커셋.</p></div>
+      <div class="card"><div class="cap">Propagate</div><div class="h">벡터 전파</div><p class="d">미분류 문서 → 가까운 seed 이웃의 등급을 k-NN·센트로이드로 부여. 임계 미만은 검토 큐.</p></div>
+      <div class="card"><div class="cap">Dedup</div><div class="h">중복 즉시 상속</div><p class="d">코사인 ≈ 1.0 near-duplicate(같은 계약서가 여러 폴더에 복사)는 사본 전체가 한 번에 상속 → 대량 정리.</p></div>
+    </div>
+    <div class="note warn" style="margin-top:16px">
+      <span class="badge">주의</span>
+      <p>임베딩은 <b>주제·의미</b>를 잡지 <b>민감도 자체</b>를 보증하지 못한다(공개 안내문과 기밀 급여대장이 이웃일 수 있다). 전파 결과는 <b>"후보 등급"</b>일 뿐 — 상향·확인에만 쓰고 <b>임베딩만으로 하향 금지</b>. 강한 ACL·기밀 사전 히트는 임베딩보다 규칙을 우선한다.</p>
+    </div>
+
+    <h3>정상상태로의 전환</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>시점</th><th>주 분류 방식</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">T0 · 초기 덩어리(일회성)</td><td>B1~B4 부트스트랩 — 내용·맥락·임베딩 주도</td></tr>
+          <tr><td class="mono">T0 잔여 · 미분류/저신뢰</td><td>검토 큐 → 사람 확인 → seed 승격 → 재전파</td></tr>
+          <tr><td class="mono">T1+ · 신규 유입</td><td>출처기반 fast-path 복원 (Stage 1~6). 수집기가 <b>원본 경로·ACL·소유자를 provenance로 기록</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note safe" style="margin-top:16px">
+      <span class="badge">Fail-safe</span>
+      <p>부트스트랩에서 해소 안 되면 <b>기본 <span class="g s">S</span></b>, 강한 ACL 제한 파일은 <b>기본 <span class="g c">C</span></b>. 초기 1회는 샘플링 검수로 정확도를 보정한다.</p>
+    </div>
+  </section>
+
+  <!-- 3. Stage 1 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Stage 1 — 출처 기반 고속 분류 <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--faint)">· T1+ 신규 유입</span></h2></div>
+    <p>세 경로의 결과에 가중치를 부여해 <b>출처 신뢰도 <code class="inl">S_origin</code> (0~100)</b> 를 계산한다. 두 경로 이상이 같은 출처로 합치면 신뢰도가 높고, 경로 간 결과가 다르면 <em>충돌</em>로 감점하고 의심 플래그를 세운다.</p>
+    <h3>경로별 신호와 가중치</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>경로</th><th>신호</th><th>가중치</th><th>특성</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">PATH 01</td><td>Zone.Identifier(ADS)의 HostUrl·ReferrerUrl</td><td><span class="wt">40</span></td><td>가장 직접적. 단, 압축 해제·복사 시 삭제 취약</td></tr>
+          <tr><td class="mono">PATH 02</td><td>NTFS $MFT·$LogFile 원본 경로·이동 이력</td><td><span class="wt">35</span></td><td>삭제·이동 이력까지 역추적</td></tr>
+          <tr><td class="mono">PATH 03</td><td>Chrome·Edge·Whale 다운로드 History DB</td><td><span class="wt">25</span></td><td>웹 유입 경로 보강</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>출처 → 등급 매핑 룰셋 (운영자 관리)</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>출처 유형</th><th>예시</th><th>잠정 등급</th></tr></thead>
+        <tbody>
+          <tr><td>기밀 서버·게시판</td><td class="mono-cell">\\hr-server\ · intra/board/secret</td><td><span class="g c">C 기밀</span></td></tr>
+          <tr><td>사내 일반 시스템</td><td>그룹웨어 일반 게시판, 사내 위키</td><td><span class="g s">S 민감</span></td></tr>
+          <tr><td>회사 공개 채널</td><td>회사 홈페이지, 보도자료</td><td><span class="g o">O 공개</span></td></tr>
+          <tr><td>외부 웹 일반</td><td>뉴스, 공개 문서</td><td><span class="g o">O 공개</span></td></tr>
+          <tr><td>외부 개인 채널</td><td>웹메일 첨부, 메신저, 개인 클라우드</td><td><span class="g s">S 민감</span> <span style="color:var(--muted);font-size:12px">반입 의심</span></td></tr>
+          <tr><td>출처 불명</td><td>세 경로 모두 공백</td><td><span style="color:var(--muted);font-family:var(--mono);font-size:12px">보류 → Stage 2</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 4. Gatekeeper -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Gatekeeper — 라우팅 결정</h2></div>
+    <p>Stage 2는 비싸다. 아래 조건 중 <b>하나라도</b> 걸릴 때만 정밀검사로 보낸다. 출처가 <span class="g o">O</span> 라도 무조건 통과시키지 않고, 고위험 확장자·대용량 문서는 샘플링해 "공개 출처에 기밀 끼워넣기"를 잡는다.</p>
+    <pre><span class="kw">def</span> <span class="fn">route</span>(f):
+    <span class="kw">if</span> f.S_origin &gt;= 70 <span class="kw">and not</span> f.conflict:
+        <span class="kw">return</span> <span class="cm">"FASTPATH_CONFIRM"</span>          <span class="cm"># 출처만으로 확정 (내용 안 봄)</span>
+
+    <span class="kw">if</span> f.S_origin == 0:            <span class="cm"># ① 출처 불명</span>
+        <span class="kw">return</span> <span class="cm">"STAGE2"</span>
+    <span class="kw">if</span> f.conflict:                 <span class="cm"># ② 경로 간 출처 충돌</span>
+        <span class="kw">return</span> <span class="cm">"STAGE2"</span>
+    <span class="kw">if</span> f.origin_grade <span class="kw">in</span> (C, S) <span class="kw">and</span> f.ext <span class="kw">in</span> RISKY_EXT:   <span class="cm"># ③ 고위험 확인용</span>
+        <span class="kw">return</span> <span class="cm">"STAGE2"</span>
+    <span class="kw">if</span> f.moved_to_removable <span class="kw">or</span> f.recently_repackaged:      <span class="cm"># ④ USB반출·재압축</span>
+        <span class="kw">return</span> <span class="cm">"STAGE2"</span>
+
+    <span class="kw">return</span> <span class="cm">"FASTPATH_CONFIRM"</span></pre>
+    <div class="note safe" style="margin-top:16px">
+      <span class="badge">목표 비율</span>
+      <p><b>Fast-path 확정 ≈ 75%</b>, Stage 2 정밀 ≈ 25% (이 중 실제 등급 상향은 소수). 이 비율이 좋을수록 비용·프라이버시 부담이 낮은 설계다.</p>
+    </div>
+  </section>
+
+  <!-- 5. Stage 2 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Stage 2 — 내용 기반 정밀 분류</h2></div>
+    <p>의심 파일만, 그것도 사람이 아닌 기계가 계층적으로 검사해 <b>내용 위험도 <code class="inl">C_content</code> (0~100)</b> 와 근거를 산출한다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>계층</th><th>방법</th><th>탐지 예</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">L1</td><td>정규식 패턴 매칭</td><td>주민번호·카드번호·계좌·여권번호</td></tr>
+          <tr><td class="mono">L2</td><td>키워드/기밀 사전</td><td>"대외비", "인사평가", "M&amp;A", 프로젝트 코드명</td></tr>
+          <tr><td class="mono">L3</td><td>구조 분석 (표·폼 밀도)</td><td>명단·표 형태 → 개인정보 대량 정황</td></tr>
+          <tr><td class="mono">L4</td><td>(선택) 분류 ML / 임베딩</td><td>계약서·재무제표·설계도 유형 자동 인식</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note safe" style="margin-top:16px">
+      <span class="badge">Privacy</span>
+      <p>탐지된 <b>실제 값(주민번호 원문 등)은 저장하지 않는다.</b> "주민번호 패턴 12건 검출"처럼 메타 결과만 로그에 남겨 등급 판정의 프라이버시 부담을 제거한다.</p>
+    </div>
+  </section>
+
+  <!-- 6. 최종 결정 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>최종 등급 결정 — 충돌 해소</h2></div>
+    <p>출처와 내용이 다를 때가 핵심이다. 보수적으로 <b>높은 등급을 우선</b>한다.</p>
+    <pre style="text-align:center;font-size:15px">최종등급 = <span class="fn">등급최댓값</span>( 출처등급 , 내용등급 )   <span class="cm"># C &gt; S &gt; O</span></pre>
+    <div class="twrap" style="margin-top:16px">
+      <table>
+        <thead><tr><th>출처 판정</th><th>내용 판정</th><th>최종</th><th>의미</th></tr></thead>
+        <tbody>
+          <tr><td><span class="g o">O</span> 공개</td><td>주민번호 대량 검출</td><td><span class="g c">C</span></td><td>공개 출처에 숨은 기밀을 잡아냄 ✓</td></tr>
+          <tr><td><span class="g c">C</span> 기밀</td><td>특이사항 없음</td><td><span class="g c">C</span></td><td>내용 못 봤다고 낮추지 않음(출처 신뢰 유지)</td></tr>
+          <tr><td>불명</td><td>대외비 키워드</td><td><span class="g s">S</span>~<span class="g c">C</span></td><td>출처 없어도 내용으로 확정</td></tr>
+          <tr><td>불명</td><td>특이사항 없음</td><td><span class="g s">S</span></td><td>Fail-safe: 모르면 중간등급, 검토 대기</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note warn" style="margin-top:16px">
+      <span class="badge">원칙</span>
+      <p>내용으로 등급을 <b>올릴 순 있어도 함부로 내리지 않는다.</b> 하향은 승인 워크플로를 경유하며, 근거가 약한 애매지대는 "검토 큐"로 보내 담당자가 최종 확인한다 — 이 큐가 작을수록 좋은 설계.</p>
+    </div>
+  </section>
+
+  <!-- 7. 등급 & AI 정책 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>등급 체계 · AI 활용 정책 연동</h2></div>
+    <div class="grades">
+      <div class="gcard c">
+        <div class="top"><div class="letter">C</div><div><div class="nm">기밀</div><div class="en">Classified</div></div></div>
+        <ul>
+          <li>외부 생성형 AI <b>완전 차단</b> (RBI 픽셀 반출도 불가)</li>
+          <li>사내 온프레미스 AI는 <b>격리망 내</b>에서만, 감사 로그 필수</li>
+          <li>벡터DB <b>인덱싱 제외</b> 또는 접근통제 기밀 인덱스</li>
+        </ul>
+      </div>
+      <div class="gcard s">
+        <div class="top"><div class="letter">S</div><div><div class="nm">민감</div><div class="en">Sensitive</div></div></div>
+        <ul>
+          <li>외부 AI는 <b>승인 후 제한적</b> 허용</li>
+          <li>사내 RAG 허용하되 <b>PII 마스킹</b> 적용</li>
+          <li>인덱싱 시 마스킹 후 저장</li>
+        </ul>
+      </div>
+      <div class="gcard o">
+        <div class="top"><div class="letter">O</div><div><div class="nm">공개</div><div class="en">Open</div></div></div>
+        <ul>
+          <li>생성형 AI <b>자유 활용</b> 허용</li>
+          <li>사내 RAG 자유 사용</li>
+          <li>벡터DB <b>자유 인덱싱</b></li>
+        </ul>
+      </div>
+    </div>
+    <h3>RAG 인덱싱 게이트</h3>
+    <p>확정 등급을 AI 파이프라인의 관문으로 쓴다. 인덱싱 단계에서 등급 메타데이터를 <b>문서 청크마다 태깅</b>하면, 챗봇이 답변할 때 사용자 권한에 따라 <span class="g c">C</span> 청크를 자동 필터링할 수 있다.</p>
+  </section>
+
+  <!-- 8. 재평가 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2>재평가 트리거</h2></div>
+    <p>한 번 매기고 끝이 아니다. 상태 변화가 감지되면 등급을 다시 계산한다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>트리거</th><th>동작</th></tr></thead>
+        <tbody>
+          <tr><td>신규 파일 생성·다운로드</td><td>즉시 Stage 1</td></tr>
+          <tr><td>파일 수정·이름변경</td><td>재평가 — 내용 변경 시 Stage 2 재검토</td></tr>
+          <tr><td>USB·클라우드 이동 정황</td><td>즉시 재평가 + 반출 경보</td></tr>
+          <tr><td>매핑 룰셋 변경</td><td>영향받는 과거 파일 <b>소급 재평가</b>(배치)</td></tr>
+          <tr><td>주기 배치(야간)</td><td>미분류·검토큐 잔여분 재시도</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 9. 로깅/프라이버시 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">09</span><h2>로깅 · 감사 · 프라이버시</h2></div>
+    <div class="cards">
+      <div class="card"><div class="cap">Audit</div><div class="h">판정 근거 기록</div><p class="d">모든 판정에 <code class="inl">{파일ID, 최종등급, 근거경로, 신뢰도, 시각, 룰버전}</code> 기록.</p></div>
+      <div class="card"><div class="cap">Minimize</div><div class="h">원문 미저장</div><p class="d">Stage 2 검출은 패턴 종류·건수만. 원문 값은 저장하지 않는다.</p></div>
+      <div class="card"><div class="cap">Consent</div><div class="h">수집 범위 고지</div><p class="d">브라우저 이력·MFT 접근은 목적·범위를 사전 고지(노사·개인정보 이슈 예방).</p></div>
+      <div class="card"><div class="cap">Review</div><div class="h">열람 최소화</div><p class="d">검토 큐 개입 시에도 등급·근거만 확인, 원문 열람 최소화.</p></div>
+    </div>
+  </section>
+
+  <!-- 10. 로드맵 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">10</span><h2>단계별 도입 로드맵</h2></div>
+    <div class="road">
+      <div class="phase"><div class="pn">PHASE 0</div><div class="ph">룰셋 정의</div><p class="pd">출처→등급 매핑 정의, 기밀 서버·URL 목록화 → 룰 기반 확보.</p></div>
+      <div class="phase"><div class="pn">PHASE 1</div><div class="ph">Stage 1 가동 + 소급</div><p class="pd">출처 분류만 우선 가동, 과거 문서 일괄 등급화 → 대량 1차 커버.</p></div>
+      <div class="phase"><div class="pn">PHASE 2</div><div class="ph">하이브리드 완성</div><p class="pd">Gatekeeper + Stage 2 결합 → 오분류 축소.</p></div>
+      <div class="phase"><div class="pn">PHASE 3</div><div class="ph">AI/RAG 연동</div><p class="pd">인덱싱 게이트 연동, 등급별 정책 자동화 → 실사용.</p></div>
+      <div class="phase"><div class="pn">PHASE 4</div><div class="ph">운영 안정화</div><p class="pd">재평가·감사·룰셋 튜닝 루프 정착.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>출처 기반 · 2단계 하이브리드 자동 등급화 — 상세설계</span>
+    <span>CSOClassify/plan · 2026-08-12</span>
+  </footer>
+
+</div>
+</body>
+</html>

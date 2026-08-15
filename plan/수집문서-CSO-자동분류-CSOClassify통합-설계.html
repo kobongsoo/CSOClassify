@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>수집 문서 C·S·O 자동 분류 — CSOClassify 임베딩 통합 설계</title>
+</head>
+<body>
+<style>
+  :root{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+    --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","맑은 고딕",-apple-system,"Apple SD Gothic Neo",system-ui,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","Cascadia Mono",Consolas,"D2Coding",monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+      --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+      --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+      --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+    --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+    --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+    --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.7;-webkit-font-smoothing:antialiased;font-size:16px;
+    letter-spacing:-0.003em;}
+  .wrap{max-width:920px;margin:0 auto;padding:0 24px 96px;}
+
+  /* ---- header ---- */
+  header.doc{padding:56px 0 34px;border-bottom:1px solid var(--line);margin-bottom:40px;}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;display:flex;gap:10px;align-items:center;margin-bottom:20px;}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);border-radius:2px;}
+  h1.title{font-size:clamp(28px,4.6vw,44px);line-height:1.12;margin:0 0 14px;font-weight:800;
+    letter-spacing:-0.02em;text-wrap:balance;}
+  .lede{font-size:clamp(16px,2.1vw,19px);color:var(--muted);max-width:62ch;margin:0;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 10px;margin-top:26px;}
+  .chip{font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--surface-2);
+    border:1px solid var(--line);border-radius:999px;padding:5px 12px;letter-spacing:.01em;}
+  .chip b{color:var(--ink);font-weight:600;}
+
+  /* ---- section ---- */
+  section{margin:52px 0;scroll-margin-top:20px;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:22px;}
+  .sec-num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);
+    border:1px solid var(--line-strong);border-radius:7px;padding:3px 9px;flex:none;line-height:1.3;}
+  h2{font-size:clamp(21px,3vw,27px);margin:0;font-weight:750;letter-spacing:-0.015em;line-height:1.25;text-wrap:balance;}
+  h3{font-size:17px;margin:30px 0 12px;font-weight:700;letter-spacing:-0.01em;}
+  p{margin:0 0 15px;max-width:68ch;}
+  a{color:var(--accent-2);text-underline-offset:3px;text-decoration-thickness:1px;}
+  ul.plain{margin:0 0 15px;padding-left:20px;} ul.plain li{margin:4px 0;color:var(--muted);}
+  ul.plain li b{color:var(--ink);font-weight:600;}
+
+  /* ---- TL;DR callout ---- */
+  .tldr{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:12px;padding:22px 24px;box-shadow:var(--shadow);}
+  .tldr .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:10px;}
+  .tldr p{margin:0;font-size:17px;color:var(--ink);max-width:none;}
+  .tldr b{color:var(--accent-2);}
+
+  /* ---- principle cards ---- */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 18px;}
+  .card .cap{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--faint);
+    text-transform:uppercase;margin-bottom:8px;}
+  .card .h{font-weight:700;margin-bottom:6px;font-size:15.5px;}
+  .card .d{font-size:14px;color:var(--muted);margin:0;}
+
+  /* ---- pipeline ---- */
+  .pipe{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:26px 22px;box-shadow:var(--shadow);}
+  .stage{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--surface-2);
+    position:relative;}
+  .stage.s1{border-top:3px solid var(--accent);}
+  .stage.gate{border-top:3px solid var(--s);background:var(--s-soft);border-color:color-mix(in srgb,var(--s) 30%,var(--line));}
+  .stage.s2{border-top:3px solid var(--o);}
+  .stage.final{border-top:3px solid var(--accent-2);}
+  .stage .tag{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--accent);margin-bottom:6px;display:block;}
+  .stage.gate .tag{color:var(--s);} .stage.s2 .tag{color:var(--o);}
+  .stage .st{font-weight:750;font-size:16px;margin-bottom:4px;}
+  .stage .sd{font-size:13.5px;color:var(--muted);margin:0;}
+  .paths{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px;}
+  .paths.two{grid-template-columns:repeat(2,1fr);}
+  .paths .pp{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;}
+  .paths .pp b{font-family:var(--mono);color:var(--accent);display:block;font-size:11px;letter-spacing:.03em;margin-bottom:2px;}
+  .flowline{display:flex;justify-content:center;color:var(--faint);font-size:20px;margin:6px 0;line-height:1;}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:6px;}
+  .branch-lbl{text-align:center;font-family:var(--mono);font-size:11.5px;color:var(--muted);margin:4px 0 2px;}
+  .branch-lbl.ok{color:var(--o);} .branch-lbl.warn{color:var(--s);}
+  @media (max-width:620px){ .paths,.paths.two{grid-template-columns:1fr;} .split{grid-template-columns:1fr;} }
+
+  /* ---- tables ---- */
+  .twrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);}
+  table{border-collapse:collapse;width:100%;font-size:14px;min-width:520px;background:var(--surface);}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{background:var(--surface-2);font-size:12px;letter-spacing:.03em;color:var(--muted);
+    text-transform:uppercase;font-weight:700;white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,.mono-cell{font-family:var(--mono);font-size:13px;}
+  td b{font-weight:700;}
+  .wt{font-family:var(--mono);font-weight:700;color:var(--accent);}
+
+  /* grade pills in tables */
+  .g{font-family:var(--mono);font-weight:800;font-size:12px;padding:2px 8px;border-radius:6px;letter-spacing:.02em;white-space:nowrap;}
+  .g.c{color:var(--c);background:var(--c-soft);border:1px solid color-mix(in srgb,var(--c) 35%,transparent);}
+  .g.s{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+  .g.o{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+
+  /* ---- grade cards ---- */
+  .grades{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;}
+  .gcard{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface);}
+  .gcard .top{display:flex;align-items:center;gap:12px;padding:16px 18px;}
+  .gcard .letter{font-family:var(--mono);font-weight:800;font-size:22px;width:44px;height:44px;
+    display:grid;place-items:center;border-radius:10px;color:#fff;flex:none;}
+  .gcard.c .top{background:var(--c-soft);} .gcard.c .letter{background:var(--c);}
+  .gcard.s .top{background:var(--s-soft);} .gcard.s .letter{background:var(--s);}
+  .gcard.o .top{background:var(--o-soft);} .gcard.o .letter{background:var(--o);}
+  .gcard .nm{font-weight:750;font-size:16px;line-height:1.2;}
+  .gcard .en{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.04em;}
+  .gcard ul{margin:0;padding:14px 18px 16px;list-style:none;display:flex;flex-direction:column;gap:9px;}
+  .gcard li{font-size:13.5px;color:var(--muted);padding-left:16px;position:relative;}
+  .gcard li::before{content:"";position:absolute;left:0;top:9px;width:5px;height:5px;border-radius:50%;background:var(--line-strong);}
+  .gcard li b{color:var(--ink);font-weight:600;}
+
+  /* ---- code ---- */
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;
+    overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.65;box-shadow:var(--shadow);
+    color:var(--ink);}
+  pre .cm{color:var(--o);} pre .kw{color:var(--accent-2);font-weight:600;} pre .fn{color:var(--c);}
+  pre .st{color:var(--s);}
+  code.inl{font-family:var(--mono);font-size:.9em;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;}
+
+  /* ---- roadmap ---- */
+  .road{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--line-strong);margin-left:8px;}
+  .phase{position:relative;padding:0 0 24px 26px;}
+  .phase:last-child{padding-bottom:0;}
+  .phase::before{content:"";position:absolute;left:-9px;top:2px;width:15px;height:15px;border-radius:50%;
+    background:var(--surface);border:2.5px solid var(--accent);}
+  .phase .pn{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.05em;}
+  .phase .ph{font-weight:700;margin:2px 0 3px;font-size:15.5px;}
+  .phase .pd{font-size:14px;color:var(--muted);margin:0;}
+
+  /* ---- note / failsafe callout ---- */
+  .note{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:16px 18px;
+    font-size:14.5px;display:flex;gap:12px;align-items:flex-start;}
+  .note .badge{font-family:var(--mono);font-size:10.5px;font-weight:800;letter-spacing:.06em;
+    padding:3px 8px;border-radius:6px;flex:none;text-transform:uppercase;}
+  .note.safe .badge{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+  .note.warn .badge{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+  .note.info .badge{color:var(--accent-2);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent-2) 35%,transparent);}
+  .note p{margin:0;color:var(--muted);max-width:none;}
+  .note b{color:var(--ink);}
+
+  /* ---- two-asset merge banner ---- */
+  .merge{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:12px;align-items:stretch;margin:6px 0;}
+  .merge .box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);}
+  .merge .box .cap{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;}
+  .merge .box .h{font-weight:750;font-size:15px;margin-bottom:4px;}
+  .merge .box .d{font-size:12.5px;color:var(--muted);}
+  .merge .op{display:grid;place-items:center;font-size:22px;color:var(--accent);font-weight:800;}
+  .merge .box.out{border-top:3px solid var(--accent-2);}
+  @media (max-width:720px){ .merge{grid-template-columns:1fr;} .merge .op{transform:rotate(90deg);} }
+
+  hr.soft{border:none;border-top:1px solid var(--line);margin:0;}
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);
+    font-size:13px;color:var(--faint);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+    font-family:var(--mono);letter-spacing:.02em;}
+  @media print{ body{background:#fff;} .pipe,.tldr,pre,.twrap,.merge .box{box-shadow:none;} }
+</style>
+
+<div class="wrap">
+
+  <header class="doc">
+    <div class="eyebrow">통합 구현 설계 · Auto-Classification</div>
+    <h1 class="title">수집 문서 C·S·O 자동 분류<br>— CSOClassify 임베딩 통합 설계</h1>
+    <p class="lede">CSOClassify가 이미 뽑아 놓은 <b>추출 텍스트</b>와 <b>임베딩 벡터</b>를 그대로 재료로 삼아, 수집된 문서 더미를 기밀·민감·공개(C/S/O)로 자동 분류한다 — 별도 스캔 없이, 인덱싱과 한 흐름으로.</p>
+    <div class="meta">
+      <span class="chip"><b>문서유형</b> 통합 구현설계</span>
+      <span class="chip"><b>기반 A</b> 출처기반 2단계 자동등급화</span>
+      <span class="chip"><b>기반 B</b> CSOClassify(추출→임베딩)</span>
+      <span class="chip"><b>등급체계</b> C / S / O</span>
+      <span class="chip"><b>작성일</b> 2026-08-12</span>
+    </div>
+  </header>
+
+  <!-- TLDR -->
+  <div class="tldr">
+    <div class="k">한 줄 요약</div>
+    <p>CSOClassify 파이프라인의 <b>부산물 두 개</b>(정제 텍스트 · 벡터)를 분류기의 입력으로 재사용한다. 텍스트엔 <b>규칙 스캔</b>, 벡터엔 <b>라벨 전파</b>를 걸어 문서마다 C/S/O 후보를 만들고, <b>max(경로·규칙·전파)</b> 로 보수적 확정한다. 임베딩은 <b>상향에만</b> 쓰고(하향 금지), 애매한 것은 검토 큐로. 확정 등급은 그대로 <b>RAG 인덱싱의 관문</b>이 된다.</p>
+  </div>
+
+  <!-- 1. 배경/전략 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>왜 이 조합인가 — 두 자산의 결합</h2></div>
+    <p>기존 <a href="출처기반-2단계-하이브리드-자동등급화-설계.html">출처기반 2단계 등급화 설계</a>는 이미 §2.5에서 <b>"초기 코퍼스는 CSOClassify 인덱싱 단계 안에 분류를 인라인하라"</b> 고 예고했다. 이 문서는 그 예고를 <b>실제 CSOClassify 코드 인터페이스</b>에 맞춰 구현 설계로 확정한다.</p>
+    <p>핵심 통찰은 하나다 — 분류기가 필요로 하는 두 재료를 <b>CSOClassify가 이미 한 번의 처리로 둘 다 생산</b>한다는 점이다. 문서를 다시 열 필요가 없다.</p>
+
+    <div class="merge">
+      <div class="box">
+        <div class="cap">기반 A · 로직</div>
+        <div class="h">C/S/O 등급화 규칙</div>
+        <div class="d">출처·규칙·전파를 융합하는 판정 로직, fail-safe, 검토 큐</div>
+      </div>
+      <div class="op">+</div>
+      <div class="box">
+        <div class="cap">기반 B · 엔진</div>
+        <div class="h">CSOClassify 추출·임베딩</div>
+        <div class="d">사이냅 텍스트 + ONNX 벡터를 로컬·오프라인으로 산출</div>
+      </div>
+      <div class="op">→</div>
+      <div class="box out">
+        <div class="cap">결과물</div>
+        <div class="h">등급 라벨링 파이프라인</div>
+        <div class="d">문서마다 <span class="g c">C</span><span class="g s">S</span><span class="g o">O</span> + 근거 + 벡터</div>
+      </div>
+    </div>
+
+    <h3>CSOClassify가 분류 엔진으로 이상적인 이유</h3>
+    <div class="cards">
+      <div class="card"><div class="cap">One-pass</div><div class="h">텍스트·벡터 동시 산출</div><p class="d"><code class="inl">process_file()</code> 한 번에 정제 텍스트와 벡터가 함께 나온다. 규칙 스캔과 라벨 전파의 재료가 공짜로 딸려 온다.</p></div>
+      <div class="card"><div class="cap">Local</div><div class="h">오프라인·프라이버시</div><p class="d">서버·인터넷 없이 로컬 exe. 민감 문서를 외부로 보내지 않고 등급을 매길 수 있다.</p></div>
+      <div class="card"><div class="cap">Warm</div><div class="h">상주 데몬으로 대량 처리</div><p class="d">모델이 메모리에 상주(2회차부터 로딩 0). 초기 코퍼스 수만 건 배치 분류에 유리.</p></div>
+      <div class="card"><div class="cap">Korean</div><div class="h">한국어 임베딩</div><p class="d">e5-small-ko(384d) 기본. 사내 한국어 문서의 의미·주제 이웃을 제대로 잡는다.</p></div>
+    </div>
+  </section>
+
+  <!-- 2. 아키텍처 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>통합 아키텍처 — 분류층을 CSOClassify 위에 얹는다</h2></div>
+    <p>CSOClassify 파이프라인은 <b>손대지 않는다</b>. 그 출력(정제 텍스트 + 벡터)을 소비하는 <b>얇은 분류층</b>을 새로 추가할 뿐이다. 아래는 문서 한 건이 등급 라벨을 받기까지의 실제 처리 경로다.</p>
+    <div class="pipe">
+      <div class="stage s1">
+        <span class="tag">CSOClassify — 기존 파이프라인 (재사용)</span>
+        <div class="st">추출 → 정제 → 청킹 → 임베딩</div>
+        <p class="sd"><code class="inl">사이냅 snf_exe → clean_text → chunk → ONNX</code> · 산출물: <code class="inl">정제텍스트</code> + <code class="inl">vector / vectors</code></p>
+      </div>
+      <div class="flowline">↓ &nbsp;<span style="font-family:var(--mono);font-size:12px;color:var(--faint)">두 부산물을 분류기로 전달</span></div>
+      <div class="split">
+        <div>
+          <div class="branch-lbl">추출 텍스트 →</div>
+          <div class="stage s2"><span class="tag">Signal A — 규칙</span><div class="st">내용 규칙 스캔</div><p class="sd">정규식·기밀사전·구조밀도 → <code class="inl">rule_grade</code></p></div>
+        </div>
+        <div>
+          <div class="branch-lbl ok">벡터 →</div>
+          <div class="stage final"><span class="tag">Signal B — 전파</span><div class="st">임베딩 라벨 전파</div><p class="sd">seed k-NN·centroid·near-dup → <code class="inl">embed_grade</code></p></div>
+        </div>
+      </div>
+      <div class="paths two" style="margin-top:12px">
+        <div class="pp"><b>Signal C — 경로/ACL</b>수집원 폴더·파일서버 ACL·소유자 SID·기존 DRM 태그 → <code class="inl">path_grade</code></div>
+        <div class="pp"><b>Signal D — 파일명/속성</b>파일명·확장자·작성자 패턴 (<code class="inl">계약서_</code>, <code class="inl">대외비</code>) → <code class="inl">name_grade</code></div>
+      </div>
+      <div class="flowline">↓</div>
+      <div class="stage gate">
+        <span class="tag">Decision Fusion</span>
+        <div class="st">등급 융합 — <code class="inl">max(경로, 규칙, 전파, 파일명)</code> + fail-safe</div>
+        <p class="sd">임베딩은 상향에만. 강한 ACL·기밀사전 히트는 전파보다 우선. 저신뢰는 검토 큐로.</p>
+      </div>
+      <div class="flowline">↓</div>
+      <div class="stage final">
+        <span class="tag">Output</span>
+        <div class="st">등급 라벨 레코드 → RAG 인덱싱 게이트</div>
+        <p class="sd"><code class="inl">{file, grade, confidence, signals, vector, rule_version}</code> · <span class="g c">C</span> 인덱싱 제외/격리 · <span class="g s">S</span> 마스킹 · <span class="g o">O</span> 자유</p>
+      </div>
+    </div>
+    <div class="note info" style="margin-top:16px">
+      <span class="badge">경계</span>
+      <p>이 설계는 기존 문서의 <b>초기 코퍼스 부트스트랩(§2.5, B1~B4)</b> 을 실행 가능한 모듈로 구체화한 것이다. 정상상태(T1+)의 출처기반 fast-path는 기존 문서가 담당하고, 여기서는 <b>수집된 문서 더미를 CSOClassify로 훑어 등급을 매기는 경로</b>에 집중한다.</p>
+    </div>
+  </section>
+
+  <!-- 3. CSOClassify 인터페이스 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>CSOClassify 인터페이스 활용 — 무엇을 재사용하고 무엇을 더하나</h2></div>
+    <p>분류기는 CSOClassify의 <b>기존 결과 dict</b> 를 그대로 소비한다. 파이프라인 결과는 이미 아래 형태로 나온다(<code class="inl">pipeline.process_file()</code>).</p>
+    <pre><span class="cm"># CSOClassify 기존 출력 (jsonl 한 줄) — 그대로 재사용</span>
+{
+  <span class="st">"file"</span>:   <span class="st">"D:\\collected\\계약서_2025.hwp"</span>,
+  <span class="st">"model"</span>:  <span class="st">"dragonkue/multilingual-e5-small-ko"</span>,
+  <span class="st">"dim"</span>:    384,
+  <span class="st">"chunks"</span>: 7,
+  <span class="st">"vector"</span>:  [0.013, -0.028, ...]        <span class="cm"># 문서벡터 (또는 --per-chunk 시 "vectors")</span>
+}</pre>
+
+    <h3>재사용 포인트 (코드 변경 없음)</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>필요</th><th>CSOClassify 기존 수단</th><th>비고</th></tr></thead>
+        <tbody>
+          <tr><td>규칙 스캔용 <b>정제 텍스트</b></td><td class="mono-cell">--text-only / --save-text DIR</td><td><code class="inl">clean_text()</code> 결과. 벡터 없이 텍스트만도 가능</td></tr>
+          <tr><td>라벨 전파용 <b>벡터</b></td><td class="mono-cell">--format jsonl (vector)</td><td>문서벡터 기본. seed 유사도 계산에 사용</td></tr>
+          <tr><td>부분 근거(민감 청크 국소화)</td><td class="mono-cell">--per-chunk (vectors)</td><td>청크별 벡터 → 어느 청크가 민감한지 전파 가능</td></tr>
+          <tr><td>대량 배치 처리</td><td class="mono-cell">-dir --glob (+데몬 상주)</td><td>초기 코퍼스 수만 건에 유리</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>더해야 할 것 — 텍스트·벡터를 <em>한 레코드로</em> 함께 방출</h3>
+    <p>현재 CLI는 <b>벡터(그리고 선택적으로 텍스트를 별도 파일)</b> 를 낸다. 분류기는 <b>같은 문서의 텍스트와 벡터를 한 자리에서</b> 봐야 하므로, 파이프라인에 최소 확장을 제안한다. CSOClassify의 로직은 건드리지 않고 <b>출력 스키마만 확장</b>한다.</p>
+    <pre><span class="cm"># 제안 ① pipeline.process_file() 에 옵션 플래그 하나 (emit_text)</span>
+<span class="cm"># process_file() 은 이미 내부에 'text' 를 들고 있다(clean 단계 결과) → 결과 dict 에 실어 주기만.</span>
+result = {
+    <span class="st">"file"</span>: path, <span class="st">"model"</span>: embedder.spec.hf_id,
+    ... core ...,                       <span class="cm"># dim/chunks/vector|vectors (기존)</span>
+    <span class="st">"text"</span>: text <span class="kw">if</span> opts.get(<span class="st">"emit_text"</span>) <span class="kw">else</span> <span class="kw">None</span>,   <span class="cm"># ← 추가(옵션)</span>
+}
+
+<span class="cm"># 제안 ② 새 서브커맨드/모드: classify (내부에서 process_file 재사용)</span>
+csoclassify.exe classify -dir D:\collected --glob <span class="st">"*.*"</span> \
+    --seed seeds.jsonl --rules cso_rules.yaml \
+    --format jsonl --out grades.jsonl</pre>
+    <div class="note info" style="margin-top:8px">
+      <span class="badge">원칙</span>
+      <p>분류는 <b>새 서브패키지 <code class="inl">csoclassify/classify/</code></b> 로 격리한다. 추출·임베딩·데몬 코어는 순수하게 유지하고, 분류기는 그 <b>소비자</b>로만 존재한다 → 엔진과 정책의 분리(테스트·감사 용이).</p>
+    </div>
+  </section>
+
+  <!-- 4. 신호 계층 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>분류 신호 계층 — 값싼 것부터</h2></div>
+    <p>기존 문서의 B1~B4를 CSOClassify 관점으로 재배치한다. 위에서부터 값싸고, 아래로 갈수록 정밀하다. 각 신호는 독립적으로 등급 후보를 내고, 마지막에 융합된다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>신호</th><th>입력</th><th>파일 여는가</th><th>산출</th><th>수집 코퍼스 유효성</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">C · 경로/ACL <span style="color:var(--faint)">(B1)</span></td><td>수집원 폴더·파일서버 ACL·소유자 SID·DRM 태그</td><td>✕</td><td class="mono-cell">path_grade</td><td><b>★★★</b> 원본 경로를 provenance로 기록했다면 최고의 출처 대용</td></tr>
+          <tr><td class="mono">D · 파일명/속성 <span style="color:var(--faint)">(B2)</span></td><td>파일명·확장자·문서 속성(작성자)</td><td>✕</td><td class="mono-cell">name_grade</td><td>★★☆ 빠른 보강 신호</td></tr>
+          <tr><td class="mono">A · 규칙 스캔 <span style="color:var(--faint)">(B3)</span></td><td><b>CSOClassify 추출 텍스트</b></td><td>이미 추출됨</td><td class="mono-cell">rule_grade</td><td><b>★★★</b> 어차피 임베딩하려 연 텍스트 → 추가비용 낮음</td></tr>
+          <tr><td class="mono">B · 라벨 전파 <span style="color:var(--faint)">(B4)</span></td><td><b>CSOClassify 벡터</b></td><td>✕</td><td class="mono-cell">embed_grade</td><td><b>★★★</b> 수집 코퍼스의 주 엔진(대량 상속)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 5. 규칙 스캔 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Signal A — 규칙 스캔 (추출 텍스트 기반)</h2></div>
+    <p>CSOClassify가 뽑은 정제 텍스트에 계층적 규칙을 걸어 <b>내용 위험도</b> 와 <code class="inl">rule_grade</code> 를 산출한다. 사람이 아닌 기계가 패턴만 확인한다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>계층</th><th>방법</th><th>탐지 예</th><th>→ 등급</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">L1</td><td>정규식 패턴 매칭</td><td>주민번호·카드번호·계좌·여권번호</td><td><span class="g c">C</span> / <span class="g s">S</span></td></tr>
+          <tr><td class="mono">L2</td><td>키워드/기밀 사전</td><td>"대외비", "인사평가", "M&amp;A", 프로젝트 코드명</td><td><span class="g c">C</span> / <span class="g s">S</span></td></tr>
+          <tr><td class="mono">L3</td><td>구조 분석(표·폼 밀도)</td><td>명단·표 형태 → 개인정보 대량 정황</td><td><span class="g s">S</span> / <span class="g c">C</span></td></tr>
+          <tr><td class="mono">L4</td><td>(선택) 분류 ML / 임베딩</td><td>계약서·재무제표·설계도 유형 자동 인식</td><td>유형→정책</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note safe" style="margin-top:16px">
+      <span class="badge">Privacy</span>
+      <p>탐지된 <b>실제 값(주민번호 원문 등)은 저장하지 않는다.</b> "주민번호 패턴 12건 검출"처럼 메타 결과만 근거로 남긴다. CSOClassify의 <code class="inl">--save-text</code> 는 분류 후 <b>기본 자동삭제</b> 를 유지(민감 텍스트 잔존 방지).</p>
+    </div>
+  </section>
+
+  <!-- 6. 라벨 전파 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>Signal B — 임베딩 라벨 전파 (핵심 엔진)</h2></div>
+    <p>수집 코퍼스는 대부분 출처 흔적이 약하다. 여기서 CSOClassify 벡터가 주력이 된다 — 이미 등급이 붙은 <b>seed</b> 문서의 라벨을, 벡터 공간에서 가까운 미분류 문서로 전파한다.</p>
+    <div class="cards">
+      <div class="card"><div class="cap">Seed</div><div class="h">라벨 씨앗</div><p class="d">Signal C/A(경로·규칙)에서 <b>고신뢰</b> 로 등급이 붙은 문서 + 등급/주제별 소량의 사람 검증 앵커셋.</p></div>
+      <div class="card"><div class="cap">Propagate</div><div class="h">벡터 전파</div><p class="d">미분류 문서 → 가까운 seed 이웃의 등급을 <b>k-NN·센트로이드</b> 로 부여. 유사도 임계 미만은 검토 큐로.</p></div>
+      <div class="card"><div class="cap">Dedup</div><div class="h">중복 즉시 상속</div><p class="d">코사인 ≈ 1.0 near-duplicate(같은 계약서가 여러 폴더에 복사)는 사본 전체가 한 번에 상속 → 대량 정리.</p></div>
+    </div>
+
+    <h3>전파 알고리즘 (요지)</h3>
+    <pre><span class="kw">def</span> <span class="fn">propagate</span>(vec, seeds, k=15, tau_hi=0.82, tau_lo=0.62):
+    nn = <span class="fn">top_k_cosine</span>(vec, seeds, k)           <span class="cm"># CSOClassify 벡터로 k 최근접 seed</span>
+    <span class="kw">if</span> nn[0].sim &gt;= 0.985:                    <span class="cm"># near-duplicate → 사본 상속</span>
+        <span class="kw">return</span> nn[0].grade, nn[0].sim, <span class="st">"dup_inherit"</span>
+    grade, conf = <span class="fn">weighted_vote</span>(nn)            <span class="cm"># 유사도 가중 다수결(+등급 사전확률)</span>
+    <span class="kw">if</span> conf &lt; tau_lo:                         <span class="cm"># 이웃이 흩어짐 → 판단 보류</span>
+        <span class="kw">return</span> <span class="kw">None</span>, conf, <span class="st">"review_queue"</span>
+    <span class="kw">return</span> grade, conf, <span class="st">"knn_vote"</span>          <span class="cm"># 후보 등급(상향 전용)</span></pre>
+
+    <div class="note warn" style="margin-top:16px">
+      <span class="badge">주의</span>
+      <p>임베딩은 <b>주제·의미</b>를 잡지 <b>민감도 자체</b>를 보증하지 못한다(공개 안내문과 기밀 급여대장이 이웃일 수 있다). 전파 결과는 <b>"후보 등급"</b> 일 뿐 — <b>상향·확인에만 쓰고 임베딩만으로 하향 금지</b>. 강한 ACL·기밀사전 히트는 전파보다 규칙을 우선한다.</p>
+    </div>
+  </section>
+
+  <!-- 7. 융합 결정 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>등급 융합 결정 — 보수적 최댓값 + fail-safe</h2></div>
+    <p>네 신호가 각자 후보를 낸다. 충돌 시 <b>항상 높은 등급 우선</b>(C &gt; S &gt; O). 근거가 약하면 안전측 기본값으로 떨어뜨린다.</p>
+    <pre style="text-align:center;font-size:15px">최종등급 = <span class="fn">등급최댓값</span>( path_grade, rule_grade, name_grade, embed_grade )   <span class="cm"># C &gt; S &gt; O</span></pre>
+    <pre><span class="kw">def</span> <span class="fn">fuse</span>(sig):
+    cands = [sig.path, sig.rule, sig.name, sig.embed]      <span class="cm"># 각 신호의 후보(없으면 제외)</span>
+    strong = sig.acl_restricted <span class="kw">or</span> sig.rule_confidential   <span class="cm"># 강한 규칙/ACL 신호</span>
+
+    <span class="kw">if</span> strong:
+        <span class="kw">return</span> <span class="fn">max_grade</span>(cands), <span class="st">"rule_or_acl_wins"</span>   <span class="cm"># 규칙/ACL 우선</span>
+    <span class="kw">if</span> <span class="fn">any_present</span>(cands):
+        <span class="kw">return</span> <span class="fn">max_grade</span>(cands), <span class="st">"max_fusion"</span>       <span class="cm"># 임베딩은 상향에만 기여</span>
+
+    <span class="cm"># 아무 신호도 확정 못 함 → fail-safe</span>
+    <span class="kw">return</span> (<span class="st">"C"</span> <span class="kw">if</span> sig.acl_restricted <span class="kw">else</span> <span class="st">"S"</span>), <span class="st">"failsafe_default"</span></pre>
+
+    <div class="twrap" style="margin-top:16px">
+      <table>
+        <thead><tr><th>경로/ACL</th><th>규칙(텍스트)</th><th>전파(벡터)</th><th>최종</th><th>의미</th></tr></thead>
+        <tbody>
+          <tr><td><span class="g o">O</span> 공개 폴더</td><td>주민번호 대량</td><td>급여대장 이웃</td><td><span class="g c">C</span></td><td>공개 위치에 숨은 기밀을 텍스트가 잡아냄 ✓</td></tr>
+          <tr><td><span class="g c">C</span> 기밀 ACL</td><td>특이사항 없음</td><td>공개문서 이웃</td><td><span class="g c">C</span></td><td>임베딩이 낮게 봐도 <b>하향 금지</b>(ACL 우선)</td></tr>
+          <tr><td>불명</td><td>특이사항 없음</td><td>계약서 군집(고신뢰)</td><td><span class="g s">S</span></td><td>전파로 상향 후보, 검토 대기</td></tr>
+          <tr><td>불명</td><td>특이사항 없음</td><td>이웃 흩어짐(저신뢰)</td><td><span class="g s">S</span> <span style="color:var(--muted);font-size:12px">→ 검토 큐</span></td><td>Fail-safe: 모르면 중간등급</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note warn" style="margin-top:16px">
+      <span class="badge">원칙</span>
+      <p>내용·전파로 등급을 <b>올릴 순 있어도 함부로 내리지 않는다.</b> 하향은 승인 워크플로를 경유한다. 근거가 약한 애매지대는 <b>검토 큐</b> 로 — 이 큐가 작을수록 좋은 설계.</p>
+    </div>
+  </section>
+
+  <!-- 8. 모듈/데이터 스키마 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2>신규 모듈 · 데이터 스키마</h2></div>
+    <p>CSOClassify 코어를 소비하는 <code class="inl">csoclassify/classify/</code> 서브패키지를 신설한다. 엔진은 순수하게 두고, 정책(룰셋·seed·임계값)은 <b>외부 파일</b> 로 주입한다.</p>
+    <pre>src/csoclassify/classify/
+  <span class="fn">signals.py</span>     경로/ACL · 파일명 · 규칙(텍스트) 신호 추출
+  <span class="fn">rules.py</span>       L1~L4 규칙 스캔(정규식·기밀사전·구조밀도)  <span class="cm"># 원문 미저장</span>
+  <span class="fn">propagate.py</span>   seed 로드 · k-NN/centroid 라벨 전파 · near-dup 상속
+  <span class="fn">fuse.py</span>        신호 융합(max + fail-safe), 검토 큐 라우팅
+  <span class="fn">store.py</span>       분류 레코드 출력(jsonl) · 감사 로그
+  <span class="fn">cli.py</span>         classify 서브커맨드(내부에서 pipeline.process_file 재사용)
+resources/policy/
+  cso_rules.yaml   기밀사전·정규식·경로→등급 매핑(운영자 관리)
+  seeds.jsonl      {file, grade, vector} 라벨 씨앗</pre>
+
+    <h3>분류 결과 레코드 (jsonl 한 줄)</h3>
+    <pre>{
+  <span class="st">"file"</span>:       <span class="st">"D:\\collected\\계약서_2025.hwp"</span>,
+  <span class="st">"grade"</span>:      <span class="st">"C"</span>,                <span class="cm"># 최종 등급 (C/S/O)</span>
+  <span class="st">"confidence"</span>: 0.86,
+  <span class="st">"method"</span>:     <span class="st">"rule_or_acl_wins"</span>,  <span class="cm"># 어떤 규칙으로 확정됐는지</span>
+  <span class="st">"signals"</span>: {
+    <span class="st">"path"</span>:  {<span class="st">"grade"</span>:<span class="st">"S"</span>, <span class="st">"src"</span>:<span class="st">"\\\\hr-server\\share"</span>, <span class="st">"acl_restricted"</span>:<span class="kw">true</span>},
+    <span class="st">"name"</span>:  {<span class="st">"grade"</span>:<span class="st">"S"</span>, <span class="st">"hit"</span>:<span class="st">"계약서_"</span>},
+    <span class="st">"rule"</span>:  {<span class="st">"grade"</span>:<span class="st">"C"</span>, <span class="st">"hits"</span>:[{<span class="st">"type"</span>:<span class="st">"rrn"</span>,<span class="st">"count"</span>:12}]},   <span class="cm"># 값 아닌 건수만</span>
+    <span class="st">"embed"</span>: {<span class="st">"grade"</span>:<span class="st">"S"</span>, <span class="st">"sim"</span>:0.87, <span class="st">"how"</span>:<span class="st">"knn_vote"</span>}
+  },
+  <span class="st">"vector"</span>:      [0.013, -0.028, ...],  <span class="cm"># 인덱싱으로 그대로 넘김(재임베딩 불필요)</span>
+  <span class="st">"rule_version"</span>: <span class="st">"cso-2026.08"</span>,
+  <span class="st">"ts"</span>:         <span class="st">"2026-08-12T10:30:00+09:00"</span>
+}</pre>
+    <div class="note info" style="margin-top:8px">
+      <span class="badge">감사</span>
+      <p>모든 판정에 <code class="inl">{파일ID, 최종등급, 근거신호, 신뢰도, 시각, 룰버전}</code> 을 남긴다. 원문 값은 저장하지 않고 <b>패턴 종류·건수만</b> — 감사·이의제기 대응과 프라이버시를 동시에 만족.</p>
+    </div>
+  </section>
+
+  <!-- 9. RAG 연동 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">09</span><h2>RAG 인덱싱 연동 — 등급을 관문으로</h2></div>
+    <p>분류 레코드의 <code class="inl">vector</code> 는 CSOClassify가 만든 그 벡터다 — <b>재임베딩 없이 그대로 인덱싱</b> 한다. 등급은 청크 메타로 태깅되어, 챗봇 답변 시 사용자 권한에 따라 필터링된다.</p>
+    <div class="grades">
+      <div class="gcard c">
+        <div class="top"><div class="letter">C</div><div><div class="nm">기밀</div><div class="en">Classified</div></div></div>
+        <ul>
+          <li>벡터DB <b>인덱싱 제외</b> 또는 접근통제 기밀 인덱스</li>
+          <li>외부 생성형 AI <b>완전 차단</b></li>
+          <li>사내 온프레미스 AI는 <b>격리망 내</b>에서만, 감사 로그 필수</li>
+        </ul>
+      </div>
+      <div class="gcard s">
+        <div class="top"><div class="letter">S</div><div><div class="nm">민감</div><div class="en">Sensitive</div></div></div>
+        <ul>
+          <li>인덱싱 시 <b>PII 마스킹 후</b> 저장</li>
+          <li>사내 RAG 허용(마스킹 적용)</li>
+          <li>외부 AI는 <b>승인 후 제한적</b></li>
+        </ul>
+      </div>
+      <div class="gcard o">
+        <div class="top"><div class="letter">O</div><div><div class="nm">공개</div><div class="en">Open</div></div></div>
+        <ul>
+          <li>벡터DB <b>자유 인덱싱</b></li>
+          <li>사내 RAG 자유 사용</li>
+          <li>생성형 AI <b>자유 활용</b></li>
+        </ul>
+      </div>
+    </div>
+    <h3>인덱싱 게이트 규칙</h3>
+    <pre><span class="kw">def</span> <span class="fn">index_gate</span>(rec):
+    <span class="kw">if</span> rec.grade == <span class="st">"C"</span>:
+        <span class="kw">return</span> <span class="fn">skip_or_secure_index</span>(rec)      <span class="cm"># 제외 또는 기밀 인덱스</span>
+    chunk_meta = {<span class="st">"grade"</span>: rec.grade, <span class="st">"rule_version"</span>: rec.rule_version}
+    <span class="kw">if</span> rec.grade == <span class="st">"S"</span>:
+        rec = <span class="fn">mask_pii</span>(rec)                    <span class="cm"># 마스킹 후 인덱싱</span>
+    <span class="kw">return</span> <span class="fn">index</span>(rec.vector, chunk_meta)      <span class="cm"># 등급 태그를 청크마다 부착</span></pre>
+    <div class="note info" style="margin-top:8px">
+      <span class="badge">연동</span>
+      <p>사내 RAG 챗봇 인프라의 인덱싱 API(<code class="inl">index_document(s)</code>)에 <b>등급 메타</b> 를 실어 호출한다. 챗봇은 검색 시 사용자 권한과 청크 등급을 대조해 <span class="g c">C</span> 청크를 자동 배제한다.</p>
+    </div>
+  </section>
+
+  <!-- 10. 로드맵 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">10</span><h2>도입 로드맵</h2></div>
+    <div class="road">
+      <div class="phase"><div class="pn">PHASE 0</div><div class="ph">정책 정의 · CSOClassify 스키마 확장</div><p class="pd">cso_rules.yaml(기밀사전·경로매핑) 작성, <code class="inl">process_file</code> 에 <code class="inl">emit_text</code> 옵션 추가.</p></div>
+      <div class="phase"><div class="pn">PHASE 1</div><div class="ph">Signal A·C·D 가동(규칙·경로·파일명)</div><p class="pd">추출 텍스트 규칙 스캔 + 경로/ACL로 seed 확보 → 고신뢰 문서 1차 등급화.</p></div>
+      <div class="phase"><div class="pn">PHASE 2</div><div class="ph">Signal B 라벨 전파</div><p class="pd">seed 벡터로 미분류 대량 상속(near-dup 우선), 저신뢰는 검토 큐. 수집 코퍼스 주 커버.</p></div>
+      <div class="phase"><div class="pn">PHASE 3</div><div class="ph">융합·검토 큐·감사 로그</div><p class="pd">max+fail-safe 확정, 검토 큐 UI, 판정 근거 감사 기록 → 정확도 샘플링 검수.</p></div>
+      <div class="phase"><div class="pn">PHASE 4</div><div class="ph">RAG 인덱싱 게이트 연동</div><p class="pd">등급 메타 태깅 인덱싱, 등급별 정책 자동화 → 실사용.</p></div>
+      <div class="phase"><div class="pn">PHASE 5</div><div class="ph">정상상태 전환</div><p class="pd">신규 유입은 <a href="출처기반-2단계-하이브리드-자동등급화-설계.html">출처기반 fast-path</a> 복원, 룰셋·seed 재전파 루프 정착.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>수집 문서 C·S·O 자동 분류 — CSOClassify 통합 구현설계</span>
+    <span>CSOClassify/plan · 2026-08-12</span>
+  </footer>
+
+</div>
+</body>
+</html>

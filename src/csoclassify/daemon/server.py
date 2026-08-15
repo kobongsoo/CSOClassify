@@ -1,0 +1,195 @@
+#------------------------------------------------------------------
+# 상주 데몬 서버 (설계서 결정5)
+#=> 모델을 한 번 올려 메모리에 상주시키고, 클라이언트의 embed 요청을 받아 벡터를
+#   돌려준다. 같은 모델 데몬이 둘 뜨지 않도록 싱글턴 잠금을 먼저 잡고, 일정 시간
+#   요청이 없으면(유휴) 스스로 종료해 메모리를 회수한다.
+#------------------------------------------------------------------
+
+import os
+import time
+
+from .. import __version__
+from .. import config
+from ..extract.synap_exe import SynapExeExtractor
+from ..embed.onnx_embedder import OnnxEmbedder
+from ..logsetup import get_logger
+from ..timing import Timing
+from .. import pipeline
+from . import ipc
+from . import registry
+
+log = get_logger(__name__)
+
+
+class DaemonServer:
+    #------------------------------------------------------------------
+    # 생성자 — 데몬 파라미터 보관
+    #=> 어떤 모델을, 얼마의 유휴시간으로 상주시킬지 기억한다. 실제 준비는 run()에서.
+    #
+    # -in: spec         = config.ModelSpec (상주시킬 모델)
+    # -in: idle_timeout = 유휴 자동종료(초, 기본 config.DEFAULT_IDLE_TIMEOUT)
+    # -in: num_threads  = onnxruntime 스레드 수(None 기본)
+    #
+    # -out: 없음
+    # -out: error = 없음
+    #------------------------------------------------------------------
+    def __init__(self, spec, idle_timeout=None, num_threads=None):
+        self.spec = spec
+        self.idle_timeout = idle_timeout or config.DEFAULT_IDLE_TIMEOUT
+        self.num_threads = num_threads
+        self._token = None
+        self._extractor = None
+        self._embedder = None
+        self._stop = False
+
+    #------------------------------------------------------------------
+    # 데몬 실행 (핵심)
+    #=> 싱글턴 잠금 → 모델 로드 → 소켓 리슨 → 레지스트리 기록 → 요청 루프.
+    #    1) acquire_singleton 실패 시 "다른 데몬이 이미 있음"으로 보고 조용히 종료
+    #    2) 추출기/임베더 준비 후 모델을 실제로 로드(데몬의 존재 이유)
+    #    3) loopback 리슨 소켓 + 랜덤 토큰으로 레지스트리 기록
+    #    4) accept 타임아웃을 유휴시간으로 두고, 그 안에 요청이 없으면 종료
+    #
+    # -in: 없음
+    #
+    # -out: int = 종료코드(0 정상, 그 외 이상). "이미 데몬 있음"도 0 으로 조용히 종료
+    # -out: error = 치명적 준비 실패 시 예외를 잡아 stderr 로 남기고 비정상 코드 반환
+    #------------------------------------------------------------------
+    def run(self):
+        model = self.spec.key
+        # (1) 나만 데몬이 되도록 원자적 잠금. 못 얻으면 다른 데몬이 주인 → 조용히 종료.
+        if not registry.acquire_singleton(model):
+            log.info("데몬 기동 취소: 이미 %s 데몬이 존재", model)
+            return 0
+
+        srv = None
+        try:
+            log.info("데몬 시작 model=%s pid=%d idle_timeout=%ds", model, os.getpid(), self.idle_timeout)
+            # (2) 추출기/임베더 준비 후 모델을 실제로 메모리에 올린다.
+            self._extractor = SynapExeExtractor()
+            self._embedder = OnnxEmbedder(self.spec, num_threads=self.num_threads)
+            self._embedder.ensure_loaded()
+
+            # (3) loopback 리슨 소켓 + 접속 인증용 랜덤 토큰 생성.
+            srv, port = ipc.make_server(config.DAEMON_HOST)
+            self._token = os.urandom(16).hex()
+            registry.write_record(model, {
+                "pid": os.getpid(),
+                "host": config.DAEMON_HOST,
+                "port": port,
+                "token": self._token,
+                "version": __version__,
+                "model": model,
+                "idle_timeout": self.idle_timeout,
+                "started": time.time(),
+            })
+
+            log.info("모델 상주 준비 완료 port=%d — 요청 대기(유휴 %ds 후 자동 종료)", port, self.idle_timeout)
+
+            # (4) 요청 루프: accept 가 유휴시간 안에 아무 연결도 못 받으면 종료.
+            srv.settimeout(self.idle_timeout)
+            while not self._stop:
+                try:
+                    conn, _addr = srv.accept()
+                except OSError:
+                    # 타임아웃(유휴 초과) 등 → 상주 종료.
+                    log.info("유휴 %ds 초과 → 데몬 종료", self.idle_timeout)
+                    break
+                # 연결 하나를 처리(요청→응답). 처리 중 예외는 이 안에서 흡수.
+                self._handle(conn)
+            if self._stop:
+                log.info("정지 요청 수신 → 데몬 종료")
+            return 0
+        except Exception as e:
+            # 준비 단계 실패는 드러나야 하므로 stderr + 로그(스택)로 남긴다.
+            import sys
+            print(f"[csoclassify:daemon] 실패: {e}", file=sys.stderr)
+            log.exception("데몬 준비/실행 실패: %s", e)
+            return 1
+        finally:
+            # 소켓 닫고 레지스트리/잠금 정리(다음 기동이 stale 로 오인하지 않게).
+            if srv is not None:
+                try:
+                    srv.close()
+                except OSError:
+                    pass
+            registry.clear(model)
+
+    #------------------------------------------------------------------
+    # 연결 1개 처리
+    #=> 요청 메시지를 받아 op 에 따라 응답한다. 통신 오류는 연결만 끊고 서버는 유지.
+    #    - ping : 인증 없이 헬스/핸드셰이크 정보 반환
+    #    - embed: 토큰 확인 후 파이프라인 실행, 결과/에러 반환
+    #    - stop : 토큰 확인 후 종료 예약
+    #
+    # -in: conn = accept 로 얻은 연결 소켓
+    #
+    # -out: 없음(응답은 소켓으로 전송)
+    # -out: error = 없음(통신/처리 예외를 내부에서 흡수)
+    #------------------------------------------------------------------
+    def _handle(self, conn):
+        try:
+            req = ipc.recv_msg(conn)
+            op = req.get("op")
+
+            if op == "ping":
+                # 헬스체크는 인증 없이 응답(클라이언트가 살아있음/모델준비를 판단).
+                ipc.send_msg(conn, {
+                    "ok": True,
+                    "model_ready": self._embedder.is_ready(),
+                    "model": self.spec.key,
+                    "version": __version__,
+                    "pid": os.getpid(),
+                })
+            elif op == "embed":
+                # 임베딩은 토큰 일치해야 수행(로컬 타 사용자 차단).
+                if req.get("token") != self._token:
+                    ipc.send_msg(conn, {"ok": False, "error": "인증 실패", "kind": "auth"})
+                else:
+                    self._do_embed(conn, req)
+            elif op == "stop":
+                if req.get("token") != self._token:
+                    ipc.send_msg(conn, {"ok": False, "error": "인증 실패", "kind": "auth"})
+                else:
+                    ipc.send_msg(conn, {"ok": True})
+                    self._stop = True  # 루프 다음 회차에서 빠져나감
+            else:
+                ipc.send_msg(conn, {"ok": False, "error": f"알 수 없는 op: {op}", "kind": "bad_op"})
+        except Exception:
+            # 개별 연결 처리 실패가 데몬 전체를 죽이면 안 되므로 조용히 무시.
+            pass
+        finally:
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+    #------------------------------------------------------------------
+    # embed 요청 처리
+    #=> 요청의 경로/옵션으로 파이프라인을 돌려 결과를 응답한다. 모델은 이미 상주
+    #   상태이므로 model_load 는 0 에 수렴한다.
+    #
+    # -in: conn = 연결 소켓
+    # -in: req  = {op:"embed", token, path, opts} 요청 dict
+    #
+    # -out: 없음(결과/에러를 소켓으로 전송)
+    # -out: error = 없음(추출/임베딩 예외를 잡아 kind 와 함께 응답)
+    #------------------------------------------------------------------
+    def _do_embed(self, conn, req):
+        from ..extract.base import ExtractError
+        from ..embed.base import EmbedError
+        path = req.get("path")
+        opts = req.get("opts", {})
+        timing = Timing()
+        try:
+            # 데몬은 모델이 이미 로드돼 있어 병렬 예열이 불필요.
+            result = pipeline.process_file(
+                path, opts, self._extractor, self._embedder, timing, parallel_preload=False
+            )
+            ipc.send_msg(conn, {"ok": True, "result": result})
+        except ExtractError as e:
+            ipc.send_msg(conn, {"ok": False, "error": str(e), "kind": "extract"})
+        except EmbedError as e:
+            ipc.send_msg(conn, {"ok": False, "error": str(e), "kind": "embed"})
+        except Exception as e:
+            ipc.send_msg(conn, {"ok": False, "error": str(e), "kind": "other"})

@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>csoclassify.exe 실행 가이드</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  td:first-child{white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .def{color:var(--muted);font-size:.85em}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>csoclassify.exe 실행 가이드</h1>
+  <p>수집 문서를 <b>C(기밀)/S(민감)/O(공개)</b>로 자동 분류하는 명령줄 도구 · 실행 방법과 모든 인자 정리</p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#start">1. 빠른 시작</a></li>
+    <li><a href="#pkg">2. 패키지 구성</a></li>
+    <li><a href="#modes">3. 실행 모드</a></li>
+    <li><a href="#args">4. 인자 전체 정리</a></li>
+    <li><a href="#exit">5. 종료코드</a></li>
+    <li><a href="#env">6. 환경변수 · 로그</a></li>
+    <li><a href="#recipes">7. 자주 쓰는 예시</a></li>
+    <li><a href="#notes">8. 주의사항</a></li>
+  </ul>
+</section>
+
+<h2 id="start"><span class="n">1</span> 빠른 시작</h2>
+<section class="card">
+  <p>이 도구는 <b>명령줄(CLI) 프로그램</b>입니다. 더블클릭하면 검은 창이 깜빡이고 닫힙니다(정상) — 반드시 문서를 <b>인자</b>로 줘야 합니다.</p>
+  <p>이 폴더에서 터미널(주소창에 <span class="kbd">cmd</span> 입력)을 연 뒤:</p>
+<pre><code><span class="cmt">:: 문서 1개를 C/S/O 로 분류(기본 동작 — 모드 플래그 불필요)</span>
+csoclassify.exe --file "샘플.hwp"
+
+<span class="cmt">:: 폴더 전체를 분류해 결과를 파일로 저장(가장 많이 쓰는 형태)</span>
+csoclassify.exe --dir "D:\collected" -r --embed-needed --format jsonl --out result.jsonl
+
+<span class="cmt">:: 임베딩 벡터만 뽑기(분류 없이) — --embed</span>
+csoclassify.exe --embed --file "샘플.hwp"</code></pre>
+  <div class="note">처음 실행은 onedir 첫 기동과 모델을 메모리에 올리느라 <b>수십 초</b> 걸립니다(정상). 모델은 <code>models\e5-small-ko\</code>에 이미 풀려 있어 압축 해제 단계는 없습니다. 이후에는 모델이 메모리에 상주(데몬)해 빨라집니다.</div>
+</section>
+
+<h2 id="pkg"><span class="n">2</span> 패키지 구성</h2>
+<section class="card">
+  <p><b>onedir 방식</b>으로 패키징하며 <b>Windows·Linux 2종</b>을 각각 제공합니다
+  (<code>dist-onedir\windows\</code>, <code>dist-onedir\linux\</code>). 실행본체(<code>csoclassify</code>)와
+  파이썬 런타임(<code>_internal\</code>)이 <b>한 폴더</b>에 함께 있고, 규칙셋·모델·추출기는 그 옆에
+  <b>외장 리소스</b>로 둡니다. 모델은 <b>이미 폴더로 풀려</b>(<code>models\e5-small-ko\</code>) 있어 별도
+  압축 해제가 없습니다. <b>폴더 안의 상대 위치를 바꾸지 마세요.</b></p>
+
+  <h3>① Windows — <code>dist-onedir\windows\</code></h3>
+<div class="tree">windows\
+├─ csoclassify.exe        <span class="cmt">실행 파일(명령줄 도구)</span>
+├─ _internal\             <span class="cmt">파이썬 런타임·의존 DLL(onedir). exe 와 한 세트 — 지우거나 옮기지 말 것</span>
+├─ cso_rules.yaml         <span class="cmt">C/S/O 분류 규칙셋(외장) — exe 옆에 필수. 재빌드 없이 교체 가능</span>
+├─ cso_seed.jsonl         <span class="cmt">전파용 seed 저장소(선택) — 있으면 보류 문서 구제/승격에 사용</span>
+├─ models\
+│  └─ e5-small-ko\        <span class="cmt">임베딩 모델(model.onnx 등). 폴더째 exe 옆에 — 압축 해제 불필요</span>
+├─ synap\
+│  └─ windows\            <span class="cmt">사이냅 문서필터(텍스트 추출) — OS별 하위폴더</span>
+│     ├─ snf_exe.exe
+│     └─ snf_win.dll
+└─ log\                   <span class="cmt">실행 로그(자동 생성)</span></div>
+  <div class="warn"><b>주의</b>: <code>_internal\</code>은 exe 와 한 세트라 지우거나 따로 옮기면 실행이 안 됩니다.
+  추출기는 <code>synap\windows\snf_exe.exe</code> 경로에 있어야 합니다(과거처럼 <code>synap\</code> 바로 아래
+  평평하게 두는 방식이 아님). 규칙셋 <code>cso_rules.yaml</code>·모델 <code>models\e5-small-ko\</code>는 exe 와
+  같은 폴더 기준으로 찾습니다. <b>규칙셋이 없으면</b> 분류 실행 시 "어디에 두라"는 안내를 내고 종료(코드 3)합니다.</div>
+
+  <h3>② Linux — <code>dist-onedir/linux/</code></h3>
+<div class="tree">linux/
+├─ csoclassify-onedir-linux.tgz  <span class="cmt">실행본체(csoclassify + _internal). ※ 리눅스에서 풀어야 함(심볼릭링크·권한 보존)</span>
+├─ cso_rules.yaml                <span class="cmt">C/S/O 분류 규칙셋(외장)</span>
+├─ cso_seed.jsonl                <span class="cmt">전파용 seed 저장소(선택)</span>
+├─ models/
+│  └─ e5-small-ko/               <span class="cmt">임베딩 모델(int8)</span>
+├─ synap/
+│  └─ linux/
+│     └─ snf_exe                 <span class="cmt">텍스트 추출기(리눅스)</span>
+└─ README.txt                    <span class="cmt">설치·실행 안내</span></div>
+  <p class="muted">리눅스 설치·실행(리눅스 서버에서):</p>
+<pre><code><span class="cmt"># 1) 이 폴더를 리눅스 서버로 복사한 뒤, 실행본체를 푼다(심볼릭링크·권한 보존)</span>
+cd &lt;이 폴더&gt; &amp;&amp; tar xzf csoclassify-onedir-linux.tgz
+<span class="cmt"># 2) 실행 권한 부여</span>
+chmod +x csoclassify synap/linux/snf_exe
+<span class="cmt"># 3) 실행</span>
+./csoclassify --file "문서.pdf"</code></pre>
+  <div class="warn"><b>주의</b>: <code>.tgz</code>는 <b>반드시 리눅스에서</b> 풀어야 합니다 — Windows 에서 풀면
+  심볼릭링크가 깨집니다. 압축을 풀면 <code>csoclassify</code> 실행본체와 <code>_internal/</code>이 나오며,
+  <code>cso_rules.yaml</code>·<code>synap/linux/snf_exe</code>·<code>models/e5-small-ko/</code>는
+  <code>csoclassify</code>와 같은 폴더에 있어야 합니다.</div>
+</section>
+
+<h2 id="modes"><span class="n">3</span> 실행 모드</h2>
+<section class="card">
+  <p>모드는 플래그로 정해집니다. <b>아무 모드 플래그가 없으면 C/S/O 분류</b>가 기본입니다. 임베딩 벡터만 필요하면 <code>--embed</code>, 추출 텍스트만 필요하면 <code>--text-only</code> 를 줍니다.</p>
+
+  <h3>① C/S/O 분류 (기본) — 모드 플래그 불필요</h3>
+  <p>여러 <b>판정 신호</b>(내용·민감정보·보안분류 스탬프·경로·파일명)로 등급을 판정합니다. <code>--file</code>/<code>--dir</code> 만 주면 <b>바로 분류</b>합니다(예전의 <code>--classify</code> 는 이제 붙일 필요가 없습니다). 출력은 기본 <code>json</code> — <code>--file</code> 단건은 <b>객체 하나</b>, <code>--dir</code> 배치는 <b>레코드들의 JSON 배열 <code>[ … ]</code></b>(그대로 뷰어로 열림)입니다. 줄단위로 스트리밍/처리하려면 <code>--format jsonl</code>(문서당 1줄).</p>
+
+  <p style="margin-top:14px"><b>검출 PII 유형 (20종 · 검출 엔진 ko-pii)</b> — 문서에서 자동 검출하는 개인정보 유형과 <b>기본등급</b>입니다. <b>대량</b>(bulk 임계 이상)이면 상향됩니다.</p>
+  <div class="scroll"><table>
+    <tr><th>기본등급</th><th>유형 (ko-pii 라벨)</th></tr>
+    <tr><td><span class="tag s">S 민감</span></td><td>주민등록번호(RRN) · 외국인등록번호(FRN) · 신용카드번호(CARD) · 계좌번호(ACCOUNT) · 여권번호(PASSPORT) · 운전면허번호(DRIVER_LICENSE) · 주소(ADDRESS) · 의약품EDI(EDI_DRUG) · 차량번호(VEHICLE) · 사건번호(COURT_CASE) · 부동산고유번호(PNU) · 국적(NATIONALITY)</td></tr>
+    <tr><td><span class="tag c">C 기밀</span></td><td>건강보험번호(MEDICAL_INSURANCE) · 처방전(PRESCRIPTION_ID)</td></tr>
+    <tr><td><span class="tag o">O 공개</span> <span class="def">대량→S</span></td><td>휴대전화번호(PHONE) · 이메일(EMAIL) · 사업자등록번호(BUSINESS_REG) · 법인등록번호(CORP_REG) · <b>URL</b> · <b>IP주소(IP)</b> <span class="def">〔URL·IP 2026-08-15 추가〕</span></td></tr>
+  </table></div>
+  <p class="muted">※ 검출은 <b>ko-pii</b>(패턴·체크섬·문맥·우회방어 내장)가 담당하고, 여기 표의 <b>유형→등급 정책</b>은 <code>cso_rules.yaml</code> 또는 <b>UI 규칙설정</b>(PII 유형 표)에서 조정할 수 있습니다.</p>
+
+  <p style="margin-top:14px"><b>판정 신호 (5종 + 전파)</b> — 최종 등급은 아래 신호들 중 <b>가장 민감한 등급</b>으로 융합됩니다(보수적 max). 각 신호는 등급을 <b>올릴 수만</b> 있고 함부로 내리지 않습니다. 어느 신호로도 못 정하면 <b>보류(none)</b> → 검토 대상.</p>
+  <div class="scroll"><table>
+    <tr><th>신호</th><th>무엇을 보나</th><th>비고</th></tr>
+    <tr><td><code>rule</code> <span class="muted">(내용)</span></td><td>PII 유형(위 표) + 기밀사전 키워드. <b>결합식별성(combo)</b> 포함</td><td>본문 텍스트 기반</td></tr>
+    <tr><td><code>sensitive</code> <span class="muted">(민감정보)</span> <span class="def">2026-08-15 신규</span></td><td>법상 민감정보(건강·유전·성생활·사상/정치·노조·범죄경력·인종) 키워드 → <span class="tag c">C</span></td><td>일반 키워드와 <b>분리된</b> 독립 신호(정책·감사 명확)</td></tr>
+    <tr><td><code>stamp</code> <span class="muted">(보안분류 표식)</span> <span class="def">2026-08-15 신규</span></td><td>문서에 찍힌 "대외비·기밀·관계자 외 열람금지" → <span class="tag c">C</span>, "내부용" → <span class="tag s">S</span></td><td>머리·반복일 때만 인정(오탐↓)</td></tr>
+    <tr><td><code>path</code> <span class="muted">(경로)</span></td><td>파일이 놓인 폴더/서버(예: <code>/인사/</code>, <code>//hr-server/</code>)</td><td>텍스트 안 엶</td></tr>
+    <tr><td><code>name</code> <span class="muted">(파일명)</span></td><td>파일 이름 속 키워드(예: <code>대외비_보고서.hwp</code>)</td><td>참고용(seed 불가)</td></tr>
+    <tr><td><code>embed</code> <span class="muted">(임베딩 전파)</span></td><td>보류 문서를 seed와 유사도로 구제(2차 패스)</td><td><code>--propagate</code> 참고</td></tr>
+  </table></div>
+  <p class="muted"><b>결합식별성(combo)</b> <span class="def">2026-08-15 신규</span> — 개별론 낮아도 여러 PII가 <b>한 문서에</b> 모이면(개인정보보호법·GDPR '결합용이성') 상향됩니다. 예: <b>주민번호+계좌 → <span class="tag c">C</span></b>, <b>주민번호+주소 → <span class="tag c">C</span></b>, <b>전화·이메일·주소 중 2종+ → <span class="tag s">S</span></b>. <code>rule</code> 신호의 <code>layer:"COMBO"</code> 히트로 표시됩니다.</p>
+  <p class="muted"><b>스탬프(stamp)</b>는 본문 한복판의 단발 언급("이 문서는 <b>대외비가 아님</b>")은 무시하고, 표식이 <b>문서 머리(앞 400자)에 있거나 2회 이상 반복</b>될 때만 인정해 오탐을 줄입니다("관계자 외 열람금지" 같은 명시 문구는 위치·반복 무관 1건도 인정). <span class="def">머릿범위/반복횟수는 환경변수로 조정</span>.</p>
+  <p class="muted">※ <code>sensitive</code>·<code>stamp</code>·<code>combo</code>의 정책(단어·범주·조합·등급)은 <code>cso_rules.yaml</code>의 <code>sensitive</code>/<code>stamps</code>/<code>pii_combos</code> 섹션에서 조정합니다.</p>
+  <div class="note">📖 규칙셋 <code>cso_rules.yaml</code>의 <b>모든 섹션·필드 의미</b>는 별도 레퍼런스 문서 <a href="CSO_Rule.html"><b>CSO_Rule.html</b></a>(규칙셋 필드 레퍼런스)에서 표로 확인할 수 있습니다.</div>
+
+  <p style="margin-top:14px"><b>분류 방식 선택 (배타)</b> — 기본은 규칙으로 등급을 내고, 필요할 때만 임베딩을 씁니다. 아래 두 옵션으로 <b>한쪽만</b> 쓰도록 강제할 수 있습니다(동시 지정 불가).</p>
+  <div class="scroll"><table>
+    <tr><th>옵션</th><th>동작</th><th>임베딩</th><th>seed</th></tr>
+    <tr><td><code>--rule-only</code></td><td>규칙(내용·민감정보·스탬프·경로·파일명)<b>만</b>으로 분류. 벡터·전파 안 함</td><td>안 함(가장 빠름)</td><td>불필요</td></tr>
+    <tr><td><code>--vector-only</code></td><td>규칙 검사 <b>없이</b>, 문서 벡터를 seed 와 비교(전파)해서만 등급 결정</td><td>전량 임베딩</td><td><b>필수</b> <code>--seeds</code></td></tr>
+  </table></div>
+<pre><code><span class="cmt">:: 규칙만 — 가장 빠른 분류(임베딩 모델 불필요)</span>
+csoclassify.exe --dir "D:\collected" -r --rule-only --format jsonl --out result.jsonl
+
+<span class="cmt">:: 벡터만 — 규칙 무시, seed 와의 임베딩 유사도로만 분류(비교 기준 seed 필수)</span>
+csoclassify.exe --dir "D:\collected" -r --vector-only --seeds "cso_seed.jsonl" --format jsonl --out result.jsonl</code></pre>
+  <p class="muted"><code>--vector-only</code> 결과는 <code>signals</code>에 <code>embed</code>만 있고(규칙 신호 없음) <code>decided_by:["embed"]</code>로 나옵니다. seed 와의 유사도가 임계 미만이면 <b>보류(none)</b>가 됩니다. <code>--vector-only</code>인데 <code>--seeds</code> 파일이 없으면 인자 오류로 안내 후 종료합니다.</p>
+<pre><code><span class="cmt">:: 규칙만으로 빠르게(임베딩 없음)</span>
+csoclassify.exe --dir "D:\collected" -r --format jsonl --out result.jsonl
+
+<span class="cmt">:: 선택적 임베딩(보류·seed 후보만) — 보류 구제/승격에 쓸 벡터 확보 + 빠름 (권장)</span>
+csoclassify.exe --dir "D:\collected" -r --embed-needed --format jsonl --out result.jsonl
+
+<span class="cmt">:: 특정 확장자 여러 개만 골라 처리 — --glob 에 콤마로 패턴 나열(중괄호 "*.{hwp,pdf}" 도 가능)</span>
+csoclassify.exe --dir "D:\collected" -r --glob "*.hwp,*.hwpx,*.doc,*.docx,*.pdf" --format jsonl --out result.jsonl
+
+<span class="cmt">:: 문서 1개를 분류하면서, 보류면 seed 저장소로 전파까지 한 번에</span>
+csoclassify.exe --auto-propagate --seeds "cso_seed.jsonl" --file "문서.hwp"
+
+<span class="cmt">:: 결과 jsonl 에 추출 텍스트도 함께 저장</span>
+csoclassify.exe --with-text --dir "D:\collected" -r --format jsonl --out result.jsonl
+
+<span class="cmt">:: [프라이버시 주의] 검출된 원문 PII 값도 결과에 저장(기본 미포함)</span>
+csoclassify.exe --classify --with-pii --file "문서.hwp" --out result.json</code></pre>
+  <p class="muted"><code>--with-pii</code> 를 주면 결과에 <code>pii</code> 필드가 추가됩니다(원문 값 — 취급 주의). 로그엔 <code>[pii N detected]</code> 로만 남습니다:</p>
+<pre><code>"pii": [
+  { "label": "RRN",  "value": "900101-1234568",      "start": 7,  "end": 21 },
+  { "label": "CARD", "value": "4539-5787-6362-1486", "start": 25, "end": 44 },
+  { "label": "IP",   "value": "192.168.0.10",         "start": 70, "end": 82 }
+]</code></pre>
+  <p class="muted">출력 예시(<code>--file</code>, 기본 <code>json</code>) — <b>대외비 표지 + 진단서 + 주민번호·계좌</b>가 함께 있는 문서:</p>
+<pre><code>{
+  "file": "샘플.hwp",
+  "grade": "C",
+  "confidence": 0.95,
+  "method": "fusion",
+  "decided_by": [ "rule", "sensitive", "stamp" ],
+  "seed_eligible": true,
+  "signals": {
+    "rule": { "grade": "C", "hits": [
+      { "id": "rrn", "name": "주민등록번호", "layer": "L1", "count": 1, "grade": "S", "terms": [] },
+      { "id": "bank_account", "name": "계좌번호", "layer": "L1", "count": 1, "grade": "S", "terms": [] },
+      <span class="cmt">// combo: 개별 S 인 주민번호+계좌가 결합 → C 로 상향</span>
+      { "id": "identity_financial", "name": "신원+금융 결합(재식별·금융피해)",
+        "layer": "COMBO", "count": 2, "grade": "C",
+        "terms": [ { "term": "ACCOUNT", "count": 1 }, { "term": "RRN", "count": 1 } ] }
+    ] },
+    "sensitive": { "grade": "C", "hits": [
+      { "id": "health", "name": "건강정보", "category": "건강", "grade": "C", "count": 2,
+        "terms": [ { "term": "진단서", "count": 1 }, { "term": "투약내역", "count": 1 } ] }
+    ] },
+    "stamp": { "grade": "C", "hits": [
+      { "id": "stamp_confidential", "name": "대외비/기밀 스탬프", "grade": "C",
+        "mode": "head", "count": 1, "term": "대외비" }
+    ] },
+    "path": { "grade": null, "source": null },
+    "name": { "grade": null, "hits": [] }
+  },
+  "rule_version": "cso-2026.08.3",
+  "ts": "2026-08-15T14:20:39+09:00"
+}</code></pre>
+  <p class="muted">최종 등급은 <b>여러 신호 중 가장 민감한 등급</b>으로 융합됩니다(위 예는 rule·sensitive·stamp 가 모두 <span class="tag c">C</span>). <code>decided_by</code>=최종 등급을 만든 신호들, <code>method</code>=<code>fusion</code>(신호가 등급을 냄) / <code>unclassified</code>(아무 신호도 못 내 보류). <span class="muted">stamp 히트의 <code>mode</code>=<code>head</code>(머리) / <code>repeat</code>(반복) / <code>always</code>(명시문구) — 왜 스탬프로 인정됐는지.</span></p>
+  <p class="muted"><span class="tag c">C 기밀</span> <span class="tag s">S 민감</span> <span class="tag o">O 공개</span> · 어느 신호로도 못 정하면 <b>보류(none)</b> → 검토 대상.</p>
+  <div class="note"><b>기본 동작(분류)은 전파를 하지 않습니다.</b> seed 저장소가 있어도 자동 전파는 <b>안 하며</b>, 보류 문서까지 seed 로 구제하려면 <code>--auto-propagate</code>를 함께 주세요(단일 문서 확인에도 유용). 대량 배치는 분류 후 <code>--propagate</code> 2차 패스로 처리해도 됩니다.</div>
+
+  <h3>② 임베딩 벡터 — <code>--embed</code></h3>
+  <p>분류 없이 임베딩 벡터만 뽑습니다(파일·차원·벡터 JSON).</p>
+<pre><code>csoclassify.exe --embed --file "문서.docx"
+csoclassify.exe --embed --dir "D:\docs" --glob "*.hwp" --format jsonl --out vec.jsonl</code></pre>
+  <p class="muted">출력 예시(<code>--embed --file</code>, 기본 <code>json</code>):</p>
+<pre><code>{
+  "file": "문서.docx",
+  "model": "dragonkue/multilingual-e5-small-ko",
+  "dim": 384,
+  "chunks": 1,
+  "vector": [ -0.0566, 0.0062, -0.0231, 0.0274, ... <span class="cmt">(384개)</span> ],
+  "elapsed_ms": { "extract": 41.0, "embed": 22.3, "total": 63.5 }
+}</code></pre>
+  <p class="muted">벡터를 공백구분 텍스트로 보려면 <code>--format text</code>(→ <code>파일명 &lt;탭&gt; 0.01 -0.02 …</code>).</p>
+
+  <h3>③ 추출 텍스트만 — <code>--text-only</code></h3>
+<pre><code>csoclassify.exe --text-only --file "문서.hwp"</code></pre>
+  <p class="muted">출력 예시(추출·정제된 원문 텍스트):</p>
+<pre><code>===== 문서.hwp =====
+2025년 인사발령 및 대외비 안내. 담당자 연락처 010-1234-5678. 주민등록번호 900101-1234568.</code></pre>
+
+  <h3>④ 라벨 전파 — <code>--propagate</code> (보류 구제, 2차 패스)</h3>
+  <p>1차 결과(벡터 포함)의 <b>보류 문서만</b> seed 와 유사도로 비교해 등급을 전파합니다. 모델이 필요 없습니다(벡터 연산만).</p>
+<pre><code>csoclassify.exe --propagate result.jsonl --seeds cso_seed.jsonl --format jsonl --out result.jsonl</code></pre>
+  <p class="muted">출력: 갱신된 레코드가 <code>--out</code> 파일에 다시 저장되고, 처리 요약이 화면(stderr)에 나옵니다:</p>
+<pre><code>[propagate] seeds=128 already_graded=940 embed_decided=57 still_unclassified=12 no_vector=3</code></pre>
+  <p class="muted">로그 파일에는 레코드마다 <code>[전파결과][임베딩]</code>(임베딩이 등급을 정함) / <code>[전파결과][통과(rule 확정)]</code>(이미 확정돼 그대로 통과) / <code>[전파결과][보류(미확정)]</code> 태그로 구분되어 남습니다. <code>--seeds</code>를 주면 <b>외부 큐레이션 seed + 코퍼스 내부 seed</b>를 합쳐 비교하고, 생략하면 내부 seed만 씁니다.</p>
+
+  <h3>⑤ 데몬 제어</h3>
+<pre><code>csoclassify.exe --status   <span class="cmt">:: 상주 데몬 상태(모델·유휴시간)</span>
+csoclassify.exe --stop     <span class="cmt">:: 상주 데몬 종료</span>
+csoclassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(보통 자동)</span></code></pre>
+</section>
+
+<h2 id="args"><span class="n">4</span> 인자 전체 정리</h2>
+
+<section class="card">
+  <h3>입력 대상</h3>
+  <div class="scroll"><table>
+    <tr><th>인자</th><th>값</th><th>설명</th></tr>
+    <tr><td><code>--file</code></td><td>경로</td><td>대상 문서 1개 <span class="def">(구 <code>-file</code> 도 호환)</span></td></tr>
+    <tr><td><code>--dir</code></td><td>폴더</td><td>폴더 배치 처리 <span class="def">(구 <code>-dir</code> 도 호환)</span></td></tr>
+    <tr><td><code>--glob</code></td><td>패턴 <span class="def">기본 *</span></td><td>배치 필터(예: <code>*.hwp</code>). 여러 개는 콤마로 나열: <code>"*.hwp,*.docx,*.pdf"</code> <span class="def">(중괄호 <code>"*.{hwp,docx,pdf}"</code> 도 가능, 따옴표로 감쌈)</span></td></tr>
+    <tr><td><code>-r</code>, <code>--recursive</code></td><td>—</td><td><code>--dir</code> 배치 시 하위 폴더까지 재귀 탐색</td></tr>
+  </table></div>
+
+  <h3>분류 (C/S/O)</h3>
+  <div class="scroll"><table>
+    <tr><th>인자</th><th>값</th><th>설명</th></tr>
+    <tr><td>(기본)</td><td>—</td><td>모드 플래그가 없으면 <b>C/S/O 분류</b>가 기본. 레코드(json/jsonl) 출력 <span class="def">(예전 <code>--classify</code> 는 생략 가능 — 붙여도 무시)</span></td></tr>
+    <tr><td><code>--rule-only</code> <span class="def">2026-08-15</span></td><td>—</td><td><b>규칙(cso_rules.yaml)만으로 분류</b> — 임베딩·전파를 하지 않음(<b>가장 빠름</b>). <code>--vector-only</code> 와 배타</td></tr>
+    <tr><td><code>--vector-only</code> <span class="def">2026-08-15</span></td><td>—</td><td><b>규칙 검사 없이</b> 임베딩 벡터를 seed 와 비교해서만 분류. <code>--seeds</code> <b>필수</b>(비교 기준). <code>--rule-only</code> 와 배타</td></tr>
+    <tr><td><code>--embed</code></td><td>—</td><td>분류 대신 <b>임베딩 벡터만</b> 출력(파일·차원·벡터)</td></tr>
+    <tr><td><code>--rules</code></td><td>경로</td><td>규칙셋 경로 <span class="def">기본 exe 옆 cso_rules.yaml</span></td></tr>
+    <tr><td><code>--failsafe</code></td><td>[등급] <span class="def">값 생략 시 S</span></td><td>어느 신호로도 못 정한 문서에 부여할 기본등급</td></tr>
+    <tr><td><code>--embed-needed</code></td><td>—</td><td><b>보류·seed_eligible 문서에만</b> 임베딩(확정문서 생략 → 빠름). 권장</td></tr>
+    <tr><td><code>--with-vector</code></td><td>—</td><td><b>모든 문서</b>에 임베딩(구 동작, RAG 등 전량 벡터 필요 시)</td></tr>
+    <tr><td><code>--propagate</code></td><td>jsonl 경로</td><td>1차 레코드의 보류 문서에 라벨 전파(모델 불필요)</td></tr>
+    <tr><td><code>--seeds</code></td><td>경로</td><td>전파 비교 기준 seed(<code>cso_seed.jsonl</code>). 없으면 내부 seed 사용</td></tr>
+    <tr><td><code>--auto-propagate</code></td><td>—</td><td>분류 <b>직후 보류 문서를 seed 로 전파</b>까지 한 번에(단일 문서 확인 포함). 보류 임베딩 자동 활성화 · <code>--seeds</code> 있으면 외부+내부, 없으면 내부 seed</td></tr>
+    <tr><td><code>--with-text</code></td><td>—</td><td>결과 레코드에 <b>추출(정제) 텍스트</b>를 <code>text</code> 필드로 함께 저장 <span class="def">기본 미포함(프라이버시)</span></td></tr>
+    <tr><td><code>--with-pii</code></td><td>—</td><td><b>[프라이버시 주의]</b> 검출된 <b>원문 PII 값</b>(주민번호·카드번호 등 실제 값)을 <code>pii</code> 필드로 저장 <span class="def">기본 미포함</span>. 로그엔 건수만(<code>[pii N detected]</code>), 원문은 <code>--out</code> 파일에만</td></tr>
+  </table></div>
+
+  <h3>모델 · 임베딩</h3>
+  <div class="scroll"><table>
+    <tr><th>인자</th><th>값</th><th>설명</th></tr>
+    <tr><td><code>--model</code></td><td>별칭 <span class="def">기본 e5-small-ko</span></td><td>임베딩 모델. <code>e5-small-ko</code>(384d)·<code>e5-small</code>·<code>ko-sroberta</code>(768d)</td></tr>
+    <tr><td><code>--max-tokens</code></td><td>정수 <span class="def">기본 512</span></td><td>청크 1개의 최대 토큰 수(e5 모델 최대 시퀀스 길이)</td></tr>
+    <tr><td><code>--overlap</code></td><td>정수 <span class="def">기본 32</span></td><td>인접 청크가 겹치는 토큰 수</td></tr>
+    <tr><td><code>--normalize</code> / <code>--no-normalize</code></td><td>— <span class="def">기본 정규화 on</span></td><td>출력 벡터 L2 정규화 여부</td></tr>
+    <tr><td><code>--precision</code></td><td>f32 | f16 <span class="def">기본 f32</span></td><td>출력 벡터 정밀도</td></tr>
+    <tr><td><code>--per-chunk</code></td><td>—</td><td>문서 1벡터 대신 청크별 벡터 출력</td></tr>
+    <tr><td><code>--num-threads</code></td><td>정수</td><td>onnxruntime 스레드 수</td></tr>
+  </table></div>
+  <div class="note"><b>청킹(chunking)이란?</b> 긴 문서를 임베딩 모델이 한 번에 처리할 수 있는 크기로 잘라, 각 조각(청크)을 임베딩한 뒤 평균내어 <b>문서 1개의 벡터</b>를 만듭니다. 두 값으로 조절합니다:
+    <ul style="margin:8px 0 4px">
+      <li><code>--max-tokens</code> — 청크 1개의 최대 토큰 수(<b>기본 512</b>, e5 모델의 최대 시퀀스 길이). 크게 하면 청크 수↓·문맥↑, 작게 하면 더 잘게 나뉨.</li>
+      <li><code>--overlap</code> — 인접 청크가 겹치는 토큰 수(<b>기본 32</b>). 청크 경계에서 문맥이 끊기지 않도록 조금 겹칩니다.</li>
+    </ul>
+<pre style="margin:8px 0 0"><code><span class="cmt">:: 청크 크기·겹침을 직접 지정(생략하면 512 / 32)</span>
+csoclassify.exe --file "문서.hwp" --max-tokens 256 --overlap 32</code></pre>
+  </div>
+
+  <h3>출력 · 진행</h3>
+  <div class="scroll"><table>
+    <tr><th>인자</th><th>값</th><th>설명</th></tr>
+    <tr><td><code>--format</code></td><td>text | json | jsonl <span class="def">기본 json</span></td><td>출력 형식. <code>--file</code> 단건은 <b>JSON 객체</b>, <code>--dir</code> 배치는 <b>JSON 배열 <code>[ … ]</code></b>(그대로 뷰어로 열림). 줄단위 도구엔 <code>jsonl</code>(1줄/문서), <code>text</code>는 벡터 공백구분. <code>--propagate</code>는 셋 다 입력으로 받음</td></tr>
+    <tr><td><code>--out</code></td><td>경로</td><td>결과 저장 파일(미지정 시 화면 stdout). <b>절대경로 권장</b></td></tr>
+    <tr><td><code>--progress</code></td><td>—</td><td>파일별 진행 상황을 stderr 로(<code>[progress] 처리수/총수 경로</code>)</td></tr>
+    <tr><td><code>--timing</code> / <code>--no-timing</code></td><td>— <span class="def">기본 on</span></td><td>단계별 처리시간 출력 on/off</td></tr>
+    <tr><td><code>--save-text</code></td><td>[경로] <span class="def">생략 시 ./_extracted</span></td><td>추출 텍스트를 파일로 보존</td></tr>
+  </table></div>
+
+  <h3>데몬 · 로그 · 기타</h3>
+  <div class="scroll"><table>
+    <tr><th>인자</th><th>값</th><th>설명</th></tr>
+    <tr><td><code>--daemon</code> / <code>--no-daemon</code></td><td>— <span class="def">기본 on</span></td><td>상주 데몬 사용/미사용(미사용=in-process)</td></tr>
+    <tr><td><code>--serve</code></td><td>—</td><td>데몬 프로세스로 직접 기동</td></tr>
+    <tr><td><code>--status</code> / <code>--stop</code></td><td>—</td><td>데몬 상태 출력 / 데몬 종료</td></tr>
+    <tr><td><code>--idle-timeout</code></td><td>초 <span class="def">기본 600</span></td><td>데몬 유휴 자동 종료 시간</td></tr>
+    <tr><td><code>-v</code>, <code>--verbose</code></td><td>—</td><td>상세 로그(화면 + DEBUG)</td></tr>
+    <tr><td><code>--log</code></td><td>경로</td><td>로그 파일 <span class="def">기본 &lt;exe폴더&gt;\log\csoclassify-날짜.log</span></td></tr>
+    <tr><td><code>--version</code> / <code>-h</code>, <code>--help</code></td><td>—</td><td>버전 / 도움말</td></tr>
+  </table></div>
+</section>
+
+<h2 id="exit"><span class="n">5</span> 종료코드</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>코드</th><th>의미</th></tr>
+    <tr><td><code>0</code></td><td>성공</td></tr>
+    <tr><td><code>1</code></td><td>추출 실패(사이냅 필터가 텍스트를 못 뽑음)</td></tr>
+    <tr><td><code>2</code></td><td>임베딩 실패(모델 없음 등)</td></tr>
+    <tr><td><code>3</code></td><td>인자 오류(대상 파일 없음 등)</td></tr>
+  </table></div>
+</section>
+
+<h2 id="env"><span class="n">6</span> 환경변수 · 로그</h2>
+<section class="card">
+  <h3>환경변수(선택)</h3>
+  <div class="scroll"><table>
+    <tr><th>변수</th><th>설명</th></tr>
+    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>규칙셋 <code>cso_rules.yaml</code> 을 exe 옆이 아닌 지정 폴더에서 찾음(<code>--rules</code> 로도 지정 가능)</td></tr>
+    <tr><td><code>CSOCLASSIFY_MODELS_DIR</code></td><td>모델 폴더/아카이브를 exe 옆이 아닌 지정 위치에서 찾음</td></tr>
+    <tr><td><code>CSOCLASSIFY_SYNAP_DIR</code></td><td><code>snf_exe.exe</code> 를 지정 폴더에서 찾음</td></tr>
+    <tr><td><code>CSOCLASSIFY_DAEMON=0</code></td><td>데몬 전역 off(=<code>--no-daemon</code>)</td></tr>
+    <tr><td><code>CSOCLASSIFY_STAMP_HEAD_CHARS</code></td><td>스탬프 '머리' 인정 범위(문자수, 기본 400). 낮추면 엄격, 높이면 관대</td></tr>
+    <tr><td><code>CSOCLASSIFY_STAMP_REPEAT_MIN</code></td><td>스탬프 '반복' 인정 최소 횟수(기본 2)</td></tr>
+  </table></div>
+  <h3>로그</h3>
+  <p>기본 로그는 <code>&lt;exe폴더&gt;\log\csoclassify-YYYYMMDD.log</code>(UTF-8)에 남습니다. 로그에는 <b>실제 실행 커맨드라인</b>과 <b>파일별 결과 JSON</b>(벡터는 <code>[vec dim=384]</code>로 축약)이 기록되어 재현·추적에 씁니다. <code>--log 경로</code>로 위치 변경, <code>-v</code>로 화면 출력·DEBUG.</p>
+  <p class="muted">모델 경로: onedir 배포는 <code>&lt;exe폴더&gt;\models\e5-small-ko\</code>를 그대로 읽습니다(캐시·해제 없음). 압축(<code>.tar.xz</code>)으로 배포한 경우에만 최초 1회 <code>%LOCALAPPDATA%\CSOClassify\models\&lt;모델&gt;</code>에 풀어 재사용합니다.</p>
+</section>
+
+<h2 id="recipes"><span class="n">7</span> 자주 쓰는 예시</h2>
+<section class="card">
+<pre><code><span class="cmt">:: 1) 수집 폴더 전체 분류 → 결과 파일 (진행상황 표시)</span>
+csoclassify.exe --dir "D:\collected" -r --embed-needed ^
+    --format jsonl --out "D:\collected\result.jsonl" --progress
+
+<span class="cmt">:: 2) 문서 1개 등급만 빠르게 확인</span>
+csoclassify.exe --file "D:\docs\계약서.hwp"
+
+<span class="cmt">:: 3) 보류 문서 구제(전파) — seed 저장소와 비교</span>
+csoclassify.exe --propagate "D:\collected\result.jsonl" ^
+    --seeds "cso_seed.jsonl" --format jsonl --out "D:\collected\result.jsonl"
+
+<span class="cmt">:: 4) 미검출 문서에 기본등급 S 부여(보수적)</span>
+csoclassify.exe --dir "D:\collected" -r --failsafe S --format jsonl --out result.jsonl
+
+<span class="cmt">:: 5) 데몬 상태 확인 / 종료</span>
+csoclassify.exe --status
+csoclassify.exe --stop
+
+<span class="cmt">:: 6) 청킹 조절 — 긴 문서는 청크를 크게(문맥↑), 짧은 문서 위주면 작게(세밀)</span>
+csoclassify.exe --dir "D:\collected" -r --embed-needed ^
+    --max-tokens 512 --overlap 64 --format jsonl --out result.jsonl
+
+<span class="cmt">:: 7) 문서 1개를 작은 청크로 세밀하게 임베딩(기본 512/32 → 256/32)</span>
+csoclassify.exe --embed --file "긴문서.hwp" --max-tokens 256 --overlap 32</code></pre>
+  <p class="muted">※ 위 <code>^</code>는 Windows cmd에서 줄바꿈 이음 문자입니다(한 줄로 써도 됨).</p>
+</section>
+
+<h2 id="notes"><span class="n">8</span> 주의사항</h2>
+<section class="card">
+  <ul>
+    <li><b>더블클릭 금지</b> — 명령줄 도구라 창만 깜빡입니다. 반드시 인자와 함께 실행.</li>
+    <li><b>경로에 공백</b>이 있으면 <code>"큰따옴표"</code>로 감싸세요.</li>
+    <li><b><code>--out</code>은 절대경로 권장</b> — 상대경로는 실행 위치(작업폴더)에 따라 엉뚱한 곳에 저장될 수 있습니다.</li>
+    <li><b>한글 파일명/출력</b>은 UTF-8로 고정되어 깨지지 않습니다.</li>
+    <li><b>첫 실행이 느린 것</b>은 onedir 첫 기동과 모델을 메모리에 올리기 때문이며 정상입니다(이후 빠름).</li>
+    <li><b>오프라인 동작</b> — 인터넷 없이 됩니다. 실행 오류 시 대상 PC에 <i>Microsoft Visual C++ Redistributable x64</i> 설치, 백신 예외 등록.</li>
+    <li>도움말은 <code>csoclassify.exe -h</code>, 버전은 <code>csoclassify.exe --version</code>.</li>
+  </ul>
+</section>
+
+<footer>CSOClassify — 수집문서 C/S/O 자동분류 도구 · CLI 실행 가이드</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,58 @@
+# ============================================================================
+# CSOClassify .gitignore
+#  - 비밀/자격증명, 3rd-party 라이선스 바이너리, 대용량 모델·배포산출물,
+#    실행 데이터·로그는 커밋하지 않는다(소스·문서·규칙셋만 공개).
+# ============================================================================
+
+# ---- 비밀 · 자격증명 (절대 커밋 금지) --------------------------------------
+.env
+.env.*
+.env_*
+**/.env
+*.pem
+*.key
+*.pfx
+
+# ---- 사이냅(3rd-party 라이선스 바이너리) · 대용량 임베딩 모델 --------------
+/resources/synap/
+/resources/models/
+
+# ---- 빌드 산출물 · 배포본 (생성물 · 대용량) -------------------------------
+/dist/
+/dist-model/
+/dist-onedir/
+/dist-pkg/
+# build 폴더는 스펙 파일만 남기고 PyInstaller 작업 산출물은 제외
+/build/*
+!/build/*.spec
+
+# ---- 실행 데이터 · 로그 (실데이터 · 생성물) -------------------------------
+/log/
+*.log
+/ui/*.jsonl
+/ui/*.json
+/ui/*.csv
+**/.ipynb_checkpoints/
+cso_result.jsonl
+cso_seed.jsonl
+cso_seed_audit.jsonl
+cso_override.jsonl
+grades.jsonl
+
+# ---- 파이썬 캐시 · 가상환경 -----------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+# ---- 스크래치 · 임시 -------------------------------------------------------
+/.txt
+scratch*
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store

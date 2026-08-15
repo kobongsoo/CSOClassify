@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSOClassify 작업 기록 · 2026-08-14</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --ok:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --ok:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+    --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+    --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --ok:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:20px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:12px 15px;overflow-x:auto;margin:10px 0;font-size:13px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.87em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)} .tag.ok{color:var(--ok)}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:12.5px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  .metric{font-weight:800;color:var(--accent)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>CSOClassify 작업 기록</h1>
+  <p>2026-08-14 세션 · 성능 최적화 · 로깅/출력 개선 · 규칙셋 외장화 · 크로스플랫폼(리눅스) 빌드 · onedir 기본 배포</p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#sum">0. 한눈 요약</a></li>
+    <li><a href="#perf">1. L1 PII 검출 성능 최적화</a></li>
+    <li><a href="#bug">2. 처방전 라벨 버그 + 테스트</a></li>
+    <li><a href="#log">3. 로깅 개선</a></li>
+    <li><a href="#out">4. 출력·인자 개선</a></li>
+    <li><a href="#ext">5. 규칙셋 외장화</a></li>
+    <li><a href="#xplat">6. 크로스플랫폼(리눅스)</a></li>
+    <li><a href="#deploy">7. onedir 기본 배포 정리</a></li>
+    <li><a href="#files">8. 파일별 변경 요약</a></li>
+    <li><a href="#qa">9. 진단 · Q&amp;A</a></li>
+  </ul>
+</section>
+
+<h2 id="sum"><span class="n">0</span> 한눈 요약</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>영역</th><th>핵심 결과</th></tr>
+    <tr><td>성능</td><td>규칙 스캔(Signal A) <b class="metric">~54% ↓</b>(부분검출) · 최악 지연 <b class="metric">20s → 0.08s</b>(상한 10K <span class="muted">→ 2026-08-15 청킹 개정, 아래 §1</span>) · 주소 없는 문서 추가 <b class="metric">~34% ↓</b>(프리필터)</td></tr>
+    <tr><td>버그</td><td>처방전(<code>PRESCRIPTION_ID</code>) 라벨 오타로 <b>미검출되던 것</b> 수정. 회귀 테스트 15→21</td></tr>
+    <tr><td>로깅</td><td>실행 구분선 · 전파 태그 · snf_exe 에러값 · 경로 중복 제거</td></tr>
+    <tr><td>출력/인자</td><td>기본 출력 <b>JSON</b>(단건=객체/배치=배열) · 인자 <code>--file</code>/<code>--dir</code> 통일</td></tr>
+    <tr><td>배포</td><td>규칙셋·모델·사이냅 <b>외장화</b> · <b>onedir 기본 배포</b>(웜 ~2s) · <b>리눅스 빌드</b>(〈내부 GPU 서버〉)</td></tr>
+  </table></div>
+</section>
+
+<h2 id="perf"><span class="n">1</span> L1 PII 검출 성능 최적화</h2>
+<section class="card">
+  <p>규칙 스캔(<code>classify/rules.py</code>)이 쓰던 <code>ko_pii.detect_all()</code>은 28개 검출기를 전부 돌린 뒤 결과만 필터링해 낭비가 컸다. 세 단계로 최적화하되 <b>검출 결과는 동일</b>하게 유지.</p>
+  <div class="scroll"><table>
+    <tr><th>#</th><th>최적화</th><th>방법</th><th>효과(실측)</th></tr>
+    <tr><td>1</td><td>부분 검출</td><td><code>detect_all</code> → 필요한 검출기만 도는 <code>_detect_subset()</code> <span class="muted">(18종 → 2026-08-15 URL·IP 추가로 20종, 아래 §10)</span></td><td class="metric">~54% ↓ (179→82ms/10KB)</td></tr>
+    <tr><td>2</td><td>지연 가드<br><span class="muted">(초판)</span></td><td><code>_KOPII_MAX_CHARS</code> 300K→<b>10K</b> + 환경변수 <code>CSOCLASSIFY_KOPII_MAX_CHARS</code> <span class="muted">— 2026-08-15 청킹으로 교체(아래 개정 참조)</span></td><td class="metric">최악 20s → 0.08s</td></tr>
+    <tr><td>3</td><td>주소 프리필터</td><td>주소 신호 없으면 무거운 <code>address.detect</code>(O(n²)) 건너뜀</td><td class="metric">주소無 문서 ~34% ↓</td></tr>
+  </table></div>
+  <div class="note"><b>안전성</b> — 부분검출은 매핑 못한 라벨이 오면 전체 엔진으로 자동 폴백. 주소 프리필터는 address.detect 의 4개 패턴이 반드시 포함하는 신호(<code>(대로|로|길|동|읍|면|리)+숫자</code> 또는 <code>_LOOSE_ANCHORS</code>)로만 판정 → <b>실제 주소 표본 전건 통과, 미탐 0</b>. 정규화·겹침해소는 ko-pii 내부 함수 재사용.</div>
+  <p class="muted">검토 후 기각: <b>python-stdnum</b>(전화·주소 모듈 없음), <b>phone/account 자체 정규식 대체</b>(현실 비중 1~9%로 실익 없음). 무거운 건 address 하나뿐.</p>
+  <div class="note"><b>개정 (2026-08-15) — 지연 가드를 '청킹'으로 교체</b>: 위 ②의 '앞 10K 절단'은 <b>10K 넘는 문서에서 뒤쪽 phone/address 를 놓치는</b> 미탐 문제가 있어 다음 설계로 교체했다. ⑴ <b>선형/초선형 분리</b> — 초선형 비용 원인인 <code>phone·address·account</code>만 청킹 대상(<code>_KOPII_SUPERLINEAR</code>), 나머지 선형 검출기는 <b>전량</b> 스캔(상한 없음, 문서 끝의 주민·카드·이메일도 커버). ⑵ <b>초선형 청킹</b> — 10K 창으로 나눠 돌려 초선형 비용을 <b>선형화</b>(50K 0.9s→~0.4s, 300K 20s→~2.4s). ⑶ <b>경계 처리</b> — 인접 창 <b>오버랩 128</b> + 절대 오프셋 <b>구간 병합</b>으로 경계 미탐·이중계수 제거. ⑷ <b>지연 캡</b> — 초선형은 앞 <b>100K</b>까지(<code>_KOPII_MAX_TOTAL</code>). ⑸ 소형 문서(≤10K, 대다수)는 단일패스라 <b>검출 결과 불변</b>. env <code>_KOPII_MAX_CHARS</code> 의미가 '절단 상한'→'청크 크기'로 바뀌고 <code>_MAX_TOTAL</code>/<code>_OVERLAP</code> 신설. 회귀 테스트 3건 추가(21→24). 상세는 <code>plan/설계서.md</code> 결정7 개정 이력.</div>
+</section>
+
+<h2 id="bug"><span class="n">2</span> 처방전 라벨 버그 + 회귀 테스트</h2>
+<section class="card">
+  <p><b>발견</b>: <code>cso_rules.yaml</code>의 처방전 라벨이 <code>PRESCRIPTION</code>인데 ko-pii 검출기는 <code>PRESCRIPTION_ID</code>를 내보내 <b>처방전이 한 건도 검출되지 않던 상태</b>. 라벨을 <code>PRESCRIPTION_ID</code>로 수정.</p>
+  <p><b>회귀 테스트 6건 추가</b>(<code>tests/test_rules.py</code> 15→21 pass): 처방전 검출/anchor, <b>규칙 라벨 == 검출기 라벨</b> 구조 가드(이런 오타 재발 차단), <code>_detect_subset == detect_all</code> 동일성, 주소 프리필터 미탐0·게이트 동일성.</p>
+</section>
+
+<h2 id="log"><span class="n">3</span> 로깅 개선</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>항목</th><th>변경</th></tr>
+    <tr><td>실행 구분선</td><td>매 실행 시작마다 로그에 <code>-------------</code>(CRLF) 기록 → 이전 실행과 구분. <code>logsetup.py</code></td></tr>
+    <tr><td>전파 로그 태그</td><td><code>[전파결과][임베딩]</code>(임베딩이 결정) / <code>[전파결과][통과(rule 확정)]</code>(1차 확정 통과) / <code>[전파결과][보류(미확정)]</code> 로 구분</td></tr>
+    <tr><td>snf_exe 에러값</td><td>추출 실패 시 <code>rc=&lt;종료코드&gt;; 출력파일 상태; stdout/stderr</code> 를 항상 기록(빈 메시지 문제 해결)</td></tr>
+    <tr><td>경로 중복 제거</td><td><code>ExtractError</code>는 사유만, 경로는 <code>file=&lt;경로&gt;</code>에서 한 번만</td></tr>
+  </table></div>
+</section>
+
+<h2 id="out"><span class="n">4</span> 출력 · 인자 개선</h2>
+<section class="card">
+  <h3>기본 출력 JSON</h3>
+  <p><code>DEFAULT_FORMAT</code> text→<b>json</b>. <code>--file</code> 단건은 <b>JSON 객체</b>, <code>--dir</code> 배치는 <b>JSON 배열 <code>[ … ]</code></b>(유효 JSON 파일). 스트리밍/줄단위는 <code>--format jsonl</code>. 공용 <code>output.RecordWriter</code> 가 배열 경계를 관리. <code>--propagate</code>는 배열·객체·jsonl 입력을 모두 인식.</p>
+  <div class="warn"><b>회귀 수정</b> — 기본을 json으로 바꾸며 배치가 "들여쓴 객체를 이어붙여" 무효 JSON이 되던 문제를, <b>배치=배열</b>로 감싸 해결(<code>--dir --out X.json</code> 이 뷰어로 열림).</div>
+  <h3>인자 대시 통일</h3>
+  <p><code>-file</code>/<code>-dir</code>(비표준) → <b><code>--file</code>/<code>--dir</code></b>(GNU 관례)로 통일. 하위호환으로 <code>-file</code>/<code>-dir</code>는 별칭 유지. 내부 호출부(<code>ui/gerunner.py</code>)·<code>.bat</code>·help·문서 모두 갱신.</p>
+</section>
+
+<h2 id="ext"><span class="n">5</span> 규칙셋 외장화</h2>
+<section class="card">
+  <p>C/S/O 규칙셋(<code>cso_rules.yaml</code>)을 exe에 <b>내장하지 않고</b> exe 옆 외장 파일로 배포 → <b>재빌드 없이 규칙 교체</b>. 우선순위: <code>CSOCLASSIFY_POLICY_DIR</code> &gt; <code>--rules</code> &gt; exe 옆.</p>
+  <ul>
+    <li><code>default_rules_path()</code>: frozen(exe) → exe 옆 / 소스 → <code>resources/policy</code></li>
+    <li>두 spec에서 정책 번들 제거</li>
+    <li>파일 누락 시 원시 스택 대신 <b>"어디에 두라"는 안내</b> 후 <code>EXIT_ARG_ERROR</code>(3) 종료</li>
+  </ul>
+</section>
+
+<h2 id="xplat"><span class="n">6</span> 크로스플랫폼(리눅스)</h2>
+<section class="card">
+  <h3>플랫폼 분기 + OS 하위폴더</h3>
+  <p>사이냅 필터를 OS별로 분리: <code>synap/windows/{snf_exe.exe, snf_win.dll}</code>, <code>synap/linux/snf_exe</code>. <code>resources.synap_exe_name()/synap_os_subdir()/synap_exe_path()</code>가 OS별 이름·폴더를 자동 해석(평면 배치 폴백). spec <code>collect_synap()</code>은 빌드 OS 폴더에서 번들.</p>
+  <p class="muted">리눅스 <code>snf_exe</code>는 <b>정적 링크 ELF</b>라 단독 실행 — <code>libsnf.a</code>/<code>.h</code>는 네이티브 링크용이라 <b>불필요</b>.</p>
+  <h3>리눅스 실제 빌드 (〈내부 GPU 서버〉)</h3>
+  <div class="scroll"><table>
+    <tr><th>항목</th><th>값</th></tr>
+    <tr><td>서버 / 계정</td><td>〈내부 GPU 서버〉 (호스트명·계정 생략) · 자격증명은 <code>.env_vllm</code>(비커밋)</td></tr>
+    <tr><td>환경</td><td>conda <code>bong</code> · Python 3.13.5 · <code>/MOCOMSYS/anaconda3/envs/bong</code></td></tr>
+    <tr><td>설치</td><td>bong에 <code>pyinstaller</code>, <code>ko-pii==1.15.2</code> 추가</td></tr>
+    <tr><td>워크스페이스</td><td><code>/MOCOMSYS/dev/bong/cso_build</code> (이후 빌드도 여기서)</td></tr>
+  </table></div>
+  <p><b>빌드 중 해결한 2개 리눅스 이슈</b>:</p>
+  <ul>
+    <li><b>numpy 서브모듈 누락</b>(<code>numpy._core._exceptions</code>) → <code>collect_submodules("numpy")</code> (리눅스 한정 가드)</li>
+    <li><b>CentOS 7 구형 libstdc++</b>(<code>CXXABI_1.3.9</code> 없음) → conda의 최신 <code>libstdc++.so.6</code>/<code>libgcc_s.so.1</code> 명시 번들</li>
+  </ul>
+  <p><b>슬림화</b>: strip(리눅스) + numpy 테스트/f2py/tkinter 제외 → onefile <b>172MB → 143MB</b>.</p>
+</section>
+
+<h2 id="deploy"><span class="n">7</span> onedir 기본 배포 정리</h2>
+<section class="card">
+  <p>onefile은 실행마다 자기 압축해제로 <b>웜 시작 ~4.6초</b> → 대화형에 불리. <b>onedir(웜 ~2초)를 기본 배포</b>로 채택. 두 방식 모두 <b>사이냅·모델·규칙셋을 exe 옆 외장</b>으로 두는 구성으로 통일.</p>
+  <div class="scroll"><table>
+    <tr><th>배포</th><th>폴더</th><th>실행파일</th><th>웜 시작</th></tr>
+    <tr><td><b>onedir</b> <span class="tag ok">권장</span></td><td><code>dist-onedir/{windows,linux}</code></td><td>폴더(exe+<code>_internal/</code>)</td><td class="metric">~2초</td></tr>
+    <tr><td>onefile</td><td><code>dist-pkg/</code></td><td>단일 exe</td><td>~4.6초</td></tr>
+  </table></div>
+<div class="tree">dist-onedir/                          dist-pkg/  (onefile, 정리됨)
+├─ windows/                           ├─ csoclassify.exe            <span class="cmt"># Windows</span>
+│  ├─ csoclassify.exe + _internal/    ├─ csoclassify_linux.exe      <span class="cmt"># Linux(143MB)</span>
+│  ├─ cso_rules.yaml                  ├─ cso_rules.yaml
+│  ├─ synap/windows/                  ├─ e5-small-ko.tar.xz
+│  └─ models/e5-small-ko/             ├─ synap/{windows,linux}/
+└─ linux/                             └─ 샘플.hwp · 사용법.txt · 문서_임베딩_테스트.bat
+   ├─ csoclassify-onedir-linux.tgz    <span class="cmt"># 리눅스에서 tar 풀기(심볼릭링크 보존)</span>
+   ├─ cso_rules.yaml · synap/linux/
+   ├─ models/e5-small-ko/
+   └─ README.txt</div>
+  <div class="warn"><b>리눅스 주의</b> — <code>csoclassify-onedir-linux.tgz</code>는 <b>반드시 리눅스에서</b> 풀 것(Windows에서 풀면 <code>_internal</code>의 .so 심볼릭링크가 깨짐). 푼 뒤 <code>chmod +x csoclassify synap/linux/snf_exe</code>. 외장 <code>snf_exe</code>는 복사 시 실행권한이 사라지므로 반드시 <code>chmod +x</code>.</div>
+  <p class="muted">검증: Windows onedir — 분류 <span class="tag c">C</span> · 임베딩 dim 384 · 웜 ~2s. Linux onedir — 서버 빌드·분류 검증(<span class="tag c">C</span>).</p>
+</section>
+
+<h2 id="files"><span class="n">8</span> 파일별 변경 요약</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>파일</th><th>변경</th></tr>
+    <tr><td><code>src/csoclassify/classify/rules.py</code></td><td><code>_detect_subset</code>·라벨→검출기 맵·지연가드 청킹(<code>_kopii_counts</code> 선형/초선형 분리·<code>_chunk_windows</code>·<code>_count_merged_spans</code>·<code>_KOPII_SUPERLINEAR</code>·env <code>_KOPII_MAX_CHARS</code>/<code>_MAX_TOTAL</code>/<code>_OVERLAP</code>)<span class="muted">〔2026-08-15 개정〕</span>·주소 프리필터(<code>_address_prefilter</code>/<code>_gated_address_detect</code>)·<code>default_rules_path</code>(외장)·<code>load_rules</code> 친절 오류·<b>URL·IP 맵</b>+<code>collect_pii</code>(원문 PII 수집)<span class="muted">〔08-15〕</span></td></tr>
+    <tr><td><code>src/csoclassify/cli.py</code></td><td>기본 json·<code>--file/--dir</code>·<code>RecordWriter</code> 사용·전파 태그·<code>--propagate</code> 다형 입력·규칙셋 누락 처리·경로 중복 제거·<code>--with-pii</code>+<code>_loggable_record</code> PII 가림<span class="muted">〔08-15〕</span></td></tr>
+    <tr><td><code>src/csoclassify/classify/engine.py</code></td><td><code>build_record(with_pii=)</code> — 원문 PII 를 <code>pii</code> 필드로<span class="muted">〔08-15〕</span></td></tr>
+    <tr><td><code>src/csoclassify/output.py</code></td><td><code>RecordWriter</code>(JSON 배열/객체/jsonl) 신설</td></tr>
+    <tr><td><code>src/csoclassify/extract/synap_exe.py</code></td><td>추출 실패 진단(rc/상태/stdout·stderr)·ExtractError 사유만</td></tr>
+    <tr><td><code>src/csoclassify/resources.py</code></td><td><code>synap_exe_name/synap_os_subdir/synap_exe_path</code> 플랫폼 분기</td></tr>
+    <tr><td><code>src/csoclassify/logsetup.py</code></td><td>실행 구분선</td></tr>
+    <tr><td><code>resources/policy/cso_rules.yaml</code></td><td>처방전 <code>PRESCRIPTION_ID</code> · <b>URL·IP 규칙 추가</b>(20종)<span class="muted">〔08-15〕</span></td></tr>
+    <tr><td><code>build/csoclassify.spec</code> (onedir)</td><td>외장화(모델·사이냅 번들 제거)·리눅스 대응(numpy/libstdc++/strip)</td></tr>
+    <tr><td><code>build/csoclassify-onefile.spec</code></td><td>규칙셋 외장·리눅스 대응·슬림화</td></tr>
+    <tr><td><code>tests/test_rules.py</code></td><td>회귀 테스트 15→21<span class="muted"> → 24(2026-08-15 청킹 3건)</span></td></tr>
+    <tr><td>문서</td><td><code>README.md</code>(리눅스 빌드 §4C·배포 구조) · <code>plan/설계서.md</code>(§12 항목13~15) · <code>doc/csoclassify-실행가이드.html</code>(대시·json·외장·출력예시)</td></tr>
+    <tr><td>배포 폴더</td><td><code>dist-onedir/{windows,linux}</code> 신설 · <code>dist-pkg</code> 정리 · <code>synap/{windows,linux}</code> 재구성 · <b>4개 배포본 재빌드</b>(win·linux × onefile·onedir, URL/IP+<code>--with-pii</code> 반영)<span class="muted">〔08-15〕</span></td></tr>
+  </table></div>
+</section>
+
+<h2 id="qa"><span class="n">9</span> 진단 · Q&amp;A</h2>
+<section class="card">
+  <h3>elapsed_ms 는 밀리초</h3>
+  <p><code>"total": 17.73</code> = <b>17.73ms = 0.018초</b>(1.7초 아님). 단, 체감 시간은 <b>exe 자기 압축해제·파이썬 시작·모델 로딩</b>이 지배 — 실측 onefile 웜 <b>~4.6초</b>/콜드 <b>~24초</b> vs onedir 웜 <b>~0.65~2초</b>. <code>elapsed_ms</code>엔 이 오버헤드가 안 잡힌다.</p>
+  <h3>hwpx 분류가 null 로 나온 이유</h3>
+  <p>추출은 정상(29KB). 문서가 제안서 양식이라 <b>PII 0건·기밀 키워드 0건</b> → <code>grade=null(보류)</code>이 정확한 결과. "비밀"(5회)은 오탐 방지를 위해 규칙에서 <b>의도적으로 제외</b>(대외비/극비/기밀 등 구체어만 사용).</p>
+  <h3>seed 자동 전파?</h3>
+  <p><code>--classify</code> 단독은 폴더의 <code>cso_seed.jsonl</code>을 자동으로 쓰지 않는다(설계상, 규칙 확정 문서 과분류 방지). <b><code>--auto-propagate --seeds cso_seed.jsonl</code></b> 명시 필요. test.hwpx는 전파해도 최근접 seed 유사도 <code>0.489 &lt; MIN_SIM 0.55</code>라 <code>too_far</code>(보류) — 이것도 정상(보수적). 분류하려면 비슷한 seed 추가/임계값 조정/규칙 추가.</p>
+</section>
+
+<h2 id="pii2"><span class="n">10</span> PII 유형 확장(URL·IP) + 원문값 출력 옵션 <span class="muted" style="font-size:14px">(2026-08-15)</span></h2>
+<section class="card">
+  <h3>① URL·IP 검출 추가 (18종 → 20종)</h3>
+  <p>ko-pii 의 <code>url</code>·<code>ip</code> 검출기를 활성 PII 에 추가. <code>cso_rules.yaml</code> 에 <code>URL</code>·<code>IP</code> 규칙(네트워크 식별자 → base_grade <span class="tag o">O</span>·대량이면 S), <code>rules.py</code> 의 라벨→검출기 맵에도 등록. 실측: <code>url</code>·<code>ip</code>·<code>email</code> 정상 검출.</p>
+  <h3>② 검출 원문 PII 출력 옵션 <code>--with-pii</code></h3>
+  <p>이 도구의 핵심 원칙은 "<b>원문 PII 값 미저장</b>"(기본은 유형+건수만). 사용자가 <code>--with-pii</code> 로 <b>명시 요청</b>할 때만 검출된 원문 값을 결과의 <code>pii</code> 필드에 싣는다.</p>
+  <div class="warn"><b>프라이버시 설계</b> — 기본 off. 원문 PII 는 <b><code>--out</code> 파일에만</b> 남고 <b>로그엔 절대 안 남는다</b>(<code>_loggable_record</code> 가 <code>[pii N detected]</code> 로 가림). 결과 파일 취급 주의.</div>
+<pre><code>csoclassify.exe --classify --with-pii --file "문서.hwp" --out result.json
+──
+"pii": [
+  { "label": "RRN",  "value": "900101-1234568",      "start": 7,  "end": 21 },
+  { "label": "IP",   "value": "192.168.0.10",         "start": 70, "end": 82 }
+]</code></pre>
+  <p class="muted">구현: <code>rules.collect_pii()</code> · <code>engine.build_record(with_pii=)</code> · cli <code>--with-pii</code> · <code>_loggable_record</code> 가림. 회귀 테스트 <b>24종 통과</b>. <b>4개 배포본 모두 재빌드</b>(Windows·Linux × onefile·onedir), 규칙셋(URL/IP)은 외장이라 각 배포 폴더에 복사.</p>
+</section>
+
+<footer>CSOClassify — 수집문서 C/S/O 자동분류 도구 · 작업 기록 (2026-08-14 · 개정 2026-08-15)</footer>
+
+</div>
+</body>
+</html>

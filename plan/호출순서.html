@@ -1,0 +1,264 @@
+<meta charset="utf-8">
+<title>CSOClassify 호출 순서 — csoclassify.exe -file {파일}</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --cli:#2563eb; --daemon:#9333ea; --core:#0d9488; --chunk:#d97706; --io:#475569;
+    --code-bg:#0f172a; --code-ink:#e2e8f0; --accent:#111827;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0e1117; --card:#161b22; --ink:#e6edf3; --muted:#9aa4b2; --line:#262d38;
+      --cli:#60a5fa; --daemon:#c084fc; --core:#2dd4bf; --chunk:#fbbf24; --io:#94a3b8;
+      --code-bg:#0b1020; --code-ink:#dbe4f3; --accent:#e6edf3;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+    line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px}
+  header h1{font-size:24px;margin:0 0 6px;letter-spacing:-.2px}
+  header p{margin:0;color:var(--muted);font-size:14px}
+  .cmd{display:inline-block;margin-top:14px;background:var(--code-bg);color:var(--code-ink);
+    padding:10px 16px;border-radius:8px;font-family:"Consolas","D2Coding",monospace;font-size:14px}
+  .cmd .flag{color:#7dd3fc}
+  h2{font-size:16px;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:8px}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 8px}
+  .lane{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;color:#fff}
+  .l-cli{background:var(--cli)} .l-daemon{background:var(--daemon)}
+  .l-core{background:var(--core)} .l-io{background:var(--io)} .l-chunk{background:var(--chunk)}
+
+  ol.flow{list-style:none;margin:0;padding:0;position:relative}
+  ol.flow::before{content:"";position:absolute;left:19px;top:6px;bottom:6px;width:2px;background:var(--line)}
+  li.step{position:relative;padding:0 0 14px 52px;margin:0}
+  li.step .num{position:absolute;left:6px;top:0;width:28px;height:28px;border-radius:50%;
+    background:var(--card);border:2px solid var(--line);color:var(--muted);
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;z-index:1}
+  li.step .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 14px}
+  li.step .card.cli{border-left:4px solid var(--cli)}
+  li.step .card.daemon{border-left:4px solid var(--daemon)}
+  li.step .card.core{border-left:4px solid var(--core)}
+  li.step .card.io{border-left:4px solid var(--io)}
+  .fn{font-family:"Consolas","D2Coding",monospace;font-size:13px;font-weight:700;color:var(--accent)}
+  .loc{font-family:"Consolas","D2Coding",monospace;font-size:11.5px;color:var(--muted)}
+  .desc{font-size:13.5px;color:var(--ink);margin-top:3px}
+  .desc code{background:rgba(127,127,127,.14);padding:1px 5px;border-radius:4px;
+    font-family:"Consolas","D2Coding",monospace;font-size:12.5px}
+  .sub{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:rgba(127,127,127,.06);
+    border:1px dashed var(--line);font-size:12.5px}
+  .sub b{color:var(--accent)}
+  .branch{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .branch>div{flex:1;min-width:230px;border-radius:8px;padding:9px 11px;font-size:12.5px}
+  .warm{background:rgba(13,148,136,.12);border:1px solid rgba(13,148,136,.4)}
+  .cold{background:rgba(147,51,234,.12);border:1px solid rgba(147,51,234,.4)}
+  .spot{background:linear-gradient(180deg,rgba(217,119,6,.14),rgba(217,119,6,.05));
+    border:1px solid rgba(217,119,6,.45);border-radius:12px;padding:16px 18px;margin:10px 0}
+  .spot h3{margin:0 0 8px;font-size:15px;color:var(--chunk)}
+  pre{background:var(--code-bg);color:var(--code-ink);padding:12px 14px;border-radius:8px;overflow-x:auto;
+    font-family:"Consolas","D2Coding",monospace;font-size:12.5px;line-height:1.5;margin:8px 0 0}
+  .cmt{color:#7d8aa5}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12.5px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600}
+  td .fn{font-size:12.5px}
+  .note{font-size:12px;color:var(--muted);margin-top:6px}
+  footer{margin-top:40px;color:var(--muted);font-size:12px;text-align:center}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>CSOClassify — 함수 호출 순서</h1>
+  <p>명령 한 줄이 어떤 함수들을 거쳐 임베딩 벡터가 되는지 (기본: 데몬 on)</p>
+  <div class="cmd"><span class="flag">csoclassify.exe</span> -file {파일}</div>
+</header>
+
+<div class="legend">
+  <span class="lane l-cli">클라이언트 프로세스</span>
+  <span class="lane l-daemon">데몬 프로세스(상주)</span>
+  <span class="lane l-core">공통 파이프라인</span>
+  <span class="lane l-chunk">청킹</span>
+  <span class="lane l-io">입출력</span>
+</div>
+<p class="note">파일 경로는 <code>src/csoclassify/</code> 기준. 함수명 옆 숫자는 소스 라인.</p>
+
+<h2>① 진입 &amp; CLI 분기 <span class="lane l-cli">클라이언트</span></h2>
+<ol class="flow">
+  <li class="step"><div class="num">1</div><div class="card cli">
+    <span class="fn">csoclassify_launcher.main</span> <span class="loc">src/csoclassify_launcher.py</span>
+    <div class="desc">OS 가 exe 실행 → PyInstaller 부트로더가 런처를 <code>__main__</code> 으로 실행 → 절대 import 로 <span class="fn">cli.main(argv)</span> 호출.</div>
+  </div></li>
+  <li class="step"><div class="num">2</div><div class="card cli">
+    <span class="fn">cli.main(argv)</span> <span class="loc">cli.py:317</span>
+    <div class="desc">전체 오케스트레이션 시작.</div>
+    <div class="sub">
+      • <span class="fn">build_parser()</span> <span class="loc">:29</span> → argparse 로 <code>-file</code> 등 파싱<br>
+      • <span class="fn">handle_daemon_commands(args)</span> <span class="loc">:275</span> → <code>--serve/--status/--stop</code> 없음 → <b>None</b>(일반 처리로 진행)<br>
+      • <span class="fn">config.get_model_spec("e5-small-ko")</span> → 모델 별칭 검증(빠른 실패)<br>
+      • <span class="fn">collect_files(args)</span> <span class="loc">:108</span> → <code>[{파일}]</code><br>
+      • <span class="fn">make_opts(args)</span> <span class="loc">:82</span> → <code>opts{max_tokens:256, overlap:32, per_chunk:False, normalize:True, precision:"f32", save_dir:None}</code>
+    </div>
+  </div></li>
+  <li class="step"><div class="num">3</div><div class="card cli">
+    <span class="fn">run_embed(files, args, opts, out_fp)</span> <span class="loc">cli.py:186</span>
+    <div class="desc"><code>--text-only</code> 아님 → 임베딩 경로. <span class="fn">DaemonClient(model, idle_timeout)</span> 생성 <span class="loc">:199</span> 후 파일마다 요청.</div>
+  </div></li>
+</ol>
+
+<h2>② 데몬 위임 (warm/cold 분기) <span class="lane l-cli">클라이언트</span></h2>
+<ol class="flow">
+  <li class="step"><div class="num">4</div><div class="card cli">
+    <span class="fn">DaemonClient.request_embed(path, opts)</span> <span class="loc">client.py:189</span>
+    <div class="desc">살아있는 데몬을 찾거나 새로 띄운 뒤 요청을 위임.</div>
+    <div class="branch">
+      <div class="warm"><b>WARM — 데몬 이미 실행 중</b><br>
+        <span class="fn">_find_live()</span> <span class="loc">:80</span> →
+        <span class="fn">registry.read_record</span> · <span class="fn">is_pid_alive</span> · 버전확인 ·
+        <span class="fn">_ping()</span> <span class="loc">:54</span> → <code>(rec, ping)</code> 반환 → 바로 5번으로.
+      </div>
+      <div class="cold"><b>COLD — 첫 호출(데몬 없음)</b><br>
+        <span class="fn">_find_live()</span>→<code>(None,None)</code> →
+        <span class="fn">_spawn()</span> <span class="loc">:134</span>(자기 자신을 <code>--serve</code> 로 분리 기동) →
+        <span class="fn">_wait_ready(deadline)</span> <span class="loc">:167</span>(0.15s 간격 PING 폴링) → 준비되면 5번.
+        <span class="note">→ 이때 별도 데몬 프로세스에서 아래 ②-D 가 1회 실행됨</span>
+      </div>
+    </div>
+  </div></li>
+  <li class="step"><div class="num">5</div><div class="card io">
+    <span class="fn">ipc.connect → ipc.send_msg → ipc.recv_msg</span> <span class="loc">client.py:205-210</span>
+    <div class="desc">loopback 소켓으로 <code>{op:"embed", token, path, opts}</code> 전송 → 응답 수신. 실패 시 <span class="fn">DaemonUnavailable</span> → in-process 폴백(⑥ 참고).</div>
+  </div></li>
+</ol>
+
+<h2>②-D 데몬 최초 기동 (cold 일 때 1회, 이후 상주) <span class="lane l-daemon">데몬</span></h2>
+<ol class="flow">
+  <li class="step"><div class="num">D1</div><div class="card daemon">
+    <span class="fn">cli.main(["--serve",…]) → DaemonServer.run()</span> <span class="loc">server.py:55</span>
+    <div class="sub">
+      • <span class="fn">registry.acquire_singleton(model)</span> <span class="loc">:58</span> — 원자적 잠금(데몬 2개 방지). 못 얻으면 조용히 종료<br>
+      • <span class="fn">SynapExeExtractor()</span> <span class="loc">:64</span> — snf_exe 경로 확정(exe 옆 우선)<br>
+      • <span class="fn">OnnxEmbedder(spec).ensure_loaded()</span> <span class="loc">:66</span> — <b>모델 로드(무거움)</b>
+      <div class="sub" style="margin-top:6px">
+        └ <span class="fn">resources.resolve_model_dir()</span> — 캐시/exe옆/env/번들 탐색, 없으면 <code>e5-small-ko.tar.xz</code> 를 캐시에 1회 해제<br>
+        └ <span class="fn">Tokenizer.from_file</span> · <span class="fn">ort.InferenceSession(model.onnx)</span>
+      </div>
+      • <span class="fn">ipc.make_server</span> + 랜덤 토큰 → <span class="fn">registry.write_record</span> <span class="loc">:69-80</span><br>
+      • <span class="fn">srv.accept()</span> 루프 — 유휴시간(기본 600s) 안에 요청 없으면 스스로 종료
+    </div>
+  </div></li>
+</ol>
+
+<h2>③ 요청 처리 → 파이프라인 <span class="lane l-daemon">데몬</span> <span class="lane l-core">공통</span></h2>
+<ol class="flow">
+  <li class="step"><div class="num">6</div><div class="card daemon">
+    <span class="fn">DaemonServer._handle(conn) → _do_embed(conn, req)</span> <span class="loc">server.py:119 / 167</span>
+    <div class="desc"><code>op=="embed"</code> + 토큰 인증 통과 → 파이프라인 호출.</div>
+  </div></li>
+  <li class="step"><div class="num">7</div><div class="card core">
+    <span class="fn">pipeline.process_file(path, opts, extractor, embedder, timing)</span> <span class="loc">pipeline.py:97</span>
+    <div class="desc">추출→정제→임베딩 전 과정. 데몬은 모델이 이미 상주라 <code>parallel_preload=False</code>.</div>
+  </div></li>
+  <li class="step"><div class="num">8</div><div class="card core">
+    <span class="fn">extractor.extract(path, save_dir)</span> <span class="loc">synap_exe.py</span> · <span class="loc">timing "extract"</span>
+    <div class="desc"><span class="fn">subprocess.run([snf_exe, -U8, -NO_WITHPAGE, 입력, 출력])</span> → BOM 없는 UTF-8 텍스트 읽기 → 임시파일 정리(보존 옵션 아니면 삭제).</div>
+  </div></li>
+  <li class="step"><div class="num">9</div><div class="card core">
+    <span class="fn">clean_text(raw, remove_page_markers=True)</span> <span class="loc">clean.py</span> · <span class="loc">timing "clean"</span>
+    <div class="desc">NFC 정규화 · <code>..PAGE:N</code> 제거 · 제어문자 제거 · 공백/개행 정리.</div>
+  </div></li>
+  <li class="step"><div class="num">10</div><div class="card core">
+    <span class="fn">embed_with_timing(embedder, text, opts, timing)</span> <span class="loc">pipeline.py:51</span>
+    <div class="desc">
+      • <span class="fn">embedder.ensure_loaded()</span> → <code>model_load</code> 기록(상주라 <b>0.0</b>)<br>
+      • <span class="fn">embedder.embed_document(text, 256, 32, normalize, per_chunk)</span> → <code>timing "embed"</code>
+    </div>
+  </div></li>
+</ol>
+
+<h2>④ 청킹 &amp; 임베딩 <span class="lane l-chunk">청킹</span> <span class="lane l-core">공통</span></h2>
+<ol class="flow">
+  <li class="step"><div class="num">11</div><div class="card core">
+    <span class="fn">OnnxEmbedder.embed_document(...)</span> <span class="loc">onnx_embedder.py:224</span>
+    <div class="desc">청킹 → 청크별 임베딩 → (기본)평균 → 정규화.</div>
+  </div></li>
+  <li class="step"><div class="num">12</div><div class="card core">
+    <span class="fn">_split_chunks(text, 256, 32)</span> <span class="loc">onnx_embedder.py:137</span>
+    <div class="sub">
+      • <span class="fn">tokenizer.encode(text, add_special_tokens=False)</span> → 본문 토큰 id<br>
+      • 유효 청크 크기 계산(아래 스포트라이트) →
+        <span class="fn">chunk.chunk_ids(ids, effective, overlap)</span> → <span class="fn">chunk.sliding_windows</span><br>
+      • 각 청크 id → <span class="fn">tokenizer.decode()</span> → 청크 텍스트 목록
+    </div>
+  </div></li>
+  <li class="step"><div class="num">13</div><div class="card core">
+    <span class="fn">_embed_one(chunk_text)</span> × N <span class="loc">onnx_embedder.py:173</span>
+    <div class="desc">청크마다: <code>"passage: "+청크</code> → <span class="fn">tokenizer.encode(special=True)</span> →
+      <span class="fn">session.run(input_ids, attention_mask[, token_type_ids])</span> →
+      <b>attention mask 가중 평균 풀링</b> → (384,) 벡터.</div>
+  </div></li>
+  <li class="step"><div class="num">14</div><div class="card core">
+    <span class="fn">평균 → L2 정규화</span> <span class="loc">onnx_embedder.py:242-253</span>
+    <div class="desc"><code>np.vstack(청크벡터들)</code> →
+      <b>기본:</b> <code>mean(axis=0)</code>(모든 청크 평균) → <span class="fn">_l2()</span> → 문서 벡터 1개 ·
+      <b>--per-chunk:</b> 청크별 벡터 그대로. 반환 <code>(vector, n_chunks)</code>.</div>
+  </div></li>
+</ol>
+
+<div class="spot">
+  <h3>◎ 청킹 기본값과 실제 적용값</h3>
+  <pre><span class="cmt"># config.py — 기본값(‑‑max-tokens / ‑‑overlap 로 재정의 가능)</span>
+DEFAULT_MAX_TOKENS = 256      <span class="cmt"># 청크 최대 토큰</span>
+DEFAULT_OVERLAP    = 32       <span class="cmt"># 겹침 토큰</span>
+ModelSpec.max_tokens_model = 512   <span class="cmt"># e5-small-ko 모델 상한</span>
+
+<span class="cmt"># _split_chunks 실제 계산 (onnx_embedder.py:148~152)</span>
+hard_cap    = min(256, 512) = 256
+effective   = max(8, 256 - prefix_len(~4) - 2) ≈ <b>250 토큰</b>   <span class="cmt"># "passage: "+특수토큰 자리 제외</span>
+eff_overlap = min(32, effective-1) = <b>32 토큰</b></pre>
+  <p class="note">→ 본문을 약 <b>250토큰씩·32토큰 겹침</b>으로 자름. <b>출력은 첫 청크가 아니라 전 청크의 평균 벡터</b>(문서 대표). 청크별로 보려면 <code>--per-chunk</code>.</p>
+</div>
+
+<h2>⑤ 결과 조립 &amp; 출력 <span class="lane l-core">공통</span> <span class="lane l-io">입출력</span></h2>
+<ol class="flow">
+  <li class="step"><div class="num">15</div><div class="card core">
+    <span class="fn">apply_precision → timing.finalize_total</span> <span class="loc">pipeline.py:69-133</span>
+    <div class="desc"><code>f16</code>이면 반정밀도 캐스팅. 결과 dict 조립:
+      <code>{file, model, dim:384, chunks, vector, elapsed_ms:{extract,clean,model_load,embed,total}}</code>.</div>
+  </div></li>
+  <li class="step"><div class="num">16</div><div class="card daemon">
+    <span class="fn">ipc.send_msg(conn, {ok:True, result})</span> <span class="loc">server.py:178</span>
+    <div class="desc">데몬이 결과를 클라이언트로 반환 → <span class="fn">request_embed</span> 이 <code>result</code> 리턴.</div>
+  </div></li>
+  <li class="step"><div class="num">17</div><div class="card io">
+    <span class="fn">cli.emit → output.format_result</span> <span class="loc">cli.py:130 / output.py</span>
+    <div class="desc"><b>stdout:</b> <code>파일명 ⇥ 벡터</code> (또는 json/jsonl) · <b>stderr:</b> <code>[timing] … total=… ms</code>. 배치면 마지막에 합계 요약.</div>
+  </div></li>
+</ol>
+
+<h2>⑥ in-process 폴백 (‑‑no-daemon 또는 데몬 실패 시) <span class="lane l-cli">클라이언트</span></h2>
+<p class="note" style="font-size:13px">
+데몬을 못 쓰면 <span class="fn">process_inprocess(path)</span> <span class="loc">cli.py:215</span> 가 같은
+<span class="fn">pipeline.process_file(...)</span> 를 <b>같은 프로세스에서</b> 실행한다. 단, 파일이 1개면
+<code>parallel_preload=True</code> 로 <b>추출과 모델 로딩을 병렬</b>(pipeline.py:98)해 콜드스타트를 가린다.
+이후 흐름(⑧~⑤ 출력)은 데몬 경로와 동일.
+</p>
+
+<h2>주요 함수 빠른 참조</h2>
+<table>
+  <tr><th>단계</th><th>함수</th><th>파일</th></tr>
+  <tr><td>진입</td><td class="fn">cli.main</td><td class="loc">cli.py:317</td></tr>
+  <tr><td>대상 수집</td><td class="fn">collect_files / make_opts</td><td class="loc">cli.py:108 / 82</td></tr>
+  <tr><td>데몬 요청</td><td class="fn">DaemonClient.request_embed</td><td class="loc">client.py:189</td></tr>
+  <tr><td>데몬 탐색/기동</td><td class="fn">_find_live / _spawn / _wait_ready</td><td class="loc">client.py:80 / 134 / 167</td></tr>
+  <tr><td>데몬 본체</td><td class="fn">DaemonServer.run / _do_embed</td><td class="loc">server.py:55 / 167</td></tr>
+  <tr><td>파이프라인</td><td class="fn">pipeline.process_file</td><td class="loc">pipeline.py:97</td></tr>
+  <tr><td>추출</td><td class="fn">SynapExeExtractor.extract</td><td class="loc">synap_exe.py</td></tr>
+  <tr><td>정제</td><td class="fn">clean_text</td><td class="loc">clean.py</td></tr>
+  <tr><td>청킹</td><td class="fn">_split_chunks → chunk_ids → sliding_windows</td><td class="loc">onnx_embedder.py:137 / chunk.py</td></tr>
+  <tr><td>임베딩</td><td class="fn">embed_document → _embed_one</td><td class="loc">onnx_embedder.py:224 / 173</td></tr>
+  <tr><td>출력</td><td class="fn">cli.emit → output.format_result</td><td class="loc">cli.py:130 / output.py</td></tr>
+</table>
+
+<footer>CSOClassify 0.1.0 · 호출 순서 문서 · csoclassify.exe -file {파일} (기본: 데몬 on)</footer>
+</div>

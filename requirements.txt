@@ -1,0 +1,17 @@
+# === 런타임 의존성 (exe 에 포함) ===
+onnxruntime>=1.17      # 임베딩 모델 CPU 추론
+tokenizers>=0.15       # 경량 토크나이저 (Rust 백엔드)
+numpy>=1.24            # 벡터 연산/풀링
+
+# --- classify(C/S/O 자동분류) 런타임 의존성 ---
+PyYAML>=6.0            # cso_rules.yaml 규칙셋 로드
+ko-pii==1.15.2         # L1 PII 검출 엔진(Marker-Inc-Korea, MIT, 순수 파이썬, 체크섬 내장)
+
+# === 빌드 도구 ===
+pyinstaller>=6.3       # exe 패키징
+
+# === 개발용(런타임 제외) : scripts/export_onnx.py 에서만 사용 ===
+#   torch
+#   transformers
+#   optimum[onnxruntime]
+#   sentence-transformers

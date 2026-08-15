@@ -1,0 +1,10 @@
+# 분류 검토 UI(Streamlit) 실행에 필요한 패키지
+# 설치: pip install -r requirements.txt
+streamlit>=1.60
+pandas
+numpy
+ruamel.yaml
+# 규칙 미리보기에서 csoclassify.classify 를 import 하므로 함께 필요
+PyYAML
+# PII 검출 엔진 (구 python-stdnum 대체 — L1 PII는 ko-pii 가 담당)
+ko-pii==1.15.2

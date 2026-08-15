@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cso_rules.yaml 규칙셋 레퍼런스</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  td.f{white-space:nowrap;font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:.9em}
+  tr:last-child td{border-bottom:none}
+  .req{color:var(--c);font-weight:700}
+  .opt{color:var(--muted)}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .def{color:var(--muted);font-size:.85em}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .sig{font-size:12px;background:var(--accent-soft);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:8px;color:var(--accent);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>cso_rules.yaml — 규칙셋 필드 레퍼런스</h1>
+  <p>C/S/O 자동분류 규칙셋의 <b>모든 섹션·필드의 의미</b>를 표로 정리했습니다. 규칙셋을 직접 편집하거나 UI 규칙설정을 이해할 때 참고하세요.</p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#overview">0. 개요 · 파일 위치</a></li>
+    <li><a href="#common">공통 개념 (등급·신호·융합)</a></li>
+    <li><a href="#values">공통 값 (grade·weight·bool)</a></li>
+    <li><a href="#version">1. version</a></li>
+    <li><a href="#defaults">2. defaults</a></li>
+    <li><a href="#confidence">3. confidence</a></li>
+    <li><a href="#regex_pii">4. regex_pii (PII)</a></li>
+    <li><a href="#pii_combos">5. pii_combos (결합식별성)</a></li>
+    <li><a href="#keywords">6. keywords (기밀사전)</a></li>
+    <li><a href="#sensitive">7. sensitive (민감정보군)</a></li>
+    <li><a href="#stamps">8. stamps (보안분류 스탬프)</a></li>
+    <li><a href="#paths">9. paths (경로)</a></li>
+  </ul>
+</section>
+
+<!-- ============ 0. 개요 ============ -->
+<h2 id="overview"><span class="n">0</span> 개요 · 파일 위치</h2>
+<section class="card">
+  <p><code>cso_rules.yaml</code>은 문서를 <b>C(기밀)/S(민감)/O(공개)</b>로 분류하는 <b>정책 파일</b>입니다. 실행파일(<code>csoclassify</code>)에 내장하지 않고 <b>exe 옆의 외장 파일</b>로 두어, 재빌드 없이 규칙만 교체·배포할 수 있습니다.</p>
+  <div class="scroll"><table>
+    <tr><th>찾는 순서(우선)</th><th>위치</th></tr>
+    <tr><td>① 환경변수</td><td><code>CSOCLASSIFY_POLICY_DIR</code> 폴더의 <code>cso_rules.yaml</code></td></tr>
+    <tr><td>② 인자</td><td><code>--rules &lt;파일경로&gt;</code> 로 직접 지정</td></tr>
+    <tr><td>③ 기본(배포)</td><td>exe 와 <b>같은 폴더</b>의 <code>cso_rules.yaml</code></td></tr>
+  </table></div>
+  <p class="muted">파일이 없으면 분류 실행 시 “어디에 두라”는 안내를 내고 종료(코드 3)합니다. 편집은 이 파일을 직접 수정하거나 <b>UI 규칙설정</b>에서 합니다(UI는 주석을 보존하며 저장 시 <code>.bak</code> 백업 + 버전 자동 상향).</p>
+  <div class="warn"><b>프라이버시 불변식</b> — 스캐너는 매칭된 <b>원문 PII 값</b>을 저장하지 않습니다. 결과 근거에는 <b>유형 id·건수·정책 키워드</b>만 남습니다(원문은 <code>--with-pii</code> 옵션 사용 시에만 <code>--out</code> 파일에 한정).</div>
+</section>
+
+<!-- ============ 공통 개념 ============ -->
+<h2 id="common">공통 개념 — 등급이 정해지는 방식</h2>
+<section class="card">
+  <p>한 문서에는 여러 <b>판정 신호</b>가 붙고, 최종 등급은 <b>가장 민감한 등급</b>으로 융합됩니다(보수적 max). 각 신호는 등급을 <b>올릴 수만</b> 있고 함부로 내리지 않습니다.</p>
+  <div class="scroll"><table>
+    <tr><th>신호</th><th>규칙셋 섹션</th><th>무엇을 보나</th></tr>
+    <tr><td><code>rule</code> <span class="pill">내용</span></td><td><code>regex_pii</code> + <code>pii_combos</code> + <code>keywords</code></td><td>본문의 PII 유형·결합·기밀 키워드</td></tr>
+    <tr><td><code>sensitive</code> <span class="pill">민감정보</span></td><td><code>sensitive</code></td><td>법상 민감정보 범주 키워드</td></tr>
+    <tr><td><code>stamp</code> <span class="pill">표식</span></td><td><code>stamps</code></td><td>문서에 찍힌 보안분류 스탬프</td></tr>
+    <tr><td><code>path</code> <span class="pill">경로</span></td><td><code>paths</code></td><td>파일이 놓인 폴더/서버</td></tr>
+    <tr><td><code>name</code> <span class="pill">파일명</span></td><td><code>keywords</code> 재사용</td><td>파일 이름 속 키워드</td></tr>
+    <tr><td><code>embed</code> <span class="pill">전파</span></td><td>(규칙셋 아님 · seed 비교)</td><td>보류 문서를 유사도로 구제(2차 패스)</td></tr>
+  </table></div>
+  <p class="muted"><b>bulk 상향</b>: 한 유형이 <b>임계값(건수) 이상</b> 나오면 <code>bulk_grade</code>로 상향됩니다(명단·대장 정황). 예) 주민번호 1건=<span class="tag s">S</span>, 5건 이상=<span class="tag c">C</span>.</p>
+  <p class="muted"><b>seed_eligible</b>: 오탐이 적어, 이 근거로 확정된 문서를 임베딩 전파의 <b>씨앗(seed)</b>으로 승격해도 안전한지 여부입니다.</p>
+</section>
+
+<!-- ============ 공통 값 ============ -->
+<h2 id="values">공통 값 — grade · weight · bool</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>값 종류</th><th>가능한 값</th><th>의미</th></tr>
+    <tr><td class="f">grade</td><td><span class="tag c">C</span> <span class="tag s">S</span> <span class="tag o">O</span></td><td>기밀 &gt; 민감 &gt; 공개. 서열이 높을수록 민감. (미지정=신호 없음)</td></tr>
+    <tr><td class="f">weight</td><td><code>high</code> · <code>medium</code> · <code>low</code></td><td>신뢰도 가중. <code>confidence</code> 표를 통해 0~1 신뢰도로 변환됨. <b>등급은 바꾸지 않음</b>(검토 큐 편입·정렬용).</td></tr>
+    <tr><td class="f">bool</td><td><code>true</code> · <code>false</code></td><td>참/거짓 (예: <code>seed_eligible</code>, <code>acl_restricted</code>, <code>always</code>).</td></tr>
+  </table></div>
+  <p class="muted">※ 신뢰도(confidence)는 “저신뢰면 사람이 검토” 같은 <b>검토 큐 편입/정렬</b>에만 쓰이고, C/S/O 등급 자체는 항상 <b>max 융합</b>으로 정해집니다.</p>
+</section>
+
+<!-- ============ 1. version ============ -->
+<h2 id="version"><span class="n">1</span> version</h2>
+<section class="card">
+  <p>규칙셋의 <b>버전 문자열</b>. 감사·추적용으로 분류 결과의 <code>rule_version</code>에 그대로 기록됩니다.</p>
+<pre><code>version: "cso-2026.08.3"</code></pre>
+  <div class="scroll"><table>
+    <tr><th>필드</th><th>필수</th><th>타입</th><th>의미</th></tr>
+    <tr><td class="f">version</td><td class="opt">선택</td><td>문자열</td><td>규칙셋 버전. 관례상 <code>cso-YYYY.MM.rev</code>. 없으면 <code>"unknown"</code>. UI 저장 시 rev 가 자동 +1.</td></tr>
+  </table></div>
+</section>
+
+<!-- ============ 2. defaults ============ -->
+<h2 id="defaults"><span class="n">2</span> defaults</h2>
+<section class="card">
+  <p>개별 규칙이 값을 지정하지 않았을 때 쓰는 <b>전역 기본값</b>.</p>
+<pre><code>defaults:
+  bulk_threshold: 5          <span class="cmt"># 5건 이상이면 bulk 상향</span>
+  case_insensitive: true     <span class="cmt"># 영문 키워드 대소문자 무시</span></code></pre>
+  <div class="scroll"><table>
+    <tr><th>필드</th><th>필수</th><th>타입</th><th>기본</th><th>의미</th></tr>
+    <tr><td class="f">bulk_threshold</td><td class="opt">선택</td><td>정수</td><td>5</td><td>규칙에 개별 임계값이 없을 때 쓰는 전역 bulk 임계값. 이 <b>건수 이상</b>이면 <code>bulk_grade</code>로 상향.</td></tr>
+    <tr><td class="f">case_insensitive</td><td class="opt">선택</td><td>bool</td><td>true</td><td>true면 키워드·표식·민감정보 매칭 시 <b>영문 대소문자를 무시</b>.</td></tr>
+  </table></div>
+</section>
+
+<!-- ============ 3. confidence ============ -->
+<h2 id="confidence"><span class="n">3</span> confidence</h2>
+<section class="card">
+  <p>각 신호의 <code>weight</code>(high/medium/low)를 <b>0~1 신뢰도</b>로 바꾸는 표. 없으면 코드 기본값을 씁니다. <b>등급은 바꾸지 않습니다</b>(검토 큐 편입·정렬용).</p>
+<pre><code>confidence:
+  regex:     {high: 0.90, medium: 0.70, low: 0.50}   <span class="cmt"># 정규식 PII</span>
+  keyword:   {high: 0.85, medium: 0.70, low: 0.50}   <span class="cmt"># 기밀사전</span>
+  sensitive: {high: 0.85, medium: 0.70, low: 0.55}   <span class="cmt"># 민감정보군</span>
+  stamp:     {high: 0.95, medium: 0.80, low: 0.65}   <span class="cmt"># 보안분류 스탬프</span>
+  path:      {high: 0.90, medium: 0.70, low: 0.50}   <span class="cmt"># 경로</span>
+  name:      0.60                                      <span class="cmt"># 파일명(고정)</span></code></pre>
+  <div class="scroll"><table>
+    <tr><th>키</th><th>타입</th><th>의미</th></tr>
+    <tr><td class="f">regex</td><td>{high,medium,low}</td><td>PII(regex_pii)·결합(pii_combos) 신호의 신뢰도.</td></tr>
+    <tr><td class="f">keyword</td><td>{high,medium,low}</td><td>기밀사전(keywords) 신호의 신뢰도.</td></tr>
+    <tr><td class="f">sensitive</td><td>{high,medium,low}</td><td>민감정보군(sensitive) 신호의 신뢰도.</td></tr>
+    <tr><td class="f">stamp</td><td>{high,medium,low}</td><td>보안분류 스탬프(stamps) 신호의 신뢰도(오탐 낮아 높게).</td></tr>
+    <tr><td class="f">path</td><td>{high,medium,low}</td><td>경로(paths) 신호의 신뢰도.</td></tr>
+    <tr><td class="f">name</td><td>실수(float)</td><td>파일명 신호의 고정 신뢰도(힌트라 단일 값).</td></tr>
+  </table></div>
+  <p class="muted">※ 일부만 적어도 됩니다(적은 값만 기본값 위에 덮어씀). 값은 0~1 실수.</p>
+</section>
+
+<!-- ============ 4. regex_pii ============ -->
+<h2 id="regex_pii"><span class="n">4</span> regex_pii <span class="sig">rule 신호 · L1</span></h2>
+<section class="card">
+  <p>개인식별정보(PII) <b>유형→등급 정책</b>. 검출은 <code>ko-pii</code> 엔진(패턴·체크섬·문맥·우회방어 내장)이 담당하고, 여기서는 “그 유형이 몇 건이면 몇 등급인가”만 정합니다.</p>
+<pre><code>regex_pii:
+- id: rrn
+  name: 주민등록번호
+  label: RRN
+  base_grade: S
+  bulk_grade: C
+  weight: high
+  seed_eligible: true</code></pre>
+  <div class="scroll"><table>
+    <tr><th>필드</th><th>필수</th><th>타입</th><th>기본</th><th>의미</th></tr>
+    <tr><td class="f">id</td><td class="req">필수</td><td>문자열</td><td>—</td><td>유형 식별자. 결과 근거의 <code>id</code>(예: <code>rrn</code>).</td></tr>
+    <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름(예: <code>주민등록번호</code>).</td></tr>
+    <tr><td class="f">label</td><td class="req">필수</td><td>문자열</td><td>—</td><td>대응하는 <b>ko-pii 라벨</b>(예: <code>RRN</code>,<code>CARD</code>,<code>ADDRESS</code>). 이 라벨만 검출 대상이 됨. <span class="def">(별칭 <code>kopii_label</code> 도 허용)</span></td></tr>
+    <tr><td class="f">base_grade</td><td class="opt">선택</td><td>grade</td><td>S</td><td>1건이라도 있으면 부여할 등급.</td></tr>
+    <tr><td class="f">bulk_grade</td><td class="opt">선택</td><td>grade</td><td>없음</td><td>임계값 이상일 때 <b>상향</b>할 등급. 없으면 상향 안 함(항상 base_grade).</td></tr>
+    <tr><td class="f">bulk_threshold</td><td class="opt">선택</td><td>정수</td><td>defaults</td><td>이 유형 전용 임계값. 없으면 <code>defaults.bulk_threshold</code>. 검출 건수가 <b>이 값 이상</b>이면 bulk_grade.</td></tr>
+    <tr><td class="f">weight</td><td class="opt">선택</td><td>weight</td><td>medium</td><td>신뢰도 가중.</td></tr>
+    <tr><td class="f">seed_eligible</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 이 히트로 확정된 문서를 전파 seed 로 승격 가능.</td></tr>
+  </table></div>
+  <div class="note">활성 PII는 <b>20종</b>(RRN·FRN·CARD·ACCOUNT·PASSPORT·DRIVER_LICENSE·PHONE·EMAIL·BUSINESS_REG·CORP_REG·ADDRESS·MEDICAL_INSURANCE·PRESCRIPTION_ID·EDI_DRUG·VEHICLE·COURT_CASE·PNU·NATIONALITY·URL·IP). <b>cso_rules.yaml에 매핑된 라벨만</b> 검출합니다(미등록 유형은 스캔 안 함).</div>
+</section>
+
+<!-- ============ 5. pii_combos ============ -->
+<h2 id="pii_combos"><span class="n">5</span> pii_combos <span class="sig">rule 신호 · L1-combo</span></h2>
+<section class="card">
+  <p><b>결합식별성(개인정보보호법·GDPR ‘결합용이성’)</b> — 개별론 등급이 낮아도 여러 PII 유형이 <b>한 문서에</b> 모이면 재식별 위험이 커져 상향합니다. 판정은 <b>문서 단위 공존</b>만 봅니다(문장 근접성 아님). 결과에는 <code>layer:"COMBO"</code> 히트로 표시됩니다.</p>
+<pre><code>pii_combos:
+- id: identity_financial
+  name: 신원+금융 결합(재식별·금융피해)
+  all_of: [RRN, ACCOUNT]       <span class="cmt"># 둘 다 있으면 성립</span>
+  grade: C
+  weight: high
+  seed_eligible: true
+
+- id: contact_cluster
+  name: 연락처 결합(개인 특정)
+  of: [PHONE, EMAIL, ADDRESS]  <span class="cmt"># 이 그룹에서…</span>
+  min_types: 2                 <span class="cmt"># …2종 이상이면 성립 → S</span>
+  grade: S</code></pre>
+  <div class="scroll"><table>
+    <tr><th>필드</th><th>필수</th><th>타입</th><th>기본</th><th>의미</th></tr>
+    <tr><td class="f">id</td><td class="req">필수</td><td>문자열</td><td>—</td><td>조합 식별자.</td></tr>
+    <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름.</td></tr>
+    <tr><td class="f">all_of</td><td class="opt">조건①</td><td>라벨 목록</td><td>없음</td><td>나열한 ko-pii 라벨이 <b>모두</b> 있으면 성립.</td></tr>
+    <tr><td class="f">of</td><td class="opt">조건②</td><td>라벨 목록</td><td>없음</td><td><code>min_types</code>와 함께 사용하는 라벨 그룹.</td></tr>
+    <tr><td class="f">min_types</td><td class="opt">조건②</td><td>정수</td><td>0</td><td><code>of</code> 그룹에서 <b>서로 다른 라벨</b>이 이 종수 이상이면 성립.</td></tr>
+    <tr><td class="f">grade</td><td class="opt">선택</td><td>grade</td><td>C</td><td>조합 성립 시 부여할 상향 등급.</td></tr>
+    <tr><td class="f">weight</td><td class="opt">선택</td><td>weight</td><td>high</td><td>신뢰도 가중.</td></tr>
+    <tr><td class="f">seed_eligible</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 이 조합으로 확정된 문서를 seed 로 승격 가능.</td></tr>
+  </table></div>
+  <p class="muted">※ <code>all_of</code>와 <code>of+min_types</code>를 <b>둘 다</b> 적으면 둘 다 만족해야 합니다(AND). 조건을 하나도 안 적은 규칙은 무시됩니다(오발동 방지).</p>
+</section>
+
+<!-- ============ 6. keywords ============ -->
+<h2 id="keywords"><span class="n">6</span> keywords <span class="sig">rule 신호 · L2 · name 신호</span></h2>
+<section class="card">
+  <p><b>기밀사전</b> — 지정 단어가 텍스트(또는 파일명)에 있으면 히트. <code>rule</code> 신호의 L2 이자, <code>name</code>(파일명) 신호가 재사용하는 규칙입니다.</p>
+<pre><code>keywords:
+- id: mark_confidential
+  name: 기밀 표식
+  terms: [대외비, 극비, 기밀, CONFIDENTIAL, RESTRICTED, SECRET]
+  base_grade: C
+  weight: high
+  seed_eligible: true</code></pre>
+  <div class="scroll"><table>
+    <tr><th>필드</th><th>필수</th><th>타입</th><th>기본</th><th>의미</th></tr>
+    <tr><td class="f">id</td><td class="req">필수</td><td>문자열</td><td>—</td><td>규칙 식별자.</td></tr>
+    <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름.</td></tr>
+    <tr><td class="f">terms</td><td class="req">필수</td><td>문자열 목록</td><td>—</td><td>탐지 단어들. 하나라도 텍스트에 있으면 히트(부분일치). <code>case_insensitive</code> 정책 적용.</td></tr>
+    <tr><td class="f">base_grade</td><td class="opt">선택</td><td>grade</td><td>S</td><td>1건이라도 있으면 부여할 등급.</td></tr>
+    <tr><td class="f">bulk_grade</td><td class="opt">선택</td><td>grade</td><td>없음</td><td>총 등장 건수가 임계 이상이면 상향할 등급.</td></tr>
+    <tr><td class="f">bulk_threshold</td><td class="opt">선택</td><td>정수</td><td>defaults</td><td>이 규칙 전용 임계값(없으면 defaults).</td></tr>
+    <tr><td class="f">weight</td><td class="opt">선택</td><td>weight</td><td>medium</td><td>신뢰도 가중.</td></tr>
+    <tr><td class="f">seed_eligible</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 seed 승격 가능.</td></tr>
+  </table></div>
+  <p class="muted">※ 결과 근거에는 어떤 단어가 몇 번 걸렸는지(<code>terms:[{term,count}]</code>)가 남습니다(정책 키워드라 안전).</p>
+</section>
+
+<!-- ============ 7. sensitive ============ -->
+<h2 id="sensitive"><span class="n">7</span> sensitive <span class="sig">sensitive 신호 · Signal F</span></h2>
+<section class="card">
+  <p><b>법상 민감정보</b>(개인정보보호법 제23조: 건강·유전·성생활·사상/신념·정치·노조·범죄경력·인종). 일반 기밀사전과 <b>분리된 독립 신호</b>라, “어느 민감범주 때문에 등급이 올랐는지”가 결과에서 명확히 드러납니다.</p>
+<pre><code>sensitive:
+- id: health
+  name: 건강정보
+  category: 건강
+  grade: C
+  weight: high
+  seed_eligible: false
+  terms: [진단서, 진단명, 병력, 질병명, 진료기록, 투약내역, ...]</code></pre>
+  <div class="scroll"><table>
+    <tr><th>필드</th><th>필수</th><th>타입</th><th>기본</th><th>의미</th></tr>
+    <tr><td class="f">id</td><td class="req">필수</td><td>문자열</td><td>—</td><td>규칙 식별자(예: <code>health</code>).</td></tr>
+    <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름.</td></tr>
+    <tr><td class="f">category</td><td class="opt">선택</td><td>문자열</td><td>""</td><td>민감정보 <b>범주</b>(건강/유전/성생활/사상·정치/노조/범죄경력/인종). 근거에 표기돼 감사에 유용.</td></tr>
+    <tr><td class="f">terms</td><td class="req">필수</td><td>문자열 목록</td><td>—</td><td>탐지 단어들(부분일치, case_insensitive 적용).</td></tr>
+    <tr><td class="f">grade</td><td class="opt">선택</td><td>grade</td><td>C</td><td>히트 시 부여 등급(법상 민감 → 기본 <span class="tag c">C</span>).</td></tr>
+    <tr><td class="f">weight</td><td class="opt">선택</td><td>weight</td><td>high</td><td>신뢰도 가중.</td></tr>
+    <tr><td class="f">seed_eligible</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 seed 승격 가능.</td></tr>
+  </table></div>
+  <div class="warn">키워드 기반이라 <b>오탐 가능</b>(예: 일반 기사 속 ‘정치’). 보수적(상향)으로 두고, 과분류는 검토 큐에서 사람이 흡수합니다. 조직 문서 특성에 맞게 <code>terms</code>를 가감하세요.</div>
+</section>
+
+<!-- ============ 8. stamps ============ -->
+<h2 id="stamps"><span class="n">8</span> stamps <span class="sig">stamp 신호 · Signal E</span></h2>
+<section class="card">
+  <p><b>보안분류 스탬프</b> — 문서에 찍힌 “작성자의 명시적 분류 의도”. 일반 키워드와 달리, 본문 <b>단발 언급</b>(“대외비가 아님”)의 오탐을 막으려 <b>머리에 있거나 반복</b>일 때만 인정합니다.</p>
+<pre><code>stamps:
+- id: stamp_confidential
+  name: 대외비/기밀 스탬프
+  grade: C
+  weight: high
+  seed_eligible: true
+  terms: [대외비, 극비, 기밀, CONFIDENTIAL, SECRET]
+
+- id: stamp_confidential_phrase
+  name: 기밀 취급문구(명시)
+  always: true                 <span class="cmt"># 위치/반복 무관 1건도 인정</span>
+  grade: C
+  terms: [관계자 외 열람금지, 무단복제금지, ...]</code></pre>
+  <div class="scroll"><table>
+    <tr><th>필드</th><th>필수</th><th>타입</th><th>기본</th><th>의미</th></tr>
+    <tr><td class="f">id</td><td class="req">필수</td><td>문자열</td><td>—</td><td>규칙 식별자.</td></tr>
+    <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름.</td></tr>
+    <tr><td class="f">terms</td><td class="req">필수</td><td>문자열 목록</td><td>—</td><td>표식 문구들(예: <code>대외비</code>,<code>CONFIDENTIAL</code>).</td></tr>
+    <tr><td class="f">grade</td><td class="opt">선택</td><td>grade</td><td>C</td><td>스탬프 인정 시 부여 등급(내부용은 <span class="tag s">S</span> 등).</td></tr>
+    <tr><td class="f">weight</td><td class="opt">선택</td><td>weight</td><td>high</td><td>신뢰도 가중.</td></tr>
+    <tr><td class="f">seed_eligible</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 seed 승격 가능.</td></tr>
+    <tr><td class="f">always</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 <b>위치/반복 게이트 없이 1건이라도</b> 인정(거의 스탬프 전용 문구용).</td></tr>
+  </table></div>
+  <p class="muted"><b>인정 게이트</b>(always=false일 때): 첫 등장이 <b>문서 머리(앞 <code>N</code>자)</b>에 있거나(<code>mode:head</code>), <b><code>M</code>회 이상 반복</b>(<code>mode:repeat</code>)일 때만 스탬프로 봅니다. 둘 다면 <code>head+repeat</code>. 그 외(본문 단발 언급)는 무시.</p>
+  <div class="scroll"><table>
+    <tr><th>환경변수</th><th>기본</th><th>의미</th></tr>
+    <tr><td class="f">CSOCLASSIFY_STAMP_HEAD_CHARS</td><td>400</td><td>‘머리’ 인정 범위(문자수). 낮추면 엄격, 높이면 관대.</td></tr>
+    <tr><td class="f">CSOCLASSIFY_STAMP_REPEAT_MIN</td><td>2</td><td>‘반복’ 인정 최소 횟수.</td></tr>
+  </table></div>
+</section>
+
+<!-- ============ 9. paths ============ -->
+<h2 id="paths"><span class="n">9</span> paths <span class="sig">path 신호 · Signal C</span></h2>
+<section class="card">
+  <p><b>경로 택소노미</b> — 파일이 <b>어디에 있나</b>(폴더·서버 위치)로 등급을 매깁니다. 텍스트를 열지 않는 값싼 출처 신호입니다. 경로에 규칙의 <code>match</code> 조각이 들어 있으면 그 등급.</p>
+<pre><code>paths:
+- id: secure_server
+  name: 기밀 서버·보안파일서버
+  match: ["//hr-server/", "보안파일서버", "/secret/"]
+  grade: C
+  acl_restricted: true
+  weight: high
+  seed_eligible: false</code></pre>
+  <div class="scroll"><table>
+    <tr><th>필드</th><th>필수</th><th>타입</th><th>기본</th><th>의미</th></tr>
+    <tr><td class="f">id</td><td class="req">필수</td><td>문자열</td><td>—</td><td>규칙 식별자. 결과 근거의 <code>source</code>.</td></tr>
+    <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름.</td></tr>
+    <tr><td class="f">match</td><td class="req">필수</td><td>문자열 목록</td><td>—</td><td>경로에 포함되면 매칭되는 <b>조각</b>들(부분일치). 구분자는 <code>/</code>로 통일해 표기(코드가 <code>\</code>·UNC를 <code>/</code>·<code>//</code>로 정규화·소문자화).</td></tr>
+    <tr><td class="f">grade</td><td class="opt">선택</td><td>grade</td><td>S</td><td>매칭 시 부여 등급.</td></tr>
+    <tr><td class="f">acl_restricted</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 <b>강한 제한</b> 표식 — 다른 신호가 없어도 fail-safe 로 <span class="tag c">C</span>.</td></tr>
+    <tr><td class="f">weight</td><td class="opt">선택</td><td>weight</td><td>high</td><td>신뢰도 가중.</td></tr>
+    <tr><td class="f">seed_eligible</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 seed 승격 가능.</td></tr>
+  </table></div>
+  <p class="muted">※ 규칙은 <b>위에서부터 먼저 매칭되는 하나만</b> 적용됩니다(우선순위 = 배열 순서). 예) <code>//hr-server/</code>→<span class="tag c">C</span>, <code>/인사/</code>→<span class="tag s">S</span>, <code>/public/</code>→<span class="tag o">O</span>.</p>
+</section>
+
+<footer>CSOClassify — cso_rules.yaml 규칙셋 필드 레퍼런스 · 정책 편집·감사 참고 문서</footer>
+
+</div>
+</body>
+</html>

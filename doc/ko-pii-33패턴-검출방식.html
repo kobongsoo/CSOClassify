@@ -1,0 +1,523 @@
+<meta charset="utf-8">
+<title>ko-pii 33종 PII 검출 패턴 상세 — 원본 정규식 전체 (v1.15.2)</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1c2530; --sub:#5b6674;
+    --line:#e3e7ec; --code:#f1f3f6; --codeink:#0b3d91; --kwink:#0a7d3c;
+    --g1:#c1121f; --g2:#0a7d3c; --g3:#1f5fbf; --g4:#8a5a00; --g5:#6b3fa0;
+    --thbg:#2b3440; --think:#ffffff; --zebra:#fafbfc; --accent:#1f5fbf;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#12161b; --card:#1a1f26; --ink:#e6ebf1; --sub:#9aa6b3;
+      --line:#2a323c; --code:#0f141a; --codeink:#8fbcff; --kwink:#4cd08a;
+      --g1:#ff6b6b; --g2:#4cd08a; --g3:#6fa8ff; --g4:#e0b25a; --g5:#c39bec;
+      --thbg:#0f1419; --think:#e6ebf1; --zebra:#1d232b; --accent:#6fa8ff;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+    line-height:1.6;font-size:15px}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 20px 90px}
+  header.hero{background:linear-gradient(135deg,#2b3440,#1f5fbf);color:#fff;
+    border-radius:16px;padding:30px 34px;margin-bottom:24px;
+    box-shadow:0 10px 30px rgba(31,95,191,.25)}
+  header.hero h1{margin:0 0 8px;font-size:25px;letter-spacing:-.3px}
+  header.hero p{margin:4px 0;opacity:.92;font-size:14px}
+  .meta-badges{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+  .badge{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);
+    padding:4px 11px;border-radius:20px;font-size:12.5px}
+  .intro{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:18px 22px;margin-bottom:22px}
+  .intro h2{margin:0 0 10px;font-size:17px}
+  .intro ul{margin:8px 0 0;padding-left:20px}
+  .intro li{margin:6px 0;color:var(--sub);font-size:14px}
+  code{background:var(--code);color:var(--codeink);padding:1.5px 6px;
+    border-radius:5px;font-family:"Consolas","D2Coding",monospace;font-size:13px}
+  .legend{display:flex;flex-wrap:wrap;gap:9px;margin:16px 0 4px}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:var(--card);
+    border:1px solid var(--line);border-radius:22px;padding:6px 14px;font-size:13px}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .d1{background:var(--g1)} .d2{background:var(--g2)} .d3{background:var(--g3)}
+  .d4{background:var(--g4)} .d5{background:var(--g5)}
+  .toc{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:14px 20px;margin-bottom:24px;font-size:13.5px}
+  .toc b{display:block;margin-bottom:6px}
+  .toc a{color:var(--accent);text-decoration:none;margin-right:4px}
+  .toc a:hover{text-decoration:underline}
+
+  section.grp{margin:34px 0 8px}
+  .grp-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .grp-head h2{margin:0;font-size:20px}
+  .grp-head .cnt{color:var(--sub);font-size:13px;font-weight:400}
+  .grp-bar{height:4px;border-radius:4px;flex:1;opacity:.5}
+
+  .cat{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:0;margin-bottom:16px;overflow:hidden}
+  .cat-head{display:flex;align-items:baseline;gap:12px;padding:13px 18px;
+    border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .cat-head .no{font-variant-numeric:tabular-nums;color:var(--sub);font-size:13px;
+    font-weight:700;min-width:26px}
+  .cat-head .key{font-family:"Consolas","D2Coding",monospace;font-weight:700;
+    font-size:15px;color:var(--accent)}
+  .cat-head .ko{font-weight:700;font-size:15px}
+  .cat-body{padding:6px 18px 16px}
+  .rowlab{font-size:12px;color:var(--sub);margin:12px 0 4px;font-weight:600;
+    font-family:"Consolas","D2Coding",monospace}
+  .rowlab .flag{color:var(--g4);font-weight:400}
+  pre.rgx{margin:0;font-family:"Consolas","D2Coding",monospace;font-size:12.8px;
+    background:var(--code);color:var(--ink);border-radius:8px;padding:10px 12px;
+    overflow-x:auto;white-space:pre;line-height:1.5;border:1px solid var(--line)}
+  .kwbox{margin:10px 0 2px;font-size:13px}
+  .kwbox .t{color:var(--sub);font-size:12px;font-weight:600;
+    font-family:"Consolas","D2Coding",monospace}
+  .kwbox .v{color:var(--kwink);font-weight:600;overflow-wrap:anywhere}
+  .valid{margin:11px 0 2px;padding:9px 12px;border-radius:8px;
+    background:color-mix(in srgb,var(--accent) 8%,transparent);
+    border-left:3px solid var(--accent);font-size:13px;color:var(--ink)}
+  .valid b{color:var(--accent)}
+  .cL1{border-top:4px solid var(--g1)} .cL2{border-top:4px solid var(--g2)}
+  .cL3{border-top:4px solid var(--g3)} .cL4{border-top:4px solid var(--g4)}
+  .cL5{border-top:4px solid var(--g5)}
+  footer{margin-top:44px;color:var(--sub);font-size:12.5px;text-align:center;
+    border-top:1px solid var(--line);padding-top:18px}
+  .note{font-size:12px;color:var(--sub);margin-top:6px}
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <h1>ko-pii · 33종 PII 검출 패턴 — 원본 정규식 전체</h1>
+  <p>CSOClassify 프로젝트가 사용하는 한국어 개인정보 탐지 라이브러리의 하드코딩 검출 규칙</p>
+  <p>축약 없이 <code style="color:#fff;background:rgba(255,255,255,.18)">re.compile()</code> 원문 그대로 수록 · 동적 생성 패턴(은행명·사건부호 등)은 <b>완전 확장</b></p>
+  <div class="meta-badges">
+    <span class="badge">패키지 ko-pii v1.15.2</span>
+    <span class="badge">총 33종 · 5개 검출 그룹</span>
+    <span class="badge">정본 ko_pii/labels.py</span>
+    <span class="badge">문서 갱신 2026-08-14</span>
+  </div>
+</header>
+
+<div class="intro">
+  <h2>읽는 법</h2>
+  <ul>
+    <li>각 카테고리 블록의 <code>_PATTERN</code> 등 <b>모노스페이스 라벨</b>은 소스의 실제 변수명이고, 그 아래 회색 박스가 <b>해당 <code>re.compile()</code>에 들어간 정규식 원문</b>입니다. 하나의 카테고리에 여러 정규식이 있으면 모두 나열했습니다.</li>
+    <li><span style="color:var(--g4)">[flags]</span> 표시는 컴파일 플래그입니다(예: <code>re.IGNORECASE</code>). 표시가 없으면 플래그 없음.</li>
+    <li><b class="kwbox" style="margin:0"><span class="t">KEYWORDS</span></b> 줄은 앵커/사전 키워드 목록을 <b>원문 그대로</b> 옮긴 것이고, <b>검증</b> 상자는 정규식 이후 코드로 수행되는 체크섬·화이트리스트·문맥 점수 등 <b>정규식으로 표현 안 되는 판정 로직</b>입니다.</li>
+    <li>단일 진실(SSOT)은 <code>ko_pii/labels.py</code>의 <code>LABEL_INFO</code>. 정규식 출처는 <code>ko_pii/patterns/*.py</code> · <code>ko_pii/domain/*.py</code>.</li>
+  </ul>
+  <div class="legend">
+    <span class="chip"><span class="dot d1"></span>결정적 검증</span>
+    <span class="chip"><span class="dot d2"></span>키워드 anchor</span>
+    <span class="chip"><span class="dot d3"></span>형식 검증</span>
+    <span class="chip"><span class="dot d4"></span>사전·컨텍스트</span>
+    <span class="chip"><span class="dot d5"></span>인적 속성</span>
+  </div>
+</div>
+
+<div class="toc">
+  <b>목차 (33종)</b>
+  ①결정: <a href="#c1">RRN</a> <a href="#c2">FRN</a> <a href="#c3">BUSINESS_REG</a> <a href="#c4">CORP_REG</a> <a href="#c5">DRIVER_LICENSE</a> <a href="#c6">PASSPORT</a> <a href="#c7">CARD</a> <a href="#c8">PNU</a> ·
+  ②앵커: <a href="#c9">MEDICAL_INSURANCE</a> <a href="#c10">PRESCRIPTION_ID</a> <a href="#c11">EDI_DRUG</a> <a href="#c12">FAX</a> <a href="#c13">ACCOUNT</a> <a href="#c14">EMPLOYEE_ID</a> <a href="#c15">PETITION_ID</a> <a href="#c16">COURT_CASE</a> ·
+  ③형식: <a href="#c17">PHONE</a> <a href="#c18">EMAIL</a> <a href="#c19">IP</a> <a href="#c20">URL</a> <a href="#c21">POSTAL_CODE</a> <a href="#c22">VEHICLE</a> <a href="#c23">DOC_ID</a> ·
+  ④사전: <a href="#c24">PERSON</a> <a href="#c25">ADDRESS</a> <a href="#c26">NATIONALITY</a> <a href="#c27">EDUCATION</a> <a href="#c28">MAJOR</a> <a href="#c29">POSITION</a> ·
+  ⑤속성: <a href="#c30">DT_BIRTH</a> <a href="#c31">AGE</a> <a href="#c32">HEIGHT</a> <a href="#c33">WEIGHT</a>
+</div>
+
+<!-- ================= GROUP 1 ================= -->
+<section class="grp">
+  <div class="grp-head"><h2 style="color:var(--g1)">① 결정적 검증</h2>
+    <span class="cnt">8종 · 체크섬/화이트리스트로 진위 확정</span>
+    <span class="grp-bar" style="background:var(--g1)"></span></div>
+
+  <div class="cat cL1" id="c1"><div class="cat-head"><span class="no">1</span><span class="key">RRN</span><span class="ko">주민등록번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![0-9])([0-9]{6})(?:\s?[-./]\s?|[-./\s]{0,2})([0-9]{7})(?![0-9])</pre>
+      <div class="rowlab">_PATTERN_PREFIXED <span class="flag">(관계코드 1자리 접두 변형)</span></div>
+      <pre class="rgx">(?&lt;![0-9])[0-9]([0-9]{6})(?:\s?[-./]\s?|[-./\s]{0,2})([0-9]{7})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> 앞 6자리를 날짜(YYMMDD)로 검증 + 뒤 7자리 가중치 체크섬. 2020년 이후 부여분은 체크섬이 폐지되어 신뢰도 신호로만 사용.</div>
+    </div>
+  </div>
+
+  <div class="cat cL1" id="c2"><div class="cat-head"><span class="no">2</span><span class="key">FRN</span><span class="ko">외국인등록번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![0-9])([0-9]{6})(?:\s?[-./]\s?|[-./\s]{0,2})([0-9]{7})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> RRN과 동일 6+7 형식. 뒤 첫자리(성별 자리)가 <b>5~8</b>인지 + 외국인 전용 체크섬으로 RRN과 구분.</div>
+    </div>
+  </div>
+
+  <div class="cat cL1" id="c3"><div class="cat-head"><span class="no">3</span><span class="key">BUSINESS_REG</span><span class="ko">사업자등록번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![0-9])([0-9]{3})-?([0-9]{2})-?([0-9]{5})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> 국세청 가중합 체크섬(3-2-5 형식)으로 유효성 확정.</div>
+    </div>
+  </div>
+
+  <div class="cat cL1" id="c4"><div class="cat-head"><span class="no">4</span><span class="key">CORP_REG</span><span class="ko">법인등록번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![0-9])([0-9]{6})(?:\s?[-./]\s?|[-./\s]{0,2})([0-9]{7})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> 법인 전용 체크섬. RRN과 형식이 같아 RRN 검출을 우선 적용한 뒤 남은 것을 법인번호로 판정.</div>
+    </div>
+  </div>
+
+  <div class="cat cL1" id="c5"><div class="cat-head"><span class="no">5</span><span class="key">DRIVER_LICENSE</span><span class="ko">운전면허번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN_HYPHEN</div>
+      <pre class="rgx">(?&lt;![0-9])([0-9]{2})-([0-9]{2})-([0-9]{6})-([0-9]{2})(?![0-9])</pre>
+      <div class="rowlab">_PATTERN_NO_HYPHEN</div>
+      <pre class="rgx">(?&lt;![0-9])([0-9]{2})([0-9]{2})([0-9]{6})([0-9]{2})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> 앞 2자리를 지방경찰청 코드 화이트리스트와 대조.</div>
+    </div>
+  </div>
+
+  <div class="cat cL1" id="c6"><div class="cat-head"><span class="no">6</span><span class="key">PASSPORT</span><span class="ko">여권번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![A-Za-z0-9])(PP|PM|PS|PO|PD|PR|PT|M|S|G|O|D|R|T)([0-9]{8})(?![A-Za-z0-9])</pre>
+      <div class="valid"><b>검증</b> 여권 종류 접두문자 화이트리스트 + 뒤 8자리 숫자.</div>
+    </div>
+  </div>
+
+  <div class="cat cL1" id="c7"><div class="cat-head"><span class="no">7</span><span class="key">CARD</span><span class="ko">카드번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![0-9])(?:[0-9]{4}[-. /]\s?[0-9]{4}[-. /]\s?[0-9]{4}[-. /]\s?[0-9]{1,7}|[0-9]{13,19})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> BIN(발급사 식별번호) 화이트리스트 + Luhn 체크섬으로 유효 카드번호만 채택.</div>
+    </div>
+  </div>
+
+  <div class="cat cL1" id="c8"><div class="cat-head"><span class="no">8</span><span class="key">PNU</span><span class="ko">토지번호(PNU)</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![0-9])(\d{19})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> 19자리 고정 + 앞자리 시·도 법정동 코드 유효성 검사.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= GROUP 2 ================= -->
+<section class="grp">
+  <div class="grp-head"><h2 style="color:var(--g2)">② 키워드 anchor</h2>
+    <span class="cnt">8종 · 주변 키워드 + 형식이 모두 있어야 검출</span>
+    <span class="grp-bar" style="background:var(--g2)"></span></div>
+
+  <div class="cat cL2" id="c9"><div class="cat-head"><span class="no">9</span><span class="key">MEDICAL_INSURANCE</span><span class="ko">건강보험증번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_KEYWORD_RE <span class="flag">(앞쪽 창에서 탐색)</span></div>
+      <pre class="rgx">건강\s*보험|의료\s*보험|보험증</pre>
+      <div class="rowlab">_NUMBER_RE</div>
+      <pre class="rgx">(?&lt;![0-9-])((?:[0-9]-[0-9]{10})|(?:[0-9]{11}))(?![0-9-])</pre>
+      <div class="valid"><b>검증</b> 숫자 앞쪽 창에 _KEYWORD_RE 매칭이 있을 때만 채택.</div>
+    </div>
+  </div>
+
+  <div class="cat cL2" id="c10"><div class="cat-head"><span class="no">10</span><span class="key">PRESCRIPTION_ID</span><span class="ko">처방번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_ISSUANCE_PATTERN <span class="flag">(발급일자형 YYYYMMDDNNNN)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(\d{4})(\d{2})(\d{2})(\d{4})(?![0-9])</pre>
+      <div class="rowlab">_INSTITUTION_PATTERN <span class="flag">(요양기관 기호형)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(\d{8})(?![0-9])</pre>
+      <div class="rowlab">_LABELED_ID_PATTERN <span class="flag">(라벨 ID형)</span></div>
+      <pre class="rgx">(?&lt;![A-Za-z0-9])([A-Za-z]{2,6}-[0-9][0-9A-Za-z-]{3,22})(?![A-Za-z0-9])</pre>
+      <div class="kwbox"><span class="t">_KEYWORDS = </span><span class="v">처방번호 · 처방전번호 · 처방전 번호 · 처방전 발행번호 · 처방전교부번호 · 교부번호 · Rx 번호 · Rx번호 · Rx</span></div>
+      <div class="kwbox"><span class="t">_INSTITUTION_KEYWORDS = </span><span class="v">의료기관기호 · 기관기호 · 요양기관기호 · 요양기관번호 · 병원코드</span></div>
+      <div class="valid"><b>검증</b> 각 숫자열 앞쪽에 해당 키워드가 있어야 채택.</div>
+    </div>
+  </div>
+
+  <div class="cat cL2" id="c11"><div class="cat-head"><span class="no">11</span><span class="key">EDI_DRUG</span><span class="ko">약품코드(EDI)</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN_13</div>
+      <pre class="rgx">(?&lt;![0-9])(\d{13})(?![0-9])</pre>
+      <div class="rowlab">_PATTERN_9</div>
+      <pre class="rgx">(?&lt;![0-9])(\d{9})(?![0-9])</pre>
+      <div class="kwbox"><span class="t">_KEYWORDS = </span><span class="v">EDI · edi · 약품코드 · 의약품코드 · 주성분코드 · KD코드 · KD 코드 · 약가코드</span></div>
+      <div class="valid"><b>검증</b> 키워드 필요 + 13자리는 GS1 체크섬, 9자리는 보험 EDI 코드.</div>
+    </div>
+  </div>
+
+  <div class="cat cL2" id="c12"><div class="cat-head"><span class="no">12</span><span class="key">FAX</span><span class="ko">팩스번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![0-9+])(0\d{1,2})[-.\s]?(\d{3,4})[-.\s]?(\d{4})(?![0-9])</pre>
+      <div class="kwbox"><span class="t">_KEYWORDS = </span><span class="v">팩스 · FAX · fax · Fax</span></div>
+      <div class="valid"><b>검증</b> 전화번호와 형식이 같아, 근처에 팩스 키워드가 있어야 팩스로 분류.</div>
+    </div>
+  </div>
+
+  <div class="cat cL2" id="c13"><div class="cat-head"><span class="no">13</span><span class="key">ACCOUNT</span><span class="ko">계좌번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_KEYWORD_PATTERN <span class="flag">("계좌" 키워드형)</span></div>
+      <pre class="rgx">(?:계좌\s*(?:번호|번)?\s*:?\s*)([0-9][\s\-]*(?:[0-9][\s\-]*){9,19})</pre>
+      <div class="rowlab">_BANK_BEFORE_PATTERN <span class="flag">(은행명 → 숫자, 완전 확장)</span></div>
+      <pre class="rgx">(?:국민은행|신한은행|우리은행|하나은행|기업은행|IBK|KEB하나은행|KEB|KB국민은행|KB|농협은행|농협|NH농협|NH|수협은행|수협|Sh수협|SC제일은행|제일은행|씨티은행|한국씨티|외환은행|스탠다드차타드|카카오뱅크|카뱅|카카오페이|토스뱅크|토스뱅킹|토스페이|케이뱅크|K뱅크|네이버페이|부산은행|BNK부산|대구은행|DGB대구|경남은행|BNK경남|광주은행|전북은행|제주은행|JB제주|산업은행|KDB산업|수출입은행|EXIM|한국은행|BOK|우체국|우정사업본부|우정청|새마을금고|MG새마을|MG|신협|신용협동조합|수산업협동조합|농업협동조합|국민|신한|우리|하나)\s*:?\s*([0-9]+(?:[\s\-][0-9]+){1,4}|[0-9]{10,16})</pre>
+      <div class="rowlab">_BANK_AFTER_PATTERN <span class="flag">(숫자 → 은행명, 완전 확장)</span></div>
+      <pre class="rgx">(?&lt;![0-9])([0-9]+(?:[\s\-][0-9]+){1,4}|[0-9]{10,16})\s*(?:국민은행|신한은행|우리은행|하나은행|기업은행|IBK|KEB하나은행|KEB|KB국민은행|KB|농협은행|농협|NH농협|NH|수협은행|수협|Sh수협|SC제일은행|제일은행|씨티은행|한국씨티|외환은행|스탠다드차타드|카카오뱅크|카뱅|카카오페이|토스뱅크|토스뱅킹|토스페이|케이뱅크|K뱅크|네이버페이|부산은행|BNK부산|대구은행|DGB대구|경남은행|BNK경남|광주은행|전북은행|제주은행|JB제주|산업은행|KDB산업|수출입은행|EXIM|한국은행|BOK|우체국|우정사업본부|우정청|새마을금고|MG새마을|MG|신협|신용협동조합|수산업협동조합|농업협동조합|국민|신한|우리|하나)</pre>
+      <div class="valid"><b>검증</b> "계좌" 키워드 또는 은행명 사전(63개)이 숫자열 앞/뒤에 있을 때 검출.</div>
+    </div>
+  </div>
+
+  <div class="cat cL2" id="c14"><div class="cat-head"><span class="no">14</span><span class="key">EMPLOYEE_ID</span><span class="ko">사번</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_ANCHOR <span class="flag">(숫자 직전 키워드 확인, 완전 확장)</span></div>
+      <pre class="rgx">(?:사번|공무원번호|직원번호|임용번호|사원번호)\s*[:：]?\s*$</pre>
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![0-9])(\d{4,12})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> 숫자 바로 앞에 _ANCHOR(사번/직원번호/임용번호 등)가 있어야 채택. (domain/hr.py)</div>
+    </div>
+  </div>
+
+  <div class="cat cL2" id="c15"><div class="cat-head"><span class="no">15</span><span class="key">PETITION_ID</span><span class="ko">민원번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN <span class="flag">(연도·키워드 순서 무관)</span></div>
+      <pre class="rgx">(?&lt;![A-Za-z0-9가-힣])((?:19|20)\d{2}-(?:민원|정보공개|이의신청|행정심판)-\d{4,8}|(?:민원|정보공개|이의신청|행정심판)-(?:19|20)\d{2}-\d{4,8})(?![A-Za-z0-9가-힣])</pre>
+      <div class="valid"><b>검증</b> 정규식 매칭만으로 확정. (domain/civil_petition.py)</div>
+    </div>
+  </div>
+
+  <div class="cat cL2" id="c16"><div class="cat-head"><span class="no">16</span><span class="key">COURT_CASE</span><span class="ko">사건번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN <span class="flag">(사건 부호문자 _CODE_ALTS 완전 확장)</span></div>
+      <pre class="rgx">(?&lt;![0-9가-힣])((?:19|20)\d{2})(가합|가단|가소|카합|카단|카기|고합|고단|고정|형보|고약|고전|구합|구단|구약|드합|드단|수단|수합|후단|후합|헌가|헌나|헌다|헌라|헌마|헌바|나|다|차|머|노|도|초|누|두|르|므|호|자|보|사|허|라|마|바)(\d{1,6})(?![0-9가-힣])</pre>
+      <div class="valid"><b>검증</b> 연도 + 사건 부호문자(사건 유형 결정) + 일련번호. 부호문자 사전으로 사건 종류를 매핑.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= GROUP 3 ================= -->
+<section class="grp">
+  <div class="grp-head"><h2 style="color:var(--g3)">③ 형식 검증</h2>
+    <span class="cnt">7종 · 정규식 형식만으로 판정</span>
+    <span class="grp-bar" style="background:var(--g3)"></span></div>
+
+  <div class="cat cL3" id="c17"><div class="cat-head"><span class="no">17</span><span class="key">PHONE</span><span class="ko">전화번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_MOBILE <span class="flag">(휴대폰)</span></div>
+      <pre class="rgx">(?&lt;![0-9+])(01[01679])[-.\s]{0,3}(\d{3,4})[-.\s]{0,3}(\d{4})(?![0-9])</pre>
+      <div class="rowlab">_MOBILE_INTL <span class="flag">(국제표기 휴대폰, _INTL_PREFIX 확장)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(?:\+82|0082|82)[-.\s]?(?:\(0\)[-.\s]?)?(1[01679])[-.\s]{0,3}(\d{3,4})[-.\s]{0,3}(\d{4})(?![0-9])</pre>
+      <div class="rowlab">_SEOUL_INTL <span class="flag">(국제표기 서울)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(?:\+82|0082|82)[-.\s]?(?:\(0\)[-.\s]?)?(2)[-.\s]{0,3}(\d{3,4})[-.\s]{0,3}(\d{4})(?![0-9])</pre>
+      <div class="rowlab">_REGIONAL_INTL <span class="flag">(국제표기 지역)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(?:\+82|0082|82)[-.\s]?(?:\(0\)[-.\s]?)?(3[1-3]|4[1-4]|5[1-5]|6[1-4]|70)[-.\s]{0,3}(\d{3,4})[-.\s]{0,3}(\d{4})(?![0-9])</pre>
+      <div class="rowlab">_SEOUL <span class="flag">(02 서울)</span></div>
+      <pre class="rgx">(?&lt;![0-9+])(02)[-.\s)\]]{0,3}(\d{3,4})[-.\s]{0,3}(\d{4})(?![0-9])</pre>
+      <div class="rowlab">_REGIONAL <span class="flag">(0NN 지역 / 070)</span></div>
+      <pre class="rgx">(?&lt;![0-9+])(03[1-3]|04[1-4]|05[1-5]|06[1-4]|070)[-.\s)\]]{0,3}(\d{3,4})[-.\s]{0,3}(\d{4})(?![0-9])</pre>
+      <div class="rowlab">_REPRESENTATIVE <span class="flag">(15xx/16xx/17xx/18xx 대표번호)</span></div>
+      <pre class="rgx">(?&lt;![0-9+])(1[5-8]\d{2})[-.\s]{0,3}(\d{4})(?![0-9])</pre>
+    </div>
+  </div>
+
+  <div class="cat cL3" id="c18"><div class="cat-head"><span class="no">18</span><span class="key">EMAIL</span><span class="ko">이메일</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN <span class="flag">(RFC 5322 기반)</span></div>
+      <pre class="rgx">(?&lt;![A-Za-z0-9._%+\-])([A-Za-z0-9._%+\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)+)(?![A-Za-z0-9])</pre>
+    </div>
+  </div>
+
+  <div class="cat cL3" id="c19"><div class="cat-head"><span class="no">19</span><span class="key">IP</span><span class="ko">IP 주소</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_IPV4</div>
+      <pre class="rgx">(?&lt;![0-9.])((?:[0-9]{1,3}\.){3}[0-9]{1,3})(?![0-9.])</pre>
+      <div class="rowlab">_IPV6</div>
+      <pre class="rgx">(?&lt;![0-9A-Fa-f:.])([0-9A-Fa-f:]*::[0-9A-Fa-f:]*(?:\d{1,3}(?:\.\d{1,3}){3})?|(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4})(?:%[A-Za-z0-9]+)?(?![0-9A-Fa-f:.])</pre>
+      <div class="rowlab">_VERSION_CTX <span class="flag">(오검출 배제 — 버전번호 문맥)</span></div>
+      <pre class="rgx">(?:버전|버젼|펌웨어|릴리[스즈]|빌드|패치|(?&lt;![A-Za-z])(?:[vV]\.?|ver\.?|version|firmware|release|build|patch))\s*$</pre>
+      <div class="rowlab">_SECTION_CTX <span class="flag">(오검출 배제 — 문서 절/표 번호 문맥)</span></div>
+      <pre class="rgx">(?:표|그림|별표|도표|붙임|항목|조항|조|항|단계|절|장|버전|챕터|[Ss]ection|[Cc]hapter|[Ff]igure|[Tt]able|[Aa]ppendix|[Cc]lause|(?&lt;![A-Za-z])(?:[Ss]ec|[Cc]h|[Ff]ig|[Aa]pp)\.?)\s*$</pre>
+      <div class="rowlab">_VERSION_RIGHT <span class="flag">(오검출 배제 — 오른쪽 버전 문맥)</span></div>
+      <pre class="rgx">^\s*(?:버전|버젼|version|빌드|build|릴리[스즈])</pre>
+      <div class="valid"><b>검증</b> IPv4 옥텟 범위 확인. 버전번호·문서 절번호 문맥이면 위 3개 CTX 정규식으로 배제.</div>
+    </div>
+  </div>
+
+  <div class="cat cL3" id="c20"><div class="cat-head"><span class="no">20</span><span class="key">URL</span><span class="ko">URL</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN <span class="flag">[re.IGNORECASE]</span></div>
+      <pre class="rgx">\bhttps?://[^\s&lt;&gt;\"'`)\]\}]+</pre>
+    </div>
+  </div>
+
+  <div class="cat cL3" id="c21"><div class="cat-head"><span class="no">21</span><span class="key">POSTAL_CODE</span><span class="ko">우편번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_LEGACY <span class="flag">(구 6자리)</span></div>
+      <pre class="rgx">(?&lt;![0-9])([0-9]{3}-[0-9]{3})(?![0-9])</pre>
+      <div class="rowlab">_NEW_WITH_KEYWORD <span class="flag">(신 5자리, 키워드 필요)</span></div>
+      <pre class="rgx">(?:우편\s*번호|우편번호|우편)\s*:?\s*([0-9]{5})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> 첫자리 시·도 매핑 검증. 신우편번호(5자리)는 "우편번호" 키워드가 있어야 채택.</div>
+    </div>
+  </div>
+
+  <div class="cat cL3" id="c22"><div class="cat-head"><span class="no">22</span><span class="key">VEHICLE</span><span class="ko">차량번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN</div>
+      <pre class="rgx">(?&lt;![0-9가-힣])([0-9]{2,3})\s?([가-힣])\s?([0-9]{4})(?![0-9])</pre>
+      <div class="valid"><b>검증</b> 중간 용도 한글자(가·나·다…)의 유효성 확인.</div>
+    </div>
+  </div>
+
+  <div class="cat cL3" id="c23"><div class="cat-head"><span class="no">23</span><span class="key">DOC_ID</span><span class="ko">문서번호</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_DOC_ID</div>
+      <pre class="rgx">(?&lt;![A-Za-z0-9가-힣])(([가-힣]{2,6})-[가-힣A-Za-z0-9]{2,10}-(?:19|20)\d{2}-\d{4,6})(?![A-Za-z0-9가-힣])</pre>
+      <div class="valid"><b>검증</b> 기관/부서 약어-부서-4자리 연도-일련번호. 정부 공문서 번호 형식. (domain/government.py)</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= GROUP 4 ================= -->
+<section class="grp">
+  <div class="grp-head"><h2 style="color:var(--g4)">④ 사전·컨텍스트</h2>
+    <span class="cnt">6종 · 사전 매칭 + 문맥 점수기</span>
+    <span class="grp-bar" style="background:var(--g4)"></span></div>
+
+  <div class="cat cL4" id="c24"><div class="cat-head"><span class="no">24</span><span class="key">PERSON</span><span class="ko">성명</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_CANDIDATE <span class="flag">(성명 후보 토큰)</span></div>
+      <pre class="rgx">(?&lt;![가-힣])([가-힣]{2,6})(?![가-힣])</pre>
+      <div class="rowlab">_DETERMINISTIC_HINTS <span class="flag">(근처 결정적 PII 힌트 — 가중용)</span></div>
+      <pre class="rgx">(?&lt;![0-9])\d{6}-?\d{7}(?![0-9])|01[01679][-\.\s]?\d{3,4}[-\.\s]?\d{4}|[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,}</pre>
+      <div class="rowlab">_AGE_GENDER_PATTERN <span class="flag">(나이/성별 괄호 — 문맥 신호)</span></div>
+      <pre class="rgx">\s*\(\s*(?:\d{1,3}\s*세|남자|여자|남|여|미혼|기혼)\s*\)|\s*,\s*(?:\d{1,3}\s*세|남자|여자|미혼|기혼)|\s+\d{1,3}\s*세\b</pre>
+      <div class="rowlab">_MACRO_AGENCY_PERSON_TITLE <span class="flag">(기관+성명+직함 매크로)</span></div>
+      <pre class="rgx">(?&lt;![가-힣A-Za-z0-9])([가-힣]{2,15}(?:부|처|청|위원회|원|국|실|단|장|소))(?:\s+|[\s\-/])([가-힣]{2,4})(?:\s+|[\s\-/])([가-힣]{2,8})(?![가-힣A-Za-z0-9])</pre>
+      <div class="valid"><b>검증</b> 성씨 사전 대조 후 조사·직함·나이/성별 괄호 등 문맥으로 점수화. 결정적 힌트가 근처면 가중.</div>
+    </div>
+  </div>
+
+  <div class="cat cL4" id="c25"><div class="cat-head"><span class="no">25</span><span class="key">ADDRESS</span><span class="ko">주소</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN_ADMIN_TOKEN <span class="flag">(행정구역 토큰)</span></div>
+      <pre class="rgx">(?&lt;![가-힣A-Za-z0-9])([가-힣]{2,6})(?![가-힣A-Za-z0-9])</pre>
+      <div class="rowlab">_PATTERN_ROAD <span class="flag">(도로명 주소)</span></div>
+      <pre class="rgx">(?:([가-힣]{1,8}(?:특별시|광역시|특별자치도|특별자치시|도))\s*)?((?:[가-힣]{1,8}(?:시|군|구)\s*){0,2})([가-힣A-Za-z0-9]{1,16}(?:대로|로|길))\s*([0-9]+(?:-[0-9]+)?)(?![0-9-])</pre>
+      <div class="rowlab">_PATTERN_JIBUN <span class="flag">(지번 주소)</span></div>
+      <pre class="rgx">(?:([가-힣]{1,8}(?:특별시|광역시|특별자치도|특별자치시|도))\s*)?((?:[가-힣]{1,8}(?:시|군|구)\s*){0,2})([가-힣]{1,8}(?:동|읍|면|리))\s*([0-9]+(?:-[0-9]+)?)(?![0-9-])(?:\s*번지)?</pre>
+      <div class="rowlab">_PATTERN_DETAIL <span class="flag">(동/호/층 상세)</span></div>
+      <pre class="rgx">\s*(?:(\d+동\s*\d+호)|(\d+동)|(\d+호)|(\d+층))</pre>
+      <div class="rowlab">_PATTERN_PAREN_DETAIL <span class="flag">(괄호 상세)</span></div>
+      <pre class="rgx">\s*\([가-힣A-Za-z0-9,·\s]+\)</pre>
+      <div class="rowlab">_PATTERN_BLDG <span class="flag">(건물명, _BLDG_SUFFIX 완전 확장)</span></div>
+      <pre class="rgx">\s+[가-힣A-Za-z0-9]{2,}(?=\s+\d+(?:동|호|층))|\s+[가-힣A-Za-z0-9]*(?:빌딩|타워|센터|스퀘어|플라자|프라자|오피스텔|아파트|맨션|하이츠|캐슬|팰리스|레지던스|펜트하우스|자이|래미안|푸르지오|더샵|아이파크|힐스테이트|디에이치|e편한세상|위브|센트레빌|롯데캐슬|데시앙|스위첸|꿈에그린|베르디움|리슈빌|코아루|우미린|한라비발디|효성해링턴|어울림|하늘채|호반써밋|아크로|써밋|주공)</pre>
+      <div class="rowlab">_PATTERN_LOOSE <span class="flag">(느슨한 행정구역열)</span></div>
+      <pre class="rgx">(?&lt;![가-힣])([가-힣]{2,}(?:시|군|구|동|읍|면|리))(?:\s+([가-힣]+(?:동|읍|면|리)))?(?:\s+([0-9]+(?:-[0-9]+)?))?(?![가-힣])</pre>
+      <div class="valid"><b>검증</b> 행정구역 + 법정동 사전 기반. 뒤에 숫자가 이어지면(전화번호 삼킴) 거부하는 <code>(?![0-9-])</code> 가드 포함.</div>
+    </div>
+  </div>
+
+  <div class="cat cL4" id="c26"><div class="cat-head"><span class="no">26</span><span class="key">NATIONALITY</span><span class="ko">국적</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN_TOKEN <span class="flag">(토큰 추출 후 국가명 사전 대조)</span></div>
+      <pre class="rgx">(?&lt;![가-힣A-Za-z0-9])([가-힣]{2,8})(?![가-힣A-Za-z0-9])</pre>
+      <div class="valid"><b>검증</b> 추출 토큰을 국가명 사전(70여 개)과 대조해 채택.</div>
+    </div>
+  </div>
+
+  <div class="cat cL4" id="c27"><div class="cat-head"><span class="no">27</span><span class="key">EDUCATION</span><span class="ko">학력</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_EDUCATION_PATTERN</div>
+      <pre class="rgx">(?&lt;![가-힣A-Za-z])(?:(?P&lt;full&gt;[가-힣]{2,15}(?:대학교|대학원대학교|전문대학|대학원|대학))|(?P&lt;abbrev&gt;[가-힣]{1,5}대)|(?P&lt;eng&gt;KAIST|POSTECH|UNIST|GIST|DGIST)|(?P&lt;kor&gt;카이스트|포스텍|유니스트|지스트|디지스트)|(?P&lt;elem&gt;[가-힣]{2,10}초등학교|[가-힣]{2,8}초)|(?P&lt;mid&gt;[가-힣]{2,10}중학교|[가-힣]{2,8}중)|(?P&lt;high&gt;[가-힣]{2,10}고등학교|[가-힣]{2,8}고))(?![가-힣A-Za-z])</pre>
+      <div class="valid"><b>검증</b> 대학 사전 약 330개 + 약칭(고대·홍대·연대…) + 영문 특수대학 + 초·중·고 named group 매칭.</div>
+    </div>
+  </div>
+
+  <div class="cat cL4" id="c28"><div class="cat-head"><span class="no">28</span><span class="key">MAJOR</span><span class="ko">전공</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_MAJOR_PATTERN_LONG <span class="flag">(학과/학부/전공 접미)</span></div>
+      <pre class="rgx">(?&lt;![가-힣A-Za-z])([가-힣]{1,11}(?:학과|학부|전공))</pre>
+      <div class="rowlab">_MAJOR_PATTERN_SHORT <span class="flag">(학/과 접미)</span></div>
+      <pre class="rgx">(?&lt;![가-힣A-Za-z])([가-힣]{1,10}(?:학|과))(?![가-힣A-Za-z])</pre>
+      <div class="rowlab">_MAJOR_FACULTY_PATTERN <span class="flag">(사전 대조용 토큰)</span></div>
+      <pre class="rgx">(?&lt;![가-힣A-Za-z])([가-힣]{2,4})(?![가-힣A-Za-z])</pre>
+      <div class="valid"><b>검증</b> 학과 사전 약 400개와 대조.</div>
+    </div>
+  </div>
+
+  <div class="cat cL4" id="c29"><div class="cat-head"><span class="no">29</span><span class="key">POSITION</span><span class="ko">직책</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_POSITION_PATTERN <span class="flag">(직함 사전 대조용 토큰)</span></div>
+      <pre class="rgx">(?&lt;![가-힣A-Za-z])([가-힣]{1,6})(?![가-힣A-Za-z])</pre>
+      <div class="rowlab">_POSITION_HONORIFIC_PATTERN <span class="flag">("~님" 경칭, 조사 부착 허용)</span></div>
+      <pre class="rgx">(?&lt;![가-힣A-Za-z])([가-힣]{1,6})님</pre>
+      <div class="valid"><b>검증</b> 직함 사전 250+ 매칭 또는 "직급/직책/직위" 앵커 키워드 + "~님" 경칭.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= GROUP 5 ================= -->
+<section class="grp">
+  <div class="grp-head"><h2 style="color:var(--g5)">⑤ 인적 속성 (준식별자)</h2>
+    <span class="cnt">4종 · 단독으론 약하나 결합 시 식별 위험</span>
+    <span class="grp-bar" style="background:var(--g5)"></span></div>
+
+  <div class="cat cL5" id="c30"><div class="cat-head"><span class="no">30</span><span class="key">DT_BIRTH</span><span class="ko">생년월일</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_PATTERN_KOREAN <span class="flag">(YYYY년 MM월 DD일)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(\d{4}|\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일</pre>
+      <div class="rowlab">_PATTERN_NUMERIC <span class="flag">(구분자 반복참조 \2)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(\d{2,4})([./-])(\d{1,2})\2(\d{1,2})(?![0-9])</pre>
+      <div class="rowlab">_PATTERN_BIRTH_YEAR <span class="flag">(YYYY년생)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(\d{2,4})\s*년\s*생</pre>
+      <div class="rowlab">_PERSON_NEAR_PATTERN <span class="flag">(근처 인명 문맥)</span></div>
+      <pre class="rgx">[가-힣]{2,4}(?:이에요|이라|입니다|이고|이며|이요|예요|이니|입니다\.|이|는|은|가|와|과)?</pre>
+      <div class="valid"><b>검증</b> 날짜 형식 + 생년월일 키워드/마커 또는 인접 인명 문맥으로 생일임을 확정.</div>
+    </div>
+  </div>
+
+  <div class="cat cL5" id="c31"><div class="cat-head"><span class="no">31</span><span class="key">AGE</span><span class="ko">나이</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_AGE_PATTERN <span class="flag">(N세 / N살)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(\d{1,3})\s*(?:세|살)(?![0-9])</pre>
+      <div class="rowlab">_AGE_RANGE_PATTERN <span class="flag">(N0대)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(\d{1,2}0)대(?![0-9가-힣])</pre>
+      <div class="rowlab">_KOREAN_AGE_PATTERN <span class="flag">(한글 음역 나이)</span></div>
+      <pre class="rgx">(?&lt;![가-힣])(스무|(?:열|스물|서른|마흔|쉰|예순|일흔|여든|아흔)(?:\s*(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉))?|한|두|세|네|다섯|여섯|일곱|여덟|아홉)\s*살</pre>
+      <div class="rowlab">_KOREAN_AGE_NOUN_PATTERN <span class="flag">(한자어 나이 명사)</span></div>
+      <pre class="rgx">(?&lt;![가-힣])(환갑|회갑|진갑|고희연|고희|칠순|산수|팔순|구순|졸수|백수|백세)(?![가-힣])</pre>
+      <div class="rowlab">_INFANT_MONTH_PATTERN <span class="flag">(영유아 N개월, 앵커 필요)</span></div>
+      <pre class="rgx">(?&lt;![0-9])(\d{1,2})\s*개월(?![0-9])</pre>
+      <div class="valid"><b>검증</b> N개월은 "아기/아이/생후/돌/만" 등 앵커가 있어야 채택.</div>
+    </div>
+  </div>
+
+  <div class="cat cL5" id="c32"><div class="cat-head"><span class="no">32</span><span class="key">HEIGHT</span><span class="ko">신장</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_HEIGHT_PATTERN <span class="flag">[re.IGNORECASE] (cm 단위)</span></div>
+      <pre class="rgx">(?&lt;![0-9.])(\d{2,3}(?:\.\d{1,2})?)\s*(?:cm|센티(?:미터)?|㎝)(?![A-Za-z])</pre>
+      <div class="rowlab">_HEIGHT_M_PATTERN <span class="flag">(m 단위, 1.xx)</span></div>
+      <pre class="rgx">(?&lt;![0-9.])(1\.\d{1,2})\s*m(?![A-Za-z])</pre>
+      <div class="valid"><b>검증</b> 값 범위(대략 50~250)로 일반 수치와 구분.</div>
+    </div>
+  </div>
+
+  <div class="cat cL5" id="c33"><div class="cat-head"><span class="no">33</span><span class="key">WEIGHT</span><span class="ko">체중</span></div>
+    <div class="cat-body">
+      <div class="rowlab">_WEIGHT_PATTERN <span class="flag">[re.IGNORECASE]</span></div>
+      <pre class="rgx">(?&lt;![0-9.])(\d{1,3}(?:\.\d{1,2})?)\s*(?:kg|키로(?:그램)?|킬로(?:그램)?|㎏|kilogram)(?![A-Za-z])</pre>
+      <div class="valid"><b>검증</b> 값 범위(대략 1~300)로 판정.</div>
+    </div>
+  </div>
+</section>
+
+<div class="intro" style="margin-top:30px">
+  <h2>공통 검출 메커니즘 (모든 패턴에 걸친 안전장치)</h2>
+  <ul>
+    <li><b>경계 룩어라운드</b> — 대부분 패턴이 <code>(?&lt;![0-9])…(?![0-9])</code> 로 숫자 경계를 강제해, 긴 숫자열 중 일부만 잘못 잡히는 것을 막습니다.</li>
+    <li><b>유니코드 정규화</b> — 전각(０-９)·호환문자 폴딩 + 제로폭 문자(ZWSP·소프트하이픈) 제거로 검출 우회를 차단하고, 결과 offset은 원본 기준으로 역매핑합니다.</li>
+    <li><b>더블 패스</b> — 보이지 않는 문자 제거가 인접 PII 두 개를 하나로 융합시킨 경우, 정규화본과 원본을 둘 다 검사해 합집합합니다.</li>
+    <li><b>겹침 해소(resolve_overlaps)</b> — 스팬이 겹치면 위험도 → 신뢰도 → 길이 → 시작위치 우선순위로 정리합니다.</li>
+    <li><b>include / exclude</b> — <code>detect_all(text, include=[...], exclude=[...])</code> 로 위 33개 라벨키 단위로 켜고 끕니다.</li>
+  </ul>
+  <p class="note">그룹 합계: 결정적 검증 8 + 키워드 anchor 8 + 형식 검증 7 + 사전·컨텍스트 6 + 인적 속성 4 = <b>총 33종</b>. 정규식은 소스의 <code>re.compile()</code> 인자를 그대로 옮긴 것이며, HTML 표기상 <code>&lt;</code> 는 <code>&amp;lt;</code> 로만 이스케이프되어 실제 패턴과 동일합니다.</p>
+</div>
+
+<footer>
+  출처: <code>ko_pii/labels.py · ko_pii/patterns/*.py · ko_pii/domain/*.py</code> (ko-pii v1.15.2)<br>
+  CSOClassify 문서 · 2026-08-14 생성 · 원본 정규식 전체(축약 없음) 버전
+</footer>
+</div>

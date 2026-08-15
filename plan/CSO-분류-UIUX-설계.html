@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>문서 C·S·O 분류 — 워크플로 & UI/UX 설계</title>
+</head>
+<body>
+<style>
+  :root{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+    --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","맑은 고딕",-apple-system,"Apple SD Gothic Neo",system-ui,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","Cascadia Mono",Consolas,"D2Coding",monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+      --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+      --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+      --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+    --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+    --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+    --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.7;-webkit-font-smoothing:antialiased;font-size:16px;letter-spacing:-0.003em;}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px 96px;}
+
+  header.doc{padding:56px 0 34px;border-bottom:1px solid var(--line);margin-bottom:40px;}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;display:flex;gap:10px;align-items:center;margin-bottom:20px;}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);border-radius:2px;}
+  h1.title{font-size:clamp(28px,4.6vw,44px);line-height:1.12;margin:0 0 14px;font-weight:800;letter-spacing:-0.02em;text-wrap:balance;}
+  .lede{font-size:clamp(16px,2.1vw,19px);color:var(--muted);max-width:64ch;margin:0;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 10px;margin-top:26px;}
+  .chip{font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--surface-2);
+    border:1px solid var(--line);border-radius:999px;padding:5px 12px;}
+  .chip b{color:var(--ink);font-weight:600;}
+
+  section{margin:52px 0;scroll-margin-top:20px;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:22px;}
+  .sec-num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);
+    border:1px solid var(--line-strong);border-radius:7px;padding:3px 9px;flex:none;line-height:1.3;}
+  h2{font-size:clamp(21px,3vw,27px);margin:0;font-weight:750;letter-spacing:-0.015em;line-height:1.25;text-wrap:balance;}
+  h3{font-size:17px;margin:30px 0 12px;font-weight:700;}
+  p{margin:0 0 15px;max-width:70ch;}
+  a{color:var(--accent-2);text-underline-offset:3px;}
+  ul.plain{margin:0 0 15px;padding-left:20px;} ul.plain li{margin:5px 0;color:var(--muted);}
+  ul.plain li b{color:var(--ink);font-weight:600;}
+
+  .tldr{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:12px;padding:22px 24px;box-shadow:var(--shadow);}
+  .tldr .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:10px;}
+  .tldr p{margin:0;font-size:17px;color:var(--ink);max-width:none;}
+  .tldr b{color:var(--accent-2);}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;}
+  .card .cap{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase;margin-bottom:8px;}
+  .card .h{font-weight:700;margin-bottom:6px;font-size:15.5px;}
+  .card .d{font-size:14px;color:var(--muted);margin:0;}
+
+  /* pipeline */
+  .pipe{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px 22px;box-shadow:var(--shadow);}
+  .stage{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--surface-2);position:relative;}
+  .stage .tag{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:6px;display:block;}
+  .stage .st{font-weight:750;font-size:16px;margin-bottom:4px;}
+  .stage .sd{font-size:13.5px;color:var(--muted);margin:0;}
+  .stage.p0{border-top:3px solid var(--faint);}
+  .stage.p1{border-top:3px solid var(--accent);}
+  .stage.p2{border-top:3px solid var(--s);}
+  .stage.p3{border-top:3px solid var(--accent-2);}
+  .stage.p4{border-top:3px solid var(--o);}
+  .flowline{display:flex;justify-content:center;color:var(--faint);font-size:20px;margin:6px 0;line-height:1;}
+  .loop{border:1px dashed var(--o);border-radius:10px;padding:6px 12px;text-align:center;font-family:var(--mono);
+    font-size:12px;color:var(--o);margin:6px 0;background:var(--o-soft);}
+
+  /* tables */
+  .twrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);}
+  table{border-collapse:collapse;width:100%;font-size:14px;min-width:560px;background:var(--surface);}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{background:var(--surface-2);font-size:12px;letter-spacing:.03em;color:var(--muted);text-transform:uppercase;font-weight:700;white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,.mono-cell{font-family:var(--mono);font-size:13px;}
+  td b{font-weight:700;}
+
+  .g{font-family:var(--mono);font-weight:800;font-size:12px;padding:2px 8px;border-radius:6px;white-space:nowrap;}
+  .g.c{color:var(--c);background:var(--c-soft);border:1px solid color-mix(in srgb,var(--c) 35%,transparent);}
+  .g.s{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+  .g.o{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;overflow-x:auto;
+    font-family:var(--mono);font-size:13px;line-height:1.65;box-shadow:var(--shadow);color:var(--ink);}
+  pre .cm{color:var(--o);} pre .kw{color:var(--accent-2);font-weight:600;} pre .st2{color:var(--s);}
+  code.inl{font-family:var(--mono);font-size:.9em;background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;}
+
+  .note{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:16px 18px;font-size:14.5px;display:flex;gap:12px;align-items:flex-start;}
+  .note .badge{font-family:var(--mono);font-size:10.5px;font-weight:800;letter-spacing:.06em;padding:3px 8px;border-radius:6px;flex:none;text-transform:uppercase;}
+  .note.safe .badge{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+  .note.warn .badge{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+  .note.info .badge{color:var(--accent-2);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent-2) 35%,transparent);}
+  .note p{margin:0;color:var(--muted);max-width:none;} .note b{color:var(--ink);}
+
+  /* wireframe mock */
+  .mock{border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow);margin:14px 0;}
+  .mock .bar{background:var(--surface-2);padding:8px 14px;font-family:var(--mono);font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);display:flex;gap:7px;align-items:center;}
+  .mock .bar .dot{width:9px;height:9px;border-radius:50%;background:var(--line-strong);}
+  .mock .body{padding:16px;display:flex;flex-direction:column;gap:10px;}
+  .mtabs{display:flex;gap:6px;flex-wrap:wrap;}
+  .mtab{font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);color:var(--muted);}
+  .mtab.on{background:var(--accent-soft);color:var(--accent-2);border-color:color-mix(in srgb,var(--accent-2) 30%,var(--line));font-weight:700;}
+  .mrow{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;}
+  .mbox{border:1px dashed var(--line-strong);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--muted);background:var(--surface-2);flex:1;min-width:120px;}
+  .mbox b{color:var(--ink);}
+  .mbox.solid{border-style:solid;background:var(--surface);}
+  .mbtn{font-size:12px;font-family:var(--mono);padding:5px 12px;border-radius:7px;background:var(--accent);color:#fff;display:inline-block;}
+  .mbtn.ghost{background:var(--surface);color:var(--accent-2);border:1px solid var(--line-strong);}
+  .mkpi{flex:1;min-width:82px;border:1px solid var(--line);border-radius:8px;padding:8px 6px;text-align:center;background:var(--surface-2);}
+  .mkpi .n{font-size:20px;font-weight:800;line-height:1.1;} .mkpi .l{font-size:11px;color:var(--faint);}
+  .cap{font-size:12.5px;color:var(--faint);margin:2px 0 0;}
+
+  .road{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--line-strong);margin-left:8px;}
+  .phase{position:relative;padding:0 0 24px 26px;} .phase:last-child{padding-bottom:0;}
+  .phase::before{content:"";position:absolute;left:-9px;top:2px;width:15px;height:15px;border-radius:50%;background:var(--surface);border:2.5px solid var(--accent);}
+  .phase .pn{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.05em;}
+  .phase .ph{font-weight:700;margin:2px 0 3px;font-size:15.5px;} .phase .pd{font-size:14px;color:var(--muted);margin:0;}
+
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);font-size:13px;color:var(--faint);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-family:var(--mono);}
+  @media print{ body{background:#fff;} .pipe,.tldr,pre,.twrap,.mock{box-shadow:none;} }
+  @media (max-width:620px){ table{min-width:480px;} }
+</style>
+
+<div class="wrap">
+
+  <header class="doc">
+    <div class="eyebrow">UI/UX 설계 · Human-in-the-loop Classification</div>
+    <h1 class="title">문서 C·S·O 분류<br>— 워크플로 &amp; UI/UX 설계</h1>
+    <p class="lede">문서중앙화로 수집된 문서를 기밀·민감·공개(C/S/O)로 분류한다. 규칙(내용·경로·파일명)으로 1차 확정하고, <b>관리자가 큐레이션한 seed 문서</b>와의 임베딩 비교로 보류분을 구제하며, 확정 결과를 다시 seed로 승격하는 <b>능동학습 루프</b>를 UI로 돌린다.</p>
+    <div class="meta">
+      <span class="chip"><b>문서유형</b> UI/UX 설계</span>
+      <span class="chip"><b>대상</b> 문서중앙화 C/S/O 분류</span>
+      <span class="chip"><b>엔진</b> csoclassify(추출·임베딩) + classify</span>
+      <span class="chip"><b>UI</b> Streamlit</span>
+      <span class="chip"><b>작성일</b> 2026-08-13</span>
+    </div>
+  </header>
+
+  <div class="tldr">
+    <div class="k">한 줄 요약</div>
+    <p><b>규칙 설정 → seed 수집·확정 → 분류 → seed 갱신</b>의 4단계 루프. 핵심은 관리자가 검증한 <b>cso_seed.jsonl</b>(등급·벡터가 든 씨앗 저장소)이며, 분류는 규칙으로 확정하고 <b>보류분만 seed와 임베딩 비교</b>로 후보를 만든 뒤 사람이 확정한다. 확정분을 seed에 되먹여 정확도가 스스로 올라간다.</p>
+  </div>
+
+  <!-- 1 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>개요 — 능동학습 분류 루프</h2></div>
+    <p>이 도구는 RAG가 아니라 <b>문서 거버넌스(등급 분류)</b>가 목적이다. 자동 분류는 완벽할 수 없으므로, 사람이 근거를 보고 확정하고 그 결정을 다음 분류에 재사용하는 <b>human-in-the-loop</b> 구조로 설계한다.</p>
+    <div class="cards">
+      <div class="card"><div class="cap">Curated Seed</div><div class="h">검증된 씨앗이 기준</div><p class="d">관리자가 확정한 C/S/O 문서(등급+벡터)를 <code class="inl">cso_seed.jsonl</code>에 모아 분류의 기준으로 삼는다.</p></div>
+      <div class="card"><div class="cap">Rules First</div><div class="h">규칙 우선, 임베딩은 구제</div><p class="d">PII·기밀사전·경로·파일명으로 확정하고, 어느 것도 못 잡은 <b>보류</b> 문서만 seed와 임베딩 비교로 후보를 만든다.</p></div>
+      <div class="card"><div class="cap">Human Verify</div><div class="h">사람이 최종 확정</div><p class="d">모든 자동 등급은 관리자가 근거를 보고 승인·수정한다. 수정은 감사 로그로 남는다.</p></div>
+      <div class="card"><div class="cap">Feedback Loop</div><div class="h">확정분을 seed로 되먹임</div><p class="d">확정된 대표 문서를 seed에 추가 → seed가 늘수록 보류율이 줄고 정확도가 올라간다.</p></div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>전체 워크플로</h2></div>
+    <p>원안의 4단계를 유지하되, <b>규칙 설정을 앞단계(Phase 0)로 분리</b>하고 <b>seed 수집/확정을 명확히 구분</b>했다. Phase 3·4가 정상상태에서 반복되는 루프다.</p>
+    <div class="pipe">
+      <div class="stage p0"><span class="tag">Phase 0 — 설정(1회/수시)</span><div class="st">규칙 설정</div><p class="sd">PII 정규식·기밀사전·경로 택소노미·파일명 키워드·임계값을 UI에서 편집 → <code class="inl">cso_rules.yaml</code>(버전 관리)</p></div>
+      <div class="flowline">↓</div>
+      <div class="stage p1"><span class="tag">Phase 1 — 수집</span><div class="st">seed 후보 수집</div><p class="sd">폴더 선택 → <code class="inl">csoclassify --classify --with-vector</code> → <code class="inl">cso_result.jsonl</code>(자동 등급 + 벡터)</p></div>
+      <div class="flowline">↓</div>
+      <div class="stage p2"><span class="tag">Phase 2 — 큐레이션</span><div class="st">seed 확정</div><p class="sd">검토 UI로 근거 보고 C/S/O 확정 → 승인분을 seed로 승격 → <code class="inl">cso_seed.jsonl</code> 생성/보강(등급+벡터+메타)</p></div>
+      <div class="flowline">↓</div>
+      <div class="stage p3"><span class="tag">Phase 3 — 분류(반복)</span><div class="st">대상 문서 분류</div><p class="sd">파일/폴더 → <code class="inl">csoclassify --classify --with-vector --propagate --seeds cso_seed.jsonl</code> → 보류분을 seed와 비교 → 검토 UI에서 확정</p></div>
+      <div class="loop">⟳ Phase 3 ↔ 4 정상상태 루프 — seed가 늘수록 보류·오분류가 줄어든다</div>
+      <div class="stage p4"><span class="tag">Phase 4 — 되먹임(반복)</span><div class="st">seed 갱신</div><p class="sd">① 확정분 중 대표 문서를 승격 ② <b>관리자가 신규 파일 직접 업로드</b> → csoclassify로 벡터 산출 → 추가 ③ 기존 seed <b>수정·삭제·등급변경</b>. near-dup 중복 경고, 감사 로그</p></div>
+      <div class="flowline">↓</div>
+      <div class="stage p3"><span class="tag">Output</span><div class="st">확정 C/S/O 분류 + 감사 기록</div><p class="sd">최종 등급 CSV/JSONL 내보내기 → 문서중앙화 시스템이 접근권한 적용</p></div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>원안 검토 &amp; 개선 제안</h2></div>
+    <p>원안은 방향이 옳다. 아래는 견고성·정확도·운영성을 높이기 위한 보완이다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>구분</th><th>원안</th><th>개선/보완</th></tr></thead>
+        <tbody>
+          <tr><td>규칙 설정</td><td>Phase 1에 포함</td><td><b>Phase 0로 분리</b> — 규칙 편집 화면 + 버전 관리(변경 시 소급 재분류 가능)</td></tr>
+          <tr><td>seed 저장소</td><td>cso_seed.jsonl</td><td><b>외부 curated store</b>로 명시 — 엔트리에 <b>벡터 저장</b>(재임베딩 방지), 등급·출처·승인자·시각 메타 포함</td></tr>
+          <tr><td>분류의 seed 비교</td><td>seed_class와 임베딩 비교</td><td>구현 갱신 필요: 전파가 <b>외부 <code class="inl">--seeds</code></b>를 받도록(현재는 코퍼스 내부 seed 사용)</td></tr>
+          <tr><td>등급 결정</td><td>임베딩으로 C/S/O</td><td><b>규칙 우선, 보류만 임베딩 구제</b>(과분류 방지). 단 near-dup(사본)은 예외 상향 옵션</td></tr>
+          <tr><td>seed 추가(Phase 4)</td><td>관리자가 선택 추가</td><td><b>near-dup 중복 경고</b>(이미 있는 seed와 코사인≈1이면 정보 없음) + <b>등급별 균형 표시</b></td></tr>
+          <tr><td>실행 방식</td><td>csoclassify.exe 수동</td><td><b>UI에서 실행 트리거</b> — 폴더 선택→진행률→결과 자동 로드(CLI 왕복 제거)</td></tr>
+          <tr><td>감사</td><td>—</td><td><b>감사 이원화</b>: <code class="inl">cso_override.jsonl</code>(분류 수정) + <code class="inl">cso_seed_audit.jsonl</code>(seed 추가·수정·삭제)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info" style="margin-top:16px"><span class="badge">핵심</span>
+      <p>가장 중요한 개선은 <b>cso_seed.jsonl을 벡터까지 담은 외부 큐레이션 저장소로 못박고, 분류(Phase 3)가 그 파일을 <code class="inl">--seeds</code>로 받아 비교</b>하게 하는 것이다. 이래야 "관리자가 검증한 기준"으로 신규 문서를 분류하는 원안 의도가 성립한다.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>데이터 &amp; 파일 모델</h2></div>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>파일</th><th>역할</th><th>쓰는 단계</th><th>수정 정책</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">cso_rules.yaml</td><td>PII·사전·경로·파일명·임계값 규칙</td><td>Phase 0</td><td>UI 편집·버전 태그</td></tr>
+          <tr><td class="mono">cso_result.jsonl</td><td>자동 분류 결과(등급+근거+벡터)</td><td>Phase 1·3</td><td>불변(재실행 시 새로 생성)</td></tr>
+          <tr><td class="mono">cso_seed.jsonl</td><td>큐레이션된 씨앗(등급+벡터+메타)</td><td>Phase 2·4</td><td>추가·수정·삭제(감사)</td></tr>
+          <tr><td class="mono">cso_override.jsonl</td><td>분류 수정 이력(append-only)</td><td>Phase 2·3</td><td>덧붙임 전용</td></tr>
+          <tr><td class="mono">cso_seed_audit.jsonl</td><td>seed 변경 이력(append-only)</td><td>Phase 4</td><td>덧붙임 전용</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>cso_seed.jsonl 엔트리(제안)</h3>
+    <pre>{
+  <span class="st2">"file"</span>: <span class="st2">"D:\\seed\\인사\\급여대장_2025.xlsx"</span>,
+  <span class="st2">"grade"</span>: <span class="st2">"C"</span>,                 <span class="cm"># 관리자 확정 등급</span>
+  <span class="st2">"vector"</span>: [0.013, -0.028, ...],  <span class="cm"># 재임베딩 없이 비교에 재사용</span>
+  <span class="st2">"source"</span>: <span class="st2">"phase2"</span> | <span class="st2">"phase4"</span> | <span class="st2">"upload"</span>,  <span class="cm"># 승격/직접 업로드 출처</span>
+  <span class="st2">"approved_by"</span>: <span class="st2">"홍길동"</span>,
+  <span class="st2">"ts"</span>: <span class="st2">"2026-08-13T09:00:00+09:00"</span>,
+  <span class="st2">"note"</span>: <span class="st2">"대표 급여대장 양식"</span>
+}</pre>
+    <div class="note safe"><span class="badge">감사</span><p>원본 <code class="inl">cso_result.jsonl</code>은 절대 수정하지 않는다. 사람의 모든 개입(등급 수정·seed 변경)은 append-only 로그로 남겨 <b>누가·언제·왜</b>를 추적한다.</p></div>
+  </section>
+
+  <!-- 5 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>화면별 UI/UX 설계</h2></div>
+    <p>Streamlit 단일 앱, 좌측 사이드바(데이터 경로·검토자·임계값) + 상단 탭. 아래는 각 화면의 개념 와이어프레임이다.</p>
+
+    <h3>(A) 규칙 설정 — Phase 0</h3>
+    <div class="mock">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span> 규칙 설정 · cso_rules.yaml</div>
+      <div class="body">
+        <div class="mtabs"><span class="mtab on">PII 정규식</span><span class="mtab">기밀사전</span><span class="mtab">경로</span><span class="mtab">파일명</span><span class="mtab">임계값</span></div>
+        <div class="mbox solid"><b>기밀사전</b> — 그룹별 단어 편집 (예: 기밀표식=대외비/극비/기밀 → <span class="g c">C</span>)<br>단어 추가/삭제 · 등급·가중치·seed사용 토글 · bulk 임계값</div>
+        <div class="mbox">경로 택소노미: <code class="inl">//hr-server/</code>→<span class="g c">C</span>, <code class="inl">/인사/</code>→<span class="g s">S</span>, <code class="inl">/public/</code>→<span class="g o">O</span></div>
+        <div class="mrow"><span class="mbtn">저장(버전 태그)</span><span class="mbtn ghost">미리보기(샘플 문서로 테스트)</span><span class="mbtn ghost">되돌리기</span></div>
+      </div>
+    </div>
+    <ul class="plain">
+      <li><b>목적</b>: 사내 특화 키워드·폴더 구조를 반영. 저장 시 <code class="inl">rule_version</code> 갱신 → 분류 결과에 어떤 규칙으로 판정했는지 각인.</li>
+      <li><b>UX 포인트</b>: "미리보기"로 규칙 변경이 샘플 문서 등급을 어떻게 바꾸는지 즉시 확인 → 과분류 튜닝.</li>
+    </ul>
+
+    <h3>(B) seed 수집·확정 — Phase 1·2</h3>
+    <div class="mock">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span> seed 만들기</div>
+      <div class="body">
+        <div class="mrow"><div class="mbox"><b>폴더 선택</b> D:\seed\… </div><span class="mbtn">실행(csoclassify --with-vector)</span></div>
+        <div class="cap">→ cso_result.jsonl 생성(진행률 표시) → 아래 검토</div>
+        <div class="mrow"><div class="mkpi"><div class="n">120</div><div class="l">전체</div></div><div class="mkpi"><div class="n">32</div><div class="l">C</div></div><div class="mkpi"><div class="n">41</div><div class="l">S</div></div><div class="mkpi"><div class="n">39</div><div class="l">O</div></div><div class="mkpi"><div class="n">8</div><div class="l">보류</div></div></div>
+        <div class="mbox solid">문서 목록(등급·근거) — 행 선택 → 근거 상세 → 등급 확정 → <span class="mbtn" style="padding:2px 8px">✓ seed로 승격</span></div>
+        <div class="mrow"><div class="mbox"><b>seed 구성</b> C 30 · S 38 · O 35 <span style="color:var(--o)">(균형 양호)</span></div><span class="mbtn">cso_seed.jsonl 저장</span></div>
+      </div>
+    </div>
+    <ul class="plain">
+      <li><b>수집(P1)</b>: 폴더 선택→실행 버튼으로 csoclassify 호출(CLI 왕복 제거), 벡터 포함.</li>
+      <li><b>확정(P2)</b>: 근거 보고 등급 확정 후 <b>"seed로 승격"</b> — 승인분만 <code class="inl">cso_seed.jsonl</code>에 벡터째 저장.</li>
+      <li><b>균형 표시</b>: 등급별 seed 수를 보여줘, O seed 부족(임베딩이 O를 못 구분) 같은 편중을 경고.</li>
+    </ul>
+
+    <h3>(C) 분류 검토 — Phase 3 (핵심 화면)</h3>
+    <div class="mock">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span> 분류 검토</div>
+      <div class="body">
+        <div class="mtabs"><span class="mtab on">요약</span><span class="mtab">문서 목록·근거·수정</span><span class="mtab">검토 큐</span><span class="mtab">내보내기</span></div>
+        <div class="mrow"><div class="mkpi"><div class="n">1,204</div><div class="l">전체</div></div><div class="mkpi"><div class="n">210</div><div class="l">🔴 C</div></div><div class="mkpi"><div class="n">433</div><div class="l">🟠 S</div></div><div class="mkpi"><div class="n">540</div><div class="l">🟢 O</div></div><div class="mkpi"><div class="n">21</div><div class="l">⚪ 보류</div></div><div class="mkpi"><div class="n">57</div><div class="l">검토 필요</div></div></div>
+        <div class="mrow">
+          <div class="mbox solid" style="flex:3"><b>문서 목록</b> (등급/폴더/신뢰도/검색 필터)<br>최종·자동·수정여부·신뢰도·판정방식·결정신호·경로</div>
+          <div class="mbox" style="flex:2"><b>근거 상세</b><br>rule(단어×건수) · path · name<br>embed: 비슷한 seed 문서(파일·유사도)<br><br><b>등급 수정</b> C/S/O + 사유 → 저장</div>
+        </div>
+      </div>
+    </div>
+    <ul class="plain">
+      <li><b>흐름</b>: 폴더 선택→실행(<code class="inl">--seeds cso_seed.jsonl</code>)→요약→목록에서 행 선택→근거 확인→확정/수정.</li>
+      <li><b>근거의 핵심</b>: 임베딩으로 분류된 문서는 <b>"어느 seed 문서와 비슷해서 이 등급인지"</b>(이웃 목록·유사도)를 반드시 표시 → 관리자가 납득/검증.</li>
+      <li><b>검토 큐</b>: 보류·저신뢰만 모아 신뢰도 낮은 순으로 빠르게 확정.</li>
+    </ul>
+
+    <h3>(D) seed 관리 — Phase 4</h3>
+    <div class="mock">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span> seed 관리 · cso_seed.jsonl</div>
+      <div class="body">
+        <div class="mbox solid"><b>① 확정 분류에서 승격</b> — 목록에서 대표 문서 선택 → <span class="mbtn" style="padding:2px 8px">＋ seed에 추가</span>
+          <div class="cap">추가 시: 기존 seed와 코사인≈1이면 “중복(정보 없음)” 경고 → 추가 억제</div></div>
+        <div class="mbox solid"><b>② 신규 파일 직접 업로드로 추가</b> — 파일 선택 → <span class="mbtn" style="padding:2px 8px">실행(csoclassify)</span> → 벡터 산출 → 등급 <span class="g c">C</span><span class="g s">S</span><span class="g o">O</span> 지정 → <span class="mbtn" style="padding:2px 8px">＋ seed에 추가</span>
+          <div class="cap">분류 배치를 거치지 않고, 관리자가 대표 문서를 직접 씨앗으로 등록 (source="upload")</div></div>
+        <div class="mbox solid"><b>③ 기존 seed 편집</b> — seed 목록에서 행별 <b>등급 변경 · 메모 수정 · 삭제</b> (모든 변경은 cso_seed_audit.jsonl 기록)</div>
+        <div class="mrow"><div class="mbox"><b>seed 구성</b> C 210 · S 190 · O 60 <span style="color:var(--s)">(O 보강 권장)</span></div><span class="mbtn ghost">균형 리포트</span></div>
+      </div>
+    </div>
+    <ul class="plain">
+      <li><b>능동학습(승격)</b>: 확정분 중 <em>대표성</em> 있는 문서만 골라 seed로 → 무분별 추가는 저장소만 키움.</li>
+      <li><b>직접 업로드 추가</b>: 분류 배치를 거치지 않고, 관리자가 <b>신규 파일을 업로드</b>하면 csoclassify가 텍스트 추출→벡터 산출, 관리자가 등급(C/S/O)을 지정해 <code class="inl">cso_seed.jsonl</code>에 바로 추가한다(<code class="inl">source="upload"</code>).</li>
+      <li><b>인라인 편집(수정·삭제)</b>: seed 목록에서 각 항목의 <b>등급 변경·메모 수정·삭제</b>를 직접 수행. 잘못 넣은 seed는 즉시 정정(오염 방지).</li>
+      <li><b>중복 억제</b>: near-dup은 정보가 없으므로 경고. <b>다양한</b> 문서를 seed로 넣어야 커버리지가 넓어진다.</li>
+      <li><b>전 과정 감사</b>: 추가(승격/업로드)·수정·삭제를 누가·언제·왜와 함께 <code class="inl">cso_seed_audit.jsonl</code>에 기록.</li>
+    </ul>
+  </section>
+
+  <!-- 6 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>상호작용 · 판정 원칙</h2></div>
+    <div class="cards">
+      <div class="card"><div class="cap">Rules First</div><div class="h">규칙 우선</div><p class="d">rule/path/name로 확정된 등급은 임베딩이 흔들지 않는다(과분류 방지). 임베딩은 <b>보류 구제</b>가 기본.</p></div>
+      <div class="card"><div class="cap">Upgrade-only</div><div class="h">상향 전용</div><p class="d">최종=max(신호들). 임베딩은 올리기만, 내리지 않는다. 애매하면 검토 큐로.</p></div>
+      <div class="card"><div class="cap">Explainable</div><div class="h">근거 필수</div><p class="d">모든 등급에 근거(걸린 단어·건수·경로·이웃 seed)를 표시 → 관리자 납득·이의제기 대응.</p></div>
+      <div class="card"><div class="cap">Auditable</div><div class="h">전 과정 감사</div><p class="d">분류 수정·seed 변경을 누가·언제·왜와 함께 append-only 로그로 보존.</p></div>
+    </div>
+    <div class="note warn" style="margin-top:16px"><span class="badge">주의</span>
+      <p>임베딩은 <b>주제</b>는 잡아도 <b>민감도 자체</b>는 보증 못 한다(공개 안내문이 기밀 문서와 주제상 이웃일 수 있음). 그래서 seed 비교는 <b>보류 구제·상향</b>에만 쓰고, near-dup(사본)이 아닌 이상 이미 확정된 공개 문서를 끌어올리지 않는다.</p>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>구현 매핑 — 현재 대비 추가 필요분</h2></div>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>기능</th><th>현재 상태</th><th>추가/변경</th></tr></thead>
+        <tbody>
+          <tr><td>분류 엔진(rule/path/name/embed)</td><td><b>구현됨</b> (classify 서브패키지)</td><td>—</td></tr>
+          <tr><td>검토 UI(대시보드·목록·근거·오버라이드·내보내기)</td><td><b>구현됨</b> (ui/app.py)</td><td>—</td></tr>
+          <tr><td>외부 seed 비교</td><td>전파가 코퍼스 내부 seed 사용</td><td><code class="inl">--seeds cso_seed.jsonl</code> 옵션 추가(SeedIndex를 외부 파일에서 로드)</td></tr>
+          <tr><td>seed 승격/관리</td><td>없음</td><td>"seed로 승격" 액션 + <b>신규 파일 직접 업로드 추가</b>(csoclassify 실행→벡터→등급지정) + seed 목록 <b>인라인 편집(등급변경·삭제)</b> + <code class="inl">cso_seed_audit.jsonl</code></td></tr>
+          <tr><td>규칙 편집 화면</td><td>YAML 수동 편집</td><td>Phase 0 규칙 편집 UI + 미리보기 + 버전 태그</td></tr>
+          <tr><td>UI에서 csoclassify 실행</td><td>수동 CLI</td><td>폴더 선택→subprocess 실행→진행률→결과 로드</td></tr>
+          <tr><td>near-dup 중복 경고 / 균형 표시</td><td>없음</td><td>seed 추가 시 코사인 체크 + 등급별 구성 리포트</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2>구축 로드맵</h2></div>
+    <div class="road">
+      <div class="phase"><div class="pn">STEP 1</div><div class="ph">외부 seed 비교 (--seeds)</div><p class="pd">전파가 <code class="inl">cso_seed.jsonl</code>을 SeedIndex로 로드하도록. Phase 3의 근간.</p></div>
+      <div class="phase"><div class="pn">STEP 2</div><div class="ph">seed 승격 + 관리 화면</div><p class="pd">"seed로 승격" 액션 · <b>신규 파일 직접 업로드 추가</b>(csoclassify→벡터→등급지정) · seed 목록 <b>인라인 편집(등급변경·삭제)</b> + 감사.</p></div>
+      <div class="phase"><div class="pn">STEP 3</div><div class="ph">UI에서 csoclassify 실행</div><p class="pd">폴더 선택→실행→결과 자동 로드. 수동 CLI 왕복 제거.</p></div>
+      <div class="phase"><div class="pn">STEP 4</div><div class="ph">규칙 편집 화면(Phase 0)</div><p class="pd">기밀사전·경로·임계값 편집 + 샘플 미리보기 + 버전 태그.</p></div>
+      <div class="phase"><div class="pn">STEP 5</div><div class="ph">균형·중복 리포트</div><p class="pd">등급별 seed 구성, near-dup 경고, 검토 큐 최적화.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>문서 C·S·O 분류 — 워크플로 &amp; UI/UX 설계</span>
+    <span>CSOClassify/plan · 2026-08-13</span>
+  </footer>
+
+</div>
+</body>
+</html>
