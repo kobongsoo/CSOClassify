@@ -171,17 +171,21 @@ chmod +x csoclassify synap/linux/snf_exe
   <p style="margin-top:14px"><b>판정 신호 (5종 + 전파)</b> — 최종 등급은 아래 신호들 중 <b>가장 민감한 등급</b>으로 융합됩니다(보수적 max). 각 신호는 등급을 <b>올릴 수만</b> 있고 함부로 내리지 않습니다. 어느 신호로도 못 정하면 <b>보류(none)</b> → 검토 대상.</p>
   <div class="scroll"><table>
     <tr><th>신호</th><th>무엇을 보나</th><th>비고</th></tr>
-    <tr><td><code>rule</code> <span class="muted">(내용)</span></td><td>PII 유형(위 표) + 기밀사전 키워드. <b>결합식별성(combo)</b> 포함</td><td>본문 텍스트 기반</td></tr>
+    <tr><td><code>rule</code> <span class="muted">(내용)</span></td><td>PII 유형(위 표) + <b>기밀사전 키워드(<code>keywords</code>)</b>. <b>결합식별성(combo)</b> 포함</td><td>본문 텍스트 기반</td></tr>
     <tr><td><code>sensitive</code> <span class="muted">(민감정보)</span> <span class="def">2026-08-15 신규</span></td><td>법상 민감정보(건강·유전·성생활·사상/정치·노조·범죄경력·인종) 키워드 → <span class="tag c">C</span></td><td>일반 키워드와 <b>분리된</b> 독립 신호(정책·감사 명확)</td></tr>
     <tr><td><code>stamp</code> <span class="muted">(보안분류 표식)</span> <span class="def">2026-08-15 신규</span></td><td>문서에 찍힌 "대외비·기밀·관계자 외 열람금지" → <span class="tag c">C</span>, "내부용" → <span class="tag s">S</span></td><td>머리·반복일 때만 인정(오탐↓)</td></tr>
     <tr><td><code>path</code> <span class="muted">(경로)</span></td><td>파일이 놓인 폴더/서버(예: <code>/인사/</code>, <code>//hr-server/</code>)</td><td>텍스트 안 엶</td></tr>
-    <tr><td><code>name</code> <span class="muted">(파일명)</span></td><td>파일 이름 속 키워드(예: <code>대외비_보고서.hwp</code>)</td><td>참고용(seed 불가)</td></tr>
+    <tr><td><code>name</code> <span class="muted">(파일명)</span></td><td><b><code>keywords</code> 사전을 파일 이름에 재사용</b>(예: <code>대외비_보고서.hwp</code> → C). <span class="def">전용 섹션 없음</span></td><td>참고용(seed 불가)</td></tr>
     <tr><td><code>embed</code> <span class="muted">(임베딩 전파)</span></td><td>보류 문서를 seed와 유사도로 구제(2차 패스)</td><td><code>--propagate</code> 참고</td></tr>
   </table></div>
+  <p class="muted"><b><code>keywords</code>(기밀사전)는 내용과 파일명 둘 다에 적용됩니다.</b> 본문에서는 <code>rule</code> 신호로, 파일 이름(폴더 제외)에서는 <code>name</code> 신호로 같은 단어 목록이 쓰입니다. 따라서 <b><code>name</code> 은 별도 규칙 섹션이 없고</b>(<code>cso_rules.yaml</code> 에 <code>name:</code> 섹션 없음), <code>keywords:</code> 에 단어를 추가하면 <b>내용·파일명 양쪽</b>에 반영됩니다. <span class="def">PII 정규식·스탬프·민감정보는 내용 전용이라 파일명엔 적용되지 않습니다.</span></p>
   <p class="muted"><b>결합식별성(combo)</b> <span class="def">2026-08-15 신규</span> — 개별론 낮아도 여러 PII가 <b>한 문서에</b> 모이면(개인정보보호법·GDPR '결합용이성') 상향됩니다. 예: <b>주민번호+계좌 → <span class="tag c">C</span></b>, <b>주민번호+주소 → <span class="tag c">C</span></b>, <b>전화·이메일·주소 중 2종+ → <span class="tag s">S</span></b>. <code>rule</code> 신호의 <code>layer:"COMBO"</code> 히트로 표시됩니다.</p>
   <p class="muted"><b>스탬프(stamp)</b>는 본문 한복판의 단발 언급("이 문서는 <b>대외비가 아님</b>")은 무시하고, 표식이 <b>문서 머리(앞 400자)에 있거나 2회 이상 반복</b>될 때만 인정해 오탐을 줄입니다("관계자 외 열람금지" 같은 명시 문구는 위치·반복 무관 1건도 인정). <span class="def">머릿범위/반복횟수는 환경변수로 조정</span>.</p>
   <p class="muted">※ <code>sensitive</code>·<code>stamp</code>·<code>combo</code>의 정책(단어·범주·조합·등급)은 <code>cso_rules.yaml</code>의 <code>sensitive</code>/<code>stamps</code>/<code>pii_combos</code> 섹션에서 조정합니다.</p>
   <div class="note">📖 규칙셋 <code>cso_rules.yaml</code>의 <b>모든 섹션·필드 의미</b>는 별도 레퍼런스 문서 <a href="CSO_Rule.html"><b>CSO_Rule.html</b></a>(규칙셋 필드 레퍼런스)에서 표로 확인할 수 있습니다.</div>
+  <div class="note">🧪 추출 옵션 <code>--hybridparse</code>: <b>파일 내용을 감지</b>해 포맷별 오픈소스 파서로 추출(사이냅 없이) — pdf→pypdfium2, hwp→HWP5, hwpx→zip/OWPML, 구형 doc/ppt→자체 파서, xls→xlrd, 현대 docx/xlsx/pptx→zip/OOXML 직접파싱(stdlib), text→직접읽기. 각 파서 실패 시 <b>snf 폴백</b>. 설계·측정은 <a href="../plan/CSO_HybridParse.html"><b>CSO_HybridParse.html</b></a> 참고. <b>미지정 시 기본은 지금처럼 사이냅(snf) 그대로</b>입니다.</div>
+  <div class="note">🗜️ <b>압축파일 자동 확장</b>: 입력이 압축파일이면 내부 파일을 임시폴더에 풀어 <b>파일별로 개별 분류</b>합니다(중첩 압축 재귀). 지원 포맷: <b>zip · tar · tar.gz · tar.bz2 · tar.xz · gz · bz2 · xz</b>(무의존) · <b>7z</b> · <b>rar</b>(번들 unrar). 결과는 파일별 레코드의 <b>JSON 배열</b>이고, 각 레코드의 <code>file</code> 은 <code>"&lt;압축경로&gt;/&lt;내부경로&gt;"</code> 로 표기돼 <b>어느 내부 파일이 C/S/O 인지</b> 바로 압니다. 처리 후 임시폴더는 자동 삭제됩니다. (docx/xlsx/pptx/hwpx 는 내부가 zip 이라도 '문서 1개'로 취급 — 펼치지 않음.)<br>
+  🏷️ <b>압축파일 '자체'의 등급</b>: 압축은 그 안에서 <b>가장 높은 위험등급(C&gt;S&gt;O)</b> 을 자기 등급으로 받습니다. 결과에 <code>{"archive":true, "grade":"&lt;최고위험&gt;", "contains":{C,S,O,미분류,total}}</code> 요약 레코드가 뒤에 붙어 <b>압축만 봐도 위험도</b>를 압니다. (총계 중복 없음.)</div>
 
   <p style="margin-top:14px"><b>분류 방식 선택 (배타)</b> — 기본은 규칙으로 등급을 내고, 필요할 때만 임베딩을 씁니다. 아래 두 옵션으로 <b>한쪽만</b> 쓰도록 강제할 수 있습니다(동시 지정 불가).</p>
   <div class="scroll"><table>
@@ -247,11 +251,18 @@ csoclassify.exe --classify --with-pii --file "문서.hwp" --out result.json</cod
     "name": { "grade": null, "hits": [] }
   },
   "rule_version": "cso-2026.08.3",
-  "ts": "2026-08-15T14:20:39+09:00"
+  "ts": "2026-08-15T14:20:39+09:00",
+  "elapsed_ms": { "startup": 483.3, "extract": 50.4, "clean": 0.8, "rule": 88.0, "total": 622.5 }
 }</code></pre>
   <p class="muted">최종 등급은 <b>여러 신호 중 가장 민감한 등급</b>으로 융합됩니다(위 예는 rule·sensitive·stamp 가 모두 <span class="tag c">C</span>). <code>decided_by</code>=최종 등급을 만든 신호들, <code>method</code>=<code>fusion</code>(신호가 등급을 냄) / <code>unclassified</code>(아무 신호도 못 내 보류). <span class="muted">stamp 히트의 <code>mode</code>=<code>head</code>(머리) / <code>repeat</code>(반복) / <code>always</code>(명시문구) — 왜 스탬프로 인정됐는지.</span></p>
+  <p class="muted"><b><code>elapsed_ms</code></b>(단계별 처리시간, ms) — <code>startup</code>(기동 준비)·<code>extract</code>(추출)·<code>clean</code>(정제)·<code>rule</code>(규칙 스캔)·<code>total</code>. 임베딩을 하면(<code>--embed-needed</code>/<code>--with-vector</code>/<code>--vector-only</code>) <code>model_load</code>·<code>embed</code> 도 추가됩니다. <code>--no-timing</code> 으로 끄면 필드가 빠집니다. <code>--dir</code> 배치는 끝에 요약을 냅니다(아래).</p>
+  <div class="note">📊 <b>최종 요약</b> — 분류가 끝나면 화면(stderr)에 <code>[summary] 총 N개 / 검출 M, C=… S=… O=… 미분류=…, 총시간=…ms</code> 한 줄을 냅니다. <b>총시간</b>은 exe 실행(기동/startup)부터 완료까지의 <b>실제 전체 소요시간</b>입니다. <code>--out</code> 결과 파일(json/jsonl)에도 <b>맨 마지막</b>에 같은 내용을 <code>{"summary": {"total":…, "detected":…, "C":…, "S":…, "O":…, "unclassified":…, "elapsed_total_ms":…}}</code> 로 덧붙입니다(json 배열의 마지막 원소).</div>
+  <p class="muted"><b><code>startup</code></b> = <b>파이썬 진입~첫 추출 직전</b>의 일회성 준비 비용(무거운 <code>import</code>·규칙셋 로드·데몬 준비 포함). <code>total</code> 에도 합산되어 <b>process 시작~완료</b> 실제 체감에 가깝습니다. 배치(<code>--dir</code>)에서는 <b>맨 처음 문서에만</b> 붙습니다(일회성). <span class="def">단, exe 부트로더가 <code>_internal</code> 을 로딩하는 '파이썬 진입 이전' 구간은 측정 대상이 아닙니다 — 실행 전체 시간을 재려면 셸에서 <code>Measure-Command</code> 등으로 감싸세요.</span> startup 값은 로그에도 남습니다.</p>
   <p class="muted"><span class="tag c">C 기밀</span> <span class="tag s">S 민감</span> <span class="tag o">O 공개</span> · 어느 신호로도 못 정하면 <b>보류(none)</b> → 검토 대상.</p>
-  <div class="note"><b>기본 동작(분류)은 전파를 하지 않습니다.</b> seed 저장소가 있어도 자동 전파는 <b>안 하며</b>, 보류 문서까지 seed 로 구제하려면 <code>--auto-propagate</code>를 함께 주세요(단일 문서 확인에도 유용). 대량 배치는 분류 후 <code>--propagate</code> 2차 패스로 처리해도 됩니다.</div>
+  <div class="note"><b>기본 동작에서 자동 전파(2026-08-16 변경).</b> <b>exe 옆에 <code>cso_seed.jsonl</code> 이 있으면</b> <code>--file</code>/<code>--dir</code> 만 줘도 규칙으로 <b>미분류(보류)된 문서</b>를 그 seed 와 임베딩(문맥) 비교해 <b>자동으로 전파·분류</b>합니다(보류 문서 임베딩은 자동 활성화, 확정 문서는 건너뜀). seed 파일이 <b>없으면</b> 전파 없이 규칙만으로 끝냅니다.
+  <br>· <code>--seeds &lt;경로&gt;</code> 로 seed 파일 위치를 직접 지정할 수 있습니다(미지정 시 exe 옆 <code>cso_seed.jsonl</code>).
+  <br>· 전파를 <b>원치 않으면</b> <code>--rule-only</code> 를 주세요 — seed 파일이 옆에 있어도 <b>순수 규칙 분류</b>만 합니다.
+  <br>· 대량 배치는 분류(<code>--embed-needed</code>) 후 <code>--propagate</code> 2차 패스로 나눠 처리해도 됩니다.</div>
 
   <h3>② 임베딩 벡터 — <code>--embed</code></h3>
   <p>분류 없이 임베딩 벡터만 뽑습니다(파일·차원·벡터 JSON).</p>
@@ -282,9 +293,17 @@ csoclassify.exe --embed --dir "D:\docs" --glob "*.hwp" --format jsonl --out vec.
   <p class="muted">로그 파일에는 레코드마다 <code>[전파결과][임베딩]</code>(임베딩이 등급을 정함) / <code>[전파결과][통과(rule 확정)]</code>(이미 확정돼 그대로 통과) / <code>[전파결과][보류(미확정)]</code> 태그로 구분되어 남습니다. <code>--seeds</code>를 주면 <b>외부 큐레이션 seed + 코퍼스 내부 seed</b>를 합쳐 비교하고, 생략하면 내부 seed만 씁니다.</p>
 
   <h3>⑤ 데몬 제어</h3>
-<pre><code>csoclassify.exe --status   <span class="cmt">:: 상주 데몬 상태(모델·유휴시간)</span>
+<pre><code>csoclassify.exe --status   <span class="cmt">:: 상주 데몬 상태(모델·pid·유휴시간·준비여부)</span>
 csoclassify.exe --stop     <span class="cmt">:: 상주 데몬 종료</span>
 csoclassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(보통 자동)</span></code></pre>
+  <p class="muted"><code>--status</code> 예시: <code>model=e5-small-ko pid=21240 port=52715 version=0.1.0 idle_timeout=무한(자동종료 없음) ready=True</code></p>
+  <div class="note"><b>분류도 데몬을 사용(2026-08-16).</b> 예전엔 <code>--embed</code> 만 데몬을 썼지만, 이제 <b>분류(<code>--file</code>/<code>--dir</code>)도 임베딩이 필요할 때</b>(자동 전파·<code>--embed-needed</code>·<code>--with-vector</code>) 데몬을 통해 모델을 상주시킵니다. → <b>따로따로 반복 실행해도 모델을 새로 안 올리고 재사용</b>(2회차부터 <code>model_load=0</code>). 데몬 접속이 안 되면 자동으로 in-process 로 폴백합니다. <span class="def">규칙만으로 끝나는 문서(임베딩 불필요)면 데몬을 만들지 않습니다.</span></div>
+  <div class="note"><b>유휴 자동종료 = 무한(2026-08-16 변경).</b> <code>--idle-timeout</code> 을 <b>지정하지 않으면 데몬이 자동 종료되지 않고 계속 상주</b>합니다(반복 실행이 항상 빠름). 유한하게 두려면 <code>--idle-timeout 600</code>(초) 처럼 주세요. 명시적으로 내리려면 <code>--stop</code>.</div>
+  <div class="note"><b>데몬 프로세스 찾기 — 작업관리자에 왜 안 보이나?</b> 데몬은 <b>콘솔 창 없이</b>(<code>CREATE_NO_WINDOW</code>) 백그라운드로 떠서, 프로세스 이름이 <b><code>csoclassify.exe</code></b> 입니다(exe 배포 기준. 소스로 <code>python -m csoclassify</code> 실행 시엔 <code>python.exe</code>). 매 호출의 클라이언트도 같은 이름이지만 즉시 종료되고, <b>계속 남아 있는 <code>csoclassify.exe</code> 하나가 데몬</b>입니다. 찾는 방법:
+  <br>· <b>가장 쉬움</b>: <code>csoclassify.exe --status</code> — pid 를 바로 보여줍니다.
+  <br>· 작업관리자 → <b>세부 정보(Details)</b> 탭 → <code>csoclassify.exe</code>(그 pid). '프로세스' 탭에서는 <b>백그라운드 프로세스</b> 섹션에 있습니다(창이 없어 '앱'에는 안 뜸).
+  <br>· PowerShell: <code>Get-Process csoclassify</code> · cmd: <code>tasklist | findstr csoclassify</code>
+  <br>· 종료는 <code>csoclassify.exe --stop</code>(권장) 또는 해당 pid 종료.</div>
 </section>
 
 <h2 id="args"><span class="n">4</span> 인자 전체 정리</h2>
@@ -296,8 +315,15 @@ csoclassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(보�
     <tr><td><code>--file</code></td><td>경로</td><td>대상 문서 1개 <span class="def">(구 <code>-file</code> 도 호환)</span></td></tr>
     <tr><td><code>--dir</code></td><td>폴더</td><td>폴더 배치 처리 <span class="def">(구 <code>-dir</code> 도 호환)</span></td></tr>
     <tr><td><code>--glob</code></td><td>패턴 <span class="def">기본 *</span></td><td>배치 필터(예: <code>*.hwp</code>). 여러 개는 콤마로 나열: <code>"*.hwp,*.docx,*.pdf"</code> <span class="def">(중괄호 <code>"*.{hwp,docx,pdf}"</code> 도 가능, 따옴표로 감쌈)</span></td></tr>
-    <tr><td><code>-r</code>, <code>--recursive</code></td><td>—</td><td><code>--dir</code> 배치 시 하위 폴더까지 재귀 탐색</td></tr>
+    <tr><td><code>-r</code>, <code>--recursive</code> <span class="def">폐지</span></td><td>—</td><td><b>무시됨</b> — <code>--dir</code> 은 이제 <b>항상 하위 폴더까지 재귀</b> 탐색합니다(줘도 안 줘도 동일, 하위호환용으로만 받음)</td></tr>
   </table></div>
+
+  <h3>추출 방식</h3>
+  <div class="scroll"><table>
+    <tr><th>인자</th><th>값</th><th>설명</th></tr>
+    <tr><td><code>--hybridparse</code> <span class="def">2026-08-19</span></td><td>—</td><td><b>내용 감지 → 포맷별 전용 파서</b>로 추출(사이냅 없이): pdf→pypdfium2, hwp→HWP5, hwpx→zip/OWPML, 구형 doc/ppt→자체 olefile 파서, xls→xlrd, 현대 docx/xlsx/pptx→zip/OOXML 직접파싱(stdlib), html→태그제거(stdlib), text→직접읽기. 전용 파서 실패 시 <b>snf 폴백</b>(snf 없으면 그 파일만 미분류). <b>미지정 시 전부 사이냅(현행)</b>. 모든 모드와 병용. 설계·측정: <a href="../plan/CSO_HybridParse.html">CSO_HybridParse.html</a></td></tr>
+  </table></div>
+  <p class="muted"><b>확장자가 아니라 파일 내용(매직바이트+컨테이너 내부)</b>으로 판별하므로, 확장자가 위장돼도(.txt인데 실제 doc 등) 올바른 파서로 갑니다. 파서들은 전부 <b>순수 파이썬/소형 wheel</b>이라 Windows·Linux(CentOS 7)에 동일 번들되고, 실측 snf 대비 <b>동급~수십 배 빠름</b>(텍스트류는 40~60배, doc/hwp/xls는 3~7배)에 품질 sim≈1.0. 구형 HWP 3.x·암호화·스캔(이미지)은 전용 파서가 못 하면 snf 로 폴백(스캔 OCR 은 snf 도 불가). 환경변수 <code>CSOCLASSIFY_HYBRID=1</code> 로 기본 on 가능(CLI 우선).</p>
 
   <h3>분류 (C/S/O)</h3>
   <div class="scroll"><table>
@@ -311,10 +337,14 @@ csoclassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(보�
     <tr><td><code>--embed-needed</code></td><td>—</td><td><b>보류·seed_eligible 문서에만</b> 임베딩(확정문서 생략 → 빠름). 권장</td></tr>
     <tr><td><code>--with-vector</code></td><td>—</td><td><b>모든 문서</b>에 임베딩(구 동작, RAG 등 전량 벡터 필요 시)</td></tr>
     <tr><td><code>--propagate</code></td><td>jsonl 경로</td><td>1차 레코드의 보류 문서에 라벨 전파(모델 불필요)</td></tr>
-    <tr><td><code>--seeds</code></td><td>경로</td><td>전파 비교 기준 seed(<code>cso_seed.jsonl</code>). 없으면 내부 seed 사용</td></tr>
-    <tr><td><code>--auto-propagate</code></td><td>—</td><td>분류 <b>직후 보류 문서를 seed 로 전파</b>까지 한 번에(단일 문서 확인 포함). 보류 임베딩 자동 활성화 · <code>--seeds</code> 있으면 외부+내부, 없으면 내부 seed</td></tr>
+    <tr><td><code>--seeds</code></td><td>경로</td><td>전파 비교 기준 seed(<code>cso_seed.jsonl</code>). <b>미지정 시 exe 옆 <code>cso_seed.jsonl</code></b>(있으면 기본 분류에서 자동 전파에 사용)</td></tr>
+    <tr><td><code>--auto-propagate</code></td><td>—</td><td>보류 문서 전파를 <b>명시적으로</b> 켬. <span class="def">기본 분류도 seed 파일이 exe 옆에 있으면 자동 전파하므로 대개 불필요</span> · 보류 임베딩 자동 활성화 · 외부 seed(cso_seed.jsonl)+내부 seed 함께 사용</td></tr>
     <tr><td><code>--with-text</code></td><td>—</td><td>결과 레코드에 <b>추출(정제) 텍스트</b>를 <code>text</code> 필드로 함께 저장 <span class="def">기본 미포함(프라이버시)</span></td></tr>
     <tr><td><code>--with-pii</code></td><td>—</td><td><b>[프라이버시 주의]</b> 검출된 <b>원문 PII 값</b>(주민번호·카드번호 등 실제 값)을 <code>pii</code> 필드로 저장 <span class="def">기본 미포함</span>. 로그엔 건수만(<code>[pii N detected]</code>), 원문은 <code>--out</code> 파일에만</td></tr>
+    <tr><td><code>--hash</code> <span class="def">2026-08-20</span></td><td>—</td><td>각 문서(및 압축파일 자체)의 <b>해시(SHA-256)</b>를 결과 레코드에 <code>hash</code> 필드로 포함. 문서 지문·변조확인·중복제거용</td></tr>
+    <tr><td><code>--simple</code> <span class="def">2026-08-20</span></td><td>—</td><td>파일별로 <b>문서명·등급(C/S/O)·해시</b> 3가지만 JSON 출력(그 외 signals·시간 등 생략). 압축은 내부 파일별 + 압축 자체 집계까지 3필드로</td></tr>
+    <tr><td><code>--summary</code> <span class="def">2026-08-20</span></td><td>—</td><td>파일별 레코드 없이 <b>맨 끝 요약(summary)만</b> JSON 객체로 출력(총수·검출·C/S/O·미분류·총시간 등). <code>--file</code>/<code>--dir</code> 모두</td></tr>
+    <tr><td><code>--nosummary</code> <span class="def">2026-08-20</span></td><td>—</td><td>맨 끝 <b>요약(summary)을 출력에서 제거</b>(JSON 결과·화면 요약줄 모두). 파일별 레코드만 남긴다. <code>--summary</code> 와 배타</td></tr>
   </table></div>
 
   <h3>모델 · 임베딩</h3>
@@ -353,7 +383,7 @@ csoclassify.exe --file "문서.hwp" --max-tokens 256 --overlap 32</code></pre>
     <tr><td><code>--daemon</code> / <code>--no-daemon</code></td><td>— <span class="def">기본 on</span></td><td>상주 데몬 사용/미사용(미사용=in-process)</td></tr>
     <tr><td><code>--serve</code></td><td>—</td><td>데몬 프로세스로 직접 기동</td></tr>
     <tr><td><code>--status</code> / <code>--stop</code></td><td>—</td><td>데몬 상태 출력 / 데몬 종료</td></tr>
-    <tr><td><code>--idle-timeout</code></td><td>초 <span class="def">기본 600</span></td><td>데몬 유휴 자동 종료 시간</td></tr>
+    <tr><td><code>--idle-timeout</code></td><td>초 <span class="def">기본 무한(0)</span></td><td>데몬 유휴 자동종료 시간. <b>미지정/0 = 무한</b>(자동종료 없음). 예: <code>--idle-timeout 600</code></td></tr>
     <tr><td><code>-v</code>, <code>--verbose</code></td><td>—</td><td>상세 로그(화면 + DEBUG)</td></tr>
     <tr><td><code>--log</code></td><td>경로</td><td>로그 파일 <span class="def">기본 &lt;exe폴더&gt;\log\csoclassify-날짜.log</span></td></tr>
     <tr><td><code>--version</code> / <code>-h</code>, <code>--help</code></td><td>—</td><td>버전 / 도움말</td></tr>
@@ -380,6 +410,7 @@ csoclassify.exe --file "문서.hwp" --max-tokens 256 --overlap 32</code></pre>
     <tr><td><code>CSOCLASSIFY_MODELS_DIR</code></td><td>모델 폴더/아카이브를 exe 옆이 아닌 지정 위치에서 찾음</td></tr>
     <tr><td><code>CSOCLASSIFY_SYNAP_DIR</code></td><td><code>snf_exe.exe</code> 를 지정 폴더에서 찾음</td></tr>
     <tr><td><code>CSOCLASSIFY_DAEMON=0</code></td><td>데몬 전역 off(=<code>--no-daemon</code>)</td></tr>
+    <tr><td><code>CSOCLASSIFY_HYBRID=1</code></td><td>하이브리드 추출(=<code>--hybridparse</code>)을 전역 기본 on. CLI 플래그가 우선</td></tr>
     <tr><td><code>CSOCLASSIFY_STAMP_HEAD_CHARS</code></td><td>스탬프 '머리' 인정 범위(문자수, 기본 400). 낮추면 엄격, 높이면 관대</td></tr>
     <tr><td><code>CSOCLASSIFY_STAMP_REPEAT_MIN</code></td><td>스탬프 '반복' 인정 최소 횟수(기본 2)</td></tr>
   </table></div>
@@ -413,7 +444,11 @@ csoclassify.exe --dir "D:\collected" -r --embed-needed ^
     --max-tokens 512 --overlap 64 --format jsonl --out result.jsonl
 
 <span class="cmt">:: 7) 문서 1개를 작은 청크로 세밀하게 임베딩(기본 512/32 → 256/32)</span>
-csoclassify.exe --embed --file "긴문서.hwp" --max-tokens 256 --overlap 32</code></pre>
+csoclassify.exe --embed --file "긴문서.hwp" --max-tokens 256 --overlap 32
+
+<span class="cmt">:: 8) 하이브리드 추출로 폴더 분류 — HWP/HWPX 를 사이냅 없이 빠르게(실패 시 snf 폴백)</span>
+csoclassify.exe --dir "D:\collected" -r --hybridparse ^
+    --format jsonl --out result.jsonl --progress</code></pre>
   <p class="muted">※ 위 <code>^</code>는 Windows cmd에서 줄바꿈 이음 문자입니다(한 줄로 써도 됨).</p>
 </section>
 

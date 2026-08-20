@@ -1,6 +1,6 @@
 #------------------------------------------------------------------
 # 파일 수집(collect_files) 단위 테스트
-#=> -dir 배치에서 기본은 해당 폴더만, --recursive 면 하위폴더까지 모으는지,
+#=> --dir 배치는 '항상 하위폴더까지 재귀'로 모으는지(-r 여부 무관),
 #   그리고 디렉터리는 제외하고 실제 파일만 반환하는지 검증한다.
 #------------------------------------------------------------------
 
@@ -40,29 +40,29 @@ def _make_tree(tmp):
 
 
 #------------------------------------------------------------------
-# 기본(비재귀)은 해당 폴더만
-#=> --recursive 없으면 top.txt 만, 하위폴더의 nested.txt 는 제외돼야 한다.
+# --dir 은 -r 없이도 항상 하위폴더까지
+#=> -r 을 안 줘도 top.txt 와 sub/nested.txt 둘 다 나와야 한다(항상 재귀).
 #
 # -in: tmp_path = pytest 픽스처
 # -out: 없음(assert)
 # -out: error = 실패 시 AssertionError
 #------------------------------------------------------------------
-def test_nonrecursive(tmp_path):
+def test_always_recursive(tmp_path):
     d = _make_tree(tmp_path)
     files = collect_files(_args(dir=d, glob="*.txt", recursive=False))
-    names = [f.replace("\\", "/").split("/")[-1] for f in files]
-    assert names == ["top.txt"]
+    names = sorted(f.replace("\\", "/").split("/")[-1] for f in files)
+    assert names == ["nested.txt", "top.txt"]
 
 
 #------------------------------------------------------------------
-# 재귀는 하위폴더까지
-#=> --recursive 면 top.txt 와 sub/nested.txt 둘 다 나와야 한다.
+# -r 을 줘도 결과 동일(무시됨)
+#=> recursive=True 여도 위와 같은 결과(항상 재귀라 차이 없음).
 #
 # -in: tmp_path = pytest 픽스처
 # -out: 없음(assert)
 # -out: error = 실패 시 AssertionError
 #------------------------------------------------------------------
-def test_recursive(tmp_path):
+def test_recursive_flag_ignored(tmp_path):
     d = _make_tree(tmp_path)
     files = collect_files(_args(dir=d, glob="*.txt", recursive=True))
     names = sorted(f.replace("\\", "/").split("/")[-1] for f in files)

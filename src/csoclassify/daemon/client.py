@@ -45,7 +45,8 @@ class DaemonClient:
     #------------------------------------------------------------------
     def __init__(self, model, idle_timeout=None, log_path=None, verbose=False):
         self.model = model
-        self.idle_timeout = idle_timeout or config.DEFAULT_IDLE_TIMEOUT
+        # 0/None = 무한(자동종료 없음). 명시적 0 을 보존하려 is None 으로 판별(그 값을 --serve 로 전달).
+        self.idle_timeout = config.DEFAULT_IDLE_TIMEOUT if idle_timeout is None else idle_timeout
         self.log_path = log_path
         self.verbose = verbose
 
@@ -200,10 +201,46 @@ class DaemonClient:
     # -out: error = 데몬 사용 불가 시 DaemonUnavailable, 처리 실패 시 RuntimeError(kind 포함)
     #------------------------------------------------------------------
     def request_embed(self, path, opts):
-        rec, _ping = self._find_live()
+        rec = self._ready_record()
+        resp = self._rpc(rec, {"op": "embed", "token": rec.get("token"), "path": path, "opts": opts})
+        if not resp.get("ok"):
+            # 처리 자체의 실패(추출/임베딩)는 폴백이 아니라 진짜 오류로 올린다.
+            raise RuntimeError(f"{resp.get('kind', 'error')}: {resp.get('error', '알 수 없는 오류')}")
+        return resp["result"]
 
+    #------------------------------------------------------------------
+    # 데몬에 '텍스트 임베딩' 요청 (분류 경로 전용)
+    #=> 이미 추출·정제된 텍스트를 데몬에 보내 벡터만 받는다(재추출 없음). 분류가
+    #   반복 실행돼도 상주 데몬의 웜 모델을 재사용해 model_load=0 이 된다.
+    #
+    # -in: text = 임베딩할 정제 텍스트
+    # -in: opts = {max_tokens, overlap, normalize} (없으면 서버 기본값)
+    #
+    # -out: vector = 문서 임베딩 벡터(list[float])
+    # -out: error = DaemonUnavailable(접속/통신/기동 실패 → 호출부가 in-process 폴백)
+    #               / RuntimeError(데몬이 임베딩 자체 실패를 보고)
+    #------------------------------------------------------------------
+    def request_embed_text(self, text, opts):
+        rec = self._ready_record()
+        resp = self._rpc(rec, {"op": "embed_text", "token": rec.get("token"),
+                               "text": text, "opts": opts})
+        if not resp.get("ok"):
+            raise RuntimeError(f"{resp.get('kind', 'error')}: {resp.get('error', '알 수 없는 오류')}")
+        return resp["vector"]
+
+    #------------------------------------------------------------------
+    # 준비된 데몬 record 확보 (없으면 기동·대기)
+    #=> 살아있는 데몬을 찾고, 없으면 한 번 띄워 준비될 때까지 기다린 뒤 record 를 준다.
+    #   request_embed / request_embed_text 가 공유한다.
+    #
+    # -in: 없음
+    #
+    # -out: rec = 데몬 레지스트리 record(host/port/token 등)
+    # -out: error = DaemonUnavailable(기동 실패/제한시간 초과)
+    #------------------------------------------------------------------
+    def _ready_record(self):
+        rec, _ping = self._find_live()
         if rec is None:
-            # (2) 없으면 한 번 띄우고 준비될 때까지 대기.
             try:
                 self._spawn()
             except OSError as e:
@@ -212,15 +249,27 @@ class DaemonClient:
             rec, _ping = self._wait_ready(deadline)
             if rec is None:
                 raise DaemonUnavailable("데몬이 제한시간 내 준비되지 않음")
+        return rec
 
-        # 준비된 데몬에 embed 요청 전송.
+    #------------------------------------------------------------------
+    # 데몬에 1회 요청/응답 (RPC)
+    #=> 준비된 데몬에 접속해 메시지 하나를 보내고 응답을 받는다. 통신 계층 오류는
+    #   DaemonUnavailable 로 올려 호출부가 in-process 로 폴백하게 한다.
+    #
+    # -in: rec = _ready_record() 가 준 데몬 record
+    # -in: msg = 보낼 요청 dict(op/token/…)
+    #
+    # -out: dict = 데몬 응답 메시지
+    # -out: error = DaemonUnavailable(접속/통신 실패)
+    #------------------------------------------------------------------
+    def _rpc(self, rec, msg):
         try:
             sock = ipc.connect(rec["host"], rec["port"], config.CLIENT_CONNECT_TIMEOUT)
         except OSError as e:
             raise DaemonUnavailable(f"데몬 접속 실패: {e}")
         try:
-            ipc.send_msg(sock, {"op": "embed", "token": rec.get("token"), "path": path, "opts": opts})
-            resp = ipc.recv_msg(sock)
+            ipc.send_msg(sock, msg)
+            return ipc.recv_msg(sock)
         except (OSError, ValueError) as e:
             raise DaemonUnavailable(f"데몬 통신 실패: {e}")
         finally:
@@ -228,11 +277,6 @@ class DaemonClient:
                 sock.close()
             except OSError:
                 pass
-
-        if not resp.get("ok"):
-            # 처리 자체의 실패(추출/임베딩)는 폴백이 아니라 진짜 오류로 올린다.
-            raise RuntimeError(f"{resp.get('kind', 'error')}: {resp.get('error', '알 수 없는 오류')}")
-        return resp["result"]
 
     #------------------------------------------------------------------
     # 데몬 상태 조회 (--status)

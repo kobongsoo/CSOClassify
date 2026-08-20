@@ -4,7 +4,28 @@
 #   코드 곳곳에 흩어지지 않게 한다. 여기 값만 바꾸면 전체 동작 기본값이 바뀐다.
 #------------------------------------------------------------------
 
+import os
 from dataclasses import dataclass
+
+
+#------------------------------------------------------------------
+# 환경변수 → 불리언 해석
+#=> "1/true/yes/on"(대소문자 무관)이면 True, 그 외/미설정이면 default 로 본다.
+#   CLI 플래그가 없을 때의 기본 동작을 운영자가 환경변수로 일괄 조정하게 해 준다.
+#
+# -in: name    = 읽을 환경변수 이름
+# -in: default = 미설정/해석불가일 때 반환할 기본값(기본 False)
+#
+# -out: bool = 해석 결과
+# -out: error = 없음(항상 bool 반환)
+#------------------------------------------------------------------
+def _env_bool(name, default=False):
+    # 미설정이면 곧장 기본값(환경변수 없음 = 기본 동작 유지).
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    # 참으로 인정하는 값만 True, 나머지는 False 로 단순·명확하게 처리.
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 #------------------------------------------------------------------
@@ -72,7 +93,7 @@ DEFAULT_PRECISION = "f32"        # 출력 벡터 정밀도(f32/f16)
 
 # 데몬 관련 기본값
 DEFAULT_DAEMON = True            # 상주 데몬 모드 기본 on (설계서 결정5)
-DEFAULT_IDLE_TIMEOUT = 600       # 유휴 자동 종료(초)
+DEFAULT_IDLE_TIMEOUT = 0         # 유휴 자동 종료(초). 0 = 무한(자동종료 없음). --idle-timeout N 으로 유한 지정
 DAEMON_HOST = "127.0.0.1"        # 데몬은 반드시 loopback 에만 바인딩(외부 노출 금지)
 CLIENT_CONNECT_TIMEOUT = 0.3     # 데몬 접속/PING 타임아웃(초)
 DAEMON_START_WAIT = 20.0         # 데몬 자동기동 후 준비 대기 최대(초)
@@ -80,6 +101,12 @@ DAEMON_START_WAIT = 20.0         # 데몬 자동기동 후 준비 대기 최대(
 # 사이냅 추출 관련
 SNF_TIMEOUT = 60                 # snf_exe 1파일 처리 타임아웃(초)
 MIN_TEXT_LEN_WARN = 5            # 추출 텍스트가 이보다 짧으면 경고(손상파일 의심)
+
+# 하이브리드 추출(--hybridparse) 관련 — 설계: doc/CSO_HybridParse.html
+#   기본 off(미지정 시 전부 사이냅=현행). CSOCLASSIFY_HYBRID=1 로 기본 on 가능(CLI 플래그 우선).
+#   --hybridparse: 내용 감지로 포맷별 전용 파서 라우팅(pdf→pypdfium2, hwp/hwpx·doc/xls/ppt·
+#   docx/xlsx/pptx·text). 전용 파서 실패 시 snf 폴백. 전부 순수 파이썬/소형 wheel(CentOS7 호환).
+DEFAULT_HYBRID_PARSE = _env_bool("CSOCLASSIFY_HYBRID", False)
 
 # 종료 코드(설계서 §7)
 EXIT_OK = 0

@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>--hybridparse 하이브리드 추출기 설계</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .ok{color:var(--o);font-weight:700}
+  .bad{color:var(--c);font-weight:700}
+  .mid{color:var(--s);font-weight:700}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .danger{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1><code>--hybridparse</code> 하이브리드 추출기 설계</h1>
+  <p>기본은 지금처럼 <b>사이냅(snf_exe)</b> 그대로 · <span class="kbd">--hybridparse</span> 를 줄 때만 확장자별 최적 엔진으로 라우팅하는 추출 계층 설계 <span class="pill">설계 문서 · 구현 아님</span></p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#bg">1. 배경과 목적</a></li>
+    <li><a href="#evi">2. 측정 근거(요약)</a></li>
+    <li><a href="#principle">3. 설계 원칙</a></li>
+    <li><a href="#arg">4. 인자 정의</a></li>
+    <li><a href="#route">5. 라우팅 규칙</a></li>
+    <li><a href="#arch">6. 아키텍처</a></li>
+    <li><a href="#iso">7. HWP5 순수 파이썬 파서</a></li>
+    <li><a href="#hwpx">8. HWPX zip/OWPML 파서</a></li>
+    <li><a href="#daemon">9. 데몬 연동</a></li>
+    <li><a href="#pkg">10. 패키징·배포 제약</a></li>
+    <li><a href="#obs">11. 로깅·타이밍·출력</a></li>
+    <li><a href="#cfg">12. 설정·환경변수</a></li>
+    <li><a href="#fallback">13. 오류·폴백 매트릭스</a></li>
+    <li><a href="#test">14. 테스트 계획</a></li>
+    <li><a href="#risk">15. 리스크 · 미결정</a></li>
+    <li><a href="#road">16. 구현 로드맵</a></li>
+    <li><a href="#compat">17. 호환성 · 롤백</a></li>
+  </ul>
+  <p class="muted" style="margin-top:8px">관련 문서: <a href="csoclassify-실행가이드.html">실행 가이드</a> · <a href="CSO_Rule.html">cso_rules.yaml 항목 설명</a></p>
+</section>
+
+<!-- 1 -->
+<h2 id="bg"><span class="n">1</span> 배경과 목적</h2>
+<section class="card">
+  <p>현재 CSOClassify 는 모든 문서를 <b>사이냅 문서필터(snf_exe)</b> 하나로 추출한다. 이는 <b>HWP/HWPX 를 포함한 전 포맷을 안정적으로</b> 처리하는 검증된 방식이지만, 두 가지 개선 여지가 있다.</p>
+  <ul>
+    <li><b>속도</b> — Office/PDF 계열은 순수 Rust 오픈소스 추출기가 snf 대비 3~20배 빠르다(실측).</li>
+    <li><b>라이선스 의존</b> — snf 는 상용이라 재배포·라이선스키 제약이 있다. 오픈소스로 대체 가능한 포맷은 의존을 줄일 수 있다.</li>
+  </ul>
+  <p>다만 <b>한국어 HWP 계열</b>은 오픈소스 성숙도가 낮아 <u>전면 교체는 위험</u>하다. 따라서 <b>기본 동작은 지금 그대로 두고</b>, 실험적 opt-in 플래그 <code>--hybridparse</code> 로만 확장자별 최적 엔진 라우팅을 켠다. 이 문서는 그 추출 계층의 <b>설계</b>를 정의한다(구현은 별도).</p>
+  <div class="note"><b>한 줄 요지(최종 구현)</b> — <code>--hybridparse</code> 는 <b>파일 내용을 감지</b>해 포맷별 오픈소스 파서로 사이냅 없이 추출한다: pdf→pypdfium2, hwp→HWP5, hwpx→zip/OWPML, 구형 doc/ppt→자체 olefile 파서, xls→xlrd, 현대 docx/xlsx/pptx→zip/OOXML 직접파싱(stdlib), text→직접읽기. 각 파서 실패 시 <b>snf 폴백</b>(snf 없으면 그 파일만 미분류). 전부 순수 파이썬/소형 wheel 이라 <b>Windows·Linux(CentOS 7) 동일 번들</b>이고, 결과가 비면 snf 로 떨어져 커버리지가 줄지 않는다.</p></div>
+  <div class="warn"><b>아키텍처 변천(요약)</b> — HWP: libhwp(Rust, 패닉·wheel 문제) → <b>순수 파이썬 HWP5 파서로 확정</b>. 그 외 포맷: xberg(Rust, 117MB·CentOS7 불가·PDF 느림/저품질) 검토 후 <b>기각</b> → <b>포맷별 조립형 스택(pypdfium2·xlrd·stdlib OOXML 파서·자체 doc/ppt 파서)으로 확정</b>. 확장자가 아니라 <b>내용 기반 감지</b>로 라우팅한다. 아래 §5·§6·§10 은 이 최종안 기준으로 갱신됨(그 전 절들엔 검토 이력이 남아 있다).</div>
+</section>
+
+<!-- 2 -->
+<h2 id="evi"><span class="n">2</span> 측정 근거(요약)</h2>
+<section class="card">
+  <p><code>D:\분류함</code> 실문서 4자 비교(snf_exe · kreuzberg v4 · xberg v5 · libhwp) 결과. 상세는 <code>tests/compare_extractors_4way.ipynb</code>.</p>
+  <div class="scroll"><table>
+    <tr><th>포맷</th><th>snf_exe</th><th>kreuzberg</th><th>xberg</th><th>libhwp / zip·OWPML</th><th>결론</th></tr>
+    <tr><td><b>hwp</b>(구 바이너리)</td><td class="ok">3/3 · 3179자 · 89ms</td><td class="bad">0/3</td><td class="bad">0/3(미지원)</td><td class="mid">2/4 · 1ms · 성공시 sim 1.00</td><td>snf 안정 / libhwp 빠르나 <b>패닉 50%</b></td></tr>
+    <tr><td><b>hwpx</b></td><td class="ok">3/3 · 6571자 · 17ms</td><td class="bad">0/3(에러)</td><td class="bad">0/3(ZIP덤프)</td><td class="ok">3/3 · 6926자 · 3ms · sim 1.00</td><td><b>zip/OWPML 로 완전 대체</b></td></tr>
+    <tr><td>doc·docx·ppt·pptx·xls·xlsx·pdf</td><td class="ok">전건 성공</td><td class="ok">전건 성공·빠름</td><td class="ok">전건 성공·빠름</td><td class="muted">해당없음</td><td>품질 대등, 오픈소스가 빠름</td></tr>
+  </table></div>
+  <p>핵심 발견 두 가지:</p>
+  <ul>
+    <li><b>HWPX</b> 는 표준 <code>zipfile</code> 로 <code>Contents/section*.xml</code> 의 <code>&lt;hp:t&gt;</code> 런만 뽑으면 <b>snf 와 동일 품질(sim 1.00), 의존성 0, 수 ms</b>. 별도 라이브러리조차 불필요.</li>
+    <li><b>HWP</b> 는 libhwp(Rust)가 성공 시 빠르지만 실문서 4개 중 <b>2개에서 Rust 패닉으로 크래시</b>했고 3.12 wheel 도 없었다 → 채택하지 않고, 대신 <b>순수 파이썬 HWP5 파서</b>를 직접 구현했다(아래).</li>
+  </ul>
+
+  <h3>2.1 채택: 순수 파이썬 HWP5 파서 (실측)</h3>
+  <p>libhwp 대신 HWP 5.0 을 파이썬으로 직접 파싱한다. 같은 실문서로 <b>snf 와 속도·품질</b>을 재측정한 결과 — 모두 성공, 전부 sim 1.00, libhwp 가 패닉하던 문서까지 정상.</p>
+  <div class="scroll"><table>
+    <tr><th>파일</th><th>py-hwp5 (중앙값)</th><th>snf (중앙값)</th><th>속도차</th><th>품질(vs snf)</th></tr>
+    <tr><td>범정부 초거대 AI</td><td class="ok">2.0ms</td><td>14.3ms</td><td>snf 7.1× 느림</td><td>sim 1.00</td></tr>
+    <tr><td>붙임2. ICT R&amp;D <span class="def">(libhwp 패닉)</span></td><td class="ok">2.9ms</td><td>13.2ms</td><td>snf 4.5× 느림</td><td>sim 1.00</td></tr>
+    <tr><td>업무상저작물확인서</td><td class="ok">2.2ms</td><td>13.4ms</td><td>snf 6.2× 느림</td><td>sim 1.00</td></tr>
+    <tr><td>망분리 메뉴얼 <span class="def">(libhwp 패닉)</span></td><td class="ok">1.6ms</td><td>14.1ms</td><td>snf 9.1× 느림</td><td>sim 1.00</td></tr>
+    <tr><td><b>합계</b></td><td class="ok"><b>8.7ms</b></td><td><b>55.0ms</b></td><td><b>평균 6.3× 빠름</b></td><td><b>sim 1.00</b></td></tr>
+  </table></div>
+  <p class="muted">snf(~13ms)는 파일마다 외부 exe 를 <b>subprocess 로 새로 띄우는</b> 비용이 대부분이고, py-hwp5(~2ms)는 <b>in-process</b>라 그 비용이 없다. 대량 배치에서 이 6배 차이가 그대로 누적된다. (파일당 7회 반복, 중앙값 · Python 3.12 · olefile 0.47)</p>
+</section>
+
+<!-- 3 -->
+<h2 id="principle"><span class="n">3</span> 설계 원칙</h2>
+<section class="card">
+  <table>
+    <tr><th>원칙</th><th>내용</th></tr>
+    <tr><td>기본 불변</td><td><code>--hybridparse</code> 미지정 시 <b>기존과 100% 동일</b>(SynapExeExtractor 단독). 코드·출력·성능 회귀 없음.</td></tr>
+    <tr><td>안전 우선</td><td>하이브리드 경로의 <b>모든 분기는 실패 시 snf 로 폴백</b>. 신규 엔진이 없거나(미번들) 죽어도 최소한 현행 커버리지를 보장.</td></tr>
+    <tr><td>크래시 없음</td><td>HWP5 파서는 순수 파이썬 in-process. 실패해도 <b>파이썬 예외</b>뿐이라 프로세스 격리가 필요 없다(예외 → snf 폴백).</td></tr>
+    <tr><td>인터페이스 보존</td><td>기존 <code>TextExtractor.extract(input_path, save_dir)</code> 계약을 그대로 구현 → 상위(파이프라인/분류/데몬)는 <b>무변경</b>.</td></tr>
+    <tr><td>관측 가능</td><td>어떤 파일을 <b>어떤 엔진</b>이 처리했고 폴백이 일어났는지 로그·타이밍에 남긴다.</td></tr>
+    <tr><td>점진 도입</td><td>1차는 HWP/HWPX 만 신경로, Office/PDF 는 snf 유지(보수적 기본값). xberg 경유는 뒤 단계의 선택 확장.</td></tr>
+  </table>
+</section>
+
+<!-- 4 -->
+<h2 id="arg"><span class="n">4</span> 인자 정의</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>인자</th><th>기본</th><th>의미</th></tr>
+    <tr><td><code>--hybridparse</code></td><td>off(미지정)</td><td><b>모든 포맷</b>을 전용 파서로 라우팅(hwp→hwp5, hwpx→zip/OWPML, 그 외→xberg). snf 는 폴백 전용. 미지정이면 snf 단독(현행).</td></tr>
+  </table></div>
+  <div class="note"><b>단일 플래그로 통합</b> — 초기엔 Office/PDF 를 <code>--hybridparse-office</code> 로 분리했으나, <code>--hybridparse</code> 하나가 <b>전 포맷</b>을 전용 파서로 보내도록 통합했다(별도 office 플래그 제거). snf 는 1차 엔진으로 쓰지 않고 <b>폴백 전용</b>이며, snf 가 없으면(미설치) 전용 파서가 실패한 파일만 <b>미분류</b>로 둔다(크래시 없음).</div>
+  <p>동작 요약:</p>
+  <ul>
+    <li><b>단독 플래그</b>(값 없음, <code>store_true</code>). 기존 모드 플래그(<code>--rule-only</code>/<code>--vector-only</code>, <code>--embed</code>)와 <b>직교</b> — 추출 방법만 바꾼다.</li>
+    <li>모든 실행 모드(분류 / <code>--embed</code> / <code>--dir</code> 일괄)에서 동일하게 적용.</li>
+    <li>플래그는 <b>추출기 팩토리에만</b> 전달된다(§6). 규칙·임베딩·전파 로직은 건드리지 않는다.</li>
+  </ul>
+</section>
+
+<!-- 5 -->
+<h2 id="route"><span class="n">5</span> 라우팅 규칙</h2>
+<section class="card">
+  <p><code>--hybridparse</code> 켜졌을 때 <b>파일 내용을 감지</b>(detect_format)해 감지된 포맷의 전용 파서를 1차로 쓰고, 실패하면 snf 로 폴백한다. <b>확장자가 아니라 내용</b>이라 위장(.txt 인데 doc)에도 견고하다.</p>
+  <div class="scroll"><table>
+    <tr><th>감지 타입</th><th>1차 파서</th><th>폴백</th><th>근거(실측 vs snf)</th></tr>
+    <tr><td>pdf</td><td><b>pypdfium2</b></td><td>→ snf</td><td>sim 0.96~1.00, snf 2배·xberg 40배 빠름. manylinux2014(CentOS7 ✓)</td></tr>
+    <tr><td>hwp</td><td>hwp5(자체)</td><td>→ snf</td><td>sim 1.00, snf 4~7배. HWP3.x·암호화 시 snf</td></tr>
+    <tr><td>hwpx</td><td>zip/OWPML(자체)</td><td>→ snf</td><td>sim 1.00, snf 7~11배. 라이브러리 불필요</td></tr>
+    <tr><td>doc(구형)</td><td>자체 olefile 파서</td><td>→ snf</td><td>sim 0.99(24/24), snf 2~10배. piece table</td></tr>
+    <tr><td>ppt(구형)</td><td>자체 olefile 파서</td><td>→ snf</td><td>sim 0.99, text atom 파싱</td></tr>
+    <tr><td>xls(구형)</td><td><b>xlrd</b></td><td>→ snf</td><td>sim 0.99, BIFF 리더(BSD)</td></tr>
+    <tr><td>docx</td><td><b>zip+ElementTree(stdlib)</b></td><td>→ snf</td><td>sim 1.00, 무의존; word/document.xml 의 &lt;w:t&gt;</td></tr>
+    <tr><td>xlsx</td><td><b>zip+ElementTree(stdlib)</b></td><td>→ snf</td><td>sim 1.00, 무의존; sheet*.xml+sharedStrings</td></tr>
+    <tr><td>pptx</td><td><b>zip+ElementTree(stdlib)</b></td><td>→ snf</td><td>sim 0.99, 무의존; slide*.xml 의 &lt;a:t&gt;</td></tr>
+    <tr><td>html</td><td>태그제거(stdlib HTMLParser)</td><td>→ snf</td><td>script/style 제거+엔티티복원, snf 6~10배. 추가 의존성 0</td></tr>
+    <tr><td>text<br><span class="def">txt·md·csv·json·ipynb·py·…</span></td><td>직접 읽기(인코딩 감지)</td><td>→ snf</td><td>sim 1.00, snf 40~60배. 파서 불필요</td></tr>
+    <tr><td>image·ole·zip·binary</td><td>(전용 파서 없음)</td><td>→ snf</td><td>미지원 → snf 폴백(스캔 OCR 은 snf 도 불가 → 미분류)</td></tr>
+  </table></div>
+  <div class="warn"><b>폴백 판정 기준(공통)</b> — ① 예외(추출 불가) 또는 ② 본문이 <b>공백 제거 후 0자</b> 면 실패로 보고 다음 엔진(snf)으로. snf 도 없으면 그 파일만 미분류(크래시 없음).</div>
+  <div class="flow"><span class="cmt"># 내용 감지 → 파서 선택 (개념 흐름)</span>
+route(path):
+    ftype = detect_format(path)        <span class="cmt"># 매직바이트 + OLE/ZIP 내부검사</span>
+    chain = []
+    eng = engines.get(ftype)           <span class="cmt"># {pdf:…, hwp:…, docx:…, text:…}</span>
+    if eng: chain += [eng]
+    if snf: chain += [snf]             <span class="cmt"># snf 없으면 실패 시 미분류</span>
+    return chain
+
+extract(path):
+    for engine in route(path):
+        text = try(engine, path)
+        if text and strip(text):
+            record_engine(engine); return text
+    raise ExtractError("all engines failed")</div>
+</section>
+
+<!-- 6 -->
+<h2 id="arch"><span class="n">6</span> 아키텍처</h2>
+<section class="card">
+  <h3>6.1 새 구성요소</h3>
+  <div class="scroll"><table>
+    <tr><th>구성요소</th><th>위치(제안)</th><th>역할</th></tr>
+    <tr><td><code>HybridExtractor</code></td><td><code>extract/hybrid.py</code></td><td><code>TextExtractor</code> 구현. 라우팅+폴백을 캡슐화. 내부에 하위 엔진 인스턴스 보유.</td></tr>
+    <tr><td><code>HwpxZipExtractor</code></td><td><code>extract/hwpx_zip.py</code></td><td>stdlib <code>zipfile</code>+정규식으로 OWPML 본문 추출(§8).</td></tr>
+    <tr><td><code>Hwp5Extractor</code></td><td><code>extract/hwp5.py</code></td><td>HWP 5.0 을 <b>순수 파이썬</b>으로 파싱(§7). <code>olefile</code>+<code>zlib</code>, in-process, 크래시 없음.</td></tr>
+    <tr><td><code>XbergExtractor</code> <span class="pill">2차</span></td><td><code>extract/xberg_ex.py</code></td><td>(선택) Office/PDF 고속 경로. xberg 의 <code>extract</code> 는 <b>비동기</b>이므로 래퍼 내부에서 <code>asyncio.run</code> 으로 감싸고, 결과 <code>mime</code> 가 <code>application/zip</code> 이면(원시 ZIP 덤프) <b>실패로 간주해 폴백</b>한다.</td></tr>
+    <tr><td><code>build_extractor(...)</code></td><td><code>extract/__init__.py</code></td><td><b>팩토리</b>. <code>hybrid</code> 플래그를 받아 <code>SynapExeExtractor</code> 또는 <code>HybridExtractor</code> 를 반환.</td></tr>
+  </table></div>
+
+  <h3>6.2 팩토리 — 단일 진입점</h3>
+  <p>현재 <code>SynapExeExtractor()</code> 를 <b>직접 생성</b>하는 지점이 여러 곳이다. 이를 팩토리 하나로 모아 <code>--hybridparse</code> 를 한 곳에서 반영한다.</p>
+  <div class="scroll"><table>
+    <tr><th>현재 생성 지점</th><th>맥락</th><th>변경</th></tr>
+    <tr><td><code>cli.py</code> · <code>run_embed</code></td><td><code>--embed</code> in-process</td><td rowspan="4">모두 <code>build_extractor(hybrid=args.hybridparse)</code> 로 교체</td></tr>
+    <tr><td><code>cli.py</code> · <code>run_classify</code></td><td>분류 추출(클라이언트측)</td></tr>
+    <tr><td><code>cli.py</code> · in-process 폴백 경로</td><td>데몬 불가시</td></tr>
+    <tr><td><code>daemon/server.py</code></td><td><code>--embed</code> 데몬 op(서버측 추출)</td></tr>
+  </table></div>
+  <div class="flow"><span class="cmt"># 팩토리 시그니처 (설계 — 구현 아님)</span>
+def build_extractor(*, hybrid=False) -> TextExtractor:
+    if not hybrid:
+        return SynapExeExtractor()                 <span class="cmt"># 현행 그대로</span>
+    try: snf = SynapExeExtractor()                  <span class="cmt"># 폴백 전용</span>
+    except ExtractError: snf = None                 <span class="cmt"># snf 없어도 됨(실패 파일만 미분류)</span>
+    return HybridExtractor(
+        snf=snf,
+        hwpx=HwpxZipExtractor(),
+        hwp=Hwp5Extractor(),                        <span class="cmt"># 순수 파이썬 HWP5</span>
+        office=XbergExtractor(),                     <span class="cmt"># 그 외 전부(Office/PDF 등)</span>
+    )</div>
+  <div class="note">상위 코드(<code>pipeline.process_file</code>, 분류 엔진, 데몬)는 <code>extractor.extract(path, save_dir)</code> 만 호출하므로 <b>팩토리 교체 외 수정이 없다</b>. 이것이 기존 <code>TextExtractor</code> 인터페이스를 지키는 이유.</div>
+
+  <h3>6.3 계층도</h3>
+  <div class="tree">cli / daemon / pipeline
+        │  extractor.extract(path, save_dir)   <span class="cmt">← 인터페이스 불변</span>
+        ▼
+  build_extractor(hybrid=?)
+        ├─ hybrid=False → SynapExeExtractor           <span class="cmt">(현행)</span>
+        └─ hybrid=True  → HybridExtractor
+                              ├─ .hwpx → HwpxZipExtractor ─┐
+                              ├─ .hwp  → Hwp5Extractor ────┤ 실패 시 폴백
+                              ├─ 그외  → XbergExtractor ───┤ (snf 있을 때만;
+                              └────────────────────────────┴─→ SynapExeExtractor  없으면 미분류)</div>
+</section>
+
+<!-- 7 -->
+<h2 id="iso"><span class="n">7</span> HWP5 순수 파이썬 파서 <span class="pill">채택</span></h2>
+<section class="card">
+  <p>구형 HWP(.hwp)는 <b>외부 실행파일·Rust 라이브러리 없이 파이썬만으로</b> 파싱한다. 초기 검토에서 후보였던 <code>libhwp</code>(Rust/pyo3)는 실문서 절반에서 Rust 패닉으로 프로세스를 죽였고, 3.12/3.13 wheel 도 없어 배포가 까다로웠다. 대신 <b>HWP 5.0 포맷을 직접 해석</b>하니 그 두 문제가 함께 사라졌다.</p>
+  <div class="note"><b>왜 파이썬 직접 파싱이 더 나은가</b> — ① <b>크래시 0</b>(우리가 제어 → 실패해도 파이썬 예외뿐, 프로세스 격리 불필요) ② <b>3.12 그대로</b>(버전 제약 없음) ③ 의존성은 순수 파이썬 <code>olefile</code> 1개 ④ 실측 <b>snf 와 sim 1.00</b>, libhwp 가 패닉하던 문서까지 정상 추출 ⑤ <b>in-process</b>라 프로세스 기동 비용조차 없어 snf·libhwp-워커보다 빠름.</div>
+
+  <h3>7.1 HWP 5.0 구조와 추출 절차</h3>
+  <p>HWP 5.0 은 <b>OLE/CFB 복합문서</b>(구형 <code>.doc</code> 와 같은 컨테이너)다. 본문은 <code>BodyText/SectionN</code> 스트림에 <b>태그 레코드</b>로 담기고, 글자는 <code>PARA_TEXT</code> 레코드(UTF-16LE + 인라인 제어문자)에 있다.</p>
+  <div class="scroll"><table>
+    <tr><th>단계</th><th>처리</th></tr>
+    <tr><td>1) 열기</td><td><code>olefile</code> 로 OLE 인지 확인·오픈(아니면 실패 → snf 폴백). 구형 3.x·손상도 여기서 걸러짐</td></tr>
+    <tr><td>2) 헤더</td><td><code>FileHeader</code> 속성비트: bit0=압축, bit1=암호화. <b>암호화면 포기</b>(→ snf)</td></tr>
+    <tr><td>3) 섹션</td><td><code>BodyText/Section0,1,…</code> 을 번호순으로 읽고, 압축이면 <b>raw-deflate</b>(<code>zlib, wbits=-15</code>) 해제</td></tr>
+    <tr><td>4) 레코드</td><td>32비트 헤더에서 태그·크기 파싱 → <code>PARA_TEXT</code>(태그 67)만 수집</td></tr>
+    <tr><td>5) 텍스트</td><td>UTF-16LE 해독. 제어문자 0/10/13 은 1글자(10·13→개행), 그 외 1~31 은 <b>8글자(16바이트) 컨트롤</b>이라 건너뜀</td></tr>
+  </table></div>
+
+  <h3>7.2 흐름</h3>
+  <div class="flow">Hwp5Extractor.extract(path):
+    if not olefile.isOleFile(path): raise ExtractError   <span class="cmt"># HWP5 아님 → snf 폴백</span>
+    ole = olefile.open(path)
+    flags = FileHeader[36:40]; compressed=flags&amp;1; encrypted=flags&amp;2
+    if encrypted: raise ExtractError                      <span class="cmt"># 암호화 → snf 폴백</span>
+    parts = []
+    for sec in sorted(BodyText/SectionN):
+        data = zlib.decompress(sec, -15) if compressed else sec
+        for tag, payload in records(data):
+            if tag == PARA_TEXT: parts.append(decode(payload))
+    return "\n".join(parts)                               <span class="cmt"># 빈 결과면 상위가 snf 폴백</span></div>
+
+  <h3>7.3 한계와 폴백</h3>
+  <ul>
+    <li><b>HWP 5.0 전용</b> — 2007 이전 <b>HWP 3.x</b>(다른 바이너리 포맷, 희귀)는 OLE 가 아니라 자연히 실패 → <b>snf 폴백</b>.</li>
+    <li><b>암호화/DRM 문서</b> — 스트림 해독 불가 → snf 폴백.</li>
+    <li><b>배포용(ViewText) 문서</b> — 본문이 암호화된 ViewText 에만 있으면 BodyText 가 비어 폴백된다.</li>
+    <li>즉 파서가 못 다루는 경우는 <b>모두 snf 가 받는다</b> — 커버리지는 현행 이상.</li>
+  </ul>
+  <div class="warn"><b>의존성</b> — <code>olefile</code>(순수 파이썬, BSD, ~200KB)만 추가된다. PyInstaller 번들이 자명하고 파이썬 버전 제약이 없다. 만약 번들 누락 등으로 <code>olefile</code> import 가 실패해도, hwp5 경로만 조용히 포기하고 snf 로 폴백한다(본체는 <code>olefile</code> 을 지연/방어 취급).</div>
+</section>
+
+<!-- 8 -->
+<h2 id="hwpx"><span class="n">8</span> HWPX zip/OWPML 파서</h2>
+<section class="card">
+  <p>HWPX 는 ZIP+XML(OWPML, KS X 6101) 컨테이너다. 본문 텍스트는 <code>Contents/section0.xml, section1.xml…</code> 안의 <code>&lt;hp:t&gt;…&lt;/hp:t&gt;</code> 런에 들어 있다. <b>표준 라이브러리만으로</b> 안전하게 뽑는다(외부 의존 0).</p>
+  <div class="scroll"><table>
+    <tr><th>단계</th><th>처리</th></tr>
+    <tr><td>1) 열기</td><td><code>zipfile.ZipFile(path)</code> — 손상/비ZIP 이면 예외 → snf 폴백</td></tr>
+    <tr><td>2) 대상 선택</td><td>이름이 <code>Contents/section&lt;n&gt;.xml</code> 인 항목만, <b>번호 순 정렬</b></td></tr>
+    <tr><td>3) 텍스트 런</td><td>각 XML 에서 <code>&lt;hp:t&gt;(.*?)&lt;/hp:t&gt;</code> 추출 → 내부 잔여 태그 제거</td></tr>
+    <tr><td>4) 엔티티 복원</td><td><code>&amp;lt; &amp;gt; &amp;amp; &amp;quot; &amp;apos;</code> → 원문자</td></tr>
+    <tr><td>5) 합치기</td><td>런을 개행으로 결합 → 정제(clean_text)는 상위 파이프라인이 담당</td></tr>
+  </table></div>
+  <div class="note"><b>견고성</b> — 정규식 기반이라 네임스페이스 접두사 변형이나 스키마 세부에 덜 민감하다. 만약 <code>&lt;hp:t&gt;</code> 매칭이 0건이면(스키마 상이) “빈 결과 → snf 폴백”으로 자연 처리된다. 추후 정확도를 높이려면 <code>Preview/PrvText.txt</code>(요약 미리보기) 병용이나 XML 파서 전환을 고려.</div>
+  <p class="muted">실측: 3/3 성공, snf 대비 sim 1.00, 파일당 1~6ms. section 기반이라 전체 본문을 담아 미리보기(PrvText)보다 완전하다.</p>
+</section>
+
+<!-- 9 -->
+<h2 id="daemon"><span class="n">9</span> 데몬 연동</h2>
+<section class="card">
+  <p>추출이 일어나는 위치는 두 갈래이며, <code>--hybridparse</code> 전달 방식이 다르다.</p>
+  <div class="scroll"><table>
+    <tr><th>경로</th><th>추출 위치</th><th>플래그 전달</th></tr>
+    <tr><td>분류(<code>--file/--dir</code>)</td><td><b>클라이언트측</b>(cli). 임베딩만 데몬 <code>embed_text</code> op 로 전송</td><td>cli 가 팩토리에 직접 반영 → <b>데몬 무관</b>(가장 단순)</td></tr>
+    <tr><td><code>--embed</code> + 데몬</td><td><b>서버측</b>. 데몬이 경로를 받아 추출·임베딩</td><td>선택지 A/B (아래)</td></tr>
+    <tr><td><code>--embed</code> in-process 폴백</td><td>클라이언트측</td><td>cli 팩토리에 직접 반영</td></tr>
+  </table></div>
+  <p><b>데몬 서버측 추출</b>의 플래그 전달 방식:</p>
+  <ul>
+    <li><b>선택 A(권장·단순)</b> — 데몬은 항상 snf 로 추출하고, <code>--hybridparse</code> 는 <b>클라이언트측 추출 경로에서만</b> 유효하다고 정의. 즉 하이브리드가 필요하면 클라이언트가 추출해 텍스트를 <code>embed_text</code> 로 보낸다(분류 경로가 이미 이 구조). 데몬 프로토콜/상태 무변경.</li>
+    <li><b>선택 B(완전)</b> — <code>embed</code> op 요청에 <code>hybrid</code> 불리언을 실어 보내고, 데몬이 요청별로 <code>build_extractor(hybrid=...)</code> 를 선택. 데몬이 여러 클라이언트를 섞어 받을 때 일관되나, 프로토콜·캐싱 규칙이 복잡해진다.</li>
+  </ul>
+  <div class="note"><b>권장</b>: 1차는 <b>선택 A</b>. 데몬은 “워밍업된 임베딩 모델 재사용”이 목적이고 추출은 저렴하므로, 하이브리드 추출은 클라이언트가 맡고 데몬엔 텍스트만 넘기면 된다. HWP5 파서는 in-process 라 클라이언트에서 그대로 돌아간다.</div>
+</section>
+
+<!-- 10 -->
+<h2 id="pkg"><span class="n">10</span> 패키징·배포 <span class="pill">3.12 유지</span></h2>
+<section class="card">
+  <div class="note"><b>버전 제약 없음</b> — HWP 를 순수 파이썬 HWP5 파서로 처리하므로 <b>빌드 파이썬을 3.12 그대로</b> 둔다. 초기 검토의 libhwp(Rust)는 3.12 wheel 이 없어 3.11 다운그레이드·사이드카 같은 복잡한 선택이 필요했지만, 순수 파이썬 파서로 전환하면서 <b>그 문제 자체가 사라졌다</b>.</div>
+  <p>추가 의존성 — 전부 순수 파이썬 또는 <b>manylinux2014(glibc 2.17) wheel</b> 이라 Windows·Linux(CentOS 7) 동일 번들:</p>
+  <div class="scroll"><table>
+    <tr><th>라이브러리</th><th>용도</th><th>라이선스</th><th>용량</th></tr>
+    <tr><td><code>pypdfium2</code></td><td>pdf</td><td>BSD/Apache</td><td>3.7MB(manylinux2014·abi3)</td></tr>
+    <tr><td><code>xlrd</code></td><td>구형 xls</td><td>BSD</td><td>0.1MB(순수py)</td></tr>
+    <tr><td>자체 코드(stdlib)</td><td>docx/xlsx/pptx</td><td>—</td><td>0 <b>(python-docx/openpyxl/python-pptx 미사용)</b></td></tr>
+    <tr><td><code>olefile</code></td><td>hwp5·구형 doc/ppt·감지</td><td>BSD</td><td>0.2MB(순수py)</td></tr>
+    <tr><td>자체 코드</td><td>hwp5·hwpx·doc·ppt·docx·xlsx·pptx·detect·plaintext·html</td><td>—</td><td>0</td></tr>
+  </table></div>
+  <div class="note"><b>결과(실측)</b> — <b>Windows onedir 98MB</b>(_internal 기준, 121→98). <b>Linux onedir 121MB</b>(압축 tgz <b>48MB</b>, 이전 tgz 153MB 대비 −105MB). 감량 요인:
+    <ul>
+      <li><b>docx/xlsx/pptx 를 stdlib(zipfile+ElementTree)로 직접 파싱</b> → python-docx/openpyxl/python-pptx 가 끌던 <b>Pillow(13MB)·lxml(7MB)+라이브러리(3MB)=−23MB</b>(양 OS 공통).</li>
+      <li>[Linux] 빌드 환경(conda) 오염 패키지 <b>numba·llvmlite(153MB)·jedi·IPython·jupyter</b> 를 spec <code>excludes</code> 로 차단(이전 tgz 엔 섞여 있었음).</li>
+      <li>[Linux] numpy 의 BLAS 백엔드 <code>libblas/libcblas/liblapack.so.3</code> 가 <b>한 openblas(40MB)를 가리키는 심링크</b>인데 PyInstaller 가 3벌 복사(120MB) → 빌드 후 <b>1실파일+2심링크로 dedupe(−80MB)</b>.</li>
+    </ul>
+    텍스트만 뽑는 용도라 결과 품질은 동일(sim≈1.0)하고 <b>의존이 오히려 줄어 더 견고</b>하다. 두 배포본 모두 <b>Windows·Linux(CentOS 7·glibc 2.17) 완전 동일 동작</b> — Linux 는 실제 CentOS 7.9 에서 추출·규칙·임베딩(onnx) 전 경로 실행 검증 완료.</div>
+  <div class="warn"><b>xberg 를 채택하지 않은 이유(요약)</b> — 단일 Rust 바이너리 <code>_xberg.pyd</code> <b>117MB</b>(내부 분리 불가), <b>CentOS 7 불가</b>(glibc 2.28+ 요구), <b>PDF 느림(snf 40배)·읽기순서 저품질(sim 0.62)</b>. 조립형 스택이 용량·속도·품질·이식성 전부에서 우위라 <b>기각</b>했다.</div>
+</section>
+
+<!-- 11 -->
+<h2 id="obs"><span class="n">11</span> 로깅·타이밍·출력</h2>
+<section class="card">
+  <ul>
+    <li><b>로그</b> — 추출 성공 시 <code>추출 engine=hwpx_zip|hwp5|snf|xberg file=… chars=…</code>, 폴백 발생 시 <code>추출 폴백 from=hwp5 to=snf reason=…</code>.</li>
+    <li><b>타이밍</b> — 기존 <code>elapsed_ms.extract</code> 는 그대로. 필요 시 어떤 엔진이었는지 별도 필드(<code>extract_engine</code>)로 남긴다(출력 스키마 <b>가산만</b>, 기존 필드 불변).</li>
+    <li><b>진단성</b> — hwp5 실패 사유(HWP5 아님·암호화·빈결과)를 폴백 로그에 포함해, 어떤 문서가 왜 snf 로 넘어갔는지 사후 집계 가능.</li>
+  </ul>
+  <div class="note">출력 스키마 변경은 <b>추가 전용</b>. <code>--hybridparse</code> 를 안 쓰면 새 필드도 나타나지 않아 기존 소비자와 호환된다.</div>
+</section>
+
+<!-- 12 -->
+<h2 id="cfg"><span class="n">12</span> 설정·환경변수</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>키</th><th>기본</th><th>의미</th></tr>
+    <tr><td><code>CSOCLASSIFY_HYBRID</code></td><td>0</td><td>1 이면 <code>--hybridparse</code> 없이도 하이브리드 기본 on(운영 일괄설정용). CLI 플래그가 우선.</td></tr>
+  </table></div>
+  <p class="muted">우선순위: <b>CLI 플래그 &gt; 환경변수 &gt; 기본값</b>. 기존 인자 우선순위 관례와 동일.</p>
+</section>
+
+<!-- 13 -->
+<h2 id="fallback"><span class="n">13</span> 오류·폴백 매트릭스</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>상황</th><th>hwpx</th><th>hwp</th><th>기타</th></tr>
+    <tr><td>1차 엔진 정상+본문 있음</td><td>zip 결과 사용</td><td>hwp5 결과 사용</td><td>xberg 결과 사용</td></tr>
+    <tr><td>1차 엔진 예외/0자</td><td>→ snf</td><td>→ snf(HWP3.x·암호화 등)</td><td>→ snf(xberg 미설치·ZIP덤프 포함)</td></tr>
+    <tr><td>1차 실패 + <b>snf 있음</b></td><td colspan="3">snf 가 처리(현행과 동일 커버리지)</td></tr>
+    <tr><td>1차 실패 + <b>snf 없음</b></td><td colspan="3" class="bad">그 파일만 <code>ExtractError</code> → 상위가 <b>미분류</b>로 처리(크래시 없음)</td></tr>
+  </table></div>
+  <p><b>snf 있으면</b> 하이브리드가 만드는 추가 실패는 없다(snf 단독과 동일 수렴). <b>snf 없으면</b> 전용 파서로 못 뽑는 파일만 미분류될 뿐, 프로세스는 죽지 않는다.</p>
+</section>
+
+<!-- 14 -->
+<h2 id="test"><span class="n">14</span> 테스트 계획</h2>
+<section class="card">
+  <ul>
+    <li><b>단위</b> — 라우팅 선택(확장자→엔진 리스트), 폴백 판정(예외/0자), HWPX 파서(정상/손상ZIP/빈section/엔티티), HWP5 파서(레코드 순회·PARA_TEXT 디코더·인라인 컨트롤 skip·비OLE 실패). <span class="def">(현재 15개 통과)</span></li>
+    <li><b>폴백</b> — hwp5 가 비-OLE(HWP5 아님)에서 실패하면 snf 폴백이 텍스트를 반환하는지.</li>
+    <li><b>동치성</b> — <code>--hybridparse</code> off 결과가 현행과 <b>동일</b>(회귀 없음, 전체 110 테스트 통과).</li>
+    <li><b>품질</b> — <code>tests/compare_extractors_4way.ipynb</code> 지표를 회귀 가드로 활용(hwpx·hwp 모두 snf 대비 sim≈1.0).</li>
+    <li><b>통합</b> — 분류/<code>--embed</code>/<code>--dir</code> 세 경로 모두에서 플래그가 먹는지, 데몬(선택 A)에서 텍스트 경로가 정상인지.</li>
+  </ul>
+</section>
+
+<!-- 15 -->
+<h2 id="risk"><span class="n">15</span> 리스크 · 미결정</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>#</th><th>항목</th><th>상태/제안</th></tr>
+    <tr><td>R1</td><td>HWP5 파서 커버리지 — <b>HWP 3.x</b>(구형)·암호화·배포용(ViewText) 미지원</td><td>모두 <b>snf 폴백</b>으로 자동 처리 → 커버리지 손실 없음. 실사용 문서 대부분은 HWP 5.0.</td></tr>
+    <tr><td>R2</td><td>HWP5 파서의 특수 레코드(복잡한 표·각주 등) 텍스트 순서</td><td>실측 4문서 sim 1.00. 분류용 텍스트엔 충분. 이상 시 해당 문서만 snf 폴백하도록 임계 조정 가능.</td></tr>
+    <tr><td>R3</td><td><code>olefile</code> 의존성 추가</td><td>순수 파이썬·BSD·소형이라 위험 낮음. 번들 누락 시에도 hwp5 만 비활성(→ snf) 되게 방어.</td></tr>
+    <tr><td>R4</td><td>HWPX 정규식 파싱의 스키마 취약성</td><td>0건 매칭 시 snf 폴백으로 안전. 필요 시 XML 파서/PrvText 병용.</td></tr>
+    <tr><td>R5</td><td><b>xberg 신생 프로젝트(v1.0.x, 2026-08)</b> — API·포맷 커버리지 급변 가능. PDF 읽기순서가 snf 와 상이(sim 0.5~0.6), HWPX 는 ZIP 원시덤프 등 미성숙 동작 확인.</td><td><b>추후 업데이트 반드시 필요</b>. Office/PDF 라우팅은 <b>2차 선택</b>으로 미루고, xberg 버전 상향 때마다 <code>compare_extractors_4way.ipynb</code> 재측정으로 회귀 확인. 필요 시 kreuzberg(더 안정적)로 대체 여지도 열어둠.</td></tr>
+  </table></div>
+</section>
+
+<!-- 16 -->
+<h2 id="road"><span class="n">16</span> 구현 로드맵(단계)</h2>
+<section class="card">
+  <ol>
+    <li><b>S1 · 골격</b> — <code>build_extractor()</code> 팩토리 + 생성 지점 4곳 교체(동작 동일, hybrid=off 고정). 회귀 0 확인.</li>
+    <li><b>S2 · <code>--hybridparse</code> 인자</b> — argparse/환경변수 배선(추출기 팩토리에만 연결).</li>
+    <li><b>S3 · HWPX zip/OWPML</b> <span class="ok">완료</span> — <code>HwpxZipExtractor</code> + 폴백.</li>
+    <li><b>S4 · HWP5 순수 파이썬 파서</b> <span class="ok">완료</span> — <code>Hwp5Extractor</code>(olefile+zlib). <i>당초 libhwp 격리 워커에서 순수 파이썬 파서로 전환</i>(3.12 유지·크래시 0·속도 6×).</li>
+    <li><b>S5 · 3.12 재빌드</b> <span class="ok">완료</span> — <code>olefile</code> 의존성 추가 후 onedir(Win/Linux) 재빌드. <b>파이썬 버전 변경 없음</b>.</li>
+    <li><b>S6 · 그 외 포맷 = 조립형 스택</b> <span class="ok">완료</span> — xberg 검토 후 기각하고 <b>내용 감지 + 포맷별 오픈소스 파서</b>로 확정: pdf→pypdfium2, 구형 doc/ppt→자체 olefile 파서, xls→xlrd, 현대 docx/xlsx/pptx→zip/OOXML 직접파싱(stdlib), text→직접읽기. 전부 순수py/소형 wheel(CentOS7 호환)이라 <b>Windows·Linux 동일 번들</b>. 실측 snf 대비 동급~수십배·품질 sim≈1.0. <b>[감량] docx/xlsx/pptx 를 stdlib 로 직접 파싱해 Pillow·lxml 등 −23MB(121→98MB).</b></li>
+    <li><b>+ 내용 기반 감지</b> <span class="ok">완료</span> — <code>detect_format</code>(매직바이트+OLE/ZIP 내부검사)로 확장자 위장에도 올바른 파서로 라우팅.</li>
+    <li><b>S7 · 문서화</b> — 실행 가이드·CSO_Rule 링크 갱신, 이 설계서 갱신.</li>
+  </ol>
+  <div class="note">S1~S6 구현 완료 — <code>--hybridparse</code> 하나로 <b>내용 감지 → 포맷별 조립형 파서</b>(pdf=pypdfium2·hwp/hwpx·doc/xls/ppt·docx/xlsx/pptx·text)로 추출하고 snf 는 폴백 전용(없으면 미분류). <b>Windows·Linux(CentOS 7) 완전 동일 동작</b>. 전체 114개 테스트 통과, D:\분류함 300개 실측 hybrid 1.22배·품질 sim≈1.0.</div>
+</section>
+
+<!-- 17 -->
+<h2 id="compat"><span class="n">17</span> 호환성 · 롤백</h2>
+<section class="card">
+  <ul>
+    <li><b>기본 무변경</b> — 플래그 미지정 시 코드·출력·성능이 현행과 동일(전체 110 테스트 통과). 추가 의존성은 순수 파이썬 <code>olefile</code> 1개, 빌드 파이썬은 3.12 그대로.</li>
+    <li><b>롤백</b> — 문제가 생기면 <code>--hybridparse</code> 를 끄기만 하면 즉시 snf 단독으로 복귀. 코드 롤백 불필요.</li>
+    <li><b>전방 호환</b> — 출력 스키마는 추가 전용(<code>extract_engine</code>). 기존 소비자 영향 없음.</li>
+    <li><b>인터페이스 안정</b> — 상위 계층은 <code>TextExtractor</code> 만 알므로, 내부 엔진 추가·교체가 상위에 파급되지 않는다.</li>
+  </ul>
+</section>
+
+<footer>
+  CSOClassify · <code>--hybridparse</code> 하이브리드 추출기 설계 (설계 문서 · 구현 아님) · 근거: <code>tests/compare_extractors_4way.ipynb</code>
+</footer>
+
+</div>
+</body>
+</html>

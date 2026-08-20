@@ -241,7 +241,14 @@
 <!-- ============ 6. keywords ============ -->
 <h2 id="keywords"><span class="n">6</span> keywords <span class="sig">rule 신호 · L2 · name 신호</span></h2>
 <section class="card">
-  <p><b>기밀사전</b> — 지정 단어가 텍스트(또는 파일명)에 있으면 히트. <code>rule</code> 신호의 L2 이자, <code>name</code>(파일명) 신호가 재사용하는 규칙입니다.</p>
+  <p><b>기밀사전</b> — 지정 단어가 있으면 히트. <b>이 사전은 <u>내용과 파일명 둘 다</u>에 적용됩니다</b>:
+  본문(추출 텍스트)에서는 <code>rule</code> 신호의 L2로, 파일 이름(폴더 제외)에서는 <code>name</code> 신호로
+  같은 <code>terms</code> 목록이 쓰입니다.</p>
+  <div class="note"><b><code>name</code>(파일명) 신호는 별도 규칙 섹션이 없습니다.</b> 이 <code>keywords:</code> 섹션을
+  파일명에 그대로 재사용합니다(그래서 <code>cso_rules.yaml</code> 에 <code>name:</code> 섹션이 없음). 예:
+  <code>대외비_보고서.hwp</code> 라는 <b>파일명만</b>으로도 <code>mark_confidential</code>(<span class="tag c">C</span>)이 잡힙니다.
+  <code>keywords:</code> 에 단어를 추가하면 <b>내용·파일명 양쪽</b>에 반영됩니다.
+  <span class="def">단, PII 정규식(<code>regex_pii</code>)·스탬프(<code>stamps</code>)·민감정보(<code>sensitive</code>)는 내용 전용이라 파일명엔 적용되지 않습니다.</span></div>
 <pre><code>keywords:
 - id: mark_confidential
   name: 기밀 표식
@@ -254,6 +261,7 @@
     <tr><td class="f">id</td><td class="req">필수</td><td>문자열</td><td>—</td><td>규칙 식별자.</td></tr>
     <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름.</td></tr>
     <tr><td class="f">terms</td><td class="req">필수</td><td>문자열 목록</td><td>—</td><td>탐지 단어들. 하나라도 텍스트에 있으면 히트(부분일치). <code>case_insensitive</code> 정책 적용.</td></tr>
+    <tr><td class="f">exclude</td><td class="opt">선택</td><td>문자열 목록</td><td>없음</td><td><b>오탐 제외어.</b> 단어가 이 문구 <b>안에 든</b> 매치는 세지 않음(한국어는 띄어쓰기가 없어 부분일치 오탐이 잦음). 예: <code>전과</code> 이지만 <code>산전과</code>·<code>발전과</code> 는 제외.</td></tr>
     <tr><td class="f">base_grade</td><td class="opt">선택</td><td>grade</td><td>S</td><td>1건이라도 있으면 부여할 등급.</td></tr>
     <tr><td class="f">bulk_grade</td><td class="opt">선택</td><td>grade</td><td>없음</td><td>총 등장 건수가 임계 이상이면 상향할 등급.</td></tr>
     <tr><td class="f">bulk_threshold</td><td class="opt">선택</td><td>정수</td><td>defaults</td><td>이 규칙 전용 임계값(없으면 defaults).</td></tr>
@@ -281,6 +289,7 @@
     <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름.</td></tr>
     <tr><td class="f">category</td><td class="opt">선택</td><td>문자열</td><td>""</td><td>민감정보 <b>범주</b>(건강/유전/성생활/사상·정치/노조/범죄경력/인종). 근거에 표기돼 감사에 유용.</td></tr>
     <tr><td class="f">terms</td><td class="req">필수</td><td>문자열 목록</td><td>—</td><td>탐지 단어들(부분일치, case_insensitive 적용).</td></tr>
+    <tr><td class="f">exclude</td><td class="opt">선택</td><td>문자열 목록</td><td>없음</td><td><b>오탐 제외어.</b> 단어가 이 문구 안에 든 매치는 세지 않음. 예: <code>전과</code> 이지만 <code>산전과 산후</code> 는 제외(<code>criminal</code> 규칙에 기본 적용됨).</td></tr>
     <tr><td class="f">grade</td><td class="opt">선택</td><td>grade</td><td>C</td><td>히트 시 부여 등급(법상 민감 → 기본 <span class="tag c">C</span>).</td></tr>
     <tr><td class="f">weight</td><td class="opt">선택</td><td>weight</td><td>high</td><td>신뢰도 가중.</td></tr>
     <tr><td class="f">seed_eligible</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 seed 승격 가능.</td></tr>

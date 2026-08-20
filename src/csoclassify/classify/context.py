@@ -19,6 +19,7 @@
 import os
 from dataclasses import dataclass, field
 
+from . import rules as R
 from .rules import max_grade
 
 # 경로/파일명 신호의 신뢰도 기본값(weight → conf).
@@ -174,8 +175,10 @@ def scan_filename(file, ruleset):
     base = os.path.basename(file or "").lower()
     hits = []
     for rule in ruleset.keyword_rules:
+        # 제외어(오탐 방지) 구간 — 내용 스캔과 동일 규칙을 파일명에도 적용(예: '전과' vs '산전과').
+        ex_spans = R._exclude_spans(base, getattr(rule, "exclude", ()), True)
         for term in rule.terms:
-            if term and term.lower() in base:
+            if term and R._count_outside(base, term.lower(), ex_spans) > 0:
                 # 어떤 단어가 파일명에 있었는지 term 으로 남긴다(키워드라 노출 안전).
                 hits.append({"id": rule.id, "name": rule.name,
                              "grade": rule.base_grade, "term": term})

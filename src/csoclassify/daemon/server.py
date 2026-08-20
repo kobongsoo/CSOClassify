@@ -10,7 +10,7 @@ import time
 
 from .. import __version__
 from .. import config
-from ..extract.synap_exe import SynapExeExtractor
+from ..extract import build_extractor
 from ..embed.onnx_embedder import OnnxEmbedder
 from ..logsetup import get_logger
 from ..timing import Timing
@@ -35,7 +35,8 @@ class DaemonServer:
     #------------------------------------------------------------------
     def __init__(self, spec, idle_timeout=None, num_threads=None):
         self.spec = spec
-        self.idle_timeout = idle_timeout or config.DEFAULT_IDLE_TIMEOUT
+        # 0/None = 무한(유휴 자동종료 없음). `or` 를 쓰면 명시적 0 이 기본값으로 바뀌므로 is None 으로 판별.
+        self.idle_timeout = config.DEFAULT_IDLE_TIMEOUT if idle_timeout is None else idle_timeout
         self.num_threads = num_threads
         self._token = None
         self._extractor = None
@@ -57,6 +58,9 @@ class DaemonServer:
     #------------------------------------------------------------------
     def run(self):
         model = self.spec.key
+        # 유휴시간이 0/None 이면 '무한'(자동종료 없음). 로그·소켓 타임아웃 처리에 함께 쓴다.
+        infinite = not self.idle_timeout or self.idle_timeout <= 0
+        idle_disp = "무한(자동종료 없음)" if infinite else f"{self.idle_timeout}s"
         # (1) 나만 데몬이 되도록 원자적 잠금. 못 얻으면 다른 데몬이 주인 → 조용히 종료.
         if not registry.acquire_singleton(model):
             log.info("데몬 기동 취소: 이미 %s 데몬이 존재", model)
@@ -64,9 +68,11 @@ class DaemonServer:
 
         srv = None
         try:
-            log.info("데몬 시작 model=%s pid=%d idle_timeout=%ds", model, os.getpid(), self.idle_timeout)
+            log.info("데몬 시작 model=%s pid=%d idle_timeout=%s", model, os.getpid(), idle_disp)
             # (2) 추출기/임베더 준비 후 모델을 실제로 메모리에 올린다.
-            self._extractor = SynapExeExtractor()
+            #     데몬 추출은 항상 사이냅 단독(설계 CSO_HybridParse §9 선택A): --hybridparse 는
+            #     클라이언트측 추출에서만 유효하므로 서버는 hybrid=False 로 고정한다.
+            self._extractor = build_extractor(hybrid=False)
             self._embedder = OnnxEmbedder(self.spec, num_threads=self.num_threads)
             self._embedder.ensure_loaded()
 
@@ -84,16 +90,19 @@ class DaemonServer:
                 "started": time.time(),
             })
 
-            log.info("모델 상주 준비 완료 port=%d — 요청 대기(유휴 %ds 후 자동 종료)", port, self.idle_timeout)
+            log.info("모델 상주 준비 완료 port=%d — 요청 대기(유휴 %s)", port,
+                     "무한 = 자동종료 없음" if infinite else f"{self.idle_timeout}s 후 자동 종료")
 
-            # (4) 요청 루프: accept 가 유휴시간 안에 아무 연결도 못 받으면 종료.
-            srv.settimeout(self.idle_timeout)
+            # (4) 요청 루프: 유휴시간 안에 연결이 없으면 종료. 무한이면 settimeout(None) 으로
+            #     영원히 대기(자동종료 없음). --stop 은 실제 연결을 보내 accept 를 깨우므로 무한이어도 동작.
+            srv.settimeout(None if infinite else self.idle_timeout)
             while not self._stop:
                 try:
                     conn, _addr = srv.accept()
                 except OSError:
-                    # 타임아웃(유휴 초과) 등 → 상주 종료.
-                    log.info("유휴 %ds 초과 → 데몬 종료", self.idle_timeout)
+                    # 유한 모드의 타임아웃(유휴 초과)이면 정상 자동종료. 무한 모드의 그 외 소켓오류도 종료.
+                    if not infinite:
+                        log.info("유휴 %ds 초과 → 데몬 종료", self.idle_timeout)
                     break
                 # 연결 하나를 처리(요청→응답). 처리 중 예외는 이 안에서 흡수.
                 self._handle(conn)
@@ -147,6 +156,12 @@ class DaemonServer:
                     ipc.send_msg(conn, {"ok": False, "error": "인증 실패", "kind": "auth"})
                 else:
                     self._do_embed(conn, req)
+            elif op == "embed_text":
+                # 분류 경로용: 이미 추출·정제된 '텍스트'를 받아 벡터만 돌려준다(재추출 없음).
+                if req.get("token") != self._token:
+                    ipc.send_msg(conn, {"ok": False, "error": "인증 실패", "kind": "auth"})
+                else:
+                    self._do_embed_text(conn, req)
             elif op == "stop":
                 if req.get("token") != self._token:
                     ipc.send_msg(conn, {"ok": False, "error": "인증 실패", "kind": "auth"})
@@ -189,6 +204,37 @@ class DaemonServer:
             ipc.send_msg(conn, {"ok": True, "result": result})
         except ExtractError as e:
             ipc.send_msg(conn, {"ok": False, "error": str(e), "kind": "extract"})
+        except EmbedError as e:
+            ipc.send_msg(conn, {"ok": False, "error": str(e), "kind": "embed"})
+        except Exception as e:
+            ipc.send_msg(conn, {"ok": False, "error": str(e), "kind": "other"})
+
+    #------------------------------------------------------------------
+    # embed_text 요청 처리 (분류 경로 전용)
+    #=> 이미 추출·정제된 '텍스트'를 받아 상주 모델로 임베딩해 '벡터'만 돌려준다.
+    #   분류는 추출·규칙을 로컬에서 이미 수행하므로, 데몬이 재추출하지 않고 임베딩만 맡는다.
+    #   모델이 상주 상태라 model_load 는 0 이다(반복 호출에도 웜 재사용).
+    #
+    # -in: conn = 연결 소켓
+    # -in: req  = {op:"embed_text", token, text, opts} 요청 dict
+    #             (opts: max_tokens/overlap/normalize — 없으면 기본값)
+    #
+    # -out: 없음(벡터/에러를 소켓으로 전송: {ok, vector, dim, chunks} 또는 {ok:false, ...})
+    # -out: error = 없음(임베딩 예외를 잡아 kind 와 함께 응답)
+    #------------------------------------------------------------------
+    def _do_embed_text(self, conn, req):
+        from ..embed.base import EmbedError
+        text = req.get("text", "")
+        opts = req.get("opts", {}) or {}
+        try:
+            result, n = self._embedder.embed_document(
+                text,
+                opts.get("max_tokens", config.DEFAULT_MAX_TOKENS),
+                opts.get("overlap", config.DEFAULT_OVERLAP),
+                normalize=opts.get("normalize", True),
+                per_chunk=False,
+            )
+            ipc.send_msg(conn, {"ok": True, "vector": result, "dim": self.spec.dim, "chunks": n})
         except EmbedError as e:
             ipc.send_msg(conn, {"ok": False, "error": str(e), "kind": "embed"})
         except Exception as e:

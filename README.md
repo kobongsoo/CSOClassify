@@ -1,12 +1,13 @@
 # CSOClassify
 
 한국어(다국어) **수집 문서를 C/S/O(기밀·민감·공개)로 자동 분류**하는 로컬 CLI 도구입니다.
-사이냅 문서필터(`snf_exe`)로 텍스트를 뽑고, **여러 판정 신호**(내용·민감정보·보안분류 스탬프·경로·파일명)를
+사이냅 문서필터(`snf_exe`)로 텍스트를 뽑고(옵션 `--hybridparse` 로 내용 감지 후 포맷별 오픈소스 파서 사용 — 사이냅 불필요),
+**여러 판정 신호**(내용·민감정보·보안분류 스탬프·경로·파일명)를
 보수적으로 융합해 등급을 매깁니다. 임베딩 벡터는 보류 문서 구제·seed 비교(전파)에 씁니다.
 분류가 **기본 동작**이며, 벡터만 필요하면 `--embed` 를 줍니다. 서버·인터넷 없이 로컬에서 동작하고
 PyInstaller `onedir` 로 패키징합니다.
 
-> 상세: [실행 가이드](doc/csoclassify-실행가이드.html) · [규칙셋 필드 레퍼런스](doc/CSO_Rule.html) · [설계서](plan/설계서.md)
+> 상세: [실행 가이드](doc/csoclassify-실행가이드.html) · [규칙셋 필드 레퍼런스](doc/CSO_Rule.html) · [하이브리드 추출 설계](plan/CSO_HybridParse.html) · [설계서](plan/설계서.md)
 
 ## 빠른 사용
 
@@ -53,21 +54,28 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 
 | 옵션 | 동작 | 임베딩 | seed |
 |---|---|---|---|
-| (기본) | 규칙으로 등급 → 필요할 때만 임베딩(보류·seed 후보) | 선택적 | 선택 |
-| `--rule-only` | 규칙(내용·민감정보·스탬프·경로·파일명)**만**으로 분류 | 안 함(가장 빠름) | 불필요 |
+| (기본) | 규칙으로 등급 → **미분류(보류)면 seed와 문맥 비교해 자동 전파** | 보류·seed 후보만 | exe 옆 `cso_seed.jsonl`(있으면) |
+| `--rule-only` | 규칙(내용·민감정보·스탬프·경로·파일명)**만**으로 분류 (전파 차단) | 안 함(가장 빠름) | 불필요 |
 | `--vector-only` | 규칙 검사 **없이** 문서 벡터를 seed와 비교(전파)해서만 분류 | 전량 임베딩 | **필수** `--seeds` |
+
+> **기본 자동 전파**: `--file`/`--dir` 만 줘도 **exe 옆에 `cso_seed.jsonl` 이 있으면** 규칙 미분류 문서를 그 seed와 임베딩 비교해 자동 분류합니다(확정 문서는 건너뜀). seed 파일이 없으면 규칙만으로 끝냅니다. 전파를 원치 않으면 `--rule-only`.
 
 ## 주요 옵션 (전체는 `--help`)
 
 | 옵션 | 설명 | 기본 |
 |---|---|---|
 | `--file` / `--dir` | 단일 파일 / 폴더 배치 (구 `-file`/`-dir` 호환) | — |
-| `-r`, `--recursive` | `--dir` 배치 시 하위 폴더까지 | off |
+| `-r`, `--recursive` | **무시됨** — `--dir` 은 항상 하위 폴더까지 재귀(하위호환용) | 항상 재귀 |
 | `--glob` | 배치 필터(예: `"*.hwp,*.pdf"`) | `*` |
 | (모드 없음) | **C/S/O 분류**(기본). 예전 `--classify` 는 생략 가능 | 분류 |
 | `--rule-only` / `--vector-only` | 규칙만 / 벡터-seed 비교만 (배타) | — |
 | `--embed` | 분류 대신 **임베딩 벡터만** 출력 | — |
 | `--text-only` | 벡터 없이 **추출 텍스트만** | — |
+| `--hybridparse` | **내용 감지 → 포맷별 파서**(사이냅 없이): pdf→pypdfium2, hwp→HWP5, hwpx→zip/OWPML, doc/ppt→자체 olefile 파서, xls→xlrd, docx/xlsx/pptx→zip/OOXML 직접파싱(stdlib), html→태그제거(stdlib), text→직접읽기. 실패 시 snf 폴백(snf 없으면 미분류). 전부 순수py/소형 wheel로 **Win·Linux(CentOS7) 동일 번들**. snf 대비 동급~수십배 빠름 | off(전부 snf) |
+
+> **압축파일 자동 확장** — 입력이 압축파일이면 내부 파일을 임시폴더에 풀어 **파일 하나하나를 개별 분류**한다(중첩 압축도 재귀). 지원: **zip · tar · tar.gz · tar.bz2 · tar.xz · gz · bz2 · xz**(stdlib, 무의존) · **7z**(py7zr) · **rar**(번들 unrar). 결과 JSON 은 파일별 레코드의 배열이고 각 레코드 `file` 은 `"<압축경로>/<내부경로>"` 로 표기돼 **어느 내부 파일이 C/S/O 인지** 알 수 있다. 처리 후 임시폴더는 자동 삭제(민감정보 잔존 방지). ※ docx/xlsx/pptx/hwpx 는 내부가 zip 이라도 '문서 1개'로 취급해 펼치지 않는다(내용 감지로 구분).
+>
+> **압축파일 '자체'의 등급(집계)** — 압축은 그 안 파일 중 **가장 높은 위험등급(C>S>O)** 을 자기 등급으로 받는다. 결과에 `"archive": true, "grade": "<최고위험>", "contains": {C,S,O,미분류,total}` 형태의 요약 레코드가 파일별 레코드 뒤에 추가돼, **압축만 봐도 위험도**를 안다. (내부 파일 등급 집계와 별개 레코드라 총계에는 중복 계산되지 않음.)
 | `--rules` | 규칙셋 경로 | exe 옆 `cso_rules.yaml` |
 | `--failsafe [등급]` | 어느 신호로도 못 정한 문서의 기본등급(값 생략=S) | 미부여(보류) |
 | `--embed-needed` | **보류·seed 후보**에만 임베딩(확정문서 생략 → 빠름) | — |
@@ -77,6 +85,10 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 | `--seeds <경로>` | 전파 비교 기준 seed(`cso_seed.jsonl`) | 내부 seed |
 | `--with-text` | 결과에 추출 텍스트(`text`) 포함 | off(프라이버시) |
 | `--with-pii` | **[주의]** 검출 원문 PII 값을 `pii` 필드로 저장 | off |
+| `--hash` | 각 문서의 **해시(SHA-256)** 를 `hash` 필드로 포함 | off |
+| `--simple` | 파일별 **문서명·등급·해시 3가지만** 출력(JSON) | off |
+| `--summary` | 파일별 레코드 없이 **맨 끝 요약(summary)만** 출력(JSON) | off |
+| `--nosummary` | 맨 끝 **요약(summary)을 출력에서 제거**(파일별 레코드만) · `--summary`와 배타 | off |
 | `--format` | `text` / `json` / `jsonl` | **`json`** |
 | `--out` | 결과 저장 파일 | stdout |
 | `--max-tokens` / `--overlap` | 청크 크기 / 겹침 | 512 / 32 |
@@ -88,6 +100,7 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 
 ```
 문서 → [사이냅 snf_exe] 텍스트 → 정제 → 규칙 스캔(rule·sensitive·stamp·path·name 융합) → 등급 레코드
+        └(--hybridparse: 내용감지→포맷별 파서(pdf=pypdfium2·hwp/hwpx·doc/xls/ppt·docx/xlsx/pptx·text), 실패 시 snf 폴백)
                                      └(선택) 토큰 청킹 → [ONNX 임베더] 벡터 → 전파(보류 구제)
 ```
 
@@ -95,12 +108,14 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 
 반복 호출 시 모델을 매번 로딩하지 않도록, 첫 호출에서 데몬을 자동 기동해 모델을 메모리에
 상주시킵니다(설계서 결정5). 2회차부터 모델 로딩 시간은 0 입니다.
+**`--embed` 뿐 아니라 분류(`--file`/`--dir`)도** 임베딩이 필요할 때(자동 전파·`--embed-needed`·`--with-vector`) 데몬을 경유해 웜 모델을 재사용합니다(데몬 불가 시 in-process 폴백; 규칙만으로 끝나면 데몬 미사용).
 
 - 모델별 별도 데몬(레지스트리 키=모델 별칭), loopback + 토큰 인증.
 - 동시 요청 경쟁은 **엔드포인트/잠금 원자적 생성**으로 데몬 1개만 생존.
-- 유휴 `--idle-timeout`(기본 600초) 지나면 스스로 종료.
+- **유휴 자동종료는 기본 무한**(자동 종료 안 함) — `--idle-timeout N`(초)으로 유한하게 둘 수 있고, `--stop` 으로 즉시 종료.
 - 기동/통신 실패 시 **in-process 자동 폴백** → 멈추지 않음.
 - 단발/디버그는 `--no-daemon`(또는 `CSOCLASSIFY_DAEMON=0`).
+- **데몬 프로세스**는 콘솔 창 없이 뜨며 이름은 `csoclassify.exe`(소스 실행 시 `python.exe`). 찾기: `csoclassify.exe --status`(pid 표시), 작업관리자 **세부 정보** 탭, 또는 `Get-Process csoclassify`.
 
 ## 개발 셋업
 
@@ -164,6 +179,7 @@ dist-onedir/windows/                    dist-onedir/linux/
 | `CSOCLASSIFY_POLICY_DIR` | 규칙셋 폴더(`--rules` 로도 지정) |
 | `CSOCLASSIFY_MODELS_DIR` / `CSOCLASSIFY_SYNAP_DIR` | 모델 / 사이냅 위치 재정의 |
 | `CSOCLASSIFY_DAEMON=0` | 데몬 전역 off |
+| `CSOCLASSIFY_HYBRID=1` | 하이브리드 추출(`--hybridparse`) 전역 기본 on |
 | `CSOCLASSIFY_STAMP_HEAD_CHARS` / `_REPEAT_MIN` | 스탬프 머리범위(400) / 반복횟수(2) |
 
 - 기본 로그: `<exe폴더>/log/csoclassify-YYYYMMDD.log`(실행 커맨드·파일별 결과 JSON, 벡터는 축약).
@@ -191,7 +207,8 @@ src/csoclassify/
     fuse.py         보수적 max 융합 + fail-safe
     engine.py       분류 레코드 조립 + 임베딩 전파(propagate_records)
     propagate.py    seed 인덱스 · 임베딩 유사도 전파
-  extract/          사이냅 추출기(base + synap_exe)
+  extract/          추출기: synap_exe(사이냅) + detect(내용감지) + hybrid 라우터
+                     + hwp5·hwpx_zip·office_legacy(doc/xls/ppt)·office_ooxml(docx/xlsx/pptx)·pdf_pdfium·plaintext
   embed/            ONNX 임베더(base + onnx_embedder)
   daemon/           상주 데몬(server/client/ipc/registry)
 resources/policy/cso_rules.yaml   C/S/O 규칙셋(외장)
@@ -203,6 +220,7 @@ doc/                실행 가이드 · 규칙셋 레퍼런스 · 작업기록 (
 ## 현재 상태
 
 - ✅ 추출(사이냅)·정제·청킹·CLI·데몬(싱글턴/폴백)·출력·시간측정.
+- ✅ 하이브리드 추출(`--hybridparse`): **내용 감지 → 포맷별 오픈소스 파서**(pdf=pypdfium2·hwp/hwpx·구형 doc/xls/ppt·현대 docx/xlsx/pptx=zip/OOXML 직접파싱(stdlib)·text). snf는 폴백 전용(없으면 미분류). 실측 snf 대비 동급~수십배, 품질 sim≈1.0. 전부 순수py/소형 wheel로 **Windows·Linux(CentOS7) 동일 동작**(xberg는 검토 후 채택 안 함 — 117MB·CentOS7 불가·PDF 느림).
 - ✅ C/S/O 분류: 5신호(rule·sensitive·stamp·path·name) 융합 + 결합식별성(combo) + 임베딩 전파(embed).
 - ✅ PII 20종(ko-pii) · 분류 방식 옵션(`--rule-only`/`--vector-only`) · 검토/규칙편집 UI.
 - ✅ onedir 배포(Windows·Linux) · 규칙셋/모델/사이냅 외장화.

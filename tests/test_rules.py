@@ -751,3 +751,57 @@ def test_sensitive_fusion_decides(rs):
     assert rec["grade"] == "C"
     assert "sensitive" in rec["decided_by"]
     assert rec["signals"]["sensitive"]["grade"] == "C"
+
+
+#------------------------------------------------------------------
+# --with-pii 대형 문서 커버리지: collect_pii 가 건수 스캔과 일치
+#=> 10K자 이후에 있는 PII 를 collect_pii 가 놓치던 버그(2026-08) 회귀 방지.
+#   대형 문서에서 collect_pii 의 값 개수가 _kopii_counts 의 건수와 라벨별로 일치해야 한다.
+#------------------------------------------------------------------
+def test_collect_pii_large_doc_matches_counts(rs):
+    if not R._HAVE_KOPII:
+        pytest.skip("ko-pii 미설치 환경")
+    from collections import Counter
+    # 청크 크기(10K)를 넘기는 filler 뒤에 PHONE 2개 + RRN 1개 → 10K 이후에 위치.
+    text = ("가나다 " * 3000) + f" 연락처 010-1234-5678, 010-9876-5432. 주민등록번호 {VALID_RRN}."
+    assert len(text) > R._KOPII_MAX_CHARS
+    counts = R._kopii_counts(text, {"PHONE", "RRN"})
+    pii = R.collect_pii(text, rs)
+    by = Counter(p["label"] for p in pii)
+    # 건수(hits)와 값 개수가 라벨별로 동일해야 한다(10K 뒤 PII 도 값이 실려야 함).
+    assert by.get("PHONE", 0) == counts.get("PHONE", 0) == 2
+    assert by.get("RRN", 0) == counts.get("RRN", 0) == 1
+    # 실제 값이 담겨 있는지(오프셋은 원문 기준 절대값).
+    vals = {p["value"] for p in pii}
+    assert "010-1234-5678" in vals and "010-9876-5432" in vals and VALID_RRN in vals
+
+
+#------------------------------------------------------------------
+# 제외어(exclude): 부분문자열 오탐 방지
+#=> '전과'(범죄경력)가 '산전과 산후'(산전+과) 같은 다른 단어에 부분일치하는 오탐을
+#   exclude 로 걸러내되, 진짜 '전과'/'전과기록' 은 그대로 잡는지 검증한다.
+#------------------------------------------------------------------
+def test_sensitive_exclude_substring_fp(rs):
+    # 오탐 케이스: '산전과 산후' → criminal 안 잡혀야 함
+    s = R.scan_sensitive("임신부는 산전과 산후를 통하여 관리한다.", rs)
+    assert not any(h["id"] == "criminal" for h in s.hits)
+    # 진짜 전과 → 잡혀야 함
+    s2 = R.scan_sensitive("그는 전과자로 전과 3범이다.", rs)
+    assert any(h["id"] == "criminal" and h["grade"] == "C" for h in s2.hits)
+    # 혼합: 오탐(산전과)은 빼고 진짜(전과기록)만 카운트
+    s3 = R.scan_sensitive("산전과 산후 관리. 그리고 전과기록 있음.", rs)
+    crim = next(h for h in s3.hits if h["id"] == "criminal")
+    assert dict(crim["terms"]).get("전과") == 1
+
+
+#------------------------------------------------------------------
+# _count_outside 단위: 제외 구간 밖 등장만 카운트
+#=> 제외 구간이 없으면 str.count 와 동일, 있으면 그 안에 든 매치는 뺀다.
+#------------------------------------------------------------------
+def test_count_outside_helper():
+    hay = "산전과 전과 전과자"
+    # 제외 없음 → '전과' 3회(산전과·전과·전과자)
+    assert R._count_outside(hay, "전과", []) == 3
+    # '산전과' 제외 → 2회
+    ex = R._exclude_spans(hay, ["산전과"], True)
+    assert R._count_outside(hay, "전과", ex) == 2

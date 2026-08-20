@@ -362,6 +362,8 @@ class RegexRule:
 # -필드: id            = 규칙 식별자 (예: "mark_confidential")
 # -필드: name          = 사람이 읽는 이름 (예: "기밀 표식")
 # -필드: terms         = 탐지 단어 리스트
+# -필드: exclude       = 제외 문구 리스트. 단어가 이 문구 안에 든 매치는 오탐으로 보고
+#                        세지 않는다(예: terms=[전과], exclude=[산전과·충전과]).
 # -필드: base_grade    = 1건이라도 있으면 부여할 등급
 # -필드: bulk_grade    = bulk_threshold 초과 시 상향 등급(없으면 상향 안 함)
 # -필드: bulk_threshold = 이 규칙 전용 임계값(없으면 Defaults 값 사용)
@@ -373,6 +375,7 @@ class KeywordRule:
     id: str
     name: str
     terms: tuple
+    exclude: tuple = ()
     base_grade: str = "S"
     bulk_grade: str = None
     bulk_threshold: int = None
@@ -423,6 +426,7 @@ class ComboRule:
 # -필드: name          = 사람이 읽는 이름 (예: "건강정보")
 # -필드: category      = 민감정보 범주(건강/유전/성생활/사상·정치/노조/범죄경력/인종)
 # -필드: terms         = 탐지 단어 리스트
+# -필드: exclude       = 제외 문구 리스트(오탐 방지). 예: terms=[전과], exclude=[산전과]
 # -필드: grade         = 히트 시 부여 등급(법상 민감 → 기본 C)
 # -필드: weight        = 신뢰도 가중("high"|"medium"|"low")
 # -필드: seed_eligible = True 면 이 히트로 확정된 문서를 전파 seed 로 승격 가능
@@ -433,6 +437,7 @@ class SensitiveRule:
     name: str
     category: str
     terms: tuple
+    exclude: tuple = ()
     grade: str = "C"
     weight: str = "high"
     seed_eligible: bool = False
@@ -823,9 +828,66 @@ def _combo_hits(counts, combo_rules, conf_map=None):
 
 
 #------------------------------------------------------------------
+# 제외어(exclude) 구간 찾기
+#=> 규칙의 제외 문구들이 텍스트 어디에 있는지 (start,end) 구간 목록으로 모은다.
+#   한국어는 단어 경계(띄어쓰기)가 없어 부분문자열 오탐이 잦다 — 예: '전과'가
+#   '산전과 산후'(산전+과)에 걸린다. 그런 오탐을 규칙별 제외 문구로 걸러내기 위한 준비.
+#
+# -in: hay     = 검사 대상(대소문자 정책 적용 후) 문자열
+# -in: excludes = 제외 문구 목록(rule.exclude)
+# -in: ci      = case_insensitive 여부(제외 문구도 같은 정책으로 소문자화)
+#
+# -out: list[(start,end)] = 제외 문구들이 걸린 구간(정렬 안 함, 빈 리스트 가능)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _exclude_spans(hay, excludes, ci):
+    spans = []
+    for p in (excludes or ()):
+        if not p:
+            continue
+        needle = p.lower() if ci else p
+        i = hay.find(needle)
+        n = len(needle)
+        while i >= 0:
+            spans.append((i, i + n))
+            i = hay.find(needle, i + n)   # 비중첩
+    return spans
+
+
+#------------------------------------------------------------------
+# 제외 구간 밖 등장 횟수
+#=> needle 의 비중첩 등장 횟수를 세되, 제외 구간(ex_spans)에 '완전히 포함'되는
+#   매치는 뺀다. 제외 구간이 없으면 str.count 와 동일하다(하위호환).
+#
+# -in: hay      = 검사 대상 문자열
+# -in: needle   = 찾을 단어(정책 적용 후)
+# -in: ex_spans = _exclude_spans() 결과
+#
+# -out: int = 제외 후 인정 건수
+# -out: error = 없음
+#------------------------------------------------------------------
+def _count_outside(hay, needle, ex_spans):
+    if not needle:
+        return 0
+    if not ex_spans:
+        return hay.count(needle)
+    total = 0
+    n = len(needle)
+    i = hay.find(needle)
+    while i >= 0:
+        j = i + n
+        # 이 매치가 어떤 제외 구간 안에 통째로 들어가면(예: '전과' ⊂ '산전과') 세지 않는다.
+        if not any(s <= i and j <= e for s, e in ex_spans):
+            total += 1
+        i = hay.find(needle, j)   # 비중첩(str.count 과 동일 진행)
+    return total
+
+
+#------------------------------------------------------------------
 # 키워드 규칙 1개 스캔
 #=> 규칙의 단어들이 텍스트에 몇 번 나오는지 세어 RuleHit 를 만든다. 하나도 없으면 None.
 #   대소문자 무시(defaults.case_insensitive)면 양쪽을 소문자로 맞춰 센다.
+#   제외어(rule.exclude)가 있으면 그 문구 안에 든 매치는 오탐으로 보고 세지 않는다.
 #
 # -in: text     = 스캔 대상 텍스트
 # -in: rule     = KeywordRule
@@ -837,6 +899,9 @@ def _combo_hits(counts, combo_rules, conf_map=None):
 def _scan_keyword(text, rule, defaults, conf_map=None):
     conf_map = conf_map if conf_map is not None else _KEYWORD_CONF
     haystack = text.lower() if defaults.case_insensitive else text
+    # 제외어(exclude) 구간을 미리 찾아 둔다 — 한국어는 띄어쓰기가 없어 부분문자열 오탐이
+    # 잦다(예: '전과'가 '산전과 산후'에 걸림). 제외 문구 안에 든 매치는 세지 않는다.
+    ex_spans = _exclude_spans(haystack, getattr(rule, "exclude", ()), defaults.case_insensitive)
     total = 0
     # 단어별 건수를 따로 모아, 나중에 "어떤 단어가 몇 번 걸렸는지" 근거로 남긴다.
     per_term = []
@@ -844,8 +909,8 @@ def _scan_keyword(text, rule, defaults, conf_map=None):
         if not term:
             continue
         needle = term.lower() if defaults.case_insensitive else term
-        # str.count 는 비중첩 등장 횟수 → bulk 판정용 건수로 충분.
-        c = haystack.count(needle)
+        # 비중첩 등장 횟수(str.count 동등) 중, 제외 구간에 든 매치는 뺀다.
+        c = _count_outside(haystack, needle, ex_spans)
         if c:
             per_term.append((term, c))
             total += c
@@ -1095,13 +1160,15 @@ def scan_sensitive(text, ruleset):
 
     hits = []
     for rule in rules:
+        # 제외어 구간(오탐 방지) — 예: '전과'가 '산전과 산후'에 부분일치하는 것을 뺀다.
+        ex_spans = _exclude_spans(hay, getattr(rule, "exclude", ()), ci)
         per_term = []
         total = 0
         for term in rule.terms:
             if not term:
                 continue
             needle = term.lower() if ci else term
-            c = hay.count(needle)
+            c = _count_outside(hay, needle, ex_spans)
             if c:
                 per_term.append((term, c))
                 total += c
@@ -1127,13 +1194,43 @@ def scan_sensitive(text, ruleset):
 
 
 #------------------------------------------------------------------
+# 겹치는 span 병합(원문값 보존)
+#=> 초선형 검출기를 겹치는 청크로 나눠 돌리면 같은 실제 PII 가 두 번 잡힐 수 있다.
+#   절대 오프셋 (start,end) 이 겹치면 '같은 PII'로 보고 하나만 남긴다(대표값 유지).
+#   _count_merged_spans 의 '값 보존' 판이다(같은 라벨끼리만 넘겨야 한다).
+#
+# -in: items = [(start, end, value), ...] 동일 라벨의 절대 오프셋 + 원문값
+#
+# -out: list[(start, end, value)] = 병합 후 대표 검출들(정렬됨)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _merge_spans_keep_value(items):
+    if not items:
+        return []
+    items = sorted(items, key=lambda x: (x[0], x[1]))
+    out = [items[0]]
+    cur_end = items[0][1]
+    for s, e, v in items[1:]:
+        if s < cur_end:               # 앞 구간과 겹침 = 같은 PII → 대표(먼저 잡힌 것) 유지
+            cur_end = max(cur_end, e)
+        else:
+            out.append((s, e, v))
+            cur_end = e
+    return out
+
+
+#------------------------------------------------------------------
 # 검출된 PII '원문 값' 수집 (옵션 --with-pii 전용)
 #=> [프라이버시 예외] 기본 동작은 원문 값을 절대 저장하지 않는다(건수만). 하지만
 #   사용자가 --with-pii 로 '명시 요청'하면 이 함수로 실제 검출된 PII 값을 모아
 #   결과(--out)에만 싣는다(로그엔 남기지 않음 — cli._loggable_record 가 가림).
-#    1) 성능 상한(_KOPII_MAX_CHARS)을 건수/등급 스캔과 동일하게 적용
-#    2) 규칙에 등록된 PII 라벨(regex_rules)만 검출 — 설정에 없는 유형은 안 남긴다
-#    3) 검출 1건마다 {label, value, start, end} (offset 은 스캔 텍스트 기준)
+#   [커버리지] 건수 스캔(_kopii_counts)과 '완전히 동일한 범위'를 본다 — 그래야 hits 의
+#   건수와 pii 값 개수가 일치한다(대형 문서에서 10K 뒤 PII 를 놓치던 버그 수정, 2026-08):
+#    1) 소형(≤ 청크 크기): 단일 패스로 전부 수집(교차라벨 겹침해소 포함)
+#    2) 대형: 선형 검출기는 전량 스캔, 초선형(PHONE/ADDRESS/ACCOUNT)은 앞 _KOPII_MAX_TOTAL
+#       까지 겹치는 청크로 스캔 후 절대 오프셋 병합으로 경계 중복 제거(값 보존)
+#    3) 규칙에 등록된 PII 라벨(regex_rules)만 검출 — 설정에 없는 유형은 안 남긴다
+#    4) 검출 1건마다 {label, value, start, end} (offset 은 원문 text 기준 절대값)
 #
 # -in: text    = 스캔 대상 텍스트
 # -in: ruleset = RuleSet(활성 PII 라벨 = regex_rules)
@@ -1147,11 +1244,32 @@ def collect_pii(text, ruleset):
     labels = {r.label for r in ruleset.regex_rules}
     if not labels:
         return []
-    # 건수 스캔과 동일 범위만 본다(상한 초과분은 잘라 앞부분만).
-    scan = text if len(text) <= _KOPII_MAX_CHARS else text[:_KOPII_MAX_CHARS]
+
     out = []
-    for m in _detect_subset(scan, labels, normalize=True):
-        out.append({"label": m.label, "value": m.text, "start": m.start, "end": m.end})
+    # (소형) 청크 크기 이하: 예전과 동일한 단일 패스로 전부 수집(교차라벨 겹침해소 보존).
+    if len(text) <= _KOPII_MAX_CHARS:
+        for m in _detect_subset(text, labels, normalize=True):
+            out.append({"label": m.label, "value": m.text, "start": m.start, "end": m.end})
+        return out
+
+    # (대형) _kopii_counts 와 동일 커버리지: 선형=전량, 초선형=앞 _KOPII_MAX_TOTAL 청킹+병합.
+    linear = labels - _KOPII_SUPERLINEAR
+    if linear:
+        for m in _detect_subset(text, linear, normalize=True):
+            out.append({"label": m.label, "value": m.text, "start": m.start, "end": m.end})
+
+    superlinear = labels & _KOPII_SUPERLINEAR
+    if superlinear:
+        covered = min(len(text), _KOPII_MAX_TOTAL)
+        by_label = {}
+        for base, end in _chunk_windows(covered, _KOPII_MAX_CHARS, _KOPII_OVERLAP):
+            for m in _detect_subset(text[base:end], superlinear, normalize=True):
+                # 창 문자열 기준 오프셋을 base 로 절대화해 원문 text 기준으로 맞춘다.
+                by_label.setdefault(m.label, []).append((base + m.start, base + m.end, m.text))
+        for label, items in by_label.items():
+            for s, e, v in _merge_spans_keep_value(items):
+                out.append({"label": label, "value": v, "start": s, "end": e})
+
     return out
 
 
@@ -1178,6 +1296,28 @@ def default_rules_path():
         return os.path.join(exe_dir(), "cso_rules.yaml")
     # 소스(개발) 실행: 저장소 트리의 resources/policy/cso_rules.yaml.
     return resource_path("policy", "cso_rules.yaml")
+
+
+#------------------------------------------------------------------
+# 기본 seed 저장소 경로
+#=> 전파 비교 기준 seed 파일(cso_seed.jsonl)의 위치를 규칙셋과 '같은 규약'으로 정한다.
+#   기본 분류(--file/--dir)에서 이 파일이 있으면 자동 전파에 쓴다(--seeds 로 덮어쓸 수 있음).
+#    1) 환경변수 CSOCLASSIFY_POLICY_DIR 이 있으면 그 폴더의 cso_seed.jsonl
+#    2) exe 로 실행 중이면 exe 실행 경로(exe 옆)의 cso_seed.jsonl  ← 배포 기본
+#    3) 소스(개발) 실행이면 트리의 resources/policy/cso_seed.jsonl
+#
+# -in: 없음
+#
+# -out: path = cso_seed.jsonl 절대경로(존재 여부는 확인 안 함 — 호출부가 isfile 로 판단)
+# -out: error = 없음
+#------------------------------------------------------------------
+def default_seed_path():
+    env = os.environ.get("CSOCLASSIFY_POLICY_DIR")
+    if env:
+        return os.path.join(env, "cso_seed.jsonl")
+    if getattr(sys, "frozen", False):
+        return os.path.join(exe_dir(), "cso_seed.jsonl")
+    return resource_path("policy", "cso_seed.jsonl")
 
 
 #------------------------------------------------------------------
@@ -1260,6 +1400,7 @@ def load_rules(path=None):
             id=r["id"],
             name=r.get("name", r["id"]),
             terms=tuple(r.get("terms") or []),
+            exclude=tuple(r.get("exclude") or []),
             base_grade=r.get("base_grade", "S"),
             bulk_grade=r.get("bulk_grade"),
             bulk_threshold=r.get("bulk_threshold"),
@@ -1274,6 +1415,7 @@ def load_rules(path=None):
             name=r.get("name", r["id"]),
             category=r.get("category", ""),
             terms=tuple(r.get("terms") or []),
+            exclude=tuple(r.get("exclude") or []),
             grade=r.get("grade", "C"),
             weight=r.get("weight", "high"),
             seed_eligible=bool(r.get("seed_eligible", False)),

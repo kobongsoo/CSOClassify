@@ -7,6 +7,19 @@ numpy>=1.24            # 벡터 연산/풀링
 PyYAML>=6.0            # cso_rules.yaml 규칙셋 로드
 ko-pii==1.15.2         # L1 PII 검출 엔진(Marker-Inc-Korea, MIT, 순수 파이썬, 체크섬 내장)
 
+# --- 하이브리드 추출(--hybridparse) 포맷별 파서 (전부 CentOS7/glibc2.17 호환) ---
+olefile>=0.47          # OLE/CFB 리더 — hwp5·구형 doc/ppt 감지·파싱 (BSD, 순수 파이썬)
+pypdfium2>=4.0         # PDF 텍스트층 (BSD/Apache, manylinux2014 wheel, pdfium)
+xlrd>=2.0              # 구형 .xls(BIFF) (BSD, 순수 파이썬)
+# 현대 docx/xlsx/pptx 는 stdlib(zipfile+ElementTree)로 직접 파싱한다.
+#   → python-docx/openpyxl/python-pptx 및 그들이 끌던 lxml(7MB)·Pillow(13MB) 불필요.
+#   텍스트만 뽑는 용도라 라이브러리가 과했고, 배포 용량을 ~23MB 키웠다(office_ooxml.py 참고).
+
+# --- 압축파일 확장(archive.py): 압축 1개를 내부 '파일별'로 나눠 분류 ---
+#   tar/tar.gz/tar.bz2/tar.xz/gz/bz2/xz 는 stdlib(무의존).
+py7zr>=0.21          # 7z 해제 (의존 C확장 전부 CentOS7/glibc2.17 manylinux2014 wheel 확인)
+rarfile>=4.0         # rar 해제(파서) — 실제 해제는 번들 unrar 바이너리 필요(RAR 독점 포맷)
+
 # === 빌드 도구 ===
 pyinstaller>=6.3       # exe 패키징
 

@@ -5,7 +5,38 @@
 #   이 인터페이스만 지키면 상위 코드는 손댈 필요가 없다.
 #------------------------------------------------------------------
 
+import os
 from abc import ABC, abstractmethod
+
+
+#------------------------------------------------------------------
+# 추출 텍스트를 보존 폴더에 저장 (하이브리드 공용)
+#=> 추출에 성공한 "승자 엔진"의 텍스트를 save_dir 에 파일로 남긴다. 하이브리드
+#   추출기는 하위 엔진을 save_dir=None 으로 호출해 성공 여부를 먼저 판정하고,
+#   이긴 엔진의 텍스트만 이 함수로 한 번 저장한다(엔진마다 중복 저장 방지).
+#    1) 폴더가 없으면 만든다
+#    2) 원본명.txt 로 쓰되, 이미 있으면 원본명__2.txt, __3.txt 로 충돌 회피
+#
+# -in: save_dir   = 저장할 폴더
+# -in: input_path = 원본 문서 경로(저장 파일명 근거)
+# -in: text       = 저장할 추출 텍스트(UTF-8)
+#
+# -out: path = 실제로 저장된 파일 경로
+# -out: error = 폴더 생성/쓰기 실패 시 OSError 전파
+#------------------------------------------------------------------
+def save_extracted_text(save_dir, input_path, text):
+    # 보존 폴더 준비(이미 있으면 그대로).
+    os.makedirs(save_dir, exist_ok=True)
+    # 원본 파일명(확장자 제외)에 .txt 를 붙이고, 충돌 시 __N 으로 회피한다.
+    stem = os.path.splitext(os.path.basename(input_path))[0]
+    cand = os.path.join(save_dir, stem + ".txt")
+    n = 2
+    while os.path.exists(cand):
+        cand = os.path.join(save_dir, f"{stem}__{n}.txt")
+        n += 1
+    with open(cand, "w", encoding="utf-8") as f:
+        f.write(text)
+    return cand
 
 
 #------------------------------------------------------------------
