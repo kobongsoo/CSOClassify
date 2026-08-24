@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSOClassify(원본·Python) 빌드 가이드 (Windows · Linux)</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  td:first-child{white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .def{color:var(--muted);font-size:.85em}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .step{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:0 10px 10px 0;padding:12px 16px 14px;margin:14px 0}
+  .step h4{margin:0 0 6px;font-size:15px}
+  .step h4 .num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:800;margin-right:8px}
+  .ok{border-left:3px solid var(--o);background:color-mix(in srgb,var(--o) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .bad{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  @media(max-width:820px){.two{grid-template-columns:1fr}ul.toc{columns:1}}
+  .os{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 8px;
+    border:1px solid var(--line);background:var(--chip);margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>CSOClassify (원본 · Python) 빌드 가이드</h1>
+  <p>파이썬 소스(<code>CSOClassify\src\</code>)를 <b>PyInstaller</b> 로 묶어 <b>Windows</b>·<b>Linux</b> 배포본을 만드는 전 과정</p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#what">1. 무엇을 만드는가</a></li>
+    <li><a href="#prep">2. 준비물</a></li>
+    <li><a href="#win">3. Windows 배포본 만들기</a></li>
+    <li><a href="#linux">4. Linux 배포본 만들기</a></li>
+    <li><a href="#assets">5. 외장 자산 (규칙셋·모델·사이냅)</a></li>
+    <li><a href="#spec">6. spec 파일이 하는 일</a></li>
+    <li><a href="#verify">7. 배포본 동작 확인</a></li>
+    <li><a href="#trouble">8. 자주 나는 오류와 해결</a></li>
+    <li><a href="#script">9. 부록 — 복붙용 전체 명령</a></li>
+  </ul>
+  <div class="note">Rust 포팅판(<code>csoclassify-rs</code>) 빌드는 별도 문서
+  <a href="csoclassify-빌드가이드-rust.html">csoclassify-빌드가이드-rust.html</a> 를 보세요.
+  두 문서는 같은 순서로 구성돼 있어 비교해서 읽을 수 있습니다.</div>
+</section>
+
+
+<h2 id="what"><span class="n">1</span> 무엇을 만드는가</h2>
+<section class="card">
+  <p>파이썬으로 짠 CSOClassify 를 <b>파이썬이 설치돼 있지 않은 PC/서버에서도 돌아가는 폴더</b>로 만듭니다.
+  PyInstaller 가 파이썬 인터프리터와 필요한 라이브러리를 전부 <code>_internal\</code> 폴더에 담아줍니다.</p>
+
+  <div class="note"><b>onedir 방식을 쓰는 이유</b><br>
+  PyInstaller 에는 파일 하나로 만드는 <b>onefile</b> 과 폴더로 만드는 <b>onedir</b> 이 있습니다.
+  이 프로젝트는 <b>onedir 만</b> 씁니다 — onefile 은 실행할 때마다 임시폴더에 압축을 풀어 <b>매번 느리고</b>,
+  상주 데몬이 임시 <code>snf_exe</code> 경로를 잃어버리는 문제가 있었습니다.
+  (<code>build/csoclassify-onefile.spec</code> 은 참고용으로만 남아 있습니다.)</div>
+
+  <h3>완성된 배포본 구조</h3>
+  <div class="two">
+    <div>
+      <p><b>Windows</b><span class="os">dist-onedir\windows\</span></p>
+<div class="tree">csoclassify.exe            <span class="cmt">실행 본체</span>
+_internal\                 <span class="cmt">파이썬 런타임 + 라이브러리</span>
+cso_rules.yaml             <span class="cmt">규칙셋(외장)</span>
+cso_seed.jsonl             <span class="cmt">전파 기준 seed</span>
+models\e5-small-ko\        <span class="cmt">임베딩 모델(외장)</span>
+synap\windows\
+   ├ snf_exe.exe           <span class="cmt">사이냅 텍스트 추출기</span>
+   └ snf_win.dll</div>
+      <p class="def">실행본체+런타임 약 115MB, 외장 포함 약 500MB</p>
+    </div>
+    <div>
+      <p><b>Linux</b><span class="os">dist-onedir/linux/</span></p>
+<div class="tree">csoclassify-onedir-linux.tgz  <span class="cmt">실행본체+_internal 압축</span>
+cso_rules.yaml                <span class="cmt">규칙셋(외장)</span>
+cso_seed.jsonl                <span class="cmt">전파 기준 seed</span>
+models/e5-small-ko/           <span class="cmt">임베딩 모델(외장)</span>
+synap/linux/snf_exe           <span class="cmt">사이냅 추출기(정적링크)</span>
+README.txt</div>
+      <p class="def">tgz 52MB · 외장 포함 약 186MB</p>
+    </div>
+  </div>
+
+  <div class="warn"><b>리눅스는 왜 폴더가 아니라 <code>.tgz</code> 인가?</b><br>
+  <code>_internal/</code> 안의 <code>.so</code> 파일들은 <b>심볼릭 링크</b>(예: <code>libstdc++.so.6 → libstdc++.so.6.0.34</code>)
+  로 얽혀 있습니다. Windows 파일시스템은 심볼릭 링크를 보존하지 못해, Windows 를 거쳐 폴더째 복사하면 <b>링크가 깨집니다</b>.
+  그래서 리눅스에서 <code>tar</code> 로 묶은 상태로 옮기고 <b>리눅스에서 풉니다</b>. (Rust 판은 심볼릭 링크가 없어 폴더 그대로 배포합니다.)</div>
+
+  <h3>“외장 리소스” 개념</h3>
+  <p>규칙셋·모델·사이냅 추출기는 exe 안에 넣지 <b>않고</b> 실행파일 옆에 둡니다. 이유는 세 가지입니다.</p>
+  <ul>
+    <li><b>규칙 교체가 자유롭다</b> — <code>cso_rules.yaml</code> 만 바꾸면 재빌드 없이 정책 변경</li>
+    <li><b>기동이 빠르다</b> — 모델(129MB)을 매번 압축 해제하지 않음</li>
+    <li><b>라이선스 분리</b> — 사이냅 문서필터는 상용 컴포넌트라 별도 배포</li>
+  </ul>
+</section>
+
+
+<h2 id="prep"><span class="n">2</span> 준비물</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>항목</th><th>Windows (내 PC)</th><th>Linux (빌드서버 10.10.4.10)</th></tr>
+    <tr><td>Python</td><td>3.12.x <span class="def">(확인: 3.12.10)</span></td><td>conda 환경 <code>bong</code> <span class="def">(3.13.5)</span></td></tr>
+    <tr><td>PyInstaller</td><td>6.x <span class="def">(확인: 6.22.0)</span></td><td>6.22.0 <span class="def">(이미 설치)</span></td></tr>
+    <tr><td>OS</td><td>Windows 10/11 x64</td><td>CentOS 7.9 · glibc 2.17 · x86_64</td></tr>
+    <tr><td>인터넷</td><td>필요 <span class="def">(pip 설치 시)</span></td><td>필요 <span class="def">(패키지가 이미 깔려 있으면 불필요)</span></td></tr>
+    <tr><td>디스크</td><td>약 2GB</td><td>약 2GB</td></tr>
+    <tr><td>빌드 시간</td><td>2~4분</td><td>2~4분</td></tr>
+  </table></div>
+
+  <div class="warn"><b>PyInstaller 는 크로스컴파일이 안 됩니다.</b>
+  Windows 에서 만든 결과물은 Windows 에서만, 리눅스에서 만든 결과물은 리눅스에서만 돕니다.
+  PyInstaller 는 “지금 이 PC 에 설치된 파이썬 인터프리터와 <code>.pyd</code>/<code>.so</code> 를 그대로 복사”하는 방식이기 때문입니다.
+  → <b>리눅스 배포본은 반드시 리눅스에서</b> 빌드해야 합니다.</div>
+
+  <div class="note"><b>CentOS 7 에서 빌드하는 이유</b> — 리눅스 실행파일은 빌드한 glibc 버전 이상에서만 돕니다.
+  glibc 2.17(CentOS 7)은 가장 낮은 축이라 여기서 빌드하면 이후 배포판 어디서나 실행됩니다.
+  <code>requirements.txt</code> 의 라이브러리를 고를 때도 “CentOS7/glibc2.17 호환 wheel 이 있는가”를 기준으로 삼았습니다.</div>
+
+  <h3>의존 라이브러리 <span class="def">(<code>requirements.txt</code>)</span></h3>
+  <div class="scroll"><table>
+    <tr><th>패키지</th><th>용도</th></tr>
+    <tr><td><code>onnxruntime</code></td><td>임베딩 모델 CPU 추론</td></tr>
+    <tr><td><code>tokenizers</code></td><td>경량 토크나이저</td></tr>
+    <tr><td><code>numpy</code></td><td>벡터 연산·풀링</td></tr>
+    <tr><td><code>PyYAML</code></td><td><code>cso_rules.yaml</code> 규칙셋 로드</td></tr>
+    <tr><td><code>ko-pii==1.15.2</code></td><td>L1 PII 검출 엔진 <span class="def">(버전 고정 — 검출 결과가 바뀌면 등급이 달라짐)</span></td></tr>
+    <tr><td><code>olefile</code> · <code>pypdfium2</code> · <code>xlrd</code></td><td>하이브리드 추출(<code>--hybridparse</code>) — hwp5/구형 doc·ppt, PDF, 구형 xls</td></tr>
+    <tr><td><code>py7zr</code> · <code>rarfile</code></td><td>압축파일 확장(7z / rar)</td></tr>
+    <tr><td><code>pyinstaller</code></td><td>패키징 도구 <span class="def">(빌드 전용)</span></td></tr>
+  </table></div>
+  <p class="def">현대 docx/xlsx/pptx 는 표준 라이브러리(zipfile+ElementTree)로 직접 파싱합니다 —
+  python-docx/openpyxl/python-pptx 와 그들이 끌고 오는 lxml(7MB)·Pillow(13MB) 를 빼기 위해서입니다.</p>
+</section>
+
+
+<h2 id="win"><span class="n">3</span> Windows 배포본 만들기</h2>
+<section class="card">
+
+  <div class="step">
+    <h4><span class="num">1</span> Python 설치 <span class="pill">최초 1회만</span></h4>
+    <p><a href="https://www.python.org/downloads/">python.org</a> 에서 <b>3.12.x</b> 를 받아 설치합니다.
+    설치 첫 화면에서 <b>Add python.exe to PATH</b> 를 반드시 체크하세요.</p>
+<pre><code>python -V</code></pre>
+    <div class="ok"><code>Python 3.12.10</code> 처럼 나오면 성공.</div>
+    <p class="def">3.13 이상을 써도 대개 되지만, 확인된 조합은 3.12 입니다. 라이브러리 wheel 이 없어 막히면 3.12 로 맞추세요.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">2</span> 가상환경 만들고 라이브러리 설치</h4>
+    <p>가상환경(venv)은 “이 프로젝트 전용 파이썬 방”입니다. 다른 프로젝트 라이브러리와 섞이지 않게 해줍니다.</p>
+<pre><code>cd /d D:\Project\CSOClassify
+
+python -m venv .venv
+.venv\Scripts\activate
+
+python -m pip install --upgrade pip
+pip install -r requirements.txt</code></pre>
+    <div class="ok">프롬프트 앞에 <code>(.venv)</code> 가 붙으면 가상환경 안에 들어온 것입니다.
+    터미널을 새로 열 때마다 <code>.venv\Scripts\activate</code> 를 다시 실행해야 합니다.</div>
+    <p class="def">회사 PC 에 이미 필요한 패키지가 다 깔려 있다면 venv 없이 그대로 진행해도 됩니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">3</span> 빌드</h4>
+    <p><b>반드시 프로젝트 최상위 폴더</b>(<code>D:\Project\CSOClassify</code>)에서 실행합니다.
+    spec 파일이 <code>os.getcwd()</code> 를 기준으로 <code>src\</code> 를 찾기 때문입니다.</p>
+<pre><code>cd /d D:\Project\CSOClassify
+pyinstaller build\csoclassify.spec</code></pre>
+    <p>2~4분 뒤 마지막에</p>
+<pre><code>INFO: Building COLLECT COLLECT-00.toc completed successfully.</code></pre>
+    <p>가 나오면 성공. 결과물은 <code>dist\csoclassify\</code> 입니다.</p>
+<div class="tree">dist\csoclassify\
+   ├ csoclassify.exe      <span class="cmt">실행 본체</span>
+   └ _internal\           <span class="cmt">파이썬 런타임 + 라이브러리 (약 115MB)</span></div>
+    <div class="note"><code>WARNING:</code> 줄은 대부분 무시해도 됩니다. 중요한 것은 <b>맨 마지막에
+    <code>completed successfully</code> 가 나오는지</b>와, 7장의 실행 테스트가 통과하는지입니다.</div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">4</span> 배포본 폴더에 조립</h4>
+    <p>빌드 결과에 <b>외장 리소스</b>를 붙여야 완성입니다.</p>
+<pre><code>cd /d D:\Project\CSOClassify
+
+<span class="cmt">:: (1) 실행본체 + 런타임</span>
+xcopy /E /I /Y dist\csoclassify  dist-onedir\windows
+
+<span class="cmt">:: (2) 규칙셋 · 전파 seed</span>
+copy /Y resources\policy\cso_rules.yaml dist-onedir\windows\
+
+<span class="cmt">:: (3) 임베딩 모델</span>
+xcopy /E /I /Y resources\models\e5-small-ko dist-onedir\windows\models\e5-small-ko
+
+<span class="cmt">:: (4) 사이냅 텍스트 추출기 (상용 컴포넌트 — 별도 확보)</span>
+xcopy /E /I /Y ..\MpowerAI_v10\pympower_ext\common\filter4-v4.29.0-windows_64bit_VC9\v4  dist-onedir\windows\synap\windows</code></pre>
+    <p class="def">사이냅(<code>snf_exe.exe</code>, <code>snf_win.dll</code>)은 <code>--hybridparse</code> 를 쓰면
+    폴백 용도로만 필요합니다. 없어도 대부분의 포맷은 오픈소스 파서로 처리됩니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">5</span> 동작 확인</h4>
+<pre><code>cd /d D:\Project\CSOClassify\dist-onedir\windows
+csoclassify.exe --help
+csoclassify.exe --file "샘플.hwp"</code></pre>
+    <p>첫 실행은 모델을 메모리에 올리느라 수십 초 걸릴 수 있습니다(정상). 자세한 확인은 <a href="#verify">7장</a>.</p>
+  </div>
+</section>
+
+
+<h2 id="linux"><span class="n">4</span> Linux 배포본 만들기</h2>
+<section class="card">
+  <p>리눅스 배포본은 <b>리눅스 서버에서 빌드</b>하고, 결과를 <code>.tgz</code> 로 묶어 Windows 로 내려받습니다.</p>
+
+  <h3>접속 정보 <span class="def">(<code>CSOClassify\.env_vllm</code>)</span></h3>
+  <div class="scroll"><table>
+    <tr><th>서버</th><td><code>10.10.4.10</code> (포트 22) · 호스트명 <code>devgpu</code></td></tr>
+    <tr><th>계정</th><td><code>mpower</code></td></tr>
+    <tr><th>비밀번호</th><td><code>.env_vllm</code> 의 <code>SSH_USER_PWD</code> 값</td></tr>
+    <tr><th>OS</th><td>CentOS 7.9 · glibc 2.17 · x86_64</td></tr>
+    <tr><th>파이썬</th><td>conda 환경 <code>bong</code> — <code>/MOCOMSYS/anaconda3/envs/bong</code> (3.13.5, PyInstaller 6.22.0)</td></tr>
+    <tr><th>작업 폴더</th><td><code>/MOCOMSYS/.csoclassify/build_slim</code></td></tr>
+  </table></div>
+
+  <div class="step">
+    <h4><span class="num">1</span> 소스를 압축해서 서버로 보내기</h4>
+    <p>보낼 것은 <b>소스와 spec 뿐</b>입니다. 모델(129MB)·사이냅은 서버에 이미 있거나 별도로 배치합니다.</p>
+<pre><code>cd /d/Project/CSOClassify
+tar -czf /tmp/cso_src.tgz src build requirements.txt
+
+plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/.csoclassify/build_slim"
+pscp  -batch -pw '&lt;PW&gt;' /tmp/cso_src.tgz mpower@10.10.4.10:/MOCOMSYS/.csoclassify/build_slim/</code></pre>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">2</span> 서버에서 환경 준비</h4>
+<pre><code>ssh mpower@10.10.4.10
+
+source /MOCOMSYS/anaconda3/etc/profile.d/conda.sh
+conda activate bong
+python -V                <span class="cmt"># Python 3.13.5</span>
+pyinstaller --version    <span class="cmt"># 6.22.0</span>
+
+cd /MOCOMSYS/.csoclassify/build_slim
+tar xzf cso_src.tgz</code></pre>
+    <p>패키지가 빠져 있으면 설치합니다.</p>
+<pre><code>pip install -r requirements.txt</code></pre>
+    <div class="note"><b>conda 환경 <code>bong</code> 을 쓰는 이유</b> — 이 환경에는 CentOS 7 시스템보다 <b>훨씬 최신인
+    <code>libstdc++.so.6</code>(6.0.34)</b> 이 들어 있습니다. spec 파일이 이걸 자동으로 찾아 배포본에 넣어줍니다
+    (<a href="#trouble">8-①</a>). 시스템 파이썬으로 빌드하면 이 부분이 빠져 실행이 안 됩니다.</div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">3</span> 빌드</h4>
+<pre><code>cd /MOCOMSYS/.csoclassify/build_slim
+pyinstaller build/csoclassify.spec 2&gt;&amp;1 | tee build.log</code></pre>
+    <p>결과물은 <code>dist/csoclassify/</code> 입니다.</p>
+<pre><code>ls -la dist/csoclassify/
+<span class="cmt"># csoclassify (약 8.3MB, ELF) + _internal/</span></code></pre>
+    <div class="note"><b>venv 로 빌드한다면</b> — <code>--system-site-packages</code> venv 에서는
+    <code>sys.prefix/lib</code> 에 <code>libstdc++.so.6</code> 가 없습니다. 이때는 conda 라이브러리 경로를 직접 알려줍니다.
+<pre style="margin:8px 0 0"><code>export CSO_EXTRA_LIBDIR=/MOCOMSYS/anaconda3/envs/bong/lib
+pyinstaller build/csoclassify.spec</code></pre></div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">4</span> 서버에서 동작 확인</h4>
+<pre><code>cd /MOCOMSYS/.csoclassify/build_slim/dist/csoclassify
+./csoclassify --help
+./csoclassify --classify --file /tmp/샘플.txt --rules /경로/cso_rules.yaml</code></pre>
+    <div class="bad"><code>ImportError: … CXXABI_1.3.9 not found</code> 가 나오면
+    <code>_internal/libstdc++.so.6</code> 가 안 들어간 것입니다 → <a href="#trouble">8-①</a></div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">5</span> tgz 로 묶어 Windows 로 내려받기</h4>
+    <p>심볼릭 링크와 실행권한을 보존하려면 <b>반드시 리눅스에서 tar 로 묶어야</b> 합니다.</p>
+<pre><code><span class="cmt"># 서버에서</span>
+cd /MOCOMSYS/.csoclassify/build_slim/dist
+tar czf /tmp/csoclassify-onedir-linux.tgz csoclassify
+ls -lh /tmp/csoclassify-onedir-linux.tgz     <span class="cmt"># 약 52MB</span></code></pre>
+<pre><code><span class="cmt"># Windows(Git Bash) 에서 내려받기</span>
+cd /d/Project/CSOClassify/dist-onedir/linux
+pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-onedir-linux.tgz .</code></pre>
+    <div class="warn"><b>이 tgz 를 Windows 에서 풀지 마세요.</b> <code>_internal</code> 안의 심볼릭 링크가 깨져
+    리눅스에서 실행이 안 됩니다. 배포 대상 리눅스로 옮긴 뒤 그곳에서 <code>tar xzf</code> 하세요.</div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">6</span> 외장 리소스 붙이기</h4>
+    <p>tgz 옆에 규칙셋·모델·사이냅(리눅스용)을 둡니다. 모델·규칙셋은 <b>OS 무관 동일 파일</b>이라 Windows 쪽에서 복사하면 됩니다.</p>
+<pre><code>cd /d/Project/CSOClassify/dist-onedir/linux
+cp ../../resources/policy/cso_rules.yaml .
+cp ../windows/cso_seed.jsonl .
+mkdir -p models synap/linux
+cp -r ../../resources/models/e5-small-ko models/
+cp ../../resources/synap/linux/snf_exe synap/linux/</code></pre>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">7</span> 배포 대상 리눅스에서 설치</h4>
+<pre><code>cd &lt;복사한 폴더&gt;
+tar xzf csoclassify-onedir-linux.tgz          <span class="cmt"># 심볼릭링크·권한 복원</span>
+chmod +x csoclassify synap/linux/snf_exe
+./csoclassify --classify --file "문서.pdf"</code></pre>
+    <p class="def">tgz 를 풀면 <code>csoclassify/</code> 폴더가 생깁니다. 실행파일이 외장 리소스를
+    <b>자기 옆</b>에서 찾으므로, <code>cso_rules.yaml</code>·<code>models/</code>·<code>synap/</code> 을
+    <code>csoclassify/</code> 안으로 옮기거나 <code>--rules</code>/환경변수로 경로를 지정하세요.</p>
+  </div>
+</section>
+
+
+<h2 id="assets"><span class="n">5</span> 외장 자산 (규칙셋 · 모델 · 사이냅)</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>자산</th><th>배포본 위치</th><th>출처 / 만드는 법</th></tr>
+    <tr>
+      <td>규칙셋</td>
+      <td><code>cso_rules.yaml</code></td>
+      <td><code>resources\policy\cso_rules.yaml</code> — 텍스트 파일이라 <b>배포 후에도 편집 가능</b></td>
+    </tr>
+    <tr>
+      <td>전파 seed</td>
+      <td><code>cso_seed.jsonl</code></td>
+      <td>이미 분류된 문서들의 벡터 모음. 기존 배포본에서 복사하거나 운영 중 누적</td>
+    </tr>
+    <tr>
+      <td>임베딩 모델</td>
+      <td><code>models/e5-small-ko/</code></td>
+      <td><code>resources\models\e5-small-ko\</code><br>
+        저장소에 없으면 개발 PC 에서 <b>1회</b> 생성(인터넷 필요):
+<pre style="margin:6px 0 0"><code>pip install torch transformers optimum[onnxruntime]
+python scripts/export_onnx.py   --model e5-small-ko
+python scripts/quantize_onnx.py --model e5-small-ko</code></pre>
+        <span class="def">int8 양자화로 118MB 로 줄입니다. torch 등은 여기서만 쓰고 배포본에는 안 들어갑니다.</span></td>
+    </tr>
+    <tr>
+      <td>사이냅 추출기</td>
+      <td>Win <code>synap\windows\</code><br>Linux <code>synap/linux/</code></td>
+      <td>Win: <code>MpowerAI_v10\pympower_ext\common\filter4-v4.29.0-windows_64bit_VC9\v4\</code><br>
+        Linux: <code>resources/synap/linux/snf_exe</code> <span class="def">(정적 링크라 단독 실행)</span><br>
+        <span class="def">상용 컴포넌트. <code>--hybridparse</code> 사용 시 폴백 용도</span></td>
+    </tr>
+    <tr>
+      <td>unrar <span class="def">(선택)</span></td>
+      <td><code>_internal/</code> 안에 자동 포함</td>
+      <td><code>build\vendor\unrar.exe</code> / <code>build\vendor\unrar</code> 에 두면 spec 이 자동으로 번들.
+        RAR 은 독점 포맷이라 순수 파이썬 해제기가 없습니다</td>
+    </tr>
+  </table></div>
+
+  <h3>경로를 바꾸고 싶다면 — 환경변수</h3>
+  <div class="scroll"><table>
+    <tr><th>변수</th><th>의미</th></tr>
+    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>규칙셋 폴더 <span class="def">(<code>--rules</code> 로도 지정 가능)</span></td></tr>
+    <tr><td><code>CSOCLASSIFY_MODELS_DIR</code></td><td>임베딩 모델 폴더</td></tr>
+    <tr><td><code>CSOCLASSIFY_SYNAP_DIR</code></td><td>사이냅 추출기 폴더</td></tr>
+    <tr><td><code>CSO_EXTRA_LIBDIR</code></td><td><b>빌드 시에만</b> — <code>libstdc++.so.6</code> 를 찾을 경로(리눅스)</td></tr>
+  </table></div>
+</section>
+
+
+<h2 id="spec"><span class="n">6</span> spec 파일이 하는 일</h2>
+<section class="card">
+  <p><code>build\csoclassify.spec</code> 은 “PyInstaller 에게 무엇을 어떻게 묶을지” 알려주는 파이썬 스크립트입니다.
+  빌드가 이상하면 대개 여기를 봐야 합니다.</p>
+  <div class="scroll"><table>
+    <tr><th>구역</th><th>하는 일</th><th>왜 필요한가</th></tr>
+    <tr>
+      <td><code>entry</code></td>
+      <td><code>src\csoclassify_launcher.py</code> 를 진입점으로 지정</td>
+      <td>PyInstaller 는 진입 스크립트를 <code>__main__</code> 으로 실행하는데, 패키지 내부의 상대 import
+        (<code>from .cli …</code>)를 쓰는 <code>__main__.py</code> 는 진입점이 될 수 없습니다.
+        런처가 <b>절대 import</b> 로 우회합니다</td>
+    </tr>
+    <tr>
+      <td><code>datas</code></td>
+      <td><code>ko_pii</code> 의 사전 파일(<code>.txt.gz</code>) 수집</td>
+      <td>PII 검출에 쓰는 행정구역·은행명 사전 등은 코드가 아니라 데이터라 자동으로 안 딸려옵니다</td>
+    </tr>
+    <tr>
+      <td><code>hiddenimports</code></td>
+      <td>동적으로 import 되는 모듈을 명시</td>
+      <td>PyInstaller 는 코드에 적힌 <code>import</code> 만 추적합니다.
+        문자열로 불러오는 모듈은 <b>직접 적어줘야</b> 실행 시 <code>ModuleNotFoundError</code> 가 안 납니다</td>
+    </tr>
+    <tr>
+      <td><code>binaries</code> <span class="def">(리눅스만)</span></td>
+      <td><code>libstdc++.so.6</code>·<code>libgcc_s.so.1</code> 동봉</td>
+      <td>CentOS 7 의 시스템 libstdc++(4.8.5)는 onnxruntime/numpy 가 요구하는
+        <code>CXXABI_1.3.9+</code> 를 제공하지 못합니다 (<a href="#trouble">8-①</a>)</td>
+    </tr>
+    <tr>
+      <td><code>excludes</code></td>
+      <td>torch·transformers·PIL·lxml·pandas·jupyter 계열 등 제외</td>
+      <td><b>용량 슬림화의 핵심.</b> 특히 리눅스 conda <code>bong</code> 은 데이터사이언스용이라
+        numba/llvmlite(153MB) 같은 게 딸려 들어올 수 있습니다. 런타임에 안 쓰므로 통째로 뺍니다</td>
+    </tr>
+    <tr>
+      <td><code>strip</code></td>
+      <td>리눅스에서만 <code>.so</code> 디버그 심볼 제거</td>
+      <td>용량 감소. Windows 는 strip 도구가 없을 수 있어 끕니다</td>
+    </tr>
+    <tr>
+      <td><code>COLLECT</code></td>
+      <td>onedir 로 모으기</td>
+      <td>이 블록이 있으면 onedir, <code>EXE</code> 에 전부 넣으면 onefile 입니다</td>
+    </tr>
+  </table></div>
+
+  <div class="note"><b>새 라이브러리를 추가했는데 실행 시 <code>ModuleNotFoundError</code> 가 난다면</b>
+  → spec 의 <code>hiddenimports</code> 목록에 모듈 이름을 추가하고 다시 빌드하세요.</div>
+</section>
+
+
+<h2 id="verify"><span class="n">7</span> 배포본 동작 확인</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>#</th><th>확인 항목</th><th>명령</th><th>성공 신호</th></tr>
+    <tr><td>1</td><td>실행파일이 뜨는가</td><td><code>csoclassify --help</code></td><td>옵션 목록 출력</td></tr>
+    <tr><td>2</td><td>규칙셋을 찾는가</td><td><code>csoclassify --file 샘플.txt</code></td><td>등급 출력<br><span class="def">못 찾으면 안내 후 종료코드 3</span></td></tr>
+    <tr><td>3</td><td>임베딩 모델 로드</td><td><code>csoclassify --embed --file 샘플.txt</code></td><td>384차원 벡터 출력</td></tr>
+    <tr><td>4</td><td>하이브리드 추출</td><td><code>csoclassify --dir 폴더 -r --hybridparse</code></td><td>pdf·hwp·docx 모두 등급이 매겨짐</td></tr>
+    <tr><td>5</td><td>사이냅 폴백 <span class="def">(선택)</span></td><td>구형 <code>.hwp</code>/<code>.doc</code> 로 실행</td><td>추출 성공</td></tr>
+  </table></div>
+  <div class="note">첫 실행은 모델을 메모리에 올리느라 <b>수십 초</b> 걸릴 수 있습니다(정상).
+  이후에는 모델이 상주해 빨라집니다.</div>
+</section>
+
+
+<h2 id="trouble"><span class="n">8</span> 자주 나는 오류와 해결</h2>
+<section class="card">
+
+  <h3>① <code>CXXABI_1.3.9 not found</code> / <code>GLIBCXX_3.4.2x not found</code> <span class="os">Linux</span></h3>
+<pre><code>ImportError: /lib64/libstdc++.so.6: version `CXXABI_1.3.9' not found
+             (required by …/_internal/onnxruntime/capi/onnxruntime_pybind11_state.so)</code></pre>
+  <p><b>원인</b> — CentOS 7 기본 <code>libstdc++</code>(gcc 4.8.5) 이 너무 낡았습니다.</p>
+  <p><b>해결</b> — 배포본 <code>_internal/</code> 에 최신 <code>libstdc++.so.6</code>·<code>libgcc_s.so.1</code> 이 들어가야 합니다.
+  spec 이 자동으로 넣어주지만, 찾지 못하면 조용히 건너뜁니다. 확인:</p>
+<pre><code>ls -la dist/csoclassify/_internal/libstdc++.so.6</code></pre>
+  <p>없다면 conda 환경(<code>bong</code>)으로 빌드하거나, venv 라면 경로를 알려주고 다시 빌드하세요.</p>
+<pre><code>export CSO_EXTRA_LIBDIR=/MOCOMSYS/anaconda3/envs/bong/lib
+pyinstaller build/csoclassify.spec</code></pre>
+
+  <h3>② 리눅스에서 실행하면 <code>.so</code> 를 못 찾음 <span class="os">Linux</span></h3>
+  <p>Windows 에서 tgz 를 풀었을 가능성이 큽니다. <b>심볼릭 링크가 깨진 것</b>이므로,
+  리눅스에서 다시 <code>tar xzf</code> 하세요.</p>
+
+  <h3>③ <code>ModuleNotFoundError: No module named '…'</code> <span class="os">공통</span></h3>
+  <p>빌드는 됐는데 실행할 때만 납니다. PyInstaller 가 그 모듈을 못 찾아 안 넣은 것입니다.
+  spec 의 <code>hiddenimports</code> 에 이름을 추가하고 재빌드하세요.</p>
+
+  <h3>④ 배포본 용량이 너무 큼 <span class="os">공통</span></h3>
+  <p>특히 리눅스 conda 환경에서 <b>안 쓰는 대형 패키지가 딸려 들어오는</b> 경우가 많습니다.
+  빌드 로그에서 무엇이 들어갔는지 확인하고 spec 의 <code>excludes</code> 에 추가하세요.</p>
+<pre><code>du -sh dist/csoclassify/_internal/* | sort -h | tail -20</code></pre>
+
+  <h3>⑤ <code>cso_rules.yaml</code> 을 못 찾음 (종료코드 3) <span class="os">공통</span></h3>
+  <p>실행파일 옆에 두거나, <code>--rules</code> 또는 <code>CSOCLASSIFY_POLICY_DIR</code> 로 경로를 지정하세요.</p>
+
+  <h3>⑥ 빌드가 <code>src</code> 를 못 찾음 <span class="os">공통</span></h3>
+  <p>spec 이 <code>os.getcwd()</code> 기준으로 경로를 잡습니다. <b>프로젝트 최상위에서</b>
+  <code>pyinstaller build/csoclassify.spec</code> 을 실행하세요. <code>build\</code> 안에서 실행하면 실패합니다.</p>
+
+  <h3>⑦ 이전 빌드 찌꺼기 때문에 이상할 때 <span class="os">공통</span></h3>
+<pre><code><span class="cmt">:: Windows</span>
+rmdir /S /Q build\pyi-work dist\csoclassify
+
+<span class="cmt"># Linux</span>
+rm -rf build/pyi-work dist/csoclassify</code></pre>
+  <p class="def">PyInstaller 는 중간 산출물을 캐시합니다. spec 을 고쳤는데 반영이 안 되면 지우고 다시 빌드하세요.</p>
+</section>
+
+
+<h2 id="script"><span class="n">9</span> 부록 — 복붙용 전체 명령</h2>
+<section class="card">
+
+  <h3>A. Windows 전체 <span class="def">(cmd)</span></h3>
+<pre><code>cd /d D:\Project\CSOClassify
+
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+
+pyinstaller build\csoclassify.spec
+
+xcopy /E /I /Y dist\csoclassify dist-onedir\windows
+copy  /Y resources\policy\cso_rules.yaml dist-onedir\windows\
+xcopy /E /I /Y resources\models\e5-small-ko dist-onedir\windows\models\e5-small-ko
+xcopy /E /I /Y ..\MpowerAI_v10\pympower_ext\common\filter4-v4.29.0-windows_64bit_VC9\v4 dist-onedir\windows\synap\windows
+
+dist-onedir\windows\csoclassify.exe --help</code></pre>
+
+  <h3>B. Linux <span class="def">(1) Windows(Git Bash) 에서 업로드</span></h3>
+<pre><code>cd /d/Project/CSOClassify
+tar -czf /tmp/cso_src.tgz src build requirements.txt
+plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/.csoclassify/build_slim"
+pscp  -batch -pw '&lt;PW&gt;' /tmp/cso_src.tgz mpower@10.10.4.10:/MOCOMSYS/.csoclassify/build_slim/</code></pre>
+
+  <h3><span class="def">(2) 서버에서 빌드 + 패키징</span></h3>
+<pre><code>source /MOCOMSYS/anaconda3/etc/profile.d/conda.sh
+conda activate bong
+
+cd /MOCOMSYS/.csoclassify/build_slim
+tar xzf cso_src.tgz
+pyinstaller build/csoclassify.spec 2&gt;&amp;1 | tee build.log
+
+ls -la dist/csoclassify/_internal/libstdc++.so.6   <span class="cmt"># 있어야 정상</span>
+cd dist &amp;&amp; tar czf /tmp/csoclassify-onedir-linux.tgz csoclassify
+ls -lh /tmp/csoclassify-onedir-linux.tgz</code></pre>
+
+  <h3><span class="def">(3) Windows 로 내려받아 마무리</span></h3>
+<pre><code>cd /d/Project/CSOClassify/dist-onedir/linux
+pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-onedir-linux.tgz .
+
+cp ../../resources/policy/cso_rules.yaml .
+cp ../windows/cso_seed.jsonl .
+mkdir -p models synap/linux
+cp -r ../../resources/models/e5-small-ko models/
+cp ../../resources/synap/linux/snf_exe synap/linux/</code></pre>
+
+  <h3>C. 배포 대상 리눅스에서 설치</h3>
+<pre><code>cd &lt;복사한 폴더&gt;
+tar xzf csoclassify-onedir-linux.tgz
+chmod +x csoclassify synap/linux/snf_exe
+./csoclassify --help</code></pre>
+</section>
+
+<footer>
+  CSOClassify(원본 · Python) 빌드 가이드 — 2026-08-24 기준<br>
+  확인 조합: Windows Python 3.12.10 + PyInstaller 6.22.0 · Linux conda <code>bong</code> Python 3.13.5 + PyInstaller 6.22.0 (CentOS 7.9, glibc 2.17)
+</footer>
+
+</div>
+</body>
+</html>

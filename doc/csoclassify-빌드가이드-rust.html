@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>csoclassify-rs 빌드 가이드 (Windows · Linux)</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  td:first-child{white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .def{color:var(--muted);font-size:.85em}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .step{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:0 10px 10px 0;padding:12px 16px 14px;margin:14px 0}
+  .step h4{margin:0 0 6px;font-size:15px}
+  .step h4 .num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:800;margin-right:8px}
+  .ok{border-left:3px solid var(--o);background:color-mix(in srgb,var(--o) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .bad{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  @media(max-width:820px){.two{grid-template-columns:1fr}ul.toc{columns:1}}
+  .os{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 8px;
+    border:1px solid var(--line);background:var(--chip);margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>csoclassify-rs 빌드 가이드</h1>
+  <p>Rust 소스(<code>CSOClassify\Rust\</code>)에서 <b>Windows</b>·<b>Linux</b> 배포본을 만드는 전 과정 — 처음 해보는 사람 기준으로 한 줄씩</p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#what">1. 무엇을 만드는가</a></li>
+    <li><a href="#prep">2. 준비물</a></li>
+    <li><a href="#win">3. Windows 배포본 만들기</a></li>
+    <li><a href="#linux">4. Linux 배포본 만들기</a></li>
+    <li><a href="#assets">5. 외장 자산은 어디서 구하나</a></li>
+    <li><a href="#verify">6. 배포본 동작 확인</a></li>
+    <li><a href="#trouble">7. 자주 나는 오류와 해결</a></li>
+    <li><a href="#script">8. 부록 — 복붙용 전체 명령</a></li>
+  </ul>
+</section>
+
+
+<h2 id="what"><span class="n">1</span> 무엇을 만드는가</h2>
+<section class="card">
+  <p><code>D:\Project\CSOClassify\Rust\</code> 의 Rust 소스를 컴파일해서 <b>그 자체로 돌아가는 폴더 하나</b>를 만듭니다.
+  이 폴더를 통째로 복사하면 어느 PC/서버에서든 별도 설치 없이 실행됩니다.</p>
+
+  <div class="note"><b>왜 파일 하나가 아니라 폴더인가?</b><br>
+  실행파일 자체는 5MB로 작지만 <b>임베딩 모델(129MB)</b>·<b>ONNX Runtime</b>·<b>pdfium(PDF 추출)</b> 은
+  실행파일 안에 넣지 <b>않고</b> 옆에 파일로 둡니다. 그래야 ① 실행파일이 작고 ② 규칙셋
+  (<code>cso_rules.yaml</code>)을 재빌드 없이 교체할 수 있고 ③ PDF·임베딩을 안 쓰면 그 파일들을 빼도 됩니다.
+  프로그램은 <b>자기 실행파일이 있는 폴더</b>에서 이 파일들을 찾습니다.</div>
+
+  <h3>완성된 배포본 구조</h3>
+  <div class="two">
+    <div>
+      <p><b>Windows</b><span class="os">Rust\dist-onedir\windows\</span></p>
+<div class="tree">csoclassify-rs.exe                  <span class="cmt">5.3MB 실행 본체</span>
+cso_rules.yaml                      <span class="cmt">규칙셋(외장)</span>
+cso_seed.jsonl                      <span class="cmt">전파 기준 seed</span>
+onnxruntime.dll                     <span class="cmt">16MB  임베딩 추론</span>
+onnxruntime_providers_shared.dll    <span class="cmt">ORT 부속</span>
+pdfium.dll                          <span class="cmt">7MB   PDF 추출</span>
+models\e5-small-ko\                 <span class="cmt">129MB 모델+토크나이저</span>
+   ├ config.json
+   ├ model.onnx
+   ├ special_tokens_map.json
+   ├ tokenizer.json
+   └ tokenizer_config.json
+README.txt</div>
+      <p class="def">합계 약 158MB<br>
+      배포용으로 묶은 <code>csoclassify-rs-windows.zip</code>(91MB)이
+      상위 <code>Rust\dist-onedir\</code> 에 함께 있습니다 → <a href="#win">3-6</a></p>
+    </div>
+    <div>
+      <p><b>Linux</b><span class="os">Rust/dist-onedir/linux/</span></p>
+<div class="tree">csoclassify-rs                      <span class="cmt">5.4MB 실행 본체(ELF)</span>
+cso_rules.yaml                      <span class="cmt">규칙셋(외장)</span>
+cso_seed.jsonl                      <span class="cmt">전파 기준 seed</span>
+libonnxruntime.so                   <span class="cmt">27MB  임베딩 추론</span>
+libonnxruntime_providers_shared.so  <span class="cmt">ORT 부속</span>
+libpdfium.so                        <span class="cmt">7.6MB PDF 추출</span>
+libstdc++.so.6                      <span class="cmt">2MB   ★CentOS7 필수</span>
+libgcc_s.so.1                       <span class="cmt">0.6MB ★CentOS7 필수</span>
+models/e5-small-ko/                 <span class="cmt">129MB 모델+토크나이저</span>
+README.txt</div>
+      <p class="def">합계 약 171MB · ★ 는 <a href="#trouble">7-①</a> 참고<br>
+      배포용으로 묶은 <code>csoclassify-rs-linux.tgz</code>(94MB)가
+      상위 <code>Rust\dist-onedir\</code> 에 함께 있습니다 → <a href="#linux">4-6</a></p>
+    </div>
+  </div>
+
+  <h3>참고 — 파일이 없으면 어떻게 되나</h3>
+  <div class="scroll"><table>
+    <tr><th>빠진 파일</th><th>결과</th></tr>
+    <tr><td><code>cso_rules.yaml</code></td><td><b>실행 불가</b> — <code>--rules</code> 로 경로를 주거나 exe 옆에 있어야 함</td></tr>
+    <tr><td>모델 / onnxruntime</td><td>임베딩 전파를 <b>조용히 생략</b>하고 규칙 결과만 출력. <code>--rule-only</code> 는 정상 동작</td></tr>
+    <tr><td>pdfium</td><td>PDF 만 추출 실패(스킵). 다른 포맷은 정상</td></tr>
+    <tr><td><code>cso_seed.jsonl</code></td><td>전파 기능이 꺼짐(= <code>--rule-only</code> 와 같아짐)</td></tr>
+  </table></div>
+</section>
+
+
+<h2 id="prep"><span class="n">2</span> 준비물</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>항목</th><th>Windows (내 PC)</th><th>Linux (빌드서버 10.10.4.10)</th></tr>
+    <tr><td>Rust 컴파일러</td><td>rustup 으로 설치 <span class="def">(확인: 1.98.0)</span></td><td>이미 설치됨 <code>/MOCOMSYS/.cargo/bin</code> <span class="def">(1.95.0)</span></td></tr>
+    <tr><td>C/C++ 컴파일러</td><td>Visual Studio Build Tools<br>(C++ 데스크톱 개발 워크로드)</td><td><code>gcc</code> (이미 있음)</td></tr>
+    <tr><td>OS</td><td>Windows 10/11 x64</td><td>CentOS 7.9 / glibc 2.17 / x86_64</td></tr>
+    <tr><td>인터넷</td><td>필요 <span class="def">(crates.io 에서 의존 크레이트 다운로드)</span></td><td>필요 <span class="def">(확인됨)</span></td></tr>
+    <tr><td>디스크</td><td>약 3GB <span class="def">(빌드 캐시 <code>target\</code> 포함)</span></td><td>약 3GB</td></tr>
+    <tr><td>빌드 시간</td><td>첫 빌드 3~5분 / 재빌드 수 초</td><td>첫 빌드 약 1분 30초 <span class="def">(32코어)</span></td></tr>
+  </table></div>
+
+  <div class="warn"><b>Q. Windows 에서 리눅스용을 한 번에 만들 수는 없나요?</b><br>
+  없습니다. Rust 자체는 크로스컴파일을 지원하지만, 이 프로젝트가 쓰는 <code>tokenizers</code> 크레이트가 내부에
+  <b>C 라이브러리(oniguruma)</b> 를 품고 있어 <b>대상 OS 용 C 컴파일러</b>가 별도로 필요합니다.
+  Windows 에는 그것이 없으므로 <b>리눅스 배포본은 리눅스에서 빌드</b>해야 합니다.
+  (원본 파이썬판도 PyInstaller 때문에 같은 제약이 있습니다.)</div>
+
+  <div class="note"><b>왜 하필 CentOS 7 에서 빌드하나?</b><br>
+  리눅스 실행파일은 <b>빌드한 glibc 버전 이상</b>에서만 돌아갑니다. CentOS 7 의 glibc 2.17 은 현재 쓰이는
+  리눅스 중 가장 낮은 축이라, 여기서 빌드하면 <b>CentOS7/RHEL7 이후 사실상 모든 배포판</b>에서 그대로 실행됩니다.
+  반대로 Ubuntu 24.04 에서 빌드하면 CentOS 7 에서 안 돕니다.</div>
+</section>
+
+
+<h2 id="win"><span class="n">3</span> Windows 배포본 만들기</h2>
+<section class="card">
+
+  <div class="step">
+    <h4><span class="num">1</span> Rust 설치 <span class="pill">최초 1회만</span></h4>
+    <p><a href="https://rustup.rs">https://rustup.rs</a> 에서 <code>rustup-init.exe</code> 를 받아 실행하고,
+    화면에 나오는 <b>1) Proceed with standard installation</b> 을 선택(그냥 엔터)합니다.</p>
+    <p>중간에 “Visual Studio C++ Build Tools 가 없다”는 안내가 나오면 <b>함께 설치</b>를 선택하세요.
+    (수동 설치: <b>Visual Studio Installer → C++를 사용한 데스크톱 개발</b>)</p>
+    <p>설치가 끝나면 <b>터미널(cmd)을 새로 열고</b> 확인합니다.</p>
+<pre><code>cargo --version
+rustc --version</code></pre>
+    <div class="ok">아래처럼 나오면 성공입니다.
+<pre style="margin:8px 0 0"><code>cargo 1.98.0 (797e8a9bc 2026-08-05)
+rustc 1.98.0 (88d9e12ae 2026-08-18)</code></pre></div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">2</span> 소스 폴더로 이동</h4>
+<pre><code>cd /d D:\Project\CSOClassify\Rust</code></pre>
+    <p class="def"><code>Cargo.toml</code> 이 있는 폴더여야 합니다(<code>dir Cargo.toml</code> 로 확인).
+    <code>Cargo.toml</code> 은 “이 프로그램이 어떤 라이브러리를 쓰는지” 적어둔 목록표입니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">3</span> 빌드</h4>
+<pre><code>cargo build --release</code></pre>
+    <p>처음에는 인터넷에서 의존 라이브러리를 내려받느라 <b>3~5분</b> 걸립니다. 마지막 줄이</p>
+<pre><code>    Finished `release` profile [optimized] target(s) in 3m 12s</code></pre>
+    <p>이면 성공이고, 결과물은 <code>Rust\target\release\csoclassify-rs.exe</code> 입니다.</p>
+    <div class="note"><code>warning:</code> 줄이 여러 개 나오는 것은 <b>정상</b>입니다(안 쓰는 함수 안내).
+    <code>error:</code> 가 없고 <code>Finished</code> 가 나오면 성공입니다.</div>
+    <p class="def"><code>--release</code> 를 빼면 최적화가 없는 디버그 빌드(느리고 큼)가 <code>target\debug\</code> 에 생깁니다. 배포용은 반드시 <code>--release</code>.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">4</span> 배포본 폴더에 조립</h4>
+    <p>빌드된 exe 하나만으로는 임베딩·PDF 가 동작하지 않습니다. 아래처럼 <b>자산을 한 폴더에 모읍니다</b>.</p>
+<pre><code>cd /d D:\Project\CSOClassify\Rust
+mkdir dist-onedir\windows\models 2&gt;nul
+
+<span class="cmt">:: (1) 방금 빌드한 실행파일</span>
+copy /Y target\release\csoclassify-rs.exe dist-onedir\windows\
+
+<span class="cmt">:: (2) 규칙셋 · 전파 seed</span>
+copy /Y ..\resources\policy\cso_rules.yaml  dist-onedir\windows\
+copy /Y ..\dist-onedir\windows\cso_seed.jsonl dist-onedir\windows\
+
+<span class="cmt">:: (3) ONNX Runtime · pdfium — 파이썬 배포본 _internal 에서 그대로 재사용</span>
+copy /Y ..\dist-onedir\windows\_internal\onnxruntime\capi\onnxruntime.dll                  dist-onedir\windows\
+copy /Y ..\dist-onedir\windows\_internal\onnxruntime\capi\onnxruntime_providers_shared.dll dist-onedir\windows\
+copy /Y ..\dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll                          dist-onedir\windows\
+
+<span class="cmt">:: (4) 임베딩 모델 폴더 통째로</span>
+xcopy /E /I /Y ..\resources\models\e5-small-ko dist-onedir\windows\models\e5-small-ko</code></pre>
+    <div class="warn"><b>DLL 이름을 바꾸지 마세요.</b> 프로그램은 <code>onnxruntime.dll</code>,
+    <code>pdfium.dll</code> 이라는 <b>정확한 이름</b>으로 exe 옆을 찾습니다.
+    버전이 붙은 이름(<code>onnxruntime-1.26.dll</code>)이면 못 찾고 임베딩이 조용히 꺼집니다.</div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">5</span> 동작 확인</h4>
+<pre><code>cd /d D:\Project\CSOClassify\Rust\dist-onedir\windows
+csoclassify-rs.exe --help
+csoclassify-rs.exe --file "샘플.txt" --rules cso_rules.yaml</code></pre>
+    <p>자세한 확인 항목은 <a href="#verify">6장</a>을 보세요.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">6</span> <code>.zip</code> 으로 묶기 <span class="pill">권장 배포 형태</span></h4>
+    <p>남에게 전달할 때는 zip 한 개로 묶는 편이 편합니다. 받는 쪽에서 <b>압축만 풀면 바로 실행</b>됩니다
+    (Windows 는 실행권한 개념이 없어 리눅스처럼 <code>chmod</code> 할 일이 없습니다).</p>
+    <p>먼저 <b>배포용 이름의 폴더로 복사</b>합니다 — 압축을 풀었을 때 그 이름으로 나오게 하기 위해서입니다.</p>
+<pre><code><span class="cmt"># PowerShell 에서 실행</span>
+$stage = "$env:TEMP\csopkg"
+Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $stage | Out-Null
+Copy-Item -Recurse "D:\Project\CSOClassify\Rust\dist-onedir\windows" "$stage\csoclassify-rs-windows"
+
+$out = "D:\Project\CSOClassify\Rust\dist-onedir\csoclassify-rs-windows.zip"
+if (Test-Path $out) { Remove-Item -Force $out }
+Compress-Archive -Path "$stage\csoclassify-rs-windows" -DestinationPath $out -CompressionLevel Optimal
+
+Get-Item $out | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+(Get-FileHash $out -Algorithm SHA256).Hash          <span class="cmt"># 전달 후 대조용</span></code></pre>
+    <p class="def">158MB → 약 91MB 로 줄어듭니다. <code>Compress-Archive</code> 는 Windows 에 기본 내장이라 별도 프로그램이 필요 없습니다.</p>
+
+    <p><b>내용 확인</b> — 최상위가 <code>csoclassify-rs-windows\</code> 하나여야 합니다.</p>
+<pre><code>Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead($out)
+$zip.Entries | Select-Object FullName, Length | Format-Table -AutoSize
+$zip.Dispose()</code></pre>
+
+    <div class="ok"><b>받는 쪽에서는 이것만 하면 됩니다.</b>
+    <ol style="margin:6px 0 0">
+      <li>zip 우클릭 → <b>압축 풀기</b> (또는 <code>tar -xf csoclassify-rs-windows.zip</code>)</li>
+      <li>생긴 <code>csoclassify-rs-windows\</code> 폴더로 들어가 주소창에 <span class="kbd">cmd</span> 입력</li>
+      <li><code>csoclassify-rs.exe --help</code></li>
+    </ol></div>
+
+    <div class="warn"><b>메일·웹으로 받은 zip 이 이상하게 동작한다면</b> — Windows 가 “다른 컴퓨터에서 온 파일”로
+    표시(Mark of the Web)해 DLL 로딩이 막히는 경우가 있습니다. <b>압축을 풀기 전에</b> 차단을 해제하세요.
+<pre style="margin:8px 0 0"><code>Unblock-File .\csoclassify-rs-windows.zip</code></pre>
+    <span class="def">또는 zip 우클릭 → 속성 → 아래쪽 ‘차단 해제’ 체크 → 확인</span></div>
+
+    <p class="def"><b>왜 <code>Compress-Archive -Path windows</code> 로 바로 안 만드나?</b> 그렇게 하면 압축을 풀었을 때
+    폴더 이름이 <code>windows\</code> 가 되어 무엇인지 알 수 없습니다. 그래서 배포용 이름으로 한 번 복사한 뒤 묶습니다.
+    (리눅스 tgz 도 같은 이유로 <code>cp -a</code> 로 이름을 바꿔 묶습니다 → <a href="#linux">4-6</a>)</p>
+  </div>
+</section>
+
+
+<h2 id="linux"><span class="n">4</span> Linux 배포본 만들기</h2>
+<section class="card">
+  <p>리눅스 배포본은 <b>리눅스 서버에서 빌드</b>한 뒤, 나온 바이너리만 Windows 로 내려받아
+  <code>Rust\dist-onedir\linux\</code> 에 모읍니다. 무거운 모델·규칙셋은 이미 Windows 에 있으므로 다시 받을 필요가 없습니다.</p>
+
+  <h3>접속 정보 <span class="def">(<code>CSOClassify\.env_vllm</code>)</span></h3>
+  <div class="scroll"><table>
+    <tr><th>서버</th><td><code>10.10.4.10</code> (포트 22) · 호스트명 <code>devgpu</code></td></tr>
+    <tr><th>계정</th><td><code>mpower</code></td></tr>
+    <tr><th>비밀번호</th><td><code>.env_vllm</code> 의 <code>SSH_USER_PWD</code> 값</td></tr>
+    <tr><th>OS</th><td>CentOS 7.9 · glibc 2.17 · x86_64 · 32코어</td></tr>
+    <tr><th>Rust</th><td>설치됨 — <code>/MOCOMSYS/.cargo/bin/cargo</code> (1.95.0)</td></tr>
+    <tr><th>작업 폴더</th><td><code>/MOCOMSYS/dev/bong/cso_rust_build</code></td></tr>
+  </table></div>
+  <p class="def">Windows 에서 접속·전송에는 PuTTY 의 <code>plink</code>/<code>pscp</code> 를 씁니다
+  (<code>C:\Program Files\PuTTY\</code>). OpenSSH 의 <code>ssh</code>/<code>scp</code> 를 써도 됩니다.</p>
+
+  <div class="step">
+    <h4><span class="num">1</span> 소스를 압축해서 서버로 보내기</h4>
+    <p>Git Bash(또는 WSL) 에서 실행합니다. <code>target/</code>(빌드 캐시)은 보내지 않습니다 — 서버에서 새로 만듭니다.</p>
+<pre><code>cd /d/Project/CSOClassify/Rust
+tar -czf /tmp/rustsrc.tgz Cargo.toml Cargo.lock src resources README.md
+
+<span class="cmt"># 서버에 작업 폴더 만들고 업로드</span>
+plink -batch -ssh -l mpower -pw '&lt;비밀번호&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build"
+pscp  -batch -pw '&lt;비밀번호&gt;' /tmp/rustsrc.tgz mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/</code></pre>
+    <p class="def"><code>Cargo.lock</code> 을 꼭 함께 보내세요. “어떤 라이브러리를 <b>정확히 어느 버전으로</b> 썼는지” 기록한
+    파일이라, 이게 있어야 Windows 빌드와 <b>같은 결과</b>가 나옵니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">2</span> 서버에서 빌드</h4>
+    <p>서버에 접속해 압축을 풀고 빌드합니다. <b>환경변수 <code>RUSTFLAGS</code> 가 핵심</b>입니다.</p>
+<pre><code>ssh mpower@10.10.4.10
+
+export PATH=/MOCOMSYS/.cargo/bin:$PATH
+cd /MOCOMSYS/dev/bong/cso_rust_build
+tar xzf rustsrc.tgz
+
+<span class="cmt"># ★ 실행파일에 "내 옆 폴더에서 .so 를 찾아라" 규칙(RPATH)을 새겨 넣는다</span>
+export RUSTFLAGS='-C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,--disable-new-dtags'
+
+cargo build --release</code></pre>
+
+    <div class="note"><b><code>RUSTFLAGS</code> 두 줄이 무슨 뜻인가요?</b>
+    <ul>
+      <li><code>-rpath,$ORIGIN</code> — “필요한 <code>.so</code> 는 <b>실행파일이 있는 그 폴더</b>에서 찾아라”.
+        <code>$ORIGIN</code> 은 리눅스 로더가 이해하는 특수 문자열로, 실행 시점의 실행파일 폴더로 바뀝니다.
+        덕분에 <code>LD_LIBRARY_PATH</code> 를 설정하지 않아도 됩니다.</li>
+      <li><code>--disable-new-dtags</code> — 요즘 링커는 기본으로 <b>RUNPATH</b> 를 쓰는데, RUNPATH 는
+        “실행파일이 직접 쓰는 라이브러리”에만 적용되고 <b>그 라이브러리가 다시 부르는 라이브러리</b>에는 적용되지 않습니다.
+        우리는 <code>libonnxruntime.so</code> 가 부르는 <code>libstdc++.so.6</code> 까지 옆 폴더에서 찾게 해야 하므로,
+        옛 방식인 <b>RPATH</b> 를 강제합니다.</li>
+    </ul>
+    이 옵션을 빼면 CentOS 7 에서 <code>CXXABI_1.3.8 not found</code> 오류가 납니다(<a href="#trouble">7-①</a>).</div>
+
+    <p>1분 30초 정도 뒤 <code>Finished `release` profile</code> 이 나오면 성공입니다. 확인:</p>
+<pre><code>ls -la target/release/csoclassify-rs
+readelf -d target/release/csoclassify-rs | grep -i rpath</code></pre>
+    <div class="ok"><code>0x…(RPATH)  Library rpath: [$ORIGIN]</code> 이 보이면 제대로 새겨진 것입니다.</div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">3</span> 서버에서 배포본 폴더 조립</h4>
+    <p>필요한 <code>.so</code> 는 서버의 conda 환경 <code>bong</code> 안에 이미 다 있습니다. 거기서 복사합니다.</p>
+<pre><code>B=/MOCOMSYS/dev/bong/cso_rust_build
+D=$B/dist-onedir/linux
+CONDA=/MOCOMSYS/anaconda3/envs/bong/lib/python3.13/site-packages
+L=/MOCOMSYS/anaconda3/envs/bong/lib
+
+rm -rf $D &amp;&amp; mkdir -p $D/models
+
+<span class="cmt"># (1) 실행파일</span>
+cp $B/target/release/csoclassify-rs $D/ &amp;&amp; chmod +x $D/csoclassify-rs
+
+<span class="cmt"># (2) ONNX Runtime — 반드시 'libonnxruntime.so' 이름으로 (버전 숫자 제거)</span>
+cp $CONDA/onnxruntime/capi/libonnxruntime.so.1.26.0            $D/libonnxruntime.so
+cp $CONDA/onnxruntime/capi/libonnxruntime_providers_shared.so  $D/
+
+<span class="cmt"># (3) pdfium (PDF 추출)</span>
+cp $CONDA/pypdfium2_raw/libpdfium.so $D/
+
+<span class="cmt"># (4) ★ 신형 C++ 런타임 — CentOS7 시스템 것은 너무 낡아서 반드시 동봉</span>
+cp $L/libstdc++.so.6.0.34 $D/libstdc++.so.6
+cp $L/libgcc_s.so.1       $D/
+strip --strip-unneeded $D/libstdc++.so.6      <span class="cmt"># 14MB → 2MB</span>
+chmod +x $D/*.so $D/*.so.*
+
+<span class="cmt"># (5) 임베딩 모델</span>
+cp -r /MOCOMSYS/.csoclassify/CSOClassify/models/e5-small-ko $D/models/
+chmod -R u+rwX,go+rX $D/models
+
+ls -la $D</code></pre>
+    <p class="def">규칙셋(<code>cso_rules.yaml</code>)·seed(<code>cso_seed.jsonl</code>)는 Windows 쪽에 이미 있으므로
+    서버에는 <b>테스트용으로만</b> 올리면 됩니다. 최종 배포본에는 5단계에서 Windows 에서 복사해 넣습니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">4</span> 서버에서 동작 확인</h4>
+<pre><code>cd /MOCOMSYS/dev/bong/cso_rust_build/dist-onedir/linux
+./csoclassify-rs --help
+
+<span class="cmt"># 규칙만 (임베딩·PDF 없이도 동작해야 함)</span>
+./csoclassify-rs --dir /tmp/csotest --rules cso_rules.yaml --rule-only --simple --nosummary --format jsonl
+
+<span class="cmt"># 기본 모드 = 규칙 + 임베딩 전파 (여기가 .so 로딩 확인 지점)</span>
+./csoclassify-rs --dir /tmp/csotest --rules cso_rules.yaml --simple --nosummary --format jsonl</code></pre>
+    <div class="ok">기본 모드에서 <code>[전파] seed=70 전파결정=0 미분류잔여=0</code> 같은 줄이 뜨면
+    <b>ONNX Runtime 이 정상 로드</b>된 것입니다.</div>
+    <div class="bad">여기서 <code>CXXABI_1.3.8 not found</code> 가 나오면 2단계 <code>RUSTFLAGS</code> 를 빠뜨렸거나
+    <code>libstdc++.so.6</code> 를 안 넣은 것입니다 → <a href="#trouble">7-①</a></div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">5</span> Windows 로 내려받아 최종 배포본 완성</h4>
+    <p>서버에서 만든 것 중 <b>바이너리 6개만</b> 내려받고, 모델·규칙셋은 Windows 쪽 것을 복사합니다(같은 파일).</p>
+<pre><code>cd /d/Project/CSOClassify/Rust/dist-onedir/linux
+R=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir/linux
+
+for f in csoclassify-rs libonnxruntime.so libonnxruntime_providers_shared.so \
+         libpdfium.so libstdc++.so.6 libgcc_s.so.1; do
+  pscp -batch -q -pw '&lt;비밀번호&gt;' "mpower@10.10.4.10:$R/$f" .
+done
+
+<span class="cmt"># 규칙셋·seed·모델은 Windows 배포본에서 그대로 복사(OS 무관 동일 파일)</span>
+cd /d/Project/CSOClassify/Rust/dist-onedir
+cp windows/cso_rules.yaml windows/cso_seed.jsonl linux/
+mkdir -p linux/models
+cp -r windows/models/e5-small-ko linux/models/</code></pre>
+    <div class="warn"><b>실행권한은 Windows 를 거치면 사라집니다.</b> 이 폴더를 리눅스로 옮긴 뒤 반드시
+    <code>chmod +x csoclassify-rs</code> 를 실행해야 합니다. 배포본의 <code>README.txt</code> 에도 적어두었습니다.
+    <br>이게 번거로우면 다음 6단계처럼 <b><code>.tgz</code> 로 묶어 전달</b>하세요 — 권한이 그대로 보존됩니다.</div>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">6</span> <code>.tgz</code> 로 묶기 <span class="pill">권장 배포 형태</span></h4>
+    <p>폴더째 복사하면 실행권한이 날아가므로, <b>리눅스에서 <code>tar</code> 로 묶어</b> 전달하는 편이 안전합니다.
+    받는 쪽은 압축만 풀면 <code>chmod</code> 없이 바로 실행됩니다.</p>
+<pre><code><span class="cmt"># 서버에서 — 배포용 이름의 폴더로 복사한 뒤 묶는다 (-a 로 권한 보존)</span>
+B=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir
+rm -rf /tmp/pkg &amp;&amp; mkdir -p /tmp/pkg
+cp -a $B/linux /tmp/pkg/csoclassify-rs-linux
+chmod +x /tmp/pkg/csoclassify-rs-linux/csoclassify-rs
+
+cd /tmp/pkg
+tar czf /tmp/csoclassify-rs-linux.tgz csoclassify-rs-linux
+ls -lh /tmp/csoclassify-rs-linux.tgz          <span class="cmt"># 약 95MB</span>
+
+<span class="cmt"># 권한이 제대로 들어갔는지 목록으로 확인 — csoclassify-rs 가 -rwx… 여야 한다</span>
+tar tzvf /tmp/csoclassify-rs-linux.tgz</code></pre>
+<pre><code><span class="cmt"># Windows(Git Bash) 로 내려받기</span>
+cd /d/Project/CSOClassify/Rust/dist-onedir
+pscp -batch -q -pw '&lt;비밀번호&gt;' mpower@10.10.4.10:/tmp/csoclassify-rs-linux.tgz .
+
+<span class="cmt"># 전송 중 깨지지 않았는지 해시 대조(양쪽 값이 같아야 함)</span>
+sha256sum csoclassify-rs-linux.tgz</code></pre>
+    <div class="ok"><b>받는 쪽(배포 대상 리눅스)에서는 이것만 하면 됩니다.</b>
+<pre style="margin:8px 0 0"><code>tar xzf csoclassify-rs-linux.tgz
+cd csoclassify-rs-linux
+./csoclassify-rs --help          <span class="cmt"># chmod 불필요</span></code></pre></div>
+    <div class="note"><b><code>cp -a</code> 를 쓰는 이유</b> — 그냥 <code>cp -r</code> 이면 권한·타임스탬프가 새로 매겨집니다.
+    <code>-a</code>(archive)는 실행권한을 그대로 복사합니다. 또 <code>tar</code> 는 <b>폴더 이름째</b> 묶이므로,
+    받는 쪽에서 풀었을 때 이름이 <code>csoclassify-rs-linux/</code> 가 되도록 미리 그 이름으로 복사해 둡니다.</div>
+    <p class="def">Rust 판은 심볼릭 링크가 없어서 폴더 복사 + <code>chmod</code> 로도 충분합니다.
+    (파이썬 판은 <code>_internal</code> 안 심볼릭 링크 때문에 <b>반드시</b> tgz 여야 합니다.)</p>
+  </div>
+</section>
+
+
+<h2 id="assets"><span class="n">5</span> 외장 자산은 어디서 구하나</h2>
+<section class="card">
+  <p>“모델·DLL 을 처음부터 어디서 가져오나”가 가장 자주 막히는 지점입니다. 정리하면 이렇습니다.</p>
+  <div class="scroll"><table>
+    <tr><th>자산</th><th>Windows 파일</th><th>Linux 파일</th><th>출처</th></tr>
+    <tr>
+      <td>ONNX Runtime</td>
+      <td><code>onnxruntime.dll</code><br><code>onnxruntime_providers_shared.dll</code></td>
+      <td><code>libonnxruntime.so</code><br><code>libonnxruntime_providers_shared.so</code></td>
+      <td>파이썬 <code>onnxruntime</code> 패키지의 <code>capi/</code> 폴더.<br>
+          Win: <code>dist-onedir\windows\_internal\onnxruntime\capi\</code><br>
+          Linux: <code>…/envs/bong/lib/python3.13/site-packages/onnxruntime/capi/</code><br>
+          <span class="def">없으면 <code>pip install onnxruntime</code> 후 그 폴더에서 꺼내면 됩니다.</span></td>
+    </tr>
+    <tr>
+      <td>pdfium</td>
+      <td><code>pdfium.dll</code></td>
+      <td><code>libpdfium.so</code></td>
+      <td>파이썬 <code>pypdfium2</code> 패키지의 <code>pypdfium2_raw/</code> 폴더.<br>
+          <span class="def">파이썬판과 같은 엔진이라 <b>추출 결과가 동일</b>합니다.</span></td>
+    </tr>
+    <tr>
+      <td>C++ 런타임<br><span class="def">(Linux 전용)</span></td>
+      <td>불필요 <span class="def">(윈도우는 VC++ 런타임이 DLL 에 정적 포함)</span></td>
+      <td><code>libstdc++.so.6</code><br><code>libgcc_s.so.1</code></td>
+      <td>conda 환경의 <code>lib/</code>.<br><code>/MOCOMSYS/anaconda3/envs/bong/lib/libstdc++.so.6.0.34</code></td>
+    </tr>
+    <tr>
+      <td>임베딩 모델</td>
+      <td colspan="2"><code>models/e5-small-ko/</code> <span class="def">(OS 무관 동일 파일)</span></td>
+      <td><code>CSOClassify\resources\models\e5-small-ko\</code><br>
+          <span class="def">저장소에는 용량 때문에 없을 수 있음 → <code>python scripts/export_onnx.py --model e5-small-ko</code> 로 재생성(인터넷 필요)</span></td>
+    </tr>
+    <tr>
+      <td>규칙셋 · seed</td>
+      <td colspan="2"><code>cso_rules.yaml</code> · <code>cso_seed.jsonl</code> <span class="def">(OS 무관)</span></td>
+      <td><code>CSOClassify\resources\policy\cso_rules.yaml</code><br>seed 는 기존 배포본에서 복사</td>
+    </tr>
+  </table></div>
+
+  <h3>경로를 바꾸고 싶다면 — 환경변수</h3>
+  <div class="scroll"><table>
+    <tr><th>변수</th><th>의미</th><th>기본 동작(미설정 시)</th></tr>
+    <tr><td><code>CSO_MODEL</code></td><td>임베딩 모델 폴더</td><td>실행파일 옆 <code>models/e5-small-ko/</code></td></tr>
+    <tr><td><code>ORT_DYLIB_PATH</code></td><td>ONNX Runtime 라이브러리 파일</td><td>실행파일 옆 <code>onnxruntime.dll</code> / <code>libonnxruntime.so</code></td></tr>
+    <tr><td><code>CSO_PDFIUM</code></td><td>pdfium 라이브러리 파일</td><td>실행파일 옆 <code>pdfium.dll</code> / <code>libpdfium.so</code> → 시스템</td></tr>
+    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>규칙셋 폴더</td><td>실행파일 옆 <code>cso_rules.yaml</code></td></tr>
+  </table></div>
+</section>
+
+
+<h2 id="verify"><span class="n">6</span> 배포본 동작 확인</h2>
+<section class="card">
+  <p>아래 4가지가 모두 통과하면 배포본이 완성된 것입니다.</p>
+  <div class="scroll"><table>
+    <tr><th>#</th><th>확인 항목</th><th>명령</th><th>성공 신호</th></tr>
+    <tr><td>1</td><td>실행파일이 뜨는가</td><td><code>csoclassify-rs --help</code></td><td>옵션 목록 출력</td></tr>
+    <tr><td>2</td><td>규칙 엔진<br><span class="def">(규칙셋 로드)</span></td><td><code>… --rule-only --simple --format jsonl</code></td><td><code>{"file":…,"grade":"C"}</code> 형태 JSON</td></tr>
+    <tr><td>3</td><td>임베딩<br><span class="def">(ORT + 모델 로드)</span></td><td><code>… --simple --format jsonl</code> <span class="def">(기본 모드)</span></td><td><code>[전파] seed=NN 전파결정=…</code> 줄이 뜸</td></tr>
+    <tr><td>4</td><td>PDF 추출<br><span class="def">(pdfium 로드)</span></td><td>PDF 가 든 폴더에 <code>--dir</code> 실행</td><td>PDF 에 <code>grade</code>·<code>signals.rule.hits</code> 가 채워짐</td></tr>
+  </table></div>
+
+  <div class="ok"><b>실측 결과 (2026-08-24 빌드)</b><br>
+  Windows·Linux 두 배포본 모두 1~4 전부 통과.
+  Linux 바이너리는 <code>libc / libdl / libpthread / libgcc_s</code> 만 참조하며,
+  <code>ELF … for GNU/Linux 2.6.32, stripped</code> — glibc 2.17 이상 어디서나 실행됩니다.</div>
+
+  <h3>자주 쓰는 실행 예</h3>
+<pre><code><span class="cmt"># 폴더 전체를 분류해 파일로 저장 (가장 많이 쓰는 형태)</span>
+csoclassify-rs --dir "D:\분류함" --rules cso_rules.yaml --simple --nosummary --format jsonl --out result.jsonl
+
+<span class="cmt"># 규칙만 — 임베딩 없이 가장 빠르게</span>
+csoclassify-rs --dir "D:\분류함" --rules cso_rules.yaml --rule-only
+
+<span class="cmt"># 파일 1개</span>
+csoclassify-rs --file "a.docx" --rules cso_rules.yaml</code></pre>
+</section>
+
+
+<h2 id="trouble"><span class="n">7</span> 자주 나는 오류와 해결</h2>
+<section class="card">
+
+  <h3>① <code>CXXABI_1.3.8 not found</code> / <code>GLIBCXX_3.4.29 not found</code> <span class="os">Linux</span></h3>
+<pre><code>thread 'main' panicked at ort-2.0.0-rc.10/src/lib.rs:111:33:
+An error occurred while attempting to load the ONNX Runtime binary at
+`…/libonnxruntime.so`: /lib64/libstdc++.so.6: version `CXXABI_1.3.8' not found</code></pre>
+  <p><b>원인</b> — <code>libonnxruntime.so</code> 는 최신 컴파일러로 만들어져 <b>새 C++ 런타임</b>을 요구하는데,
+  CentOS 7 에 기본 설치된 <code>/lib64/libstdc++.so.6</code>(gcc 4.8.5) 은 <code>CXXABI_1.3.7</code> 까지밖에 제공하지 않습니다.</p>
+  <p><b>해결</b> — 두 가지를 <b>모두</b> 해야 합니다.</p>
+  <ol>
+    <li>빌드할 때 <code>RUSTFLAGS='-C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,--disable-new-dtags'</code>
+      → 실행파일에 “옆 폴더를 뒤져라(RPATH)” 규칙을 새깁니다.</li>
+    <li>배포본에 <code>libstdc++.so.6</code>(conda 의 6.0.34)·<code>libgcc_s.so.1</code> 을 함께 넣습니다.</li>
+  </ol>
+  <div class="note"><code>--disable-new-dtags</code> 를 빼면 RUNPATH 가 생기는데, RUNPATH 는
+  <b>간접 의존(라이브러리가 부르는 라이브러리)</b>에는 적용되지 않아 이 오류가 그대로 납니다. 반드시 함께 주세요.</div>
+  <p class="def">확인: <code>readelf -d csoclassify-rs | grep -i rpath</code> → <code>(RPATH) … [$ORIGIN]</code></p>
+
+  <h3>② <code>Permission denied</code> <span class="os">Linux</span></h3>
+  <p>Windows 를 거쳐 복사하면 실행권한이 사라집니다.</p>
+<pre><code>chmod +x csoclassify-rs</code></pre>
+
+  <h3>③ 임베딩이 조용히 동작하지 않음 <span class="os">공통</span></h3>
+  <p>기본 모드로 돌렸는데 <code>[전파] …</code> 줄이 안 뜨면, 모델·런타임을 못 찾아 <b>전파를 생략</b>한 것입니다(오류 없이 넘어갑니다).</p>
+  <ul>
+    <li>파일 이름이 정확한가 — <code>onnxruntime.dll</code> / <code>libonnxruntime.so</code> (버전 숫자 붙으면 안 됨)</li>
+    <li><code>models/e5-small-ko/</code> 안에 <code>model.onnx</code>·<code>tokenizer.json</code> 이 있는가</li>
+    <li><code>cso_seed.jsonl</code> 이 실행파일 옆에 있는가 (없으면 전파 자체가 꺼짐)</li>
+  </ul>
+
+  <h3>④ <code>link.exe not found</code> / <code>linker 'cc' not found</code> <span class="os">Windows</span></h3>
+  <p>C++ 빌드 도구가 없습니다. <b>Visual Studio Installer → C++를 사용한 데스크톱 개발</b> 을 설치하고 터미널을 새로 여세요.</p>
+
+  <h3>⑤ 크레이트를 못 받음 (네트워크/프록시) <span class="os">공통</span></h3>
+<pre><code>error: failed to get `serde` as a dependency … Couldn't connect to server</code></pre>
+  <p>사내망 프록시라면 <code>~/.cargo/config.toml</code> 에 프록시를 적거나, 인터넷이 되는 PC 에서 한 번 빌드해
+  <code>~/.cargo/registry/</code> 를 통째로 복사하면 오프라인 빌드(<code>cargo build --release --offline</code>)가 됩니다.</p>
+
+  <h3>⑥ PDF 만 결과가 비어 있음 <span class="os">공통</span></h3>
+  <p><code>pdfium.dll</code>/<code>libpdfium.so</code> 가 없거나 이름이 다릅니다. 다른 포맷은 정상이므로 놓치기 쉽습니다.</p>
+
+  <h3>⑦ musl 정적 빌드는 되나요?</h3>
+  <p><code>README.md</code> 에는 <code>x86_64-unknown-linux-musl</code> 이 적혀 있지만, 이 서버에는 <code>musl-gcc</code> 가
+  없어 <code>tokenizers</code> 의 C 코드(oniguruma)를 musl 로 컴파일할 수 없습니다.
+  <b>현재 배포본은 CentOS 7(glibc 2.17) gnu 타깃</b>이며, 실용적으로는 이쪽이 호환 범위가 더 넓습니다
+  (musl 로 만들어도 <code>libonnxruntime.so</code>·<code>libpdfium.so</code> 는 어차피 외부 glibc 라이브러리라 완전 정적이 되지 않습니다).</p>
+</section>
+
+
+<h2 id="script"><span class="n">8</span> 부록 — 복붙용 전체 명령</h2>
+<section class="card">
+
+  <h3>A. Windows 전체 <span class="def">(cmd)</span></h3>
+<pre><code>cd /d D:\Project\CSOClassify\Rust
+cargo build --release
+
+mkdir dist-onedir\windows\models 2&gt;nul
+copy /Y target\release\csoclassify-rs.exe  dist-onedir\windows\
+copy /Y ..\resources\policy\cso_rules.yaml dist-onedir\windows\
+copy /Y ..\dist-onedir\windows\cso_seed.jsonl dist-onedir\windows\
+copy /Y ..\dist-onedir\windows\_internal\onnxruntime\capi\onnxruntime.dll                  dist-onedir\windows\
+copy /Y ..\dist-onedir\windows\_internal\onnxruntime\capi\onnxruntime_providers_shared.dll dist-onedir\windows\
+copy /Y ..\dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll                          dist-onedir\windows\
+xcopy /E /I /Y ..\resources\models\e5-small-ko dist-onedir\windows\models\e5-small-ko
+
+dist-onedir\windows\csoclassify-rs.exe --help</code></pre>
+  <p class="def">배포용 zip 까지 만들려면 (PowerShell):</p>
+<pre><code>$stage = "$env:TEMP\csopkg"
+Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $stage | Out-Null
+Copy-Item -Recurse "D:\Project\CSOClassify\Rust\dist-onedir\windows" "$stage\csoclassify-rs-windows"
+$out = "D:\Project\CSOClassify\Rust\dist-onedir\csoclassify-rs-windows.zip"
+if (Test-Path $out) { Remove-Item -Force $out }
+Compress-Archive -Path "$stage\csoclassify-rs-windows" -DestinationPath $out -CompressionLevel Optimal
+(Get-FileHash $out -Algorithm SHA256).Hash</code></pre>
+
+  <h3>B. Linux 전체 <span class="def">(1) Windows(Git Bash) 에서 업로드</span></h3>
+<pre><code>cd /d/Project/CSOClassify/Rust
+tar -czf /tmp/rustsrc.tgz Cargo.toml Cargo.lock src resources README.md
+plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build"
+pscp  -batch -pw '&lt;PW&gt;' /tmp/rustsrc.tgz mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/</code></pre>
+
+  <h3><span class="def">(2) 서버에서 빌드 + 조립</span></h3>
+<pre><code>export PATH=/MOCOMSYS/.cargo/bin:$PATH
+B=/MOCOMSYS/dev/bong/cso_rust_build
+D=$B/dist-onedir/linux
+CONDA=/MOCOMSYS/anaconda3/envs/bong/lib/python3.13/site-packages
+L=/MOCOMSYS/anaconda3/envs/bong/lib
+
+cd $B &amp;&amp; tar xzf rustsrc.tgz
+export RUSTFLAGS='-C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,--disable-new-dtags'
+cargo build --release
+
+rm -rf $D &amp;&amp; mkdir -p $D/models
+cp $B/target/release/csoclassify-rs $D/ &amp;&amp; chmod +x $D/csoclassify-rs
+cp $CONDA/onnxruntime/capi/libonnxruntime.so.1.26.0           $D/libonnxruntime.so
+cp $CONDA/onnxruntime/capi/libonnxruntime_providers_shared.so $D/
+cp $CONDA/pypdfium2_raw/libpdfium.so                          $D/
+cp $L/libstdc++.so.6.0.34 $D/libstdc++.so.6
+cp $L/libgcc_s.so.1       $D/
+strip --strip-unneeded $D/libstdc++.so.6
+chmod +x $D/*.so $D/*.so.*
+cp -r /MOCOMSYS/.csoclassify/CSOClassify/models/e5-small-ko $D/models/
+chmod -R u+rwX,go+rX $D/models
+ls -la $D</code></pre>
+
+  <h3><span class="def">(3) Windows 로 내려받아 마무리</span></h3>
+<pre><code>cd /d/Project/CSOClassify/Rust/dist-onedir/linux
+R=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir/linux
+for f in csoclassify-rs libonnxruntime.so libonnxruntime_providers_shared.so \
+         libpdfium.so libstdc++.so.6 libgcc_s.so.1; do
+  pscp -batch -q -pw '&lt;PW&gt;' "mpower@10.10.4.10:$R/$f" .
+done
+
+cd ..
+cp windows/cso_rules.yaml windows/cso_seed.jsonl linux/
+mkdir -p linux/models &amp;&amp; cp -r windows/models/e5-small-ko linux/models/</code></pre>
+
+  <h3><span class="def">(4) tgz 로 묶어 내려받기 — 권장 배포 형태</span></h3>
+<pre><code><span class="cmt"># 서버에서</span>
+B=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir
+rm -rf /tmp/pkg &amp;&amp; mkdir -p /tmp/pkg
+cp -a $B/linux /tmp/pkg/csoclassify-rs-linux
+chmod +x /tmp/pkg/csoclassify-rs-linux/csoclassify-rs
+cd /tmp/pkg &amp;&amp; tar czf /tmp/csoclassify-rs-linux.tgz csoclassify-rs-linux
+tar tzvf /tmp/csoclassify-rs-linux.tgz | head</code></pre>
+<pre><code><span class="cmt"># Windows(Git Bash) 에서</span>
+cd /d/Project/CSOClassify/Rust/dist-onedir
+pscp -batch -q -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-rs-linux.tgz .
+sha256sum csoclassify-rs-linux.tgz     <span class="cmt"># 서버 값과 대조</span></code></pre>
+
+  <h3><span class="def">(5) 배포 대상 리눅스에서 설치</span></h3>
+<pre><code>tar xzf csoclassify-rs-linux.tgz
+cd csoclassify-rs-linux
+./csoclassify-rs --help                <span class="cmt"># chmod 불필요 — 권한이 보존됨</span></code></pre>
+
+  <div class="note"><b>다음에 소스만 고쳤을 때</b>는 위 과정을 다 할 필요 없이,
+  Windows 는 <code>cargo build --release</code> + exe 복사,
+  Linux 는 소스 재업로드 + <code>RUSTFLAGS</code> 붙여 <code>cargo build --release</code> + 바이너리 1개 내려받기면 끝입니다.
+  <code>.so</code>·모델은 그대로 두면 됩니다.</div>
+</section>
+
+<footer>
+  CSOClassify · csoclassify-rs 빌드 가이드 — 2026-08-24 기준<br>
+  빌드 확인: Windows rustc 1.98.0 (MSVC) · Linux rustc 1.95.0 (CentOS 7.9, glibc 2.17, x86_64-unknown-linux-gnu)
+</footer>
+
+</div>
+</body>
+</html>

@@ -8,6 +8,7 @@
 PyInstaller `onedir` 로 패키징합니다.
 
 > 상세: [실행 가이드](doc/csoclassify-실행가이드.html) · [규칙셋 필드 레퍼런스](doc/CSO_Rule.html) · [하이브리드 추출 설계](plan/CSO_HybridParse.html) · [설계서](plan/설계서.md)
+> 빌드: [빌드 가이드(Python)](doc/csoclassify-빌드가이드-python.html) · [빌드 가이드(Rust 포팅판)](doc/csoclassify-빌드가이드-rust.html)
 
 ## 빠른 사용
 
@@ -138,6 +139,10 @@ python scripts/quantize_onnx.py --model e5-small-ko   # int8 경량화(→118MB,
 
 ## 빌드 · 배포 (onedir)
 
+> **처음 빌드한다면 → [빌드 가이드(Python)](doc/csoclassify-빌드가이드-python.html)** — Windows·Linux 전 과정을
+> 단계별로(설치·spec 설명·트러블슈팅·복붙용 명령) 정리한 문서입니다. 아래는 요약입니다.
+> Rust 포팅판(`Rust/`)은 [빌드 가이드(Rust)](doc/csoclassify-빌드가이드-rust.html) 를 보세요.
+
 정식 배포는 **onedir 2종(Windows·Linux)** 입니다. 실행본체(`csoclassify`)와 파이썬 런타임(`_internal/`)이
 한 폴더에 있고, **규칙셋·모델·사이냅은 그 옆에 외장 리소스**로 둡니다(재빌드 없이 규칙 교체 가능,
 매 실행 압축해제 없어 빠름 ~2초).
@@ -214,7 +219,7 @@ src/csoclassify/
 resources/policy/cso_rules.yaml   C/S/O 규칙셋(외장)
 ui/                 Streamlit 검토·규칙편집 UI
 build/*.spec        PyInstaller 스펙
-doc/                실행 가이드 · 규칙셋 레퍼런스 · 작업기록 (HTML)
+doc/                실행 가이드 · 규칙셋 레퍼런스 · 빌드 가이드(Python/Rust) · 작업기록 (HTML)
 ```
 
 ## 현재 상태
