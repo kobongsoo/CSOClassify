@@ -22,6 +22,10 @@
 /dist-model/
 /dist-onedir/
 /dist-pkg/
+# Rust 포팅판 배포본 — 모델(129MB)·onnxruntime·pdfium 및 zip/tgz 묶음(각 ~90MB).
+# 빌드 방법은 doc/csoclassify-빌드가이드-rust.html 에 있으므로 산출물은 커밋하지 않는다.
+/Rust/dist-onedir/
+/Rust/target/
 # build 폴더는 스펙 파일만 남기고 PyInstaller 작업 산출물은 제외
 /build/*
 !/build/*.spec
