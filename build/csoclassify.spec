@@ -29,6 +29,10 @@ hiddenimports = [
     "csoclassify.classify.engine",
     "csoclassify.classify.context",
     "csoclassify.classify.fuse",
+    # 업무분류 seed 부트스트랩(--make-doctype-seeds). cli.py 가 함수 안에서
+    # 늦게 import 하므로 정적 추적에 안 걸린다 — 빠지면 그 옵션만 조용히
+    # ModuleNotFoundError 로 죽는다(재설계 10장).
+    "csoclassify.classify.seedgen",
     # 하이브리드 추출기(--hybridparse) — 감지+포맷별 파서(정적 import 로 자동 포함되나 명시).
     "csoclassify.extract.hybrid",
     "csoclassify.extract.detect",

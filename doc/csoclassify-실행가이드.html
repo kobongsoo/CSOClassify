@@ -70,7 +70,7 @@
 
 <header class="hero">
   <h1>csoclassify.exe 실행 가이드</h1>
-  <p>수집 문서를 <b>C(기밀)/S(민감)/O(공개)</b>로 자동 분류하는 명령줄 도구 · 실행 방법과 모든 인자 정리</p>
+  <p>수집 문서를 <b>보안등급 C(기밀)/S(민감)/O(공개)</b> 와 <b>업무분류(문서분류체계)</b> 두 축으로 자동 분류하는 명령줄 도구 · 실행 방법과 모든 인자 정리</p>
 </header>
 
 <section class="card">
@@ -79,11 +79,12 @@
     <li><a href="#start">1. 빠른 시작</a></li>
     <li><a href="#pkg">2. 패키지 구성</a></li>
     <li><a href="#modes">3. 실행 모드</a></li>
-    <li><a href="#args">4. 인자 전체 정리</a></li>
-    <li><a href="#exit">5. 종료코드</a></li>
-    <li><a href="#env">6. 환경변수 · 로그</a></li>
-    <li><a href="#recipes">7. 자주 쓰는 예시</a></li>
-    <li><a href="#notes">8. 주의사항</a></li>
+    <li><a href="#doctype">4. 업무분류(doctype) 축 <span class="pill" style="margin-left:2px">신규</span></a></li>
+    <li><a href="#args">5. 인자 전체 정리</a></li>
+    <li><a href="#exit">6. 종료코드</a></li>
+    <li><a href="#env">7. 환경변수 · 로그</a></li>
+    <li><a href="#recipes">8. 자주 쓰는 예시</a></li>
+    <li><a href="#notes">9. 주의사항</a></li>
   </ul>
 </section>
 
@@ -115,24 +116,34 @@ csoclassify.exe --embed --file "샘플.hwp"</code></pre>
 ├─ csoclassify.exe        <span class="cmt">실행 파일(명령줄 도구)</span>
 ├─ _internal\             <span class="cmt">파이썬 런타임·의존 DLL(onedir). exe 와 한 세트 — 지우거나 옮기지 말 것</span>
 ├─ cso_rules.yaml         <span class="cmt">C/S/O 분류 규칙셋(외장) — exe 옆에 필수. 재빌드 없이 교체 가능</span>
-├─ cso_seed.jsonl         <span class="cmt">전파용 seed 저장소(선택) — 있으면 보류 문서 구제/승격에 사용</span>
+├─ doc_taxonomy.yaml      <span class="cmt">문서분류체계 스냅샷 — 업무분류 축의 <b>필수</b> 파일(없으면 축을 끄고 C/S/O 만)</span>
+├─ doc_rule.yaml          <span class="cmt">업무분류 규칙셋(선택) — 없으면 규칙 대신 seed 전파로 분류</span>
+├─ class_seed.jsonl         <span class="cmt">전파용 seed 저장소(선택) — 있으면 보류 문서 구제/승격에 사용</span>
 ├─ models\
 │  └─ e5-small-ko\        <span class="cmt">임베딩 모델(model.onnx 등). 폴더째 exe 옆에 — 압축 해제 불필요</span>
 ├─ synap\
-│  └─ windows\            <span class="cmt">사이냅 문서필터(텍스트 추출) — OS별 하위폴더</span>
+│  └─ windows\            <span class="cmt">사이냅 문서필터 — 기본 모드는 <b>필수</b>, --hybridparse 는 <b>없어도 됨</b></span>
 │     ├─ snf_exe.exe
 │     └─ snf_win.dll
 └─ log\                   <span class="cmt">실행 로그(자동 생성)</span></div>
   <div class="warn"><b>주의</b>: <code>_internal\</code>은 exe 와 한 세트라 지우거나 따로 옮기면 실행이 안 됩니다.
   추출기는 <code>synap\windows\snf_exe.exe</code> 경로에 있어야 합니다(과거처럼 <code>synap\</code> 바로 아래
   평평하게 두는 방식이 아님). 규칙셋 <code>cso_rules.yaml</code>·모델 <code>models\e5-small-ko\</code>는 exe 와
-  같은 폴더 기준으로 찾습니다. <b>규칙셋이 없으면</b> 분류 실행 시 "어디에 두라"는 안내를 내고 종료(코드 3)합니다.</div>
+  같은 폴더 기준으로 찾습니다. <b>규칙셋이 없으면</b> 분류 실행 시 "어디에 두라"는 안내를 내고 종료(코드 3)합니다.
+  <br><b>업무분류 축</b>은 <code>doc_taxonomy.yaml</code> 이 있어야 켜집니다. <code>doc_rule.yaml</code> 은
+  <b>없어도 됩니다</b> — 규칙 대신 <code>class_seed.jsonl</code> 과의 임베딩 전파로 분류합니다(seed 도 없으면
+  전부 미분류). 자세한 내용은 <a href="#doctype">4장</a>.
+  <br><b>사이냅(<code>synap\</code>)은 기본 모드에서 필수</b>입니다 — 없으면 분류를 시작하자마자
+  <code>snf_exe 를 찾을 수 없음</code> 으로 멈춥니다. <code>--hybridparse</code> 를 주면 자체 파서가 1차이고
+  사이냅은 폴백 전용이라 <b>폴더째 없어도 동작</b>합니다 <span class="def">2026-08-26 부터 구형 doc/xls/ppt/hwp 포함</span>.</div>
 
   <h3>② Linux — <code>dist-onedir/linux/</code></h3>
 <div class="tree">linux/
 ├─ csoclassify-onedir-linux.tgz  <span class="cmt">실행본체(csoclassify + _internal). ※ 리눅스에서 풀어야 함(심볼릭링크·권한 보존)</span>
 ├─ cso_rules.yaml                <span class="cmt">C/S/O 분류 규칙셋(외장)</span>
-├─ cso_seed.jsonl                <span class="cmt">전파용 seed 저장소(선택)</span>
+├─ doc_taxonomy.yaml             <span class="cmt">문서분류체계 스냅샷(업무분류 축의 필수 파일)</span>
+├─ doc_rule.yaml                 <span class="cmt">업무분류 규칙셋(선택 — 없으면 seed 전파로 분류)</span>
+├─ class_seed.jsonl                <span class="cmt">전파용 seed 저장소(선택)</span>
 ├─ models/
 │  └─ e5-small-ko/               <span class="cmt">임베딩 모델(int8)</span>
 ├─ synap/
@@ -149,14 +160,27 @@ chmod +x csoclassify synap/linux/snf_exe
   <div class="warn"><b>주의</b>: <code>.tgz</code>는 <b>반드시 리눅스에서</b> 풀어야 합니다 — Windows 에서 풀면
   심볼릭링크가 깨집니다. 압축을 풀면 <code>csoclassify</code> 실행본체와 <code>_internal/</code>이 나오며,
   <code>cso_rules.yaml</code>·<code>synap/linux/snf_exe</code>·<code>models/e5-small-ko/</code>는
-  <code>csoclassify</code>와 같은 폴더에 있어야 합니다.</div>
+  <code>csoclassify</code>와 같은 폴더에 있어야 합니다. 업무분류 축을 쓸 때는
+  <code>doc_taxonomy.yaml</code>·<code>doc_rule.yaml</code>도 같은 폴더에 둡니다.</div>
+  <div class="note"><b>사이냅을 못 받았다면</b> — <code>--hybridparse</code> 를 붙이면
+  <code>synap/</code> 폴더 없이도 돕니다. pdf·hwp·hwpx·현대 docx/xlsx/pptx 는 물론
+  구형 <code>doc/xls/ppt/hwp</code> 까지 자체 파서가 처리합니다
+  <span class="def">2026-08-26 수정분 — 그전 배포본은 구형 4종이 미분류가 됩니다. <a href="#args">5장 '추출 방식'</a></span>.
+  <b>기본 모드(플래그 없음)는 사이냅이 없으면 시작하지 못합니다.</b>
+<pre style="margin:8px 0 0"><code>./csoclassify --dir "/data/문서함" --hybridparse --format jsonl --out result.jsonl</code></pre></div>
 </section>
 
 <h2 id="modes"><span class="n">3</span> 실행 모드</h2>
 <section class="card">
   <p>모드는 플래그로 정해집니다. <b>아무 모드 플래그가 없으면 C/S/O 분류</b>가 기본입니다. 임베딩 벡터만 필요하면 <code>--embed</code>, 추출 텍스트만 필요하면 <code>--text-only</code> 를 줍니다.</p>
 
-  <h3>① C/S/O 분류 (기본) — 모드 플래그 불필요</h3>
+  <h3>① 분류 (기본) — 모드 플래그 불필요</h3>
+  <div class="note"><b>두 축을 한 번에 분류합니다(2026-08-25).</b> 문서를 한 번 읽어
+  <b>보안등급 축(security)</b> = C/S/O 와 <b>업무분류 축(doctype)</b> = 문서분류체계 노드를
+  <b>동시에</b> 판정하고, 결과 레코드의 <code>labels</code> 아래에 축별로 나눠 담습니다.
+  업무분류 축은 <code>doc_taxonomy.yaml</code>(분류체계)이 있으면 켜지고, 없으면 지금까지처럼 C/S/O 만 나옵니다.
+  규칙 파일 <code>doc_rule.yaml</code> 은 <b>선택</b>입니다 — 없으면 <code>class_seed.jsonl</code> 과의
+  임베딩 전파가 대신 분류합니다. → <a href="#doctype">4장</a></div>
   <p>여러 <b>판정 신호</b>(내용·민감정보·보안분류 스탬프·경로·파일명)로 등급을 판정합니다. <code>--file</code>/<code>--dir</code> 만 주면 <b>바로 분류</b>합니다(예전의 <code>--classify</code> 는 이제 붙일 필요가 없습니다). 출력은 기본 <code>json</code> — <code>--file</code> 단건은 <b>객체 하나</b>, <code>--dir</code> 배치는 <b>레코드들의 JSON 배열 <code>[ … ]</code></b>(그대로 뷰어로 열림)입니다. 줄단위로 스트리밍/처리하려면 <code>--format jsonl</code>(문서당 1줄).</p>
 
   <p style="margin-top:14px"><b>검출 PII 유형 (20종 · 검출 엔진 ko-pii)</b> — 문서에서 자동 검출하는 개인정보 유형과 <b>기본등급</b>입니다. <b>대량</b>(bulk 임계 이상)이면 상향됩니다.</p>
@@ -197,7 +221,7 @@ chmod +x csoclassify synap/linux/snf_exe
 csoclassify.exe --dir "D:\collected" -r --rule-only --format jsonl --out result.jsonl
 
 <span class="cmt">:: 벡터만 — 규칙 무시, seed 와의 임베딩 유사도로만 분류(비교 기준 seed 필수)</span>
-csoclassify.exe --dir "D:\collected" -r --vector-only --seeds "cso_seed.jsonl" --format jsonl --out result.jsonl</code></pre>
+csoclassify.exe --dir "D:\collected" -r --vector-only --seeds "class_seed.jsonl" --format jsonl --out result.jsonl</code></pre>
   <p class="muted"><code>--vector-only</code> 결과는 <code>signals</code>에 <code>embed</code>만 있고(규칙 신호 없음) <code>decided_by:["embed"]</code>로 나옵니다. seed 와의 유사도가 임계 미만이면 <b>보류(none)</b>가 됩니다. <code>--vector-only</code>인데 <code>--seeds</code> 파일이 없으면 인자 오류로 안내 후 종료합니다.</p>
 <pre><code><span class="cmt">:: 규칙만으로 빠르게(임베딩 없음)</span>
 csoclassify.exe --dir "D:\collected" -r --format jsonl --out result.jsonl
@@ -209,7 +233,7 @@ csoclassify.exe --dir "D:\collected" -r --embed-needed --format jsonl --out resu
 csoclassify.exe --dir "D:\collected" -r --glob "*.hwp,*.hwpx,*.doc,*.docx,*.pdf" --format jsonl --out result.jsonl
 
 <span class="cmt">:: 문서 1개를 분류하면서, 보류면 seed 저장소로 전파까지 한 번에</span>
-csoclassify.exe --auto-propagate --seeds "cso_seed.jsonl" --file "문서.hwp"
+csoclassify.exe --auto-propagate --seeds "class_seed.jsonl" --file "문서.hwp"
 
 <span class="cmt">:: 결과 jsonl 에 추출 텍스트도 함께 저장</span>
 csoclassify.exe --with-text --dir "D:\collected" -r --format jsonl --out result.jsonl
@@ -252,15 +276,25 @@ csoclassify.exe --classify --with-pii --file "문서.hwp" --out result.json</cod
   },
   "rule_version": "cso-2026.08.3",
   "ts": "2026-08-15T14:20:39+09:00",
+  <span class="cmt">// 축별 최종 라벨 — security 는 항상, doctype 은 축이 켜졌을 때만(4장)</span>
+  "labels": {
+    "security": { "value": "C", "confidence": 0.95, "strategy": "max",
+                  "method": "fusion", "decided_by": [ "rule", "sensitive", "stamp" ],
+                  "candidates": [ … ] }
+  },
   "elapsed_ms": { "startup": 483.3, "extract": 50.4, "clean": 0.8, "rule": 88.0, "total": 622.5 }
 }</code></pre>
+  <p class="muted"><b><code>labels.security</code></b>는 위쪽 <code>grade</code>/<code>confidence</code>/<code>method</code>/<code>decided_by</code>
+  와 <b>같은 값을 축 형식으로 다시 담은</b> 것입니다(기존 필드는 하위호환으로 그대로 유지). <code>strategy</code>는
+  보안등급 축에서 항상 <code>max</code>(가장 민감한 등급 채택)로 <b>바꿀 수 없습니다</b>. <code>candidates</code>는 신호별
+  <code>{value, confidence, from}</code> 목록입니다.</p>
   <p class="muted">최종 등급은 <b>여러 신호 중 가장 민감한 등급</b>으로 융합됩니다(위 예는 rule·sensitive·stamp 가 모두 <span class="tag c">C</span>). <code>decided_by</code>=최종 등급을 만든 신호들, <code>method</code>=<code>fusion</code>(신호가 등급을 냄) / <code>unclassified</code>(아무 신호도 못 내 보류). <span class="muted">stamp 히트의 <code>mode</code>=<code>head</code>(머리) / <code>repeat</code>(반복) / <code>always</code>(명시문구) — 왜 스탬프로 인정됐는지.</span></p>
   <p class="muted"><b><code>elapsed_ms</code></b>(단계별 처리시간, ms) — <code>startup</code>(기동 준비)·<code>extract</code>(추출)·<code>clean</code>(정제)·<code>rule</code>(규칙 스캔)·<code>total</code>. 임베딩을 하면(<code>--embed-needed</code>/<code>--with-vector</code>/<code>--vector-only</code>) <code>model_load</code>·<code>embed</code> 도 추가됩니다. <code>--no-timing</code> 으로 끄면 필드가 빠집니다. <code>--dir</code> 배치는 끝에 요약을 냅니다(아래).</p>
   <div class="note">📊 <b>최종 요약</b> — 분류가 끝나면 화면(stderr)에 <code>[summary] 총 N개 / 검출 M, C=… S=… O=… 미분류=…, 총시간=…ms</code> 한 줄을 냅니다. <b>총시간</b>은 exe 실행(기동/startup)부터 완료까지의 <b>실제 전체 소요시간</b>입니다. <code>--out</code> 결과 파일(json/jsonl)에도 <b>맨 마지막</b>에 같은 내용을 <code>{"summary": {"total":…, "detected":…, "C":…, "S":…, "O":…, "unclassified":…, "elapsed_total_ms":…}}</code> 로 덧붙입니다(json 배열의 마지막 원소).</div>
   <p class="muted"><b><code>startup</code></b> = <b>파이썬 진입~첫 추출 직전</b>의 일회성 준비 비용(무거운 <code>import</code>·규칙셋 로드·데몬 준비 포함). <code>total</code> 에도 합산되어 <b>process 시작~완료</b> 실제 체감에 가깝습니다. 배치(<code>--dir</code>)에서는 <b>맨 처음 문서에만</b> 붙습니다(일회성). <span class="def">단, exe 부트로더가 <code>_internal</code> 을 로딩하는 '파이썬 진입 이전' 구간은 측정 대상이 아닙니다 — 실행 전체 시간을 재려면 셸에서 <code>Measure-Command</code> 등으로 감싸세요.</span> startup 값은 로그에도 남습니다.</p>
   <p class="muted"><span class="tag c">C 기밀</span> <span class="tag s">S 민감</span> <span class="tag o">O 공개</span> · 어느 신호로도 못 정하면 <b>보류(none)</b> → 검토 대상.</p>
-  <div class="note"><b>기본 동작에서 자동 전파(2026-08-16 변경).</b> <b>exe 옆에 <code>cso_seed.jsonl</code> 이 있으면</b> <code>--file</code>/<code>--dir</code> 만 줘도 규칙으로 <b>미분류(보류)된 문서</b>를 그 seed 와 임베딩(문맥) 비교해 <b>자동으로 전파·분류</b>합니다(보류 문서 임베딩은 자동 활성화, 확정 문서는 건너뜀). seed 파일이 <b>없으면</b> 전파 없이 규칙만으로 끝냅니다.
-  <br>· <code>--seeds &lt;경로&gt;</code> 로 seed 파일 위치를 직접 지정할 수 있습니다(미지정 시 exe 옆 <code>cso_seed.jsonl</code>).
+  <div class="note"><b>기본 동작에서 자동 전파(2026-08-16 변경).</b> <b>exe 옆에 <code>class_seed.jsonl</code> 이 있으면</b> <code>--file</code>/<code>--dir</code> 만 줘도 규칙으로 <b>미분류(보류)된 문서</b>를 그 seed 와 임베딩(문맥) 비교해 <b>자동으로 전파·분류</b>합니다(보류 문서 임베딩은 자동 활성화, 확정 문서는 건너뜀). seed 파일이 <b>없으면</b> 전파 없이 규칙만으로 끝냅니다.
+  <br>· <code>--seeds &lt;경로&gt;</code> 로 seed 파일 위치를 직접 지정할 수 있습니다(미지정 시 exe 옆 <code>class_seed.jsonl</code>).
   <br>· 전파를 <b>원치 않으면</b> <code>--rule-only</code> 를 주세요 — seed 파일이 옆에 있어도 <b>순수 규칙 분류</b>만 합니다.
   <br>· 대량 배치는 분류(<code>--embed-needed</code>) 후 <code>--propagate</code> 2차 패스로 나눠 처리해도 됩니다.</div>
 
@@ -287,10 +321,14 @@ csoclassify.exe --embed --dir "D:\docs" --glob "*.hwp" --format jsonl --out vec.
 
   <h3>④ 라벨 전파 — <code>--propagate</code> (보류 구제, 2차 패스)</h3>
   <p>1차 결과(벡터 포함)의 <b>보류 문서만</b> seed 와 유사도로 비교해 등급을 전파합니다. 모델이 필요 없습니다(벡터 연산만).</p>
-<pre><code>csoclassify.exe --propagate result.jsonl --seeds cso_seed.jsonl --format jsonl --out result.jsonl</code></pre>
+<pre><code>csoclassify.exe --propagate result.jsonl --seeds class_seed.jsonl --format jsonl --out result.jsonl</code></pre>
   <p class="muted">출력: 갱신된 레코드가 <code>--out</code> 파일에 다시 저장되고, 처리 요약이 화면(stderr)에 나옵니다:</p>
 <pre><code>[propagate] seeds=128 already_graded=940 embed_decided=57 still_unclassified=12 no_vector=3</code></pre>
   <p class="muted">로그 파일에는 레코드마다 <code>[전파결과][임베딩]</code>(임베딩이 등급을 정함) / <code>[전파결과][통과(rule 확정)]</code>(이미 확정돼 그대로 통과) / <code>[전파결과][보류(미확정)]</code> 태그로 구분되어 남습니다. <code>--seeds</code>를 주면 <b>외부 큐레이션 seed + 코퍼스 내부 seed</b>를 합쳐 비교하고, 생략하면 내부 seed만 씁니다.</p>
+  <div class="note"><b>Rust 판에도 있습니다</b> <span class="def">2026-08-26 추가</span> — 인자·출력·통계 줄이 같습니다.
+  모델이 필요 없는 모드라, <b>모델을 못 올리는 서버로 1차 결과만 옮겨 와</b> 전파를 돌릴 수 있습니다.
+<pre style="margin:8px 0 0"><code>csoclassify-rs.exe --propagate result.jsonl --seeds class_seed.jsonl --format jsonl --out result.jsonl</code></pre>
+  <span class="def">규칙셋(<code>cso_rules.yaml</code>)도 필요 없습니다 — 1차 결과에 저장된 신호를 되살려 재융합하기 때문입니다.</span></div>
 
   <h3>⑤ 데몬 제어</h3>
 <pre><code>csoclassify.exe --status   <span class="cmt">:: 상주 데몬 상태(모델·pid·유휴시간·준비여부)</span>
@@ -306,7 +344,284 @@ csoclassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(보�
   <br>· 종료는 <code>csoclassify.exe --stop</code>(권장) 또는 해당 pid 종료.</div>
 </section>
 
-<h2 id="args"><span class="n">4</span> 인자 전체 정리</h2>
+<h2 id="doctype"><span class="n">4</span> 업무분류(doctype) 축 <span class="pill">2026-08-25 신규</span></h2>
+<section class="card">
+  <p>지금까지의 <b>보안등급 축</b>(C/S/O)에 더해, 문서가 <b>무슨 업무 문서인지</b>(계약서·회의록·요구사항정의서 …)를
+  같이 판정하는 <b>두 번째 축</b>입니다. 분류 기준은 MpowerV11 의 <b>문서분류체계(DOC_CLASSIFICATION)</b>를
+  그대로 내려받은 스냅샷이라, DB 의 분류 트리와 <b>같은 이름·같은 ID</b>로 결과가 나옵니다.</p>
+
+  <h3>두 축의 차이 — 왜 따로 다루나</h3>
+  <div class="scroll"><table>
+    <tr><th></th><th>보안등급 축 <code>security</code></th><th>업무분류 축 <code>doctype</code></th></tr>
+    <tr><td>값의 성격</td><td><b>서열</b>이 있음 (O &lt; S &lt; C)</td><td>서열 없는 <b>분류 트리</b>(형제끼리 우열 없음)</td></tr>
+    <tr><td>결과 개수</td><td><b>항상 1개</b>(단일 등급)</td><td><b>여러 개 가능</b>(한 문서가 계약서이면서 법무 문서)</td></tr>
+    <tr><td>충돌 처리</td><td><code>max</code> <b>고정</b> — 가장 민감한 쪽 채택(안전측)</td><td><code>all</code>(전부) 또는 <code>top_n:N</code>(상위 N개) — 선택 가능</td></tr>
+    <tr><td>실행 시 변경</td><td><b>불가</b> — <code>--conflict security=…</code> 는 오류(코드 4)</td><td>가능 — <code>--conflict doctype=top_n:3</code></td></tr>
+    <tr><td>못 정했을 때</td><td><code>grade: null</code>(보류) → 검토 대상</td><td><code>values: []</code>(빈 목록) — 정상</td></tr>
+  </table></div>
+  <p class="muted">보안등급은 <b>낮게 나오는 실패가 사고</b>라서 안전측 고정이 유일하게 정당합니다. 반면 업무분류는
+  "계약서이면서 동시에 법무 문서"가 <b>둘 다 맞는</b> 상황이라 하나로 줄일 이유가 없어, 전략을 고를 수 있게 열어 뒀습니다.</p>
+
+  <h3>축을 켜는 법 — 필수 1개 + 분류 수단 2가지</h3>
+  <div class="scroll"><table>
+    <tr><th>파일</th><th>무엇</th><th>필수?</th><th>어디서 오나</th></tr>
+    <tr><td><code>doc_taxonomy.yaml</code></td><td><b>분류체계 스냅샷</b> — 노드 ID·부모·제목·사용여부</td><td><b>필수</b> <span class="def">없으면 축 자체가 꺼짐</span></td><td>DB 내보내기 JSON → <code>--export-taxonomy</code> 로 변환</td></tr>
+    <tr><td><code>doc_rule.yaml</code></td><td><b>규칙으로 분류</b> — 어떤 단어/파일명/경로면 어느 노드인지</td><td>선택</td><td><code>--scaffold-doc-rule</code> 로 골격 생성 후 사람이 채움</td></tr>
+    <tr><td><code>class_seed.jsonl</code></td><td><b>전파로 분류</b> — 이미 분류가 확정된 문서의 벡터+라벨</td><td>선택</td><td>사람이 확정한 문서를 seed 로 승격</td></tr>
+  </table></div>
+  <p>세 파일 모두 <code>--rules</code> 와 같은 규칙으로 찾습니다: <b>인자 우선 → exe 옆 → <code>CSOCLASSIFY_POLICY_DIR</code></b>
+  <span class="def">(seed 는 <code>--seeds</code>)</span>.</p>
+
+  <div class="note"><b>규칙 파일이 없어도 분류됩니다 <span class="pill">2026-08-25 변경</span></b><br>
+  <code>doc_rule.yaml</code> 이 없으면 축을 끄지 않고 <b>'seed 전파 전용' 모드</b>로 돌립니다 — 규칙 대신
+  <code>class_seed.jsonl</code> 과의 <b>임베딩 유사도</b>만으로 분류합니다. 규칙을 한 줄도 안 쓰고
+  <b>확정된 문서 몇 건만 seed 로 넣어</b> 업무분류를 시작할 수 있습니다.
+  <br><span class="def">이전에는 규칙 파일이 없으면 축을 통째로 껐습니다. 축을 끄면 결과에
+  <code>labels.doctype</code> 키가 아예 안 생겨 전파 단계까지 건너뛰게 되므로, "seed 로라도 분류"가 불가능했습니다.</span>
+  <br>이 모드로 들어가면 시작할 때 이렇게 알립니다:
+<pre style="margin:8px 0 0"><code>[csoclassify] doc_rule.yaml 이 없어 업무분류(doctype)를 'seed 전파 전용'으로 돌립니다.
+              규칙 대신 class_seed.jsonl 과의 임베딩 유사도로만 분류합니다(seed 도 없으면 전부 미분류).
+              찾은 경로: ...\doc_rule.yaml</code></pre>
+  결과 레코드의 <code>doctype_rule_version</code> 도 <code>"none"</code> 으로 찍혀, 나중에 결과만 보고도
+  <b>규칙 없이 돌았다</b>는 걸 구분할 수 있습니다.</div>
+
+  <div class="scroll"><table>
+    <tr><th>가진 것</th><th>업무분류 동작</th><th>결과</th></tr>
+    <tr><td>규칙 + seed</td><td>규칙으로 1차 분류 → 전파가 후보를 <b>더함</b></td><td>가장 넓게 분류됨</td></tr>
+    <tr><td>규칙만</td><td>규칙으로만 분류</td><td>규칙에 걸린 문서만</td></tr>
+    <tr><td><b>seed 만</b> <span class="def">규칙 파일 없음</span></td><td><b>전파로만</b> 분류(seed 전파 전용)</td><td>seed 와 닮은 문서만</td></tr>
+    <tr><td>둘 다 없음</td><td>분류 수단이 없음 — 그래도 축은 돎</td><td><b>전부 미분류</b>(<code>values: []</code>) → 관리자가 분류</td></tr>
+  </table></div>
+  <p class="muted">둘 다 없어도 <b>오류가 아닙니다</b>. <code>labels.doctype</code> 이 빈 값으로 붙은 채 나오므로,
+  관리자가 그 목록을 받아 직접 분류하고 그 결과를 seed 로 승격하면 다음 실행부터 전파가 동작합니다
+  <span class="def">(설계서 5-4 선순환 — 확정본이 seed 가 됨)</span>. 화면에도 왜 비었는지 한 줄로 알립니다:</p>
+<pre><code><span class="cmt">:: seed 파일이 없거나 labels.doctype 을 가진 줄이 없을 때</span>
+[csoclassify] 업무분류: 규칙(doc_rule.yaml)도 없고 쓸 수 있는 seed(labels.doctype)가 없어(...\class_seed.jsonl)
+              전파도 못 합니다 — 전부 미분류로 두니 관리자가 분류한 뒤 seed 로 승격하세요.
+
+<span class="cmt">:: seed 는 있는데 --rule-only 라 임베딩을 안 해서 전파가 불가능할 때</span>
+[csoclassify] 업무분류: 규칙(doc_rule.yaml)도 없고 임베딩을 하지 않아(--rule-only 등)
+              전파도 못 합니다 — 전부 미분류로 두니 관리자가 분류한 뒤 seed 로 승격하세요.</code></pre>
+
+<pre><code><span class="cmt">:: 1) DB 내보내기 JSON → 스냅샷 + 규칙 골격을 한 번에 만든다(문서는 읽지 않음)</span>
+csoclassify.exe --export-taxonomy --scaffold-doc-rule ^
+    --export-input doc_classification_export.json ^
+    --taxonomy doc_taxonomy.yaml --doc-rules doc_rule.yaml
+
+<span class="cmt">:: 2) doc_rule.yaml 의 terms 를 채운 뒤, 실제 스캔 전에 검사</span>
+csoclassify.exe --check-rules
+
+<span class="cmt">:: 3) 평소처럼 분류하면 두 축이 함께 나온다(별도 플래그 불필요)</span>
+csoclassify.exe --dir "D:\collected" --format jsonl --out result.jsonl
+
+<span class="cmt">:: (규칙 없이 가려면 1~2 를 건너뛰고, doc_taxonomy.yaml + class_seed.jsonl 만 두고 3 을 실행)</span></code></pre>
+  <div class="note"><b>골격(scaffold)은 <code>filename</code> 만 채워집니다.</b> 노드 제목(예: "계약서")을 파일명 규칙으로
+  넣어 주고 <code>terms: []</code>(본문 키워드)는 비워 둡니다 — 본문 규칙은 업무를 아는 사람이 채워야 정확하기 때문입니다.
+  이미 <code>doc_rule.yaml</code> 이 있으면 <b>덮어쓰지 않고 건너뜁니다</b>(손으로 채운 규칙 보호).</div>
+
+  <h3>규칙 한 건의 모양 — <code>doc_rule.yaml</code></h3>
+<pre><code>conflict: all                  <span class="cmt"># 축 전체의 충돌 전략: all | top_n(+ n)</span>
+version: doc-2026.08.1
+doctype_rules:
+- id: dt_dc_006_001            <span class="cmt"># 규칙 식별자(중복 불가)</span>
+  node: DC_006_001             <span class="cmt"># 이 규칙이 가리키는 분류체계 노드 ID</span>
+  weight: medium               <span class="cmt"># high | medium | low — 신뢰도로 환산</span>
+  terms: ["용역계약", "계약조건"]   <span class="cmt"># 본문에 있으면 매칭</span>
+  exclude: ["계약해지 안내"]        <span class="cmt"># 이 말이 있으면 매칭 취소(오탐 방지)</span>
+  filename: ["계약서"]             <span class="cmt"># 파일 이름에 있으면 매칭</span>
+  paths: ["/법무/"]               <span class="cmt"># 이 폴더 아래면 매칭(텍스트 안 엶)</span></code></pre>
+  <p class="muted"><b><code>weight</code> → 신뢰도</b>: 본문(<code>terms</code>) <code>high</code> 0.85 / <code>medium</code> 0.70 / <code>low</code> 0.50,
+  경로(<code>paths</code>) <code>high</code> 0.90 / <code>medium</code> 0.70 / <code>low</code> 0.50, 파일명(<code>filename</code>)은 항상 0.60.
+  <span class="def">보안등급 축의 같은 이름 상수와 값을 맞춰, "같은 확신 수준"이 두 축에서 같은 숫자가 되게 했습니다.</span></p>
+
+  <h3>결과 — <code>labels.doctype</code></h3>
+<pre><code>"labels": {
+  "security": { "value": "S", "confidence": 0.7, "strategy": "max", … },
+  "doctype": {
+    "values": [
+      { "dc_id": "DC_006_001",
+        "path": "법무/규정 &gt; 계약서",            <span class="cmt">// 사람이 읽는 전체 경로</span>
+        "path_ids": [ "DC_006", "DC_006_001" ],  <span class="cmt">// 뿌리→말단 노드 ID</span>
+        "confidence": 0.6,
+        "from": [ "name" ] }                     <span class="cmt">// 무엇이 이 라벨을 냈나(term/name/path/embed)</span>
+    ],
+    "strategy": "all",        <span class="cmt">// 이번 실행에 적용된 충돌 전략</span>
+    "status": "proposed",     <span class="cmt">// 자동분류 결과는 '제안' — 사람이 확정하기 전 단계</span>
+    "truncated": 0            <span class="cmt">// top_n 으로 잘려나간 후보 수(all 이면 항상 0)</span>
+  }
+}</code></pre>
+  <div class="warn"><b>축이 꺼지면 <code>doctype</code> 키 자체가 없습니다</b>(빈 값이 아니라 <b>키 부재</b>).
+  <code>"values": []</code> 는 "축은 돌았는데 아무것도 못 찾음", 키가 <b>아예 없으면</b> "이번 실행은 축을 쓰지 않음"입니다.
+  두 상황은 대응이 다르므로(규칙 보강 vs 파일 배치) 구분해 두었습니다. 소비 측 코드는
+  <code>if "doctype" in rec["labels"]</code> 로 먼저 확인하세요.</div>
+
+  <h3>조상 흡수 — 왜 상위 분류가 사라지나</h3>
+  <p>한 문서가 <b>"법무/규정"(상위)</b> 과 <b>"법무/규정 &gt; 계약서"(하위)</b> 에 동시에 걸리면,
+  <b>더 구체적인 하위 노드만 남기고 조상은 지웁니다</b>. "계약서"라고 이미 말한 마당에 "법무 문서"를
+  덧붙이는 건 정보가 없고, 집계할 때 같은 문서를 두 번 세게 만들기 때문입니다.
+  <span class="def">형제 관계(다른 가지)는 서로 상관없으므로 <b>둘 다 남습니다</b>.</span></p>
+
+  <h3>충돌 전략 — 후보가 여럿일 때</h3>
+  <div class="scroll"><table>
+    <tr><th>전략</th><th>동작</th><th>지정</th></tr>
+    <tr><td><code>all</code> <span class="def">기본</span></td><td>살아남은 후보를 <b>전부</b> 라벨로. <code>truncated</code> 항상 0</td><td><code>conflict: all</code></td></tr>
+    <tr><td><code>top_n:N</code></td><td>신뢰도 높은 순 <b>상위 N개</b>만. 잘린 개수는 <code>truncated</code> 에 기록</td><td><code>--conflict doctype=top_n:3</code></td></tr>
+  </table></div>
+<pre><code><span class="cmt">:: 규칙파일을 고치지 않고, 이번 실행에서만 상위 1개로 좁힌다</span>
+csoclassify.exe --dir "D:\collected" --conflict doctype=top_n:1 --format jsonl --out result.jsonl
+
+<span class="cmt">:: 보안등급 축은 덮어쓸 수 없다 — 아래는 오류로 막히고 종료코드 4</span>
+csoclassify.exe --file "문서.hwp" --conflict security=all
+<span class="cmt">::  → [csoclassify] 'security' 축은 전략을 실행 시에도 바꿀 수 없습니다(설계 T11) —</span>
+<span class="cmt">::    이 축은 서열이 있어 안전측(max)이 유일하게 정당한 선택입니다.</span></code></pre>
+  <p class="muted"><code>--conflict</code> 값은 규칙파일에 적었을 때와 <b>완전히 같은 검사</b>를 통과해야 합니다 —
+  <code>doctype=max</code>(없는 전략), <code>doctype=top_n</code>(n 누락), <code>doctype=top_n:0</code> 은 모두 종료코드 4 입니다.</p>
+
+  <h3>한 축만 돌리기 — <code>--axis</code></h3>
+  <div class="scroll"><table>
+    <tr><th>지정</th><th>동작</th></tr>
+    <tr><td><span class="def">미지정(기본)</span></td><td>가능한 축 <b>전부</b> — 파일이 있으면 두 축, 없으면 security 만</td></tr>
+    <tr><td><code>--axis security</code></td><td>C/S/O <b>만</b>. 업무분류 파일이 옆에 있어도 <b>읽지 않습니다</b>(깨져 있어도 무관)</td></tr>
+    <tr><td><code>--axis doctype</code></td><td>업무분류 <b>만</b>. <b>PII 검출·민감정보·스탬프 스캔을 통째로 생략</b>해 훨씬 빠릅니다.<br>이때 <code>labels.security.value</code> 는 <code>null</code>, <code>signals</code> 는 <code>{}</code> 로 나옵니다</td></tr>
+  </table></div>
+  <div class="warn"><code>--axis doctype</code> 은 <b><code>doc_taxonomy.yaml</code>(분류체계)이 반드시 있어야</b> 합니다.
+  없으면 "축을 건너뜀"이 아니라 <b>종료코드 4</b>로 멈춥니다 — 사용자가 그 축을 <b>명시적으로 요구</b>했는데
+  조용히 빈 결과를 내면 "분류할 게 없었다"로 오해되기 때문입니다.
+  <br><b>단 <code>doc_rule.yaml</code> 은 없어도 멈추지 않습니다</b> <span class="def">2026-08-25 변경</span> —
+  규칙이 없는 것과 축을 못 쓰는 것은 다릅니다(seed 전파로 분류할 수 있음).</div>
+
+  <h3>임베딩 전파(embed) — 규칙이 못 잡은 문서 분류</h3>
+  <p>보안등급 축과 마찬가지로, seed 저장소가 있으면 <b>업무분류도 임베딩 유사도로 전파</b>합니다.
+  규칙 파일이 없는 배포에서는 이것이 <b>유일한 분류 수단</b>입니다. 두 축의 전파 방식은 다릅니다:</p>
+  <div class="scroll"><table>
+    <tr><th></th><th>보안등급</th><th>업무분류</th></tr>
+    <tr><td>대상</td><td><b>보류(grade=null) 문서만</b> 구제</td><td><b>모든 문서</b> — 이미 라벨이 있어도 <b>후보를 더한다</b></td></tr>
+    <tr><td>득표 임계</td><td>0.70 (이웃의 70% 이상이 같은 등급)</td><td><b>0.25</b> (라벨마다 따로 계산)</td></tr>
+    <tr><td>이유</td><td>등급은 하나뿐이라 다수결이 성립</td><td>표가 <b>동시에 맞는 여러 라벨로 갈리므로</b> 같은 잣대를 쓰면 아무것도 못 넘김</td></tr>
+  </table></div>
+  <p class="muted">전파로 붙은 라벨은 <code>from</code> 에 <code>"embed"</code> 가 들어갑니다. 이웃 문서와 거의 같은 문서(near-dup)면
+  그 문서의 <b>라벨 집합 전체를 그대로</b> 물려받고, 그렇지 않으면 라벨별로 따로 신뢰도를 계산합니다.
+  전파 후에도 <b>조상 흡수와 충돌 전략은 다시 적용</b>되므로, 규칙과 임베딩이 섞여도 결과 형태는 같습니다.
+  실행하면 화면에 <code>[전파][업무분류] seed=… embed기여=… 벡터없음=…</code> 한 줄이 나옵니다.</p>
+  <div class="note"><b>전파하려면 그 문서의 벡터가 있어야 합니다</b> — 임베딩은 느린 단계라 필요한 문서에만 겁니다.
+  기본(<code>--embed-needed</code> 포함)에서 벡터를 만드는 대상은 <b>아직 못 정한 축이 하나라도 있는 문서</b>입니다:
+  <br>· 보안등급이 <b>보류</b>이거나 <code>seed_eligible</code> 이거나,
+  <br>· <b>업무분류 라벨이 하나도 안 붙은</b> 문서 <span class="def">2026-08-25 추가</span>
+  <br>두 번째 조건이 없으면, 규칙 없이 도는 배포에서 보안등급만 멀쩡히 나온 문서는 벡터가 안 만들어져
+  업무분류가 <b>영영 미분류</b>로 남습니다. <code>--rule-only</code> 는 임베딩을 아예 안 하므로
+  <b>전파도 하지 않습니다</b>(규칙 없이 <code>--rule-only</code> 를 주면 업무분류는 전부 미분류).</div>
+
+  <h3>seed 만들기 — 관리자가 분류한 결과를 seed 로 승격 <span class="def">2026-08-25</span></h3>
+  <p>규칙 없이 돌리려면 <b>seed 가 곧 정답지</b>입니다. seed 저장소(<code>class_seed.jsonl</code>)는
+  <b>문서 한 건이 한 줄</b>인 JSONL 이고, 업무분류 전파에 필요한 필드는 <b>단 두 개</b>입니다.</p>
+  <div class="scroll"><table>
+    <tr><th>필드</th><th>필요한 축</th><th>값</th></tr>
+    <tr><td><code>vector</code></td><td>둘 다 <b>필수</b></td><td>그 문서의 임베딩 벡터(384개 실수) — <code>--embed</code> 로 뽑음</td></tr>
+    <tr><td><code>labels.doctype</code></td><td>업무분류</td><td><b>dc_id 문자열 배열</b>(예: <code>["DC_002_001_001"]</code>). 여러 개 가능</td></tr>
+    <tr><td><code>grade</code></td><td>보안등급</td><td><code>"C"</code>/<code>"S"</code>/<code>"O"</code></td></tr>
+    <tr><td><code>file</code> · <code>approved_by</code> · <code>ts</code> · <code>note</code></td><td>—</td><td>선택 — 판정에 안 쓰이고 추적용(이웃 표시에 <code>file</code> 이 나옴)</td></tr>
+  </table></div>
+  <p class="muted">두 축은 <b>서로 독립적으로</b> 같은 파일을 읽습니다 — 한 줄에 <code>grade</code> 와
+  <code>labels.doctype</code> 을 <b>둘 다</b> 넣어도 되고, 한쪽만 넣어도 됩니다. 해당 필드가 없는 줄은
+  그 축이 조용히 건너뜁니다(구버전 seed 파일을 그대로 써도 안전).</p>
+<pre><code><span class="cmt">:: 1) 정답으로 삼을 문서의 벡터를 뽑는다</span>
+csoclassify.exe --embed --file "요구사항정의서_확정본.hwp" --out vec.json
+
+<span class="cmt">:: 2) vec.json 의 vector 를 그대로 옮겨 class_seed.jsonl 에 한 줄 추가(줄바꿈 없이 1줄)</span>
+{"file":"요구사항정의서_확정본.hwp","vector":[-0.0566,0.0062, … ],
+ "labels":{"doctype":["DC_002_001_001"]},
+ "grade":"S","approved_by":"홍길동","ts":"2026-08-25T10:00:00+09:00"}
+
+<span class="cmt">:: 3) 다음 실행부터 이 seed 와 닮은 문서가 자동으로 같은 분류를 받는다</span>
+csoclassify.exe --dir "D:\collected" --seeds "class_seed.jsonl" --format jsonl --out result.jsonl</code></pre>
+  <div class="note"><b>dc_id 는 <code>doc_taxonomy.yaml</code> 에서 확인합니다.</b> 스냅샷에 <b>없는 dc_id</b> 를 적으면
+  그 후보는 <b>조용히 무시</b>됩니다(삭제된 노드를 가리키는 낡은 seed 가 결과를 오염시키지 않도록).
+  <code>--check-rules</code> 로 노드 목록과 seed 건수를 함께 확인할 수 있습니다.</div>
+
+  <h3>요약 집계</h3>
+<pre><code>[summary] 총 120개 / 검출 118, C=12 S=61 O=45 미분류=2, 총시간=8321.4ms
+[summary][업무분류] 기술/개발 54 (요구사항정의서 21 · 화면설계서 18 · DB설계서 15) ·
+                    법무/규정 22 (계약서 22) / 미분류 44
+
+<span class="cmt">:: 한 건도 분류 못 했을 때(규칙도 seed 도 없는 초기 상태)</span>
+[summary][업무분류] (분류된 문서 없음) / 미분류 120</code></pre>
+  <p class="muted">결과 파일의 <code>summary</code> 에도 같은 내용이 들어갑니다(축이 한 건이라도 돌았을 때만):</p>
+<pre><code>"summary": {
+  "total": 120, "detected": 118, "C": 12, "S": 61, "O": 45, "unclassified": 2,
+  "doctype": {
+    "total": 120,              <span class="cmt">// 업무분류 축이 처리한 문서 수</span>
+    "unclassified": 44,        <span class="cmt">// 어떤 노드에도 못 걸린 문서 수</span>
+    "by_root": { "기술/개발": 54, "법무/규정": 22 },   <span class="cmt">// 최상위 분류별 집계</span>
+    "doctype_rule_version": "doc-2026.08.1",          <span class="cmt">// "none" 이면 규칙 없이 전파로만 돌았다는 뜻</span>
+    "taxonomy_version": "20260824164027"              <span class="cmt">// 스냅샷 exported_at</span>
+  }
+}</code></pre>
+  <div class="note"><b>스냅샷이 오래되면 경고합니다.</b> <code>doc_taxonomy.yaml</code> 의 <code>exported_at</code> 이
+  <b>90일</b> 이상 지났으면 "DB 와 어긋났을 수 있다"는 경고를 내고 <b>계속 진행</b>합니다(멈추지 않음).
+  분류체계가 바뀌었다면 <code>--export-taxonomy</code> 로 다시 내보내세요.</div>
+
+  <h3>Rust 판(<code>csoclassify-rs</code>)과의 차이</h3>
+  <p>Rust 판도 <code>--taxonomy</code>·<code>--doc-rules</code>·<code>--axis</code>·<code>--conflict</code> 를 <b>같은 의미·같은 종료코드</b>로
+  지원하며, 같은 정책 파일에 대해 <code>labels</code> 출력이 파이썬 판과 <b>동일</b>합니다.
+  스냅샷 생성 모드(<code>--export-taxonomy</code>·<code>--export-input</code>·<code>--scaffold-doc-rule</code>)도
+  <b>두 판 모두</b> 있습니다 <span class="def">2026-08-25 Rust 추가</span> — 같은 원본 JSON 을 주면
+  만들어지는 <code>doc_taxonomy.yaml</code>·<code>doc_rule.yaml</code> 이 <b>글자 단위로 같습니다</b>
+  (생성 시각 <code>exported_at</code> 제외). 즉 어느 판으로 만들든 다른 판이 그대로 읽습니다.</p>
+
+  <h3><code>--with-vector</code> 도 두 판 모두 <span class="def">2026-08-26 Rust 추가</span></h3>
+  <p>전량 벡터가 필요할 때(RAG 색인 등) 쓰는 <code>--with-vector</code> 를 Rust 판에도 넣었습니다.
+  두 판의 벡터는 <b>같은 문서에 대해 같은 값</b>이라 섞어 써도 됩니다 — 한쪽으로 만든
+  <code>class_seed.jsonl</code> 을 다른 쪽이 그대로 비교 기준으로 쓸 수 있습니다.</p>
+<pre><code><span class="cmt">:: 파이썬</span>
+csoclassify.exe --dir "D:\collected" --hybridparse --with-vector --format jsonl --out py.jsonl
+
+<span class="cmt">:: Rust — 같은 폴더, 같은 벡터</span>
+csoclassify-rs.exe --dir "D:\collected" --rules cso_rules.yaml --with-vector --format jsonl --out rs.jsonl</code></pre>
+  <div class="ok"><b>실측(2026-08-26)</b> — <code>d:\sample</code> 18건(구형 <code>.doc</code> 7건 포함)에서
+  두 판의 벡터 <b>코사인 유사도 1.000000000</b>(최대 절대오차 1.5e-08 = float32 반올림 수준), 등급 불일치 0건.</div>
+  <h3><code>--propagate</code> 도 두 판 모두 <span class="def">2026-08-26 Rust 추가</span></h3>
+  <p>1차 결과 파일을 읽어 <b>전파만</b> 다시 도는 2차 패스입니다. 두 판의 인자·출력·통계 줄이 같으므로,
+  <b>파이썬으로 1차를 내고 Rust 로 전파</b>하거나 그 반대로 해도 됩니다.</p>
+  <div class="ok"><b>실측(2026-08-26)</b> — 같은 1차 파일(<code>d:\sample</code> 18건, 벡터 포함)을 두 판에 각각 전파:
+  <code>seeds=71 already_graded=10 embed_decided=4 still_unclassified=4</code> 로 통계가 같고,
+  18개 레코드의 <code>grade</code>·<code>confidence</code>·<code>method</code>·<code>decided_by</code>·<code>labels</code>·<code>signals.embed</code> 가
+  <b>전부 일치</b>했습니다. 업무분류 seed 를 넣은 경우도 <code>embed_contributed=4</code> 로 같고
+  <code>labels.doctype</code>·<code>signals.doctype_embed</code> 까지 일치했습니다.</div>
+  <div class="note"><b>두 가지 사소한 차이</b>
+    <ul style="margin:8px 0 4px">
+      <li><b>1차 파일 끝의 <code>{"summary":…}</code> 줄</b> — Rust 는 문서가 아니라고 보고 버리지만,
+        파이썬은 레코드로 취급해 통계에 <code>no_vector=1</code>·<code>axis_off=1</code> 로 한 건 더 세고 결과 파일에도 다시 씁니다.
+        <span class="def">이때 다시 쓰이는 요약은 전파 <b>이전</b> 숫자라 실제 결과와 어긋납니다.</span></li>
+      <li><b>동점 이웃의 나열 순서</b> — 유사도가 똑같은 seed 가 둘 이상이면 <code>signals.embed.neighbors</code> 의
+        순서가 다를 수 있습니다. 파이썬이 쓰는 <code>np.argsort</code> 가 불안정 정렬이라 파이썬 쪽 순서도 보장되지 않습니다.
+        <span class="def">등급 판정에는 영향이 없었습니다(18건 전부 일치).</span></li>
+    </ul>
+  </div>
+
+  <h3>플랫폼(Windows ↔ Linux)을 넘으면 벡터가 완전히 같지는 않습니다 <span class="def">2026-08-26 실측</span></h3>
+  <p>같은 모델 파일(<code>model.onnx</code> md5 동일)이라도 <b>ONNX Runtime 이 OS·CPU 마다 미세하게 다른 수를 냅니다</b>
+  (int8 양자화 모델이라 특히 민감). 엔진(파이썬/Rust) 차이가 아니라 <b>런타임 차이</b>입니다.</p>
+  <div class="scroll"><table>
+    <tr><th>비교</th><th>최저 코사인 <span class="def">18건</span></th><th>뜻</th></tr>
+    <tr><td>같은 리눅스 안에서 <b>Rust ↔ 파이썬</b></td><td><b>1.000000000</b></td><td>엔진끼리는 완전히 같다</td></tr>
+    <tr><td>같은 Windows 안에서 <b>Rust ↔ 파이썬</b></td><td><b>1.000000000</b></td><td>엔진끼리는 완전히 같다</td></tr>
+    <tr><td><b>Linux ↔ Windows</b> (같은 엔진)</td><td>0.996185880</td><td>런타임 차이로 미세하게 다르다</td></tr>
+  </table></div>
+  <div class="warn"><b>임계값 바로 옆에 있는 문서는 OS 에 따라 판정이 갈릴 수 있습니다.</b>
+  전파는 1등 유사도가 <code>0.55</code> 미만이면 보류로 둡니다. 실측에서 한 문서가
+  Windows <code>top_sim=0.554</code>(등급 C) / Linux <code>0.549</code>(보류) 로 갈렸습니다
+  — 두 판(파이썬·Rust) 모두 같은 OS 에서는 같은 판정을 냈으므로 <b>엔진 문제가 아닙니다</b>.
+  <br>운영에서 결과를 재현해야 한다면 <b>1차 분류와 전파를 같은 OS 에서</b> 돌리고,
+  seed(<code>class_seed.jsonl</code>)도 그 OS 에서 만든 것을 쓰세요.</div>
+
+  <div class="warn"><b>2026-08-26 이전 Rust 배포본의 벡터는 파이썬과 미묘하게 달랐습니다</b>
+  <span class="def">코사인 0.94~0.98</span> — Rust 가 추출 원문을 그대로 임베딩했고 파이썬은 정제(<code>clean_text</code>)한
+  텍스트를 임베딩했기 때문입니다. 파일 끝 개행 하나만 달라도 벡터가 이만큼 벌어집니다.
+  <code>class_seed.jsonl</code> 과 코사인으로 비교하는 <b>전파 판정에도 영향</b>이 있었으므로,
+  옛 Rust 배포본으로 만든 seed 가 있다면 새 판으로 다시 만드는 편이 좋습니다.</div>
+</section>
+
+<h2 id="args"><span class="n">5</span> 인자 전체 정리</h2>
 
 <section class="card">
   <h3>입력 대상</h3>
@@ -323,6 +638,17 @@ csoclassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(보�
     <tr><th>인자</th><th>값</th><th>설명</th></tr>
     <tr><td><code>--hybridparse</code> <span class="def">2026-08-19</span></td><td>—</td><td><b>내용 감지 → 포맷별 전용 파서</b>로 추출(사이냅 없이): pdf→pypdfium2, hwp→HWP5, hwpx→zip/OWPML, 구형 doc/ppt→자체 olefile 파서, xls→xlrd, 현대 docx/xlsx/pptx→zip/OOXML 직접파싱(stdlib), html→태그제거(stdlib), text→직접읽기. 전용 파서 실패 시 <b>snf 폴백</b>(snf 없으면 그 파일만 미분류). <b>미지정 시 전부 사이냅(현행)</b>. 모든 모드와 병용. 설계·측정: <a href="../plan/CSO_HybridParse.html">CSO_HybridParse.html</a></td></tr>
   </table></div>
+  <div class="warn"><b>2026-08-26 수정 — 그전 배포본은 구형 <code>doc/xls/ppt/hwp</code> 를 자체 파서로 처리하지 못했습니다.</b>
+  내용 감지에서 OLE 복합문서 판정이 항상 실패해(<code>감지=binary</code>) 이 네 포맷이 전부 <b>사이냅 폴백으로 넘어가고</b> 있었습니다.
+  사이냅이 깔린 환경에서는 결과가 정상으로 보여 드러나지 않았고, <b>사이냅이 없으면 그 파일들이 통째로 미분류</b>가 됐습니다.
+  지금 판은 실제로 자체 파서가 1차로 동작합니다 — 아래로 확인할 수 있습니다.
+<pre style="margin:8px 0 0"><code><span class="cmt"># synap 폴더를 치운 상태에서</span>
+csoclassify --dir "폴더" --hybridparse --rule-only --format jsonl
+
+<span class="cmt"># 요약 줄의 '추출실패' 가 0 이어야 정상. 옛 배포본은 구형 문서 수만큼 실패로 잡힌다</span>
+[summary] 총 18개 / 검출 10, C=7 S=3 O=0 미분류=8</code></pre>
+  <span class="def">고쳐도 사이냅이 있는 환경의 판정 결과는 바뀌지 않습니다 — 샘플 18건을 등급과 판정 근거 용어까지
+  전수 대조해 차이 0건을 확인했습니다. 달라지는 것은 사이냅이 없는 환경뿐입니다(검출 5→10, 추출실패 7→0).</span></div>
   <p class="muted"><b>확장자가 아니라 파일 내용(매직바이트+컨테이너 내부)</b>으로 판별하므로, 확장자가 위장돼도(.txt인데 실제 doc 등) 올바른 파서로 갑니다. 파서들은 전부 <b>순수 파이썬/소형 wheel</b>이라 Windows·Linux(CentOS 7)에 동일 번들되고, 실측 snf 대비 <b>동급~수십 배 빠름</b>(텍스트류는 40~60배, doc/hwp/xls는 3~7배)에 품질 sim≈1.0. 구형 HWP 3.x·암호화·스캔(이미지)은 전용 파서가 못 하면 snf 로 폴백(스캔 OCR 은 snf 도 불가). 환경변수 <code>CSOCLASSIFY_HYBRID=1</code> 로 기본 on 가능(CLI 우선).</p>
 
   <h3>분류 (C/S/O)</h3>
@@ -333,18 +659,33 @@ csoclassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(보�
     <tr><td><code>--vector-only</code> <span class="def">2026-08-15</span></td><td>—</td><td><b>규칙 검사 없이</b> 임베딩 벡터를 seed 와 비교해서만 분류. <code>--seeds</code> <b>필수</b>(비교 기준). <code>--rule-only</code> 와 배타</td></tr>
     <tr><td><code>--embed</code></td><td>—</td><td>분류 대신 <b>임베딩 벡터만</b> 출력(파일·차원·벡터)</td></tr>
     <tr><td><code>--rules</code></td><td>경로</td><td>규칙셋 경로 <span class="def">기본 exe 옆 cso_rules.yaml</span></td></tr>
-    <tr><td><code>--failsafe</code></td><td>[등급] <span class="def">값 생략 시 S</span></td><td>어느 신호로도 못 정한 문서에 부여할 기본등급</td></tr>
+    <tr><td><code>--failsafe</code></td><td>[등급] <span class="def">값 생략 시 S</span></td><td>어느 신호로도 못 정한 문서에 부여할 기본등급. <b><code>C</code>/<code>S</code>/<code>O</code> 만 허용</b>(그 외는 종료코드 4)</td></tr>
+    <tr><td><code>--check-rules</code> <span class="def">2026-08-24</span></td><td>—</td><td>규칙셋의 등급 값만 검사하고 종료(<b>문서를 읽지 않음</b>). <b>업무분류 파일도 함께 검사</b>합니다. 정상 <code>0</code>, 검증 실패 <code>4</code> → <a href="#exit">6장</a></td></tr>
     <tr><td><code>--embed-needed</code></td><td>—</td><td><b>보류·seed_eligible 문서에만</b> 임베딩(확정문서 생략 → 빠름). 권장</td></tr>
-    <tr><td><code>--with-vector</code></td><td>—</td><td><b>모든 문서</b>에 임베딩(구 동작, RAG 등 전량 벡터 필요 시)</td></tr>
-    <tr><td><code>--propagate</code></td><td>jsonl 경로</td><td>1차 레코드의 보류 문서에 라벨 전파(모델 불필요)</td></tr>
-    <tr><td><code>--seeds</code></td><td>경로</td><td>전파 비교 기준 seed(<code>cso_seed.jsonl</code>). <b>미지정 시 exe 옆 <code>cso_seed.jsonl</code></b>(있으면 기본 분류에서 자동 전파에 사용)</td></tr>
-    <tr><td><code>--auto-propagate</code></td><td>—</td><td>보류 문서 전파를 <b>명시적으로</b> 켬. <span class="def">기본 분류도 seed 파일이 exe 옆에 있으면 자동 전파하므로 대개 불필요</span> · 보류 임베딩 자동 활성화 · 외부 seed(cso_seed.jsonl)+내부 seed 함께 사용</td></tr>
+    <tr><td><code>--with-vector</code></td><td>—</td><td><b>모든 문서</b>에 임베딩해 결과 레코드에 <code>vector</code>(384차원) 필드로 포함(RAG 등 전량 벡터 필요 시).
+      <b>Rust 판에도 있습니다</b> <span class="def">2026-08-26 Rust 추가 — 같은 문서에 대해 두 판의 벡터가 일치</span></td></tr>
+    <tr><td><code>--propagate</code></td><td>jsonl 경로</td><td>1차 레코드의 보류 문서에 라벨 전파(모델 불필요).
+      <b>Rust 판에도 있습니다</b> <span class="def">2026-08-26 Rust 추가</span></td></tr>
+    <tr><td><code>--seeds</code></td><td>경로</td><td>전파 비교 기준 seed(<code>class_seed.jsonl</code>). <b>미지정 시 exe 옆 <code>class_seed.jsonl</code></b>(있으면 기본 분류에서 자동 전파에 사용)</td></tr>
+    <tr><td><code>--auto-propagate</code></td><td>—</td><td>보류 문서 전파를 <b>명시적으로</b> 켬. <span class="def">기본 분류도 seed 파일이 exe 옆에 있으면 자동 전파하므로 대개 불필요</span> · 보류 임베딩 자동 활성화 · 외부 seed(class_seed.jsonl)+내부 seed 함께 사용</td></tr>
     <tr><td><code>--with-text</code></td><td>—</td><td>결과 레코드에 <b>추출(정제) 텍스트</b>를 <code>text</code> 필드로 함께 저장 <span class="def">기본 미포함(프라이버시)</span></td></tr>
     <tr><td><code>--with-pii</code></td><td>—</td><td><b>[프라이버시 주의]</b> 검출된 <b>원문 PII 값</b>(주민번호·카드번호 등 실제 값)을 <code>pii</code> 필드로 저장 <span class="def">기본 미포함</span>. 로그엔 건수만(<code>[pii N detected]</code>), 원문은 <code>--out</code> 파일에만</td></tr>
     <tr><td><code>--hash</code> <span class="def">2026-08-20</span></td><td>—</td><td>각 문서(및 압축파일 자체)의 <b>해시(SHA-256)</b>를 결과 레코드에 <code>hash</code> 필드로 포함. 문서 지문·변조확인·중복제거용</td></tr>
     <tr><td><code>--simple</code> <span class="def">2026-08-20</span></td><td>—</td><td>파일별로 <b>문서명·등급(C/S/O)·해시</b> 3가지만 JSON 출력(그 외 signals·시간 등 생략). 압축은 내부 파일별 + 압축 자체 집계까지 3필드로</td></tr>
     <tr><td><code>--summary</code> <span class="def">2026-08-20</span></td><td>—</td><td>파일별 레코드 없이 <b>맨 끝 요약(summary)만</b> JSON 객체로 출력(총수·검출·C/S/O·미분류·총시간 등). <code>--file</code>/<code>--dir</code> 모두</td></tr>
     <tr><td><code>--nosummary</code> <span class="def">2026-08-20</span></td><td>—</td><td>맨 끝 <b>요약(summary)을 출력에서 제거</b>(JSON 결과·화면 요약줄 모두). 파일별 레코드만 남긴다. <code>--summary</code> 와 배타</td></tr>
+  </table></div>
+
+  <h3>업무분류 (doctype) <span class="def">2026-08-25 신규 · 자세한 설명은 <a href="#doctype">4장</a></span></h3>
+  <div class="scroll"><table>
+    <tr><th>인자</th><th>값</th><th>설명</th></tr>
+    <tr><td><code>--taxonomy</code></td><td>경로</td><td>분류체계 스냅샷 <span class="def">기본 exe 옆 doc_taxonomy.yaml</span>. <code>--export-taxonomy</code> 모드에서는 <b>저장 경로</b>로도 쓰임</td></tr>
+    <tr><td><code>--doc-rules</code></td><td>경로</td><td>업무분류 규칙셋 <span class="def">기본 exe 옆 doc_rule.yaml</span>. <b>없어도 축은 계속 돕니다</b> — 규칙 대신 <code>class_seed.jsonl</code> 전파로 분류(seed 도 없으면 전부 미분류) <span class="def">2026-08-25 변경</span></td></tr>
+    <tr><td><code>--axis</code></td><td>security | doctype <span class="def">기본 전부</span></td><td>처리할 축을 하나로 제한. <code>doctype</code> 은 <b>PII 검출을 생략</b>해 더 빠름 — 단 <code>doc_taxonomy.yaml</code> 이 없으면 <b>종료코드 4</b>(규칙 파일은 없어도 됨)</td></tr>
+    <tr><td><code>--conflict</code></td><td><code>doctype=all</code><br><code>doctype=top_n:N</code></td><td>업무분류 축의 <b>충돌 전략을 실행 시 덮어쓰기</b>(규칙파일 수정 없이). <b><code>security</code> 축은 불가</b> — 주면 종료코드 4</td></tr>
+    <tr><td><code>--export-taxonomy</code></td><td>—</td><td>DB 내보내기 JSON → <code>--taxonomy</code> 경로에 <code>doc_taxonomy.yaml</code> 로 변환하고 종료(<b>문서를 읽지 않음</b>, <code>--file</code>/<code>--dir</code> 불필요). 원본을 못 읽으면 종료 <code>3</code>, 변환 결과가 트리 검증에 걸리면 <code>4</code></td></tr>
+    <tr><td><code>--export-input</code></td><td>경로</td><td><code>--export-taxonomy</code> 의 원본 JSON <span class="def">기본 resources/policy/doc_classification_export.json</span></td></tr>
+    <tr><td><code>--scaffold-doc-rule</code></td><td>—</td><td><code>--export-taxonomy</code> 와 함께 쓰면 <code>--doc-rules</code> 경로에 <b>규칙 골격</b>도 생성(<code>terms</code> 는 빈 채로, <code>filename</code> 만 노드 제목으로). <b>이미 있으면 건너뜀</b></td></tr>
   </table></div>
 
   <h3>모델 · 임베딩</h3>
@@ -370,8 +711,12 @@ csoclassify.exe --file "문서.hwp" --max-tokens 256 --overlap 32</code></pre>
   <h3>출력 · 진행</h3>
   <div class="scroll"><table>
     <tr><th>인자</th><th>값</th><th>설명</th></tr>
-    <tr><td><code>--format</code></td><td>text | json | jsonl <span class="def">기본 json</span></td><td>출력 형식. <code>--file</code> 단건은 <b>JSON 객체</b>, <code>--dir</code> 배치는 <b>JSON 배열 <code>[ … ]</code></b>(그대로 뷰어로 열림). 줄단위 도구엔 <code>jsonl</code>(1줄/문서), <code>text</code>는 벡터 공백구분. <code>--propagate</code>는 셋 다 입력으로 받음</td></tr>
-    <tr><td><code>--out</code></td><td>경로</td><td>결과 저장 파일(미지정 시 화면 stdout). <b>절대경로 권장</b></td></tr>
+    <tr><td><code>--format</code></td><td>text | json | jsonl <span class="def">미지정 시 <code>--out</code> 확장자로 판단</span></td><td>출력 형식. <code>--file</code> 단건은 <b>JSON 객체</b>, <code>--dir</code> 배치는 <b>JSON 배열 <code>[ … ]</code></b>(그대로 뷰어로 열림). 줄단위 도구엔 <code>jsonl</code>(1줄/문서), <code>text</code>는 벡터 공백구분. <code>--propagate</code>는 셋 다 입력으로 받음
+      <br><b>안 주면 <code>--out</code> 확장자를 따릅니다</b> <span class="def">2026-08-26 변경 · 두 판 공통</span> —
+      <code>.jsonl</code>·<code>.ndjson</code>→jsonl, <code>.json</code>→json, <code>.txt</code>→text(파이썬 판만).
+      모르는 확장자거나 <code>--out</code> 이 없으면 <code>json</code>. <b><code>--format</code> 을 직접 주면 확장자와 달라도 그 값이 이깁니다.</b></td></tr>
+    <tr><td><code>--out</code></td><td>경로</td><td>결과 저장 파일(미지정 시 화면 stdout). <b>절대경로 권장</b>.
+      확장자가 형식을 결정하므로 <b>이름을 대충 짓지 마세요</b> — 위 <code>--format</code> 설명 참고</td></tr>
     <tr><td><code>--progress</code></td><td>—</td><td>파일별 진행 상황을 stderr 로(<code>[progress] 처리수/총수 경로</code>)</td></tr>
     <tr><td><code>--timing</code> / <code>--no-timing</code></td><td>— <span class="def">기본 on</span></td><td>단계별 처리시간 출력 on/off</td></tr>
     <tr><td><code>--save-text</code></td><td>[경로] <span class="def">생략 시 ./_extracted</span></td><td>추출 텍스트를 파일로 보존</td></tr>
@@ -390,36 +735,156 @@ csoclassify.exe --file "문서.hwp" --max-tokens 256 --overlap 32</code></pre>
   </table></div>
 </section>
 
-<h2 id="exit"><span class="n">5</span> 종료코드</h2>
+<h2 id="exit"><span class="n">6</span> 종료코드</h2>
 <section class="card">
   <div class="scroll"><table>
     <tr><th>코드</th><th>의미</th></tr>
     <tr><td><code>0</code></td><td>성공</td></tr>
     <tr><td><code>1</code></td><td>추출 실패(사이냅 필터가 텍스트를 못 뽑음)</td></tr>
     <tr><td><code>2</code></td><td>임베딩 실패(모델 없음 등)</td></tr>
-    <tr><td><code>3</code></td><td>인자 오류(대상 파일 없음 등)</td></tr>
+    <tr><td><code>3</code></td><td>인자 오류(대상 파일 없음, 규칙셋 파일 없음 등)</td></tr>
+    <tr><td><code>4</code></td><td><b>규칙셋 내용 오류</b> — 파일은 찾았지만 등급 값이 잘못됨
+        (정의되지 않은 등급, <code>bulk_grade</code> 가 <code>base_grade</code> 보다 낮음).
+        <code>--failsafe</code> 값이 <code>C/S/O</code> 가 아닐 때도 같은 코드.
+        <b>업무분류 축의 검증 실패</b>(아래 표)와 <code>--conflict</code> 오류도 같은 코드.
+        <b>문서를 한 건도 읽지 않고</b> 종료한다</td></tr>
   </table></div>
+  <p class="def">코드 3 과 4 를 나눈 이유 — 3 은 "규칙셋을 못 찾음"(배치가 경로를 고치면 됨),
+  4 는 "규칙셋 내용이 틀림"(관리자가 파일을 고쳐야 함)이라 대응이 다르다.
+  Rust 판(<code>csoclassify-rs</code>)도 같은 값 4 를 쓴다.</p>
+
+  <h3>업무분류 축의 검증 <span class="def">2026-08-25</span></h3>
+  <p>업무분류 파일(<code>doc_taxonomy.yaml</code>·<code>doc_rule.yaml</code>)도 <b>스캔 전에</b> 검사합니다.
+  <b>멈추는 오류</b>와 <b>경고만 하고 계속</b>하는 것이 나뉩니다 — 잘못 분류될 수 있는 것은 막고,
+  덜 분류될 뿐인 것은 알려만 줍니다.</p>
+  <div class="scroll"><table>
+    <tr><th>코드</th><th>무엇이 잘못됐나</th><th>동작</th></tr>
+    <tr><td><code>T0</code></td><td>파일 구조가 틀림(<code>doctype_rules</code> 가 목록이 아님, <code>id</code>/<code>node</code> 누락·중복)</td><td><b>종료 4</b></td></tr>
+    <tr><td><code>T2</code></td><td><code>conflict.strategy</code> 가 <code>all</code>/<code>top_n</code> 이 아님 (예: <code>max</code>)</td><td><b>종료 4</b></td></tr>
+    <tr><td><code>T5</code></td><td>규칙이 가리키는 <code>node</code> 가 <b>분류체계에 없음</b>(오타·삭제된 노드)</td><td><b>종료 4</b></td></tr>
+    <tr><td><code>T7</code></td><td>분류체계에 <b>순환</b>이 있음(A의 부모가 B, B의 부모가 A)</td><td><b>종료 4</b></td></tr>
+    <tr><td><code>T8</code></td><td>부모로 지정된 노드가 <b>존재하지 않음</b>(고아 노드)</td><td><b>종료 4</b></td></tr>
+    <tr><td><code>T10</code></td><td><code>top_n</code> 인데 <code>n</code> 이 없거나 1 미만</td><td><b>종료 4</b></td></tr>
+    <tr><td><code>T11</code></td><td><code>--conflict security=…</code> — <b>서열 축의 전략을 바꾸려 함</b></td><td><b>종료 4</b></td></tr>
+    <tr><td><code>T14</code></td><td><code>doc_taxonomy.yaml</code> 이 <b>없음</b></td><td>경고 후 <b>축을 끄고 계속</b><br>단 <code>--axis doctype</code> 이면 <b>종료 4</b></td></tr>
+    <tr><td><code>T16</code></td><td><code>doc_rule.yaml</code> 이 <b>없음</b></td><td>경고 후 <b>'seed 전파 전용'으로 계속</b><br><code>--axis doctype</code> 이어도 <b>멈추지 않음</b> <span class="def">2026-08-25 변경</span></td></tr>
+    <tr><td><code>T6</code></td><td>규칙이 <b>미사용(status=0) 노드</b>를 가리킴</td><td>경고 · <b>그 규칙만 비활성</b></td></tr>
+    <tr><td><code>T12</code></td><td>사용중인 노드인데 <b>가리키는 규칙이 하나도 없음</b></td><td>경고 <span class="def">그 분류로는 아무 문서도 안 걸림</span></td></tr>
+    <tr><td><code>T13</code></td><td>스냅샷 <code>exported_at</code> 이 <b>90일 이상</b> 지남</td><td>경고 · 계속</td></tr>
+  </table></div>
+  <div class="note"><b>파일이 "없는 것"과 "깨진 것"은 다르게 취급합니다.</b> 파일이 <b>없으면</b> 그 수단을
+  안 쓰겠다는 뜻으로 보고 남은 수단으로 계속합니다(경고 1줄). 하지만 파일이 <b>있는데 내용이 틀렸으면</b>
+  그건 실수이므로 <code>--axis</code> 를 줬든 안 줬든 <b>항상 종료 4</b> 입니다 — 고치라고 알려주지 않으면
+  그 규칙이 통째로 빠진 채 계속 돌게 됩니다.</div>
+
+  <h3>규칙셋 미리 검사 — <code>--check-rules</code></h3>
+  <p>규칙셋을 고친 뒤 <b>실제 스캔을 돌리기 전에</b> 안전한지 확인합니다. 문서는 한 건도 읽지 않습니다.
+  <b>두 축을 모두</b> 검사합니다(업무분류 파일이 옆에 있으면 그것도 함께).</p>
+<pre><code>csoclassify.exe --check-rules --rules cso_rules.yaml</code></pre>
+  <p>이상이 없으면 축별로 건수를 요약하고 <code>0</code> 으로 끝납니다:</p>
+<pre><code>[csoclassify] 규칙셋 정상: ...\cso_rules.yaml
+  version=cso-2026.08.3  등급=O/S/C
+  regex_pii=20 · pii_combos=5 · keywords=9 · sensitive=7 · stamps=3 · paths=4
+[csoclassify] 분류체계 스냅샷 정상: ...\doc_taxonomy.yaml
+  exported_at=20260824164027  노드=27개  최상위=6개
+[csoclassify] 업무분류 규칙셋 정상: ...\doc_rule.yaml
+  version=doc-2026.08.1  conflict=all  규칙=27건(활성 27건)</code></pre>
+  <p class="muted">규칙 파일이 없으면 "미사용"이 아니라 <b>무엇으로 분류하게 되는지</b>를 알려 줍니다
+  — seed 가 실제로 쓸 만한지까지 함께 확인합니다(종료코드는 그대로 <code>0</code>):</p>
+<pre><code>[csoclassify] 업무분류 규칙셋 없음 → 'seed 전파 전용' 모드: ...\doc_rule.yaml
+  업무분류 seed 128건 사용 가능: ...\class_seed.jsonl
+
+<span class="cmt">:: seed 마저 없으면</span>
+[csoclassify] 업무분류 규칙셋 없음 → 'seed 전파 전용' 모드: ...\doc_rule.yaml
+  쓸 수 있는 업무분류 seed 가 없습니다(...\class_seed.jsonl) — 업무분류는 전부 미분류로 남습니다</code></pre>
+  <p>문제가 있으면 위반을 <b>전부 모아</b> 보여 주고 <code>4</code> 로 끝납니다.</p>
+<pre><code>[규칙셋 오류] cso_rules.yaml — 검증 실패 2건. 분류를 시작하지 않았습니다.
+
+  정의된 등급: O &lt; S &lt; C
+
+  [V5] 정의되지 않은 등급 참조
+    regex_pii[rrn].base_grade = 'c'  — 정의되지 않은 등급   → 혹시 C ?
+
+  [V6] bulk 상향 규칙 위반 (bulk_grade 가 base_grade 보다 낮음)
+    regex_pii[phone_mobile].bulk_grade = 'O'  — bulk 는 상향이어야 하는데 낮습니다 (base=S(1) → bulk=O(0))</code></pre>
+  <div class="note"><b>경로 규칙(<code>paths</code>)의 등급은 생략할 수 있습니다</b>
+  <span class="def">2026-08-24</span><br>
+  <code>acl_restricted: true</code> 인 경로 규칙은 <code>grade</code> 를 적지 않아도 됩니다.
+  그러면 그 규칙은 <b>스스로 등급을 내지 않고</b>, 내용·파일명 어디서도 신호가 없을 때만
+  fail-safe 로 최고 등급(C)을 줍니다.
+<pre style="margin:8px 0"><code>paths:
+- id: secure_server
+  match: ["//secure/", "/secret/"]
+  acl_restricted: true       <span class="cmt">:: grade 를 적지 않는다</span>
+<span class="cmt">:: → 내용에서 뭔가 잡히면 그 등급을 따르고,
+::   아무것도 못 잡으면(암호 zip·이미지 등) 그때만 C</span></code></pre>
+  <code>grade</code> 를 함께 적으면 예전처럼 <b>매칭 즉시 그 등급</b>입니다. 둘은 다른 정책입니다.<br>
+  <b>단, 둘 다 없으면 오류(V12)</b> — 그런 규칙은 매칭돼도 아무 일도 하지 않기 때문입니다.
+  <span class="def">(예전에는 <code>grade</code> 를 빼면 조용히 <code>S</code> 가 됐습니다 — 적지도 않은 등급을 시스템이 지어내던 셈입니다.)</span></div>
+
+  <div class="warn"><b>왜 오류로 막나</b> — 예전에는 이런 오타를 <b>조용히 무시</b>했습니다.
+  그러면 그 규칙이 등급 판정에서 통째로 빠져 문서가 <b>실제보다 낮은 등급</b>을 받습니다.
+  등급이 낮게 나오는 실패는 보안 사고라, 조용히 넘기는 대신 멈추도록 바꿨습니다.</div>
 </section>
 
-<h2 id="env"><span class="n">6</span> 환경변수 · 로그</h2>
+<h2 id="env"><span class="n">7</span> 환경변수 · 로그</h2>
 <section class="card">
   <h3>환경변수(선택)</h3>
   <div class="scroll"><table>
     <tr><th>변수</th><th>설명</th></tr>
-    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>규칙셋 <code>cso_rules.yaml</code> 을 exe 옆이 아닌 지정 폴더에서 찾음(<code>--rules</code> 로도 지정 가능)</td></tr>
+    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>정책 파일(<code>cso_rules.yaml</code> · <code>doc_taxonomy.yaml</code> · <code>doc_rule.yaml</code>)을 exe 옆이 아닌 지정 폴더에서 찾음. <span class="def">세 파일 모두 "인자 → exe 옆 → 이 변수" 순으로 찾습니다(<code>--rules</code>/<code>--taxonomy</code>/<code>--doc-rules</code> 가 우선)</span></td></tr>
     <tr><td><code>CSOCLASSIFY_MODELS_DIR</code></td><td>모델 폴더/아카이브를 exe 옆이 아닌 지정 위치에서 찾음</td></tr>
     <tr><td><code>CSOCLASSIFY_SYNAP_DIR</code></td><td><code>snf_exe.exe</code> 를 지정 폴더에서 찾음</td></tr>
     <tr><td><code>CSOCLASSIFY_DAEMON=0</code></td><td>데몬 전역 off(=<code>--no-daemon</code>)</td></tr>
     <tr><td><code>CSOCLASSIFY_HYBRID=1</code></td><td>하이브리드 추출(=<code>--hybridparse</code>)을 전역 기본 on. CLI 플래그가 우선</td></tr>
+    <tr><td><code>CSOCLASSIFY_ERRLOG</code></td><td>오류 로그 파일 경로 <span class="def">2026-08-26 신규 · 두 판 공통</span>. 미지정 시 <code>&lt;exe폴더&gt;\csoclassify_err_YYYYMMDD.log</code></td></tr>
     <tr><td><code>CSOCLASSIFY_STAMP_HEAD_CHARS</code></td><td>스탬프 '머리' 인정 범위(문자수, 기본 400). 낮추면 엄격, 높이면 관대</td></tr>
     <tr><td><code>CSOCLASSIFY_STAMP_REPEAT_MIN</code></td><td>스탬프 '반복' 인정 최소 횟수(기본 2)</td></tr>
   </table></div>
   <h3>로그</h3>
   <p>기본 로그는 <code>&lt;exe폴더&gt;\log\csoclassify-YYYYMMDD.log</code>(UTF-8)에 남습니다. 로그에는 <b>실제 실행 커맨드라인</b>과 <b>파일별 결과 JSON</b>(벡터는 <code>[vec dim=384]</code>로 축약)이 기록되어 재현·추적에 씁니다. <code>--log 경로</code>로 위치 변경, <code>-v</code>로 화면 출력·DEBUG.</p>
+
+  <h3>오류 로그 <span class="pill">2026-08-26 신규</span></h3>
+  <p>위의 일반 로그에는 정상 처리 기록까지 전부 들어가 수천 줄이 됩니다. 문제가 생겼을 때
+  <b>무엇이 잘못됐는지만</b> 빨리 보라고, 오류만 따로 모은 파일을 <b>실행 파일 바로 옆</b>에 남깁니다.</p>
+  <div class="scroll"><table>
+    <tr><th>항목</th><th>내용</th></tr>
+    <tr><td>위치</td><td><code>&lt;exe폴더&gt;\csoclassify_err_YYYYMMDD.log</code> <span class="def">날짜별로 나뉨</span><br>
+      화면(UI)은 <code>ui\csoclassify_err_YYYYMMDD.log</code> <span class="def">app.py 옆</span></td></tr>
+    <tr><td>대상</td><td><b>파이썬 판 · Rust 판 · 화면(UI) 셋 다</b> 같은 이름·같은 규칙<br>
+      <span class="def"><code>CSOCLASSIFY_ERRLOG</code> 로 같은 파일을 가리키면 한곳에 모입니다</span></td></tr>
+    <tr><td>담기는 것</td><td>실행 명령줄(한 번) · 오류 메시지 · 종료코드 · <b>예상 못 한 내부 오류는 스택까지</b></td></tr>
+    <tr><td>위치 바꾸기</td><td>환경변수 <code>CSOCLASSIFY_ERRLOG=&lt;파일경로&gt;</code> <span class="def">읽기전용 폴더에 설치했거나 여러 대의 로그를 한곳에 모을 때</span></td></tr>
+  </table></div>
+  <div class="ok"><b>오류가 없으면 파일도 안 생깁니다.</b> 정상 실행마다 빈 파일이 쌓이면
+  "파일이 있다 = 오류가 있었다"는 판단 자체가 안 되기 때문입니다. 즉 <b>이 파일이 보이면 볼 일이 있는 것</b>입니다.</div>
+  <div class="note"><b>왜 필요한가</b> — 예전에는 오류를 화면(stderr)으로만 알렸습니다.
+  콘솔에서 직접 돌리면 보이지만, <b>UI·배치·스케줄러가 실행하면 그 화면이 없어</b>
+  실패해도 흔적이 아무것도 남지 않았습니다. 나중에 "왜 안 됐나"를 물어도 답할 근거가 없었습니다.
+  <br>Ctrl+C 로 멈춘 것은 오류로 치지 않습니다 — 진짜 오류를 찾을 때 방해가 되기 때문입니다.</div>
+<pre><code><span class="cmt">:: 오류 로그 예시 (Rust 판)</span>
+===== 2026-08-26 11:28:02 pid=19652 =====
+cmd: D:\...\csoclassify-rs.exe --file d:/a.pptx
+2026-08-26 11:28:02 [csoclassify-rs] 규칙셋(cso_rules.yaml)을 찾을 수 없습니다. --rules 로 지정하세요.
+2026-08-26 11:28:02 종료 코드 2 로 중단합니다.
+
+<span class="cmt">:: 오류 로그 예시 (파이썬 판)</span>
+2026-08-26 11:29:29 [PID 12484] ERROR csoclassify.cli: [csoclassify] 처리할 파일이 없습니다. …
+
+<span class="cmt">:: 오류 로그 예시 (화면 · 어느 동작이었는지 + 스택)</span>
+2026-08-26 11:57:22 [PID 7508] ERROR ui(규칙셋 읽기): 보안등급 기준을 읽지 못했습니다: …
+Traceback (most recent call last):
+  File "D:\Project\CSOClassify\ui\app.py", line 1684, in render_rules_editor
+    doc = rulesedit.load_doc(path)
+  …</code></pre>
+  <div class="note"><b>화면(UI)에서는</b> 빨간 오류 상자가 뜨는 동시에 같은 내용이 파일에 남고,
+  예외가 있으면 <b>스택까지</b> 함께 기록됩니다. 괄호 안의 <code>ui(규칙셋 읽기)</code> 는
+  <b>어느 동작에서 났는지</b>를 나타내 로그만 보고도 화면의 어느 자리인지 알 수 있습니다.
+  화면 어디서든 예상 못 한 예외가 터지면 진입점이 받아 기록하고, 사용자에게 로그 위치를 알려 줍니다.</div>
   <p class="muted">모델 경로: onedir 배포는 <code>&lt;exe폴더&gt;\models\e5-small-ko\</code>를 그대로 읽습니다(캐시·해제 없음). 압축(<code>.tar.xz</code>)으로 배포한 경우에만 최초 1회 <code>%LOCALAPPDATA%\CSOClassify\models\&lt;모델&gt;</code>에 풀어 재사용합니다.</p>
 </section>
 
-<h2 id="recipes"><span class="n">7</span> 자주 쓰는 예시</h2>
+<h2 id="recipes"><span class="n">8</span> 자주 쓰는 예시</h2>
 <section class="card">
 <pre><code><span class="cmt">:: 1) 수집 폴더 전체 분류 → 결과 파일 (진행상황 표시)</span>
 csoclassify.exe --dir "D:\collected" -r --embed-needed ^
@@ -430,7 +895,7 @@ csoclassify.exe --file "D:\docs\계약서.hwp"
 
 <span class="cmt">:: 3) 보류 문서 구제(전파) — seed 저장소와 비교</span>
 csoclassify.exe --propagate "D:\collected\result.jsonl" ^
-    --seeds "cso_seed.jsonl" --format jsonl --out "D:\collected\result.jsonl"
+    --seeds "class_seed.jsonl" --format jsonl --out "D:\collected\result.jsonl"
 
 <span class="cmt">:: 4) 미검출 문서에 기본등급 S 부여(보수적)</span>
 csoclassify.exe --dir "D:\collected" -r --failsafe S --format jsonl --out result.jsonl
@@ -446,26 +911,91 @@ csoclassify.exe --dir "D:\collected" -r --embed-needed ^
 <span class="cmt">:: 7) 문서 1개를 작은 청크로 세밀하게 임베딩(기본 512/32 → 256/32)</span>
 csoclassify.exe --embed --file "긴문서.hwp" --max-tokens 256 --overlap 32
 
-<span class="cmt">:: 8) 하이브리드 추출로 폴더 분류 — HWP/HWPX 를 사이냅 없이 빠르게(실패 시 snf 폴백)</span>
+<span class="cmt">:: 8) 하이브리드 추출로 폴더 분류 — 사이냅 없이 빠르게(실패 시 snf 폴백)</span>
+<span class="cmt">::    hwp/hwpx/pdf/docx 는 물론 구형 doc/xls/ppt/hwp 까지 자체 파서가 처리 (2026-08-26~)</span>
 csoclassify.exe --dir "D:\collected" -r --hybridparse ^
-    --format jsonl --out result.jsonl --progress</code></pre>
+    --format jsonl --out result.jsonl --progress
+
+<span class="cmt">:: 8-1) 사이냅 없이 배포하기 전 점검 — 요약의 '추출실패' 가 0 이어야 한다</span>
+<span class="cmt">::      synap\ 폴더를 잠시 다른 이름으로 바꾼 뒤 실행해 본다</span>
+ren synap synap_off
+csoclassify.exe --dir "D:\sample" --hybridparse --rule-only --format jsonl
+ren synap_off synap
+
+<span class="cmt">:: 9) [업무분류] 분류체계 스냅샷 + 규칙 골격 만들기(문서 안 읽음. 최초 1회 / 체계 변경 시)</span>
+csoclassify.exe --export-taxonomy --scaffold-doc-rule ^
+    --export-input doc_classification_export.json ^
+    --taxonomy doc_taxonomy.yaml --doc-rules doc_rule.yaml
+
+<span class="cmt">:: 10) [업무분류] 두 축 함께 분류 — 파일 2개가 exe 옆에 있으면 별도 플래그 없이 자동</span>
+csoclassify.exe --dir "D:\collected" --format jsonl --out result.jsonl --progress
+
+<span class="cmt">:: 11) [업무분류] 업무분류만 빠르게 — PII 검출을 통째로 생략(가장 빠른 doctype 스캔)</span>
+csoclassify.exe --dir "D:\collected" --axis doctype --rule-only ^
+    --format jsonl --out doctype.jsonl
+
+<span class="cmt">:: 12) [업무분류] 문서당 대표 분류 1개만 — 규칙파일은 그대로 두고 이번 실행만 좁힘</span>
+csoclassify.exe --dir "D:\collected" --conflict doctype=top_n:1 ^
+    --format jsonl --out result.jsonl
+
+<span class="cmt">:: 13) [업무분류] 업무분류 무시하고 예전처럼 C/S/O 만(파일이 옆에 있어도 안 읽음)</span>
+csoclassify.exe --dir "D:\collected" --axis security --format jsonl --out result.jsonl
+
+<span class="cmt">:: 14) [업무분류] 규칙 고친 뒤 두 축을 한 번에 점검(스캔 전 필수)</span>
+csoclassify.exe --check-rules
+
+<span class="cmt">:: 15) [업무분류] 규칙 없이 seed 만으로 시작 — doc_rule.yaml 을 안 만들고,</span>
+<span class="cmt">::     확정된 문서 몇 건을 seed 로 넣어 닮은 문서를 전파로 분류한다</span>
+csoclassify.exe --dir "D:\collected" --seeds "class_seed.jsonl" ^
+    --format jsonl --out result.jsonl
+
+<span class="cmt">:: 16) [업무분류] 미분류만 뽑아 관리자에게 넘기기(규칙도 seed 도 없는 초기 상태)</span>
+csoclassify.exe --dir "D:\collected" --format jsonl --out result.jsonl
+<span class="cmt">::  → result.jsonl 에서 labels.doctype.values 가 빈 문서가 '분류 대기' 목록</span></code></pre>
   <p class="muted">※ 위 <code>^</code>는 Windows cmd에서 줄바꿈 이음 문자입니다(한 줄로 써도 됨).</p>
 </section>
 
-<h2 id="notes"><span class="n">8</span> 주의사항</h2>
+<h2 id="notes"><span class="n">9</span> 주의사항</h2>
 <section class="card">
   <ul>
     <li><b>더블클릭 금지</b> — 명령줄 도구라 창만 깜빡입니다. 반드시 인자와 함께 실행.</li>
     <li><b>경로에 공백</b>이 있으면 <code>"큰따옴표"</code>로 감싸세요.</li>
     <li><b><code>--out</code>은 절대경로 권장</b> — 상대경로는 실행 위치(작업폴더)에 따라 엉뚱한 곳에 저장될 수 있습니다.</li>
+    <li><b><code>--out</code> 확장자가 출력 형식을 정합니다</b> <span class="def">2026-08-26 변경</span> —
+      <code>--out result.jsonl</code> 이면 <code>--format</code> 을 안 줘도 jsonl 로 씁니다.
+      추론이 일어나면 화면에 <code>--out 확장자에 맞춰 --format jsonl 로 저장합니다</code> 한 줄이 나옵니다.
+      <br><span class="def">전에는 <code>.jsonl</code> 로 저장해도 안에는 JSON 배열이 들어가, 뷰어가
+      <code>Unexpected token ',' … is not valid JSON</code> 으로 열지 못했습니다(파일이 깨진 게 아니라 형식이 안 맞았던 것).</span></li>
     <li><b>한글 파일명/출력</b>은 UTF-8로 고정되어 깨지지 않습니다.</li>
     <li><b>첫 실행이 느린 것</b>은 onedir 첫 기동과 모델을 메모리에 올리기 때문이며 정상입니다(이후 빠름).</li>
     <li><b>오프라인 동작</b> — 인터넷 없이 됩니다. 실행 오류 시 대상 PC에 <i>Microsoft Visual C++ Redistributable x64</i> 설치, 백신 예외 등록.</li>
+    <li><b>업무분류 축이 조용히 꺼질 수 있습니다</b> — <code>doc_taxonomy.yaml</code> 이 exe 옆에 없으면
+      <b>경고 한 줄만 내고 C/S/O 만</b> 처리하고 정상 종료합니다. 배포 후 결과에
+      <code>labels.doctype</code> 이 <b>아예 없다면</b> 먼저 이 파일이 있는지 확인하세요.
+      확실히 켜고 싶으면 <code>--axis doctype</code> 을 주면 없을 때 <b>오류로 멈춥니다</b>(코드 4).</li>
+    <li><b>업무분류가 전부 비어 있다면</b>(<code>labels.doctype.values</code> 가 <code>[]</code>) 축은 돌았지만
+      분류 수단이 없었던 것입니다 — <code>doc_rule.yaml</code>(규칙)도 <code>class_seed.jsonl</code>(전파 기준)도
+      없는 상태입니다. 요약의 <code>doctype_rule_version</code> 이 <code>"none"</code> 이면 규칙 없이 돌았다는 표시입니다.
+      <span class="def"><code>--rule-only</code> 를 준 경우에도 임베딩을 안 하므로 전파가 일어나지 않습니다.</span></li>
+    <li><b>업무분류 결과는 '제안'(<code>status: "proposed"</code>)</b>입니다 — 자동분류가 낸 후보이지,
+      사람이 확정한 값이 아닙니다. 확정 절차가 필요한 업무에는 그대로 쓰지 마세요.</li>
+    <li><b>구형 <code>doc/xls/ppt/hwp</code> 가 무더기로 미분류라면 배포본이 옛 버전입니다</b>
+      <span class="def">2026-08-26 수정</span> — 내용 감지의 OLE 판정 결함으로 이 네 포맷이 자체 파서로 가지 못하고
+      사이냅 폴백에만 의존하던 문제입니다. 로그에 <code>사용 가능한 추출기 없음(감지=binary)</code> 가 보이면 그 증상입니다.
+      사이냅이 있는 환경에서는 폴백이 받아내 <b>겉으로 드러나지 않으니</b>, 사이냅 없이 배포할 계획이라면
+      <code>--hybridparse</code> 로 <b>추출실패가 0</b> 인지 먼저 확인하세요. 자세한 내용은 <a href="#args">5장 '추출 방식'</a>.</li>
+    <li><b>사이냅 없이 돌리려면 반드시 <code>--hybridparse</code></b> 를 주세요 — 기본 모드는 사이냅이 없으면
+      분류를 시작하지 못하고 <code>snf_exe 를 찾을 수 없음</code> 으로 끝납니다.</li>
     <li>도움말은 <code>csoclassify.exe -h</code>, 버전은 <code>csoclassify.exe --version</code>.</li>
   </ul>
 </section>
 
-<footer>CSOClassify — 수집문서 C/S/O 자동분류 도구 · CLI 실행 가이드</footer>
+<footer>CSOClassify — 수집문서 보안등급(C/S/O) · 업무분류 2축 자동분류 도구 · CLI 실행 가이드 <span class="def">최종 갱신 2026-08-26</span><br>
+<span class="def">2026-08-26 변경 — <code>--hybridparse</code> 가 구형 <code>doc/xls/ppt/hwp</code> 를 실제로 자체 파서로 처리합니다(내용 감지의 OLE 판정 수정).
+사이냅의 필수/선택 구분을 2장·5장·9장에 명시했습니다.
+Rust 판에 <code>--with-vector</code>·<code>--propagate</code> 추가 — 두 판의 벡터와 전파 결과가 일치합니다(4장).
+<code>--format</code> 미지정 시 <code>--out</code> 확장자로 형식을 판단합니다(5장 · 두 판 공통).
+오류를 exe 옆 <code>csoclassify_err_YYYYMMDD.log</code> 에 남깁니다(7장 · 두 판 공통).</span></footer>
 
 </div>
 </body>

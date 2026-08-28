@@ -72,7 +72,14 @@ impl Embedder {
     }
 
     /// 문서 임베딩(정규화된 384벡터). 청크별 평균풀링 → 청크평균 → L2.
+    ///
+    /// 입력 텍스트는 먼저 `clean_for_embed` 로 다듬는다 — 파이썬은 추출 직후
+    /// `clean.clean_text()` 를 거친 텍스트를 임베딩하는데, Rust 가 추출 원문을 그대로
+    /// 넣으면 끝 개행 하나 때문에 같은 문서인데도 벡터가 달라진다(실측 코사인 0.98).
+    /// 벡터는 `class_seed.jsonl` 과 코사인으로 비교되므로, 이 차이는 전파 판정을
+    /// 조용히 흔든다. 그래서 '임베딩에 넣기 직전' 에 파이썬과 같은 모양으로 맞춘다.
     pub fn embed_document(&mut self, text: &str) -> Option<Vec<f32>> {
+        let text = &clean_for_embed(text);
         if text.trim().is_empty() { return None; }
         let chunks = self.split_chunks(text);
         if chunks.is_empty() { return None; }
@@ -144,6 +151,93 @@ impl Embedder {
     }
 }
 
+/// 임베딩 입력 정제 — 파이썬 `csoclassify/clean.py::clean_text()` 와 같은 규칙.
+///
+/// 순서까지 파이썬과 맞춰야 결과가 같아진다:
+///   1) `..PAGE:N` 만 있는 줄 제거(사이냅 페이지 마커 — 본문이 아니다)
+///   2) 제어문자 제거(탭·개행은 남긴다 — 문서 구조를 지워버리면 안 되므로)
+///   3) CRLF·CR → LF
+///   4) 줄 안의 연속 공백/탭 → 공백 1개
+///   5) 각 줄 끝 공백 제거
+///   6) 빈 줄 3개 이상 → 2개(문단 경계는 남긴다)
+///   7) 양끝 공백 제거  ← 실측된 차이의 대부분이 여기(파일 끝 개행)에서 났다
+///
+/// 파이썬의 (1) NFC 유니코드 정규화만 빠져 있다 — 새 크레이트를 들이지 않는다는
+/// 제약 때문이다. 추출기들이 이미 완성형 한글을 내놓아 실측 18건에서는 차이가
+/// 없었지만, 자모가 분리된 문서가 들어오면 그 문서만 벡터가 달라질 수 있다.
+pub fn clean_for_embed(text: &str) -> String {
+    if text.is_empty() { return String::new(); }
+
+    // (1) 페이지 마커 라인 제거. 정규식 대신 줄 단위로 직접 본다 — 규칙이 단순하고
+    //     (공백* "..PAGE:" 숫자+ 공백*) 정규식 크레이트를 여기까지 끌고 올 이유가 없다.
+    let mut s = String::with_capacity(text.len());
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 { s.push('\n'); }
+        if !is_page_marker(line) { s.push_str(line); }
+    }
+
+    // (2)(3) 제어문자 제거 + 개행 통일.
+    //     CRLF 는 개행 하나여야 하므로 CR 을 볼 때 바로 뒤 LF 를 삼킨다(peek).
+    //     단독 CR(옛 맥 개행)은 그 자리에서 LF 로 바꾼다.
+    let mut t = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(ch) = it.next() {
+        match ch {
+            '\r' => {
+                if it.peek() == Some(&'\n') { it.next(); }   // CRLF → 개행 하나
+                t.push('\n');
+            }
+            '\t' | '\n' => t.push(ch),
+            c if (c as u32) < 0x20 || (c as u32) == 0x7f => {}   // 나머지 제어문자는 버린다
+            c => t.push(c),
+        }
+    }
+
+    // (4)(5) 줄 안 연속 공백 축약 + 줄 끝 공백 제거.
+    let mut u = String::with_capacity(t.len());
+    for (i, line) in t.split('\n').enumerate() {
+        if i > 0 { u.push('\n'); }
+        let mut prev_ws = false;
+        let mut line_out = String::with_capacity(line.len());
+        for c in line.chars() {
+            if c == ' ' || c == '\t' {
+                // 연속 공백/탭은 공백 하나로 — 파이썬 [ \t]{2,} → " " 와 같다.
+                if !prev_ws { line_out.push(' '); }
+                prev_ws = true;
+            } else {
+                prev_ws = false;
+                line_out.push(c);
+            }
+        }
+        u.push_str(line_out.trim_end());
+    }
+
+    // (6) 빈 줄 3개 이상 → 2개. 줄 수를 세며 한 번에 처리한다.
+    let mut out = String::with_capacity(u.len());
+    let mut nl = 0usize;
+    for c in u.chars() {
+        if c == '\n' {
+            nl += 1;
+            if nl <= 2 { out.push('\n'); }
+        } else {
+            nl = 0;
+            out.push(c);
+        }
+    }
+
+    // (7) 양끝 공백 제거.
+    out.trim().to_string()
+}
+
+/// `..PAGE:12` 처럼 페이지 마커만 있는 줄인가(앞뒤 공백 허용).
+fn is_page_marker(line: &str) -> bool {
+    let t = line.trim();
+    match t.strip_prefix("..PAGE:") {
+        Some(rest) => !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()),
+        None => false,
+    }
+}
+
 /// L2 정규화(0벡터는 그대로).
 pub fn l2_normalize(v: &mut [f32]) {
     let n: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -164,4 +258,54 @@ fn sliding_windows(seq_len: usize, max_tokens: usize, overlap: usize) -> Vec<(us
         start += step;
     }
     spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_for_embed;
+
+    // 파이썬 clean.clean_text() 와 같은 결과가 나오는지 — 실측 차이의 원인이었던
+    // '파일 끝 개행'이 핵심이다. 이게 남으면 같은 문서인데 벡터가 달라진다.
+    #[test]
+    fn trims_trailing_newline() {
+        assert_eq!(clean_for_embed("hello world test document\n"), "hello world test document");
+        assert_eq!(clean_for_embed("\n\n  본문  \n\n"), "본문");
+    }
+
+    #[test]
+    fn removes_page_markers() {
+        assert_eq!(clean_for_embed("가\n..PAGE:12\n나"), "가\n\n나");
+        assert_eq!(clean_for_embed("가\n  ..PAGE:3  \n나"), "가\n\n나");
+        // 숫자가 아니면 마커가 아니다 — 본문을 지우면 안 된다.
+        assert_eq!(clean_for_embed("..PAGE:abc"), "..PAGE:abc");
+    }
+
+    #[test]
+    fn normalizes_newlines_and_controls() {
+        // CRLF 는 개행 하나여야 한다(둘로 늘어나면 빈 줄이 생겨 토큰이 달라진다).
+        assert_eq!(clean_for_embed("가\r\n나"), "가\n나");
+        // 단독 CR(옛 맥 개행)도 개행 하나.
+        assert_eq!(clean_for_embed("가\r나"), "가\n나");
+        // 탭·개행 외 제어문자는 버린다.
+        assert_eq!(clean_for_embed("가\u{0}\u{1}나"), "가나");
+        // 탭은 남되 연속 공백 축약 규칙을 탄다.
+        assert_eq!(clean_for_embed("가\t나"), "가 나");
+    }
+
+    #[test]
+    fn collapses_spaces_and_blank_lines() {
+        assert_eq!(clean_for_embed("가   나"), "가 나");
+        assert_eq!(clean_for_embed("가  \t 나"), "가 나");
+        // 줄 끝 공백 제거.
+        assert_eq!(clean_for_embed("가   \n나"), "가\n나");
+        // 빈 줄 3개 이상 → 2개(문단 경계는 남긴다).
+        assert_eq!(clean_for_embed("가\n\n\n\n\n나"), "가\n\n나");
+        assert_eq!(clean_for_embed("가\n\n나"), "가\n\n나");
+    }
+
+    #[test]
+    fn empty_stays_empty() {
+        assert_eq!(clean_for_embed(""), "");
+        assert_eq!(clean_for_embed("   \n\t\n  "), "");
+    }
 }

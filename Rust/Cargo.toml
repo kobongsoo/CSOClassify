@@ -14,6 +14,8 @@ serde_json = "1"
 serde_yaml = "0.9"
 regex = "1"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+# HWP5 섹션은 zlib 헤더 없는 raw deflate — zip 이 이미 끌어오는 crate 라 새 의존이 아니다.
+flate2 = "1"
 walkdir = "2"
 encoding_rs = "0.8"
 sha2 = "0.10"

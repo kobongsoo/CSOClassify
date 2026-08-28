@@ -30,7 +30,8 @@ import numpy as np
 #                     · 각 등급의 표 = 그 등급 이웃들의 유사도 합(개수 아님, 가까울수록 큰 표)
 #                     · 득표율 = (1등 등급 이웃들의 sim 합) ÷ (전체 이웃 sim 합)
 #                     예) 10개 중 C합=3.83, S합=1.81, O합=0.57 → 전체 6.21
-#                         → C 득표율 = 3.83/6.21 = 0.617 ≥ 0.60 → C 채택
+#                         → C 득표율 = 3.83/6.21 = 0.617 < 0.70 → 의견 갈림, 보류
+#                         (같은 이웃에서 C합이 5.60 이었다면 5.60/7.98 = 0.702 → C 채택)
 #                     └ 올리면 더 보수적(이웃들이 확실히 한 등급으로 몰려야 인정)
 #
 # 보류(None)로 끝난 문서는 다른 신호(규칙/경로)가 없으면 "검토 큐" 대상이 된다.
@@ -39,6 +40,15 @@ DEFAULT_K = 10           # 참고할 최근접 seed 개수(투표인단 크기)
 DUP_THRESHOLD = 0.950    # 1등 sim ≥ 0.950 → 사본 수준 → 그 등급 즉시 상속
 MIN_SIM = 0.55           # 1등 sim < 0.55  → 이웃이 너무 멂 → 보류
 MIN_SHARE = 0.70         # 1등 득표율 < 0.70 → 이웃 의견 갈림 → 보류
+
+# doctype 축(업무분류) 전파 득표 임계 — 설계서 5-4.
+# security 의 MIN_SHARE(0.70)를 그대로 쓰면 다중 라벨은 표가 여러 라벨로 갈라져
+# 아무것도 안 걸린다. "1등만" 뽑는 게 아니라 "임계 넘는 라벨을 전부" 채택하는
+# 구조라 기준을 낮춰야 한다. [설계 원문] "초기값은 실측 후 정한다 — 지금 숫자를
+# 못 박지 않는다" — 이 값은 실측 전 잠정치이며, 결과가 확정이 아니라 제안(Q2)이라
+# 사람이 검토 화면(D6)에서 걸러 주는 것을 전제로 관대하게 잡았다. 운영 데이터로
+# 재보정이 필요하다.
+MIN_SHARE_DOCTYPE = 0.25
 
 
 #------------------------------------------------------------------
@@ -169,12 +179,12 @@ class SeedIndex:
         return cls._from_lists(vecs, grades, files)
 
     #------------------------------------------------------------------
-    # 외부 seed 저장소(cso_seed.jsonl)로부터 인덱스 구성 — STEP 1 핵심
+    # 외부 seed 저장소(class_seed.jsonl)로부터 인덱스 구성 — STEP 1 핵심
     #=> 관리자가 큐레이션한 seed 파일을 읽어 인덱스로 만든다. 이미 사람이 승인한
     #   씨앗이므로 seed_eligible 조건을 요구하지 않고, 등급+벡터만 있으면 담는다.
     #   Phase 3 분류가 "검증된 기준"과 비교하도록 하는 진입점.
     #
-    # -in: path = cso_seed.jsonl 경로(각 줄: {file, grade, vector, ...})
+    # -in: path = class_seed.jsonl 경로(각 줄: {file, grade, vector, ...})
     #
     # -out: SeedIndex (파일 없음/빈 파일이면 size=0)
     # -out: error = 깨진 줄은 건너뜀(예외 없음)
@@ -203,7 +213,7 @@ class SeedIndex:
 
     #------------------------------------------------------------------
     # 두 seed 인덱스 병합
-    #=> 외부 큐레이션 seed(cso_seed.jsonl)와 코퍼스 내부 seed(seed_eligible 문서)를
+    #=> 외부 큐레이션 seed(class_seed.jsonl)와 코퍼스 내부 seed(seed_eligible 문서)를
     #   하나의 비교 기준으로 합친다. 보류 문서를 "외부 기준 + 내부 기준" 양쪽과
     #   비교해 전파하기 위함. 두 인덱스의 벡터는 이미 행별 정규화돼 있어 그대로 이어붙임.
     #
@@ -244,11 +254,14 @@ class SeedIndex:
 #=> 질의 문서의 벡터를 이미 등급이 붙은 seed 들과 비교해 등급 "후보"를 만든다.
 #
 #   [판정 순서 — 위에서부터 먼저 걸리는 것 하나만 적용]
+#   ※ 괄호 안 숫자는 이 파일 맨 위 상수 블록의 현재 값이다. 값을 고칠 일이 생기면
+#     상수만 고치고 이 주석도 같이 맞춘다(예전에 여기만 설계 초안값 0.985·0.60 이
+#     남아 있어, 코드는 0.950·0.70 으로 도는데 주석은 다른 말을 하고 있었다).
 #     ① seed 없음 / 벡터 없음                         → 보류(no_seeds)   · 등급 없음
-#     ② 최근접 sim ≥ DUP_THRESHOLD(0.985)             → 상속(dup_inherit) · 그 등급
+#     ② 최근접 sim ≥ DUP_THRESHOLD(0.950)             → 상속(dup_inherit) · 그 등급
 #     ③ 최근접 sim <  MIN_SIM(0.55)                   → 보류(too_far)    · 등급 없음
-#     ④ 그 외(0.55~0.985): 상위 K 유사도 가중 다수결
-#          · 1등 득표율 ≥ MIN_SHARE(0.60)             → 채택(knn_vote)   · 1등 등급
+#     ④ 그 외(0.55~0.950): 상위 K 유사도 가중 다수결
+#          · 1등 득표율 ≥ MIN_SHARE(0.70)             → 채택(knn_vote)   · 1등 등급
 #          · 1등 득표율 <  MIN_SHARE                  → 보류(mixed)      · 등급 없음
 #
 #   ※ 여기서 나온 등급은 어디까지나 "후보"다. 실제 상향 여부는 융합(fuse)에서
@@ -305,3 +318,198 @@ def propagate(vec, seeds, k=DEFAULT_K, dup_threshold=DUP_THRESHOLD,
 
     # ④-b 이웃들이 한 등급으로 충분히 몰림 → 그 등급을 후보로 채택.
     return EmbedSignal(winner, share, False, "knn_vote", top1_sim, neigh)
+
+
+#------------------------------------------------------------------
+# doctype 축 전파 신호(Signal B, 업무분류) 결과
+#=> security 의 EmbedSignal 과 같은 역할이지만 "값 하나"가 아니라 "채택된 후보
+#   여러 개"를 담는다(설계서 5-4 — 다중 라벨은 1등을 뽑는 게 아니라 임계값을
+#   넘는 라벨을 전부 채택). seed_eligible 개념 자체가 없다 — 전파로 붙은
+#   doctype 라벨은 애초에 "제안(proposed)"일 뿐이라 승격 대상이 아니다.
+#
+# -필드: values    = 채택된 후보 튜플. 각 항목 {"dc_id":..., "confidence":...}
+# -필드: method    = "dup_inherit"|"knn_vote"|"too_far"|"no_seeds"
+# -필드: top_sim   = 최근접 seed 와의 코사인 유사도
+# -필드: neighbors = 상위 이웃 [(file, dc_ids 튜플, sim)] — 근거 문서 추적용
+#------------------------------------------------------------------
+@dataclass(frozen=True)
+class DoctypeEmbedSignal:
+    values: tuple = ()
+    method: str = "no_seeds"
+    top_sim: float = 0.0
+    neighbors: list = field(default_factory=list)
+
+    #------------------------------------------------------------------
+    # 직렬화용 dict
+    #=> 분류 레코드의 signals.doctype_embed 칸에 넣을 순수 dict.
+    #
+    # -in: 없음
+    # -out: dict = {values:[{dc_id,confidence}], method, top_sim, neighbors:[{file,dc_ids,sim}]}
+    # -out: error = 없음
+    #------------------------------------------------------------------
+    def as_dict(self):
+        return {
+            "values": [{"dc_id": v["dc_id"], "confidence": round(v["confidence"], 3)}
+                      for v in self.values],
+            "method": self.method,
+            "top_sim": round(self.top_sim, 3),
+            "neighbors": [
+                {"file": f, "dc_ids": list(ids), "sim": round(s, 3)}
+                for f, ids, s in self.neighbors
+            ],
+        }
+
+
+#------------------------------------------------------------------
+# doctype seed 인덱스(업무분류 라벨 씨앗 모음)
+#=> SeedIndex 와 같은 구조이지만 seed 하나가 등급 하나가 아니라 dc_id "집합"을
+#   가진다 — 확정된 문서가 여러 분류에 동시에 속할 수 있어서다(설계서 5-4:
+#   "사본 상속... 라벨 집합 전체 상속"). class_seed.jsonl 의 labels.doctype 필드를
+#   읽는다 — security 의 grade 필드와는 다른 키라 SeedIndex 와 파일을 공유해도
+#   서로 간섭하지 않는다(설계서 5-4 "한 파일에 두 축").
+#
+# -필드: vectors    = (n, d) L2 정규화된 seed 벡터 행렬
+# -필드: label_sets = 각 seed 의 dc_id 튜플 리스트(vectors 행과 1:1)
+# -필드: files      = 각 seed 의 파일 경로 리스트(감사·이웃 추적용)
+# -필드: size       = seed 개수
+#------------------------------------------------------------------
+class DoctypeSeedIndex:
+
+    #------------------------------------------------------------------
+    # 생성자
+    #
+    # -in: vectors    = numpy (n,d) 정규화 벡터
+    # -in: label_sets = dc_id 튜플 리스트(len=n)
+    # -in: files      = seed 파일 경로 리스트(len=n, 없으면 빈 리스트)
+    #
+    # -out: 없음
+    # -out: error = 없음
+    #------------------------------------------------------------------
+    def __init__(self, vectors, label_sets, files=None):
+        self.vectors = vectors
+        self.label_sets = label_sets
+        self.files = files if files is not None else []
+        self.size = len(label_sets)
+
+    #------------------------------------------------------------------
+    # 리스트들로 인덱스 구성(공통 내부) — SeedIndex._from_lists 와 동일 로직
+    #
+    # -in: vecs/label_sets/files = 각 seed 의 벡터·dc_id 튜플·경로 리스트(길이 동일)
+    #
+    # -out: DoctypeSeedIndex (비었으면 size=0)
+    # -out: error = 없음
+    #------------------------------------------------------------------
+    @classmethod
+    def _from_lists(cls, vecs, label_sets, files):
+        if not vecs:
+            return cls(np.zeros((0, 0), dtype=np.float32), [], [])
+        arr = np.asarray(vecs, dtype=np.float32)
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return cls(arr / norms, label_sets, files)
+
+    #------------------------------------------------------------------
+    # 외부 seed 저장소(class_seed.jsonl)로부터 doctype 인덱스 구성
+    #=> labels.doctype 가 있는 줄만 골라 담는다. 구버전(grade 만 있는) 줄이나
+    #   labels.doctype 가 비어 있는 줄은 조용히 건너뛴다 — doctype 축을 안 쓰는
+    #   배포의 seed 파일을 그대로 읽어도 안전하다.
+    #
+    # -in: path = class_seed.jsonl 경로
+    #
+    # -out: DoctypeSeedIndex (파일 없음/빈 파일/doctype 라벨 없음이면 size=0)
+    # -out: error = 깨진 줄은 건너뜀(예외 없음)
+    #------------------------------------------------------------------
+    @classmethod
+    def from_seed_file(cls, path):
+        vecs, label_sets, files = [], [], []
+        if path and os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    v = e.get("vector")
+                    dc_ids = (e.get("labels") or {}).get("doctype")
+                    if v and dc_ids:
+                        vecs.append(v)
+                        label_sets.append(tuple(dc_ids))
+                        files.append(e.get("file"))
+        return cls._from_lists(vecs, label_sets, files)
+
+    #------------------------------------------------------------------
+    # 질의 벡터와 모든 seed 의 코사인 유사도 — SeedIndex.cosine 과 동일 로직
+    #
+    # -in: vec = 질의 문서 벡터(리스트/ndarray)
+    #
+    # -out: ndarray = 각 seed 와의 코사인 유사도(seed 없으면 빈 배열)
+    # -out: error = 없음
+    #------------------------------------------------------------------
+    def cosine(self, vec):
+        if self.size == 0:
+            return np.zeros((0,), dtype=np.float32)
+        v = np.asarray(vec, dtype=np.float32)
+        n = np.linalg.norm(v)
+        n = n if n else 1.0
+        return self.vectors @ (v / n)
+
+
+#------------------------------------------------------------------
+# 벡터 1개 doctype 전파(핵심) — "이 문서와 비슷한 seed 로 업무분류 후보 만들기"
+#=> propagate() 와 판정 순서(①~④)는 같지만, ④가 "1등 하나"가 아니라 "임계값을
+#   넘는 라벨을 전부" 채택한다는 점만 다르다(설계서 5-4 — 다중 라벨의 본질).
+#
+#   [판정 순서]
+#     ① seed 없음 / 벡터 없음               → 후보 없음(no_seeds)
+#     ② 최근접 sim ≥ dup_threshold          → 그 seed 의 dc_id 전체 상속(dup_inherit)
+#     ③ 최근접 sim <  min_sim               → 후보 없음(too_far)
+#     ④ 그 외: 라벨별 독립 점수 계산
+#          score[dc_id] = Σ(그 dc_id 를 가진 이웃의 sim) / Σ(이웃 전체 sim)
+#          score ≥ min_share 인 라벨을 전부 채택(0개~여러개 가능)
+#
+# -in: vec   = 질의 문서 벡터
+# -in: seeds = DoctypeSeedIndex
+# -in: k/dup_threshold/min_sim/min_share = 임계값(기본은 위 모듈 상수,
+#      min_share 는 MIN_SHARE_DOCTYPE — security 의 MIN_SHARE 와 다른 상수)
+#
+# -out: DoctypeEmbedSignal (values=() 면 이 신호는 채택할 후보가 없다는 뜻)
+# -out: error = 없음
+#------------------------------------------------------------------
+def propagate_doctype(vec, seeds, k=DEFAULT_K, dup_threshold=DUP_THRESHOLD,
+                      min_sim=MIN_SIM, min_share=MIN_SHARE_DOCTYPE):
+    if vec is None or seeds is None or seeds.size == 0:
+        return DoctypeEmbedSignal((), "no_seeds", 0.0, [])
+
+    sims = seeds.cosine(vec)
+    order = np.argsort(-sims)[:k]
+    files = seeds.files
+    top = [
+        (files[i] if i < len(files) else None, seeds.label_sets[i], float(sims[i]))
+        for i in order
+    ]
+    top1_file, top1_labels, top1_sim = top[0]
+    neigh = top[:5]
+
+    # ② 1등이 사본 수준이면 그 seed 의 dc_id "전체"를 그대로 상속(설계서 5-4).
+    if top1_sim >= dup_threshold:
+        values = tuple({"dc_id": dc_id, "confidence": top1_sim} for dc_id in top1_labels)
+        return DoctypeEmbedSignal(values, "dup_inherit", top1_sim, neigh)
+
+    # ③ 1등조차 너무 멀면 믿을 이웃이 없다.
+    if top1_sim < min_sim:
+        return DoctypeEmbedSignal((), "too_far", top1_sim, neigh)
+
+    # ④ 라벨별 독립 점수 — "1등을 뽑는" 대신 임계 넘는 라벨을 전부 채택한다.
+    total = sum(max(s, 0.0) for _f, _labels, s in top) or 1.0
+    scores = {}
+    for _f, labels, s in top:
+        for dc_id in labels:
+            scores[dc_id] = scores.get(dc_id, 0.0) + max(s, 0.0)
+    values = tuple(
+        {"dc_id": dc_id, "confidence": score / total}
+        for dc_id, score in scores.items() if score / total >= min_share
+    )
+    return DoctypeEmbedSignal(values, "knn_vote", top1_sim, neigh)

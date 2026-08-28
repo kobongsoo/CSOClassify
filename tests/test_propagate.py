@@ -221,7 +221,7 @@ def _boru_rec():
 
 #------------------------------------------------------------------
 # 외부 seed 파일 로드(STEP 1)
-#=> cso_seed.jsonl 을 읽어, 등급+벡터만 있으면(seed_eligible 불필요) 씨앗으로 담고
+#=> class_seed.jsonl 을 읽어, 등급+벡터만 있으면(seed_eligible 불필요) 씨앗으로 담고
 #   벡터/등급 없는 줄은 제외하는지 확인한다.
 #
 # -in: tmp_path = pytest 임시폴더
@@ -229,7 +229,7 @@ def _boru_rec():
 # -out: error = 실패 시 AssertionError
 #------------------------------------------------------------------
 def test_from_seed_file(tmp_path):
-    p = tmp_path / "cso_seed.jsonl"
+    p = tmp_path / "class_seed.jsonl"
     lines = [
         {"file": "s_c", "grade": "C", "vector": [1, 0, 0, 0]},  # seed_eligible 없어도 포함
         {"file": "s_o", "grade": "O", "vector": [0, 0, 1, 0]},

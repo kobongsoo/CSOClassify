@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSOClassify OCR 검토</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=Noto+Serif+KR:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --paper:      #FBFAF7;
+    --surface:    #FFFFFF;
+    --sunk:       #F3F0EA;
+    --ink:        #1C1B18;
+    --ink-2:      #45423C;
+    --muted:      #6F6A61;
+    --rule:       #E3DFD7;
+    --rule-soft:  #EDEAE3;
+    --accent:     #2A5D82;
+    --accent-dim: #2A5D8222;
+    --good:       #2E6A4A;
+    --good-bg:    #2E6A4A14;
+    --warn:       #9A5B22;
+    --warn-bg:    #9A5B2214;
+
+    --f-display: "Noto Serif KR", Georgia, "Nanum Myeongjo", serif;
+    --f-body:    "IBM Plex Sans KR", "Malgun Gothic", system-ui, sans-serif;
+    --f-mono:    "JetBrains Mono", "Consolas", ui-monospace, monospace;
+
+    --measure: 68ch;
+    --wide:    980px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #171613;
+      --surface:    #1E1C19;
+      --sunk:       #232019;
+      --ink:        #EFEBE3;
+      --ink-2:      #C8C2B7;
+      --muted:      #968F83;
+      --rule:       #332F29;
+      --rule-soft:  #29251F;
+      --accent:     #8FBBDC;
+      --accent-dim: #8FBBDC26;
+      --good:       #78BE97;
+      --good-bg:    #78BE9718;
+      --warn:       #DDA163;
+      --warn-bg:    #DDA16318;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #171613;
+    --surface:    #1E1C19;
+    --sunk:       #232019;
+    --ink:        #EFEBE3;
+    --ink-2:      #C8C2B7;
+    --muted:      #968F83;
+    --rule:       #332F29;
+    --rule-soft:  #29251F;
+    --accent:     #8FBBDC;
+    --accent-dim: #8FBBDC26;
+    --good:       #78BE97;
+    --good-bg:    #78BE9718;
+    --warn:       #DDA163;
+    --warn-bg:    #DDA16318;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16px;
+    line-height: 1.72;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+
+  .col { max-width: var(--measure); }
+
+  /* ---------- 머리말 ---------- */
+  header {
+    padding: 72px 0 40px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 44px;
+  }
+
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: clamp(34px, 5.2vw, 52px);
+    line-height: 1.18;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+    margin: 0 0 20px;
+  }
+
+  .dek {
+    font-size: 19px;
+    line-height: 1.66;
+    color: var(--ink-2);
+    max-width: 60ch;
+    margin: 0 0 30px;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    font-family: var(--f-mono);
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .meta b { color: var(--ink-2); font-weight: 500; }
+
+  /* ---------- 구획 ---------- */
+  section { margin-bottom: 60px; }
+
+  h2 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 25px;
+    letter-spacing: -.01em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+
+  .sub {
+    color: var(--muted);
+    font-size: 14.5px;
+    margin: 0 0 26px;
+    max-width: 62ch;
+  }
+
+  h3 {
+    font-family: var(--f-body);
+    font-weight: 600;
+    font-size: 16px;
+    margin: 32px 0 10px;
+  }
+
+  p { margin: 0 0 16px; max-width: var(--measure); }
+
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible,
+  summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  code {
+    font-family: var(--f-mono);
+    font-size: .875em;
+    background: var(--sunk);
+    border: 1px solid var(--rule-soft);
+    border-radius: 3px;
+    padding: .1em .38em;
+  }
+
+  strong { font-weight: 600; }
+
+  /* ---------- 판정 카드 ---------- */
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+    gap: 18px;
+    margin-bottom: 26px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 24px 24px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card.lead { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+  .card-tag {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .card.lead .card-tag { color: var(--accent); }
+
+  .card-name {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 21px;
+    line-height: 1.3;
+    margin: 0;
+  }
+
+  .card-figs {
+    display: flex;
+    gap: 24px;
+    padding: 4px 0 2px;
+    border-top: 1px solid var(--rule-soft);
+    border-bottom: 1px solid var(--rule-soft);
+    margin: 2px 0;
+  }
+  .fig { padding: 10px 0; }
+  .fig-n {
+    font-family: var(--f-mono);
+    font-size: 23px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    display: block;
+    line-height: 1.25;
+  }
+  .fig-l {
+    font-size: 11.5px;
+    color: var(--muted);
+    letter-spacing: .02em;
+  }
+
+  .card p { font-size: 14.5px; line-height: 1.62; margin: 0; color: var(--ink-2); }
+
+  /* ---------- 표 ---------- */
+  .tablewrap {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--surface);
+    margin-bottom: 14px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    min-width: 560px;
+  }
+
+  caption {
+    caption-side: top;
+    text-align: left;
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 14px 18px 10px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  thead th {
+    font-weight: 600;
+    font-size: 12.5px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr.best td { background: var(--accent-dim); }
+
+  td.num, th.num {
+    text-align: right;
+    font-family: var(--f-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .rowname { font-weight: 500; white-space: nowrap; }
+  .rowname small {
+    display: block;
+    font-weight: 400;
+    font-size: 11.5px;
+    color: var(--muted);
+    font-family: var(--f-mono);
+  }
+
+  /* 정확도 미터 — 크기 비교용, 단일 색조 */
+  .meter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+  .meter-track {
+    width: 92px;
+    height: 7px;
+    background: var(--sunk);
+    border-radius: 4px;
+    overflow: hidden;
+    flex: none;
+  }
+  .meter-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 0 4px 4px 0;
+  }
+  .meter-fill.dim { background: var(--muted); }
+
+  .foot {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: 0 0 4px;
+    max-width: var(--measure);
+  }
+
+  /* ---------- 발견(함정) ---------- */
+  .trap {
+    border-left: 2px solid var(--warn);
+    background: var(--warn-bg);
+    padding: 20px 24px;
+    border-radius: 0 4px 4px 0;
+    margin-bottom: 18px;
+  }
+  .trap-label {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--warn);
+    display: block;
+    margin-bottom: 8px;
+  }
+  .trap h3 { margin: 0 0 8px; font-size: 16.5px; }
+  .trap p { font-size: 14.5px; line-height: 1.65; margin: 0 0 10px; }
+  .trap p:last-child { margin-bottom: 0; }
+
+  .fix {
+    font-family: var(--f-mono);
+    font-size: 12.5px;
+    color: var(--good);
+    background: var(--good-bg);
+    border-radius: 3px;
+    padding: 7px 11px;
+    display: inline-block;
+  }
+
+  /* ---------- 목록 ---------- */
+  ul.notes {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-width: var(--measure);
+  }
+  ul.notes li {
+    padding: 13px 0 13px 22px;
+    border-bottom: 1px solid var(--rule-soft);
+    position: relative;
+    font-size: 15px;
+    line-height: 1.62;
+  }
+  ul.notes li:last-child { border-bottom: none; }
+  ul.notes li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 23px;
+    width: 7px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  /* ---------- 접이식 ---------- */
+  details {
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--surface);
+    padding: 0 20px;
+    margin-top: 18px;
+  }
+  summary {
+    cursor: pointer;
+    padding: 15px 0;
+    font-size: 14.5px;
+    font-weight: 500;
+    list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "+ ";
+    font-family: var(--f-mono);
+    color: var(--accent);
+  }
+  details[open] summary::before { content: "− "; }
+  details .inner { padding: 0 0 18px; font-size: 14px; color: var(--ink-2); }
+  details .inner p { font-size: 14px; }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 26px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  footer p { max-width: var(--measure); font-size: 13px; }
+
+  @media (max-width: 620px) {
+    header { padding-top: 48px; }
+    .wrap { padding: 0 18px 64px; }
+    .meter-track { width: 56px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">로컬 CPU OCR 타당성 검토</p>
+    <h1>CSOClassify에 GPU 없는 OCR을 붙일 수 있는가</h1>
+    <p class="dek">
+      문서 안 이미지에서 한글 텍스트를 뽑아내되 GPU는 쓸 수 없다는 조건으로,
+      실제 스캔 문서 9종 38쪽에 CPU 전용 OCR 엔진 두 종을 돌렸다.
+      결론은 <strong>가능하다</strong>. 다만 기본 설정 그대로 쓰면 절반의 정확도를 잃는다.
+    </p>
+    <div class="meta">
+      <span><b>측정일</b> 2026-08-25</span>
+      <span><b>환경</b> Windows 11 · 16 logical cores · GPU 미사용</span>
+      <span><b>표본</b> 실제 스캔 PDF 9종 38쪽 · 300dpi</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>결론</h2>
+    <p class="sub">
+      정확도와 속도가 정반대로 갈린다. 어느 쪽을 고를지는 CSOClassify가 OCR 결과를
+      무엇에 쓰느냐로 결정된다.
+    </p>
+
+    <div class="verdict">
+      <div class="card lead">
+        <span class="card-tag">권장</span>
+        <p class="card-name">RapidOCR<br>(각도분류기 끔)</p>
+        <div class="card-figs">
+          <div class="fig">
+            <span class="fig-n">94.3<span style="font-size:15px">%</span></span>
+            <span class="fig-l">본문 문자정확도</span>
+          </div>
+          <div class="fig">
+            <span class="fig-n">36.1<span style="font-size:15px">s</span></span>
+            <span class="fig-l">쪽당 평균</span>
+          </div>
+        </div>
+        <p>
+          9종 전부에서 Tesseract보다 한글을 많이 건졌고, 눈으로 대조한 문서마다
+          예외 없이 더 정확했다. 회전된 스캔까지 읽어낸다. 대신 2.5배 느리다.
+        </p>
+      </div>
+
+      <div class="card">
+        <span class="card-tag">속도가 절대 조건일 때만</span>
+        <p class="card-name">Tesseract 5.4<br>(psm 6, kor+eng)</p>
+        <div class="card-figs">
+          <div class="fig">
+            <span class="fig-n">81.2<span style="font-size:15px">%</span></span>
+            <span class="fig-l">본문 문자정확도</span>
+          </div>
+          <div class="fig">
+            <span class="fig-n">14.3<span style="font-size:15px">s</span></span>
+            <span class="fig-l">쪽당 평균</span>
+          </div>
+        </div>
+        <p>
+          2.5배 빠르고 <code>snf_exe</code>와 동일한 외장 exe 호출 패턴이라 기존 구조에
+          잘 맞는다. 그러나 계약서처럼 조밀한 본문 외에는 무너지는 문서가 많았다.
+        </p>
+      </div>
+    </div>
+
+    <p class="foot">
+      처음에는 속도를 사서 정확도를 내주는 맞교환으로 보였으나, 9종 전수 측정에서는
+      그렇지 않았다. Tesseract가 제 성능을 낸 것은 본문이 조밀한 계약서 계열뿐이고,
+      제안서·교안·양식에서는 한글을 절반 이하로 흘렸다. <strong>배치 처리라 지연을
+      감내할 수 있다면 선택은 RapidOCR 쪽으로 기운다.</strong>
+    </p>
+  </section>
+
+  <section>
+    <h2>전수 측정 — 스캔 문서 9종</h2>
+    <p class="sub">
+      <code>D:\분류함</code>에서 골라낸 순수 스캔본 전부를 돌렸다. 5쪽을 넘는 문서는
+      전 구간에서 무작위 5쪽을 뽑았다 — 앞쪽만 보면 표지와 목차에 치우쳐 본문
+      인식률을 보지 못하기 때문이다.
+    </p>
+
+    <div class="tablewrap" style="margin-bottom:22px">
+      <table>
+        <caption>표를 읽는 법 — 이 9종에는 정답지가 없어 품질을 간접 추정했다</caption>
+        <thead>
+          <tr><th style="width:26%">지표</th><th>뜻과 읽는 법</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="rowname">한글 비율<small>R = RapidOCR<br>T = Tesseract</small></td>
+            <td>
+              뽑아낸 글자 중 <strong>한글이 차지하는 비율</strong>. 한국어 문서를 읽혔으니
+              높아야 정상이고, 낮으면 한글을 못 읽고 엉뚱한 문자로 채웠다는 뜻이다.
+              단, 원문에 영문이 많으면 정상인데도 낮게 나온다.
+            </td>
+          </tr>
+          <tr>
+            <td class="rowname">일치도</td>
+            <td>
+              두 엔진의 출력이 <strong>서로 얼마나 겹치는가</strong>. 독립적인 두 엔진이
+              같은 답을 내면 둘 다 맞았을 가능성이 높고, 크게 갈리면 최소한 한쪽은 틀렸다.
+              <strong>누가 틀렸는지는 알려주지 않으므로</strong> 한글 비율과 함께 읽어야 한다.
+              정확도 점수가 아니다.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>9종 38쪽 · 300dpi · 시드 20260825 고정</caption>
+        <thead>
+          <tr>
+            <th>문서</th>
+            <th class="num">표본</th>
+            <th class="num">RapidOCR<br>쪽당</th>
+            <th class="num">Tesseract<br>쪽당</th>
+            <th class="num">한글 비율<br>Rapid / Tess</th>
+            <th class="num">두 엔진<br>일치도</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="rowname">(신규)문서중앙화 제품소개<small>제품 소개서</small></td>
+            <td class="num">5/33</td><td class="num">13.5s</td><td class="num">3.8s</td>
+            <td class="num">78 / 57%</td><td class="num">72%</td>
+          </tr>
+          <tr>
+            <td class="rowname">LGCNS 교안 에이전트(2권)<small>영문 인용 다수</small></td>
+            <td class="num">5/68</td><td class="num">17.9s</td><td class="num">5.5s</td>
+            <td class="num">23 / 14%</td><td class="num">59%</td>
+          </tr>
+          <tr>
+            <td class="rowname">라이브애플리케이션 ClouDoc<small>조밀한 슬라이드</small></td>
+            <td class="num">5/21</td><td class="num">82.7s</td><td class="num">32.9s</td>
+            <td class="num">90 / 47%</td><td class="num">20%</td>
+          </tr>
+          <tr>
+            <td class="rowname">유진그룹 넷아이디 제안서<small>90° 회전 스캔</small></td>
+            <td class="num">5/21</td><td class="num">50.8s</td><td class="num">31.6s</td>
+            <td class="num">85 / 19%</td><td class="num">1%</td>
+          </tr>
+          <tr>
+            <td class="rowname">채널사협력계약 (유투앤)<small>계약서</small></td>
+            <td class="num">4/4</td><td class="num">28.1s</td><td class="num">8.8s</td>
+            <td class="num">62 / 49%</td><td class="num">53%</td>
+          </tr>
+          <tr>
+            <td class="rowname">채널사협력계약 (청담클라우드)<small>계약서</small></td>
+            <td class="num">4/4</td><td class="num">31.5s</td><td class="num">10.8s</td>
+            <td class="num">62 / 44%</td><td class="num">54%</td>
+          </tr>
+          <tr>
+            <td class="rowname">채널사협력계약 (카파정보기술)<small>계약서</small></td>
+            <td class="num">4/4</td><td class="num">30.1s</td><td class="num">9.0s</td>
+            <td class="num">62 / 49%</td><td class="num">58%</td>
+          </tr>
+          <tr>
+            <td class="rowname">채널사협력계약 (케이엘티엔에스)<small>계약서</small></td>
+            <td class="num">4/4</td><td class="num">35.0s</td><td class="num">11.5s</td>
+            <td class="num">62 / 48%</td><td class="num">54%</td>
+          </tr>
+          <tr>
+            <td class="rowname">코리아그룹 설치확인서<small>표·양식 + 스크린샷</small></td>
+            <td class="num">2/2</td><td class="num">23.3s</td><td class="num">7.0s</td>
+            <td class="num">45 / 22%</td><td class="num">7%</td>
+          </tr>
+          <tr class="best">
+            <td class="rowname">가중평균<small>총 38쪽</small></td>
+            <td class="num">38쪽</td>
+            <td class="num">36.1s</td>
+            <td class="num">14.3s</td>
+            <td class="num">63 / 39%</td>
+            <td class="num">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="foot">
+      전체 처리 시간은 RapidOCR 22.8분, Tesseract 9.1분. 추출 문자 수는 오히려
+      Tesseract가 많지만(38,198자 대 32,400자) 한글 비율이 39%에 그친다 —
+      <strong>한글이 있어야 할 자리에 라틴 문자를 채워 넣은 결과</strong>다.
+    </p>
+
+    <h3>두 지표가 실제로 무엇을 잡아냈나</h3>
+    <p>
+      유진그룹 제안서는 일치도가 <strong>1%</strong>까지 떨어졌다. 두 엔진이 완전히
+      다른 답을 냈다는 뜻이고, 한글 비율을 보면 범인이 드러난다 — RapidOCR 85%,
+      Tesseract 19%. Tesseract 출력은
+      <code>는 Bek | og Bek 겉 핸 / 료 눌 a= £ a # re</code> 처럼 라틴 문자
+      쓰레기로 채워져 있었고, RapidOCR은
+      <code>도입효과 / 도입목적 / 라이선스 / 고객사</code> 를 정상적으로 읽었다.
+    </p>
+    <p>
+      이런 판별을 9종 모두에서 눈으로 확인했다. 같은 LGCNS 슬라이드 한 장에서:
+    </p>
+    <div class="tablewrap">
+      <table>
+        <caption>동일 문장 — 원문 "단순히 답변하는 것이 아닌, 외부 도구를 적재적소에 쓰는 메커니즘"</caption>
+        <thead>
+          <tr><th>엔진</th><th>출력</th></tr>
+        </thead>
+        <tbody>
+          <tr class="best">
+            <td class="rowname">RapidOCR</td>
+            <td>단순히답변하는것이아닌외부도구를적재적소에쓰는메커니즘</td>
+          </tr>
+          <tr>
+            <td class="rowname">Tesseract</td>
+            <td><code>Lt+==0| a Ol= Al 0| OFH, i= Cas MM HAA M= [H| H Us</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="foot">
+      Tesseract는 굵은 제목 줄은 읽어내지만 본문의 가는 획에서 무너진다. 다만 이
+      지표에는 한계가 있다 — LGCNS 교안의 낮은 한글 비율(23% / 14%)은 인식 실패가
+      아니라 <strong>문서 자체에 영문 논문 인용이 많기 때문</strong>이었다.
+      비율만 보고 판단해서는 안 되고, 실제로 출력을 열어 확인해야 한다.
+    </p>
+  </section>
+
+  <section>
+    <h2>정답지를 만들어 채점한 두 건</h2>
+    <p class="sub">
+      9종 중 두 건은 육안 전사와 필드 목록으로 정답지를 만들어 정확도를 수치화했다.
+      성격이 대조적이라 본문형·양식형을 나누어 채점했다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <caption>본문형 — 채널사 협력계약서 3쪽 · 육안 전사 정답지 대비 문자 유사도</caption>
+        <thead>
+          <tr>
+            <th>엔진 설정</th>
+            <th class="num">200 dpi</th>
+            <th class="num">300 dpi</th>
+            <th class="num">쪽당 속도</th>
+            <th class="num">정확도</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="best">
+            <td class="rowname">RapidOCR <small>use_cls = false</small></td>
+            <td class="num">94.4%</td>
+            <td class="num">94.3%</td>
+            <td class="num">31–48s</td>
+            <td class="num">
+              <span class="meter">
+                <span class="meter-track"><span class="meter-fill" style="width:94.3%"></span></span>
+                94.3%
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td class="rowname">RapidOCR <small>기본값 (cls 켜짐)</small></td>
+            <td class="num">47.7%</td>
+            <td class="num">48.4%</td>
+            <td class="num">33–40s</td>
+            <td class="num">
+              <span class="meter">
+                <span class="meter-track"><span class="meter-fill dim" style="width:48.4%"></span></span>
+                48.4%
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td class="rowname">Tesseract 5.4 <small>psm 6 · kor+eng</small></td>
+            <td class="num">82.3%</td>
+            <td class="num">81.2%</td>
+            <td class="num">8–11s</td>
+            <td class="num">
+              <span class="meter">
+                <span class="meter-track"><span class="meter-fill" style="width:81.2%"></span></span>
+                81.2%
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="foot">
+      비교 전 공백을 모두 제거했다. Tesseract는 한글을 글자마다 띄우고 RapidOCR은
+      띄어쓰기를 지우는 탓에, 공백을 두면 어느 쪽도 공정하게 채점되지 않는다.
+    </p>
+
+    <div class="tablewrap" style="margin-top:28px">
+      <table>
+        <caption>양식형 — 코리아그룹 설치확인서 2쪽 · 분류에 실제 쓰이는 핵심 필드 27개 추출률</caption>
+        <thead>
+          <tr>
+            <th>엔진 설정</th>
+            <th class="num">200 dpi</th>
+            <th class="num">300 dpi</th>
+            <th class="num">쪽당 속도</th>
+            <th class="num">추출률</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="best">
+            <td class="rowname">RapidOCR <small>use_cls = false</small></td>
+            <td class="num">23/27</td>
+            <td class="num">23/27</td>
+            <td class="num">49–55s</td>
+            <td class="num">
+              <span class="meter">
+                <span class="meter-track"><span class="meter-fill" style="width:85.2%"></span></span>
+                85%
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td class="rowname">RapidOCR <small>기본값 (cls 켜짐)</small></td>
+            <td class="num">20/27</td>
+            <td class="num">20/27</td>
+            <td class="num">38–64s</td>
+            <td class="num">
+              <span class="meter">
+                <span class="meter-track"><span class="meter-fill dim" style="width:74.1%"></span></span>
+                74%
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td class="rowname">Tesseract 5.4 <small>psm 6 · kor+eng</small></td>
+            <td class="num">12/27</td>
+            <td class="num">19/27</td>
+            <td class="num">12–14s</td>
+            <td class="num">
+              <span class="meter">
+                <span class="meter-track"><span class="meter-fill" style="width:57.4%"></span></span>
+                44–70%
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="foot">
+      Tesseract가 dpi에 따라 12/27과 19/27을 오간 것이 이 표의 핵심이다. 표·괘선이
+      많은 양식에서 레이아웃 해석이 흔들린다는 뜻으로, 값이 낮은 것보다 <strong>예측할 수
+      없다는 점</strong>이 운영상 더 부담이다. RapidOCR이 놓친 4개는
+      <code>2020.05.25</code>, <code>김흥재</code>, <code>CentOS</code>, <code>7.4</code>였다.
+    </p>
+  </section>
+
+  <section>
+    <h2>먼저 밟게 되는 함정 넷</h2>
+    <p class="sub">
+      세 가지 모두 기본값을 그대로 쓰면 반드시 마주친다. 도입을 결정한다면
+      설계 단계에서 미리 걷어내야 할 항목이다.
+    </p>
+
+    <div class="trap">
+      <span class="trap-label">함정 1 · 잘못된 언어 모델</span>
+      <h3>RapidOCR 기본 설치본은 중국어 모델이다</h3>
+      <p>
+        <code>rapidocr-onnxruntime</code>이 번들하는 인식 모델은 PP-OCRv4 <em>중국어</em>다.
+        한글 문서를 넣으면 <code>출장여비규정</code>이 <code>叶 / 日 / 是</code> 같은 한자로
+        깨진다. 3쪽에서 475자밖에 못 뽑았다.
+      </p>
+      <p class="fix">신규 <code>rapidocr</code> v3 + <code>LangRec.KOREAN</code> 으로 교체</p>
+    </div>
+
+    <div class="trap">
+      <span class="trap-label">함정 2 · 정확도를 절반으로 깎는 기본 옵션</span>
+      <h3>각도 분류기가 한글 줄을 뒤집는다</h3>
+      <p>
+        한국어 모델로 바꾼 뒤에도 계약서 첫 문단이 통째로
+        <code>우h료HonJ로i릉olRl…</code> 로 무너졌다. 각도 분류기(<code>use_cls</code>)가
+        한글 줄의 방향을 오판해 뒤집힌 상태로 인식한 것이다.
+      </p>
+      <p>
+        이 옵션 하나를 끄자 정확도가 <strong>48.4% → 94.3%</strong>로 뛰었고,
+        속도까지 <strong>50.7초 → 34.0초</strong>로 빨라졌다. 켜 둘 이유가 없다.
+      </p>
+      <p class="fix">Global.use_cls = false</p>
+    </div>
+
+    <div class="trap">
+      <span class="trap-label">함정 3 · 눕혀서 스캔된 페이지</span>
+      <h3>회전 스캔에서 Tesseract는 아무것도 못 읽는다</h3>
+      <p>
+        유진그룹 제안서는 4-up 슬라이드 핸드아웃을 가로로 스캔해 페이지가 90° 누워
+        있었다. Tesseract는 한글 비율 19%로 사실상 전멸했고, RapidOCR은 검출 단계에서
+        기울어진 박스를 바로 세우기 때문에 85%를 유지했다. 두 엔진 일치도가 1%까지
+        떨어진 것이 이 차이다.
+      </p>
+      <p>
+        실무 문서 더미에는 이런 페이지가 섞여 있게 마련이다. Tesseract를 택한다면
+        회전 감지·보정 단계를 앞에 따로 붙여야 한다.
+      </p>
+    </div>
+
+    <div class="trap">
+      <span class="trap-label">함정 4 · 오프라인 배포</span>
+      <h3>한국어 모델은 실행 시점에 내려받는다</h3>
+      <p>
+        RapidOCR v3는 한국어 모델을 ModelScope에서 자동 다운로드한다. 폐쇄망이나
+        단일 exe 배포에서는 모델을 미리 번들해야 한다. 참고로 한국어
+        <code>server</code> 모델은 onnxruntime 백엔드를 지원하지 않아
+        <code>mobile</code>만 선택할 수 있다.
+      </p>
+      <p>
+        Tesseract 쪽도 같은 성격의 제약이 있다. 설치본에 한국어가 빠져 있어
+        <code>kor.traineddata</code>(15MB)를 따로 배치해야 한다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>CSOClassify에 붙일 때</h2>
+    <p class="sub">현재 코드베이스를 기준으로 실제 작업이 필요한 지점들이다.</p>
+
+    <ul class="notes">
+      <li>
+        <strong>전량 적용은 금물.</strong> 평균 쪽당 36초, 최악 83초는 배치라도 무겁다.
+        <code>pdf_pdfium.py</code>가 텍스트를 뽑지 못했을 때만 OCR로 넘어가는
+        폴백 구조가 전제다. 해당 파일에 이미
+        <em>"스캔 PDF는 텍스트층이 없어 빈 결과 → OCR은 별도"</em> 주석이 달려 있어,
+        붙일 자리는 이미 표시돼 있는 셈이다.
+      </li>
+      <li>
+        <strong><code>"image"</code> 처리기가 비어 있다.</strong>
+        <code>extract/detect.py</code>는 PNG·JPEG 매직바이트를 읽어 이미지로 분류하지만,
+        <code>build_extractor()</code>의 엔진 표에 <code>"image"</code> 키가 없어 실제로는
+        snf 폴백으로 흘러간다. OCR을 넣는다면 이 자리가 맞다.
+      </li>
+      <li>
+        <strong>PyInstaller의 PIL 제외를 재검토해야 한다.</strong>
+        용량 절감 목적으로 spec에서 Pillow를 명시적으로 빼 두었는데, 어느 OCR
+        경로든 이미지 디코딩이 필요하다.
+      </li>
+      <li>
+        <strong>배포 궁합만 놓고 보면 Tesseract가 낫다.</strong> 외장 exe를 subprocess로
+        부르는 방식이 <code>snf_exe</code>와 동일해 기존 아키텍처를 거의 건드리지 않는다.
+        다만 이번 측정에서는 그 이점이 정확도 손실을 상쇄하지 못했다. RapidOCR도
+        onnxruntime을 이미 임베딩(<code>embed/onnx_embedder.py</code>)에 쓰고 있어
+        새 런타임이 추가되지는 않는다.
+      </li>
+      <li>
+        <strong>스캔 판별은 전 페이지를 봐야 한다.</strong> 앞 3쪽만 검사했을 때
+        <code>D:\분류함</code>에서 16건이 스캔으로 잡혔지만, 전 페이지를 확인하니 순수
+        스캔은 9종이었다. 나머지는 앞부분만 이미지인 혼합 문서로, 쪽 단위로 OCR
+        여부를 판단해야 한다.
+      </li>
+      <li>
+        <strong>띄어쓰기는 두 엔진 모두 망가진다.</strong> 다만 C/S/O 분류가 목적이라면
+        완전한 문장 복원보다 키워드 보존율이 중요하므로, 85~94%면 분류 신호로는
+        충분할 가능성이 높다.
+      </li>
+      <li>
+        <strong>문서 내장 이미지는 별도 작업이다.</strong> <code>office_ooxml.py</code>는
+        docx·pptx를 zip으로 직접 파싱하지만 삽입된 그림을 꺼내는 코드가 없다.
+        스캔 PDF와 독립 이미지 파일까지만 1차 범위로 잡는 편이 현실적이다.
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>이 측정의 한계</h2>
+    <p class="sub">결론을 그대로 신뢰하기 전에 감안해야 할 것들.</p>
+
+    <ul class="notes">
+      <li>
+        <strong>정확도를 수치로 잰 것은 9종 중 2종뿐이다.</strong> 나머지 7종은
+        한글 비율과 두 엔진 일치도라는 간접 지표에 눈으로 한 대조를 더해 판단했다.
+        방향은 일관되지만 퍼센트로 말할 수 있는 값은 아니다.
+      </li>
+      <li>
+        한글 비율은 <strong>영문이 많은 문서에서 오작동한다.</strong> LGCNS 교안의
+        23%는 인식 실패가 아니라 원문에 영문 논문 인용이 많았기 때문이다.
+      </li>
+      <li>
+        큰 문서는 무작위 5쪽 표본이라 문서 전체의 평균이 아니다. 특히 33쪽·68쪽
+        문서는 쪽마다 밀도 편차가 커서 표본이 달라지면 수치도 달라진다.
+      </li>
+      <li>
+        쪽당 시간 편차가 크다. RapidOCR은 13.5초에서 82.7초까지 벌어졌는데,
+        조밀한 슬라이드일수록 검출되는 텍스트 줄이 많아 인식 호출이 그만큼 늘기
+        때문이다. <strong>용량 산정은 평균이 아니라 최악값으로 잡아야 한다.</strong>
+      </li>
+      <li>
+        본문형 정확도는 계약서 1쪽을 직접 눈으로 옮겨 적은 정답지에 대한 값이다.
+        전사 과정의 오차가 그대로 들어간다.
+      </li>
+      <li>
+        PaddleOCR은 <code>paddlepaddle</code> 의존성이 무겁고 PyInstaller 패키징에서
+        문제가 잦아, EasyOCR은 이미 spec에서 배제한 torch에 의존해 각각 제외했다.
+        실측하지 않았다.
+      </li>
+    </ul>
+
+    <details>
+      <summary>초기 합성 스캔 측정이 정반대 결론을 냈던 이유</summary>
+      <div class="inner">
+        <p>
+          처음에는 디지털 PDF를 200dpi 이미지로 렌더링해 만든 합성 스캔본으로 측정했고,
+          Tesseract가 속도·정확도 모두 우세하다는 결과가 나왔다(91.5% 대 81.5%).
+        </p>
+        <p>
+          그 표본은 노이즈도 기울어짐도 번짐도 없는 깨끗한 렌더링이라, 전통적
+          이미지처리 기반인 Tesseract에 유리한 조건이었다. 실제 스캔본으로 바꾸고
+          각도 분류기 문제를 걷어내자 순위가 뒤집혔다. <strong>합성 스캔으로 OCR
+          엔진을 고르면 안 된다</strong>는 것 자체가 이번 측정의 소득이다.
+        </p>
+      </div>
+    </details>
+  </section>
+
+  <footer>
+    <p>
+      측정 환경: Tesseract 5.4.0 (winget 설치, 한국어 <code>kor.traineddata</code> 별도 배치) ·
+      rapidocr 3.9.2 (onnxruntime CPU, korean PP-OCRv4 mobile) · pypdfium2 렌더링 ·
+      Python 3.12 격리 venv. CSOClassify 코드는 수정하지 않았다.
+    </p>
+    <p>
+      대상은 <code>D:\분류함</code> 전체 PDF에서 전 페이지에 텍스트 레이어가 없는
+      것만 골라낸 순수 스캔본 9종이며 <code>D:\분류함\스캔PDF</code>에 모아 두었다.
+      페이지 표본은 시드 <code>20260825</code>로 고정해 언제든 같은 표본으로
+      재현할 수 있다.
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>

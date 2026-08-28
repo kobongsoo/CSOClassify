@@ -117,8 +117,10 @@
     <div>
       <p><b>Windows</b><span class="os">Rust\dist-onedir\windows\</span></p>
 <div class="tree">csoclassify-rs.exe                  <span class="cmt">5.3MB 실행 본체</span>
-cso_rules.yaml                      <span class="cmt">규칙셋(외장)</span>
-cso_seed.jsonl                      <span class="cmt">전파 기준 seed</span>
+cso_rules.yaml                      <span class="cmt">보안등급 규칙셋(외장)</span>
+doc_taxonomy.yaml                   <span class="cmt">업무분류 체계 스냅샷(외장)</span>
+doc_rule.yaml                       <span class="cmt">업무분류 규칙셋(외장)</span>
+class_seed.jsonl                      <span class="cmt">전파 기준 seed</span>
 onnxruntime.dll                     <span class="cmt">16MB  임베딩 추론</span>
 onnxruntime_providers_shared.dll    <span class="cmt">ORT 부속</span>
 pdfium.dll                          <span class="cmt">7MB   PDF 추출</span>
@@ -136,8 +138,10 @@ README.txt</div>
     <div>
       <p><b>Linux</b><span class="os">Rust/dist-onedir/linux/</span></p>
 <div class="tree">csoclassify-rs                      <span class="cmt">5.4MB 실행 본체(ELF)</span>
-cso_rules.yaml                      <span class="cmt">규칙셋(외장)</span>
-cso_seed.jsonl                      <span class="cmt">전파 기준 seed</span>
+cso_rules.yaml                      <span class="cmt">보안등급 규칙셋(외장)</span>
+doc_taxonomy.yaml                   <span class="cmt">업무분류 체계 스냅샷(외장)</span>
+doc_rule.yaml                       <span class="cmt">업무분류 규칙셋(외장)</span>
+class_seed.jsonl                      <span class="cmt">전파 기준 seed</span>
 libonnxruntime.so                   <span class="cmt">27MB  임베딩 추론</span>
 libonnxruntime_providers_shared.so  <span class="cmt">ORT 부속</span>
 libpdfium.so                        <span class="cmt">7.6MB PDF 추출</span>
@@ -156,8 +160,10 @@ README.txt</div>
     <tr><th>빠진 파일</th><th>결과</th></tr>
     <tr><td><code>cso_rules.yaml</code></td><td><b>실행 불가</b> — <code>--rules</code> 로 경로를 주거나 exe 옆에 있어야 함</td></tr>
     <tr><td>모델 / onnxruntime</td><td>임베딩 전파를 <b>조용히 생략</b>하고 규칙 결과만 출력. <code>--rule-only</code> 는 정상 동작</td></tr>
+    <tr><td><code>doc_taxonomy.yaml</code></td><td>업무분류(doctype) 축이 <b>조용히 꺼지고</b> 보안등급만 판정. <code>--axis doctype</code> 을 명시하면 종료코드 4</td></tr>
+    <tr><td><code>doc_rule.yaml</code></td><td>축은 켜진 채 <b>'seed 전파 전용'</b>으로 동작 — 규칙 대신 <code>class_seed.jsonl</code> 과의 임베딩 유사도로 분류. seed 도 없으면 업무분류가 <b>전부 미분류</b>(오류 아님) <span class="def">2026-08-25 변경</span></td></tr>
     <tr><td>pdfium</td><td>PDF 만 추출 실패(스킵). 다른 포맷은 정상</td></tr>
-    <tr><td><code>cso_seed.jsonl</code></td><td>전파 기능이 꺼짐(= <code>--rule-only</code> 와 같아짐)</td></tr>
+    <tr><td><code>class_seed.jsonl</code></td><td>전파 기능이 꺼짐(= <code>--rule-only</code> 와 같아짐)</td></tr>
   </table></div>
 </section>
 
@@ -233,7 +239,9 @@ copy /Y target\release\csoclassify-rs.exe dist-onedir\windows\
 
 <span class="cmt">:: (2) 규칙셋 · 전파 seed</span>
 copy /Y ..\resources\policy\cso_rules.yaml  dist-onedir\windows\
-copy /Y ..\dist-onedir\windows\cso_seed.jsonl dist-onedir\windows\
+copy /Y ..\resources\policy\doc_taxonomy.yaml dist-onedir\windows\
+copy /Y ..\resources\policy\doc_rule.yaml dist-onedir\windows\
+copy /Y ..\dist-onedir\windows\class_seed.jsonl dist-onedir\windows\
 
 <span class="cmt">:: (3) ONNX Runtime · pdfium — 파이썬 배포본 _internal 에서 그대로 재사용</span>
 copy /Y ..\dist-onedir\windows\_internal\onnxruntime\capi\onnxruntime.dll                  dist-onedir\windows\
@@ -391,9 +399,22 @@ chmod +x $D/*.so $D/*.so.*
 cp -r /MOCOMSYS/.csoclassify/CSOClassify/models/e5-small-ko $D/models/
 chmod -R u+rwX,go+rX $D/models
 
+<span class="cmt"># (6) ★ 규칙셋·분류체계·seed·README — 1단계에서 assets/ 로 함께 올려 둔 것</span>
+cp $B/assets/cso_rules.yaml $B/assets/doc_taxonomy.yaml $B/assets/doc_rule.yaml \
+   $B/assets/class_seed.jsonl $B/assets/README.txt $D/
+
 ls -la $D</code></pre>
-    <p class="def">규칙셋(<code>cso_rules.yaml</code>)·seed(<code>cso_seed.jsonl</code>)는 Windows 쪽에 이미 있으므로
-    서버에는 <b>테스트용으로만</b> 올리면 됩니다. 최종 배포본에는 5단계에서 Windows 에서 복사해 넣습니다.</p>
+    <div class="warn"><b>(6) 을 빠뜨리면 6단계 tgz 에 규칙셋·분류체계가 안 들어갑니다.</b>
+    tgz 는 <b>서버의 <code>$D</code> 를 그대로 묶는</b> 것이라, "Windows 쪽에 이미 있으니 나중에 넣자" 로
+    미루면 <code>doc_taxonomy.yaml</code>·<code>doc_rule.yaml</code> 이 빠진 채 배포됩니다
+    <span class="def">(2026-08-25 배포본에서 실제로 빠져 있었습니다)</span>.
+    1단계에서 아래를 함께 올려 두세요.</div>
+<pre><code><span class="cmt"># Windows(Git Bash) — 1단계에 같이</span>
+plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build/assets"
+cd /d/Project/CSOClassify
+pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rules.yaml resources/policy/doc_taxonomy.yaml \
+     resources/policy/doc_rule.yaml Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
+     mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/assets/</code></pre>
   </div>
 
   <div class="step">
@@ -425,7 +446,7 @@ done
 
 <span class="cmt"># 규칙셋·seed·모델은 Windows 배포본에서 그대로 복사(OS 무관 동일 파일)</span>
 cd /d/Project/CSOClassify/Rust/dist-onedir
-cp windows/cso_rules.yaml windows/cso_seed.jsonl linux/
+cp windows/cso_rules.yaml windows/doc_taxonomy.yaml windows/doc_rule.yaml windows/class_seed.jsonl linux/
 mkdir -p linux/models
 cp -r windows/models/e5-small-ko linux/models/</code></pre>
     <div class="warn"><b>실행권한은 Windows 를 거치면 사라집니다.</b> 이 폴더를 리눅스로 옮긴 뒤 반드시
@@ -449,12 +470,17 @@ ls -lh /tmp/csoclassify-rs-linux.tgz          <span class="cmt"># 약 95MB</span
 
 <span class="cmt"># 권한이 제대로 들어갔는지 목록으로 확인 — csoclassify-rs 가 -rwx… 여야 한다</span>
 tar tzvf /tmp/csoclassify-rs-linux.tgz</code></pre>
-<pre><code><span class="cmt"># Windows(Git Bash) 로 내려받기</span>
-cd /d/Project/CSOClassify/Rust/dist-onedir
+<pre><code><span class="cmt"># Windows(Git Bash) 로 내려받기 — 배포본 폴더 안에 둔다(구버전이 있으면 덮어쓴다)</span>
+cd /d/Project/CSOClassify/Rust/dist-onedir/linux
 pscp -batch -q -pw '&lt;비밀번호&gt;' mpower@10.10.4.10:/tmp/csoclassify-rs-linux.tgz .
 
 <span class="cmt"># 전송 중 깨지지 않았는지 해시 대조(양쪽 값이 같아야 함)</span>
 sha256sum csoclassify-rs-linux.tgz</code></pre>
+    <div class="warn"><b>tgz 를 두는 자리를 한 곳으로 고정하세요.</b>
+    <code>Rust/dist-onedir/</code> 와 <code>Rust/dist-onedir/linux/</code> 양쪽에 tgz 가 생기면
+    <b>어느 것이 최신인지 알 수 없어</b> 구버전을 배포하게 됩니다.
+    이 문서는 <code>Rust/dist-onedir/linux/</code> 를 기준으로 합니다 — 파이썬 판
+    (<code>dist-onedir/linux/csoclassify-onedir-linux.tgz</code>) 과 같은 구조입니다.</div>
     <div class="ok"><b>받는 쪽(배포 대상 리눅스)에서는 이것만 하면 됩니다.</b>
 <pre style="margin:8px 0 0"><code>tar xzf csoclassify-rs-linux.tgz
 cd csoclassify-rs-linux
@@ -503,7 +529,7 @@ cd csoclassify-rs-linux
     </tr>
     <tr>
       <td>규칙셋 · seed</td>
-      <td colspan="2"><code>cso_rules.yaml</code> · <code>cso_seed.jsonl</code> <span class="def">(OS 무관)</span></td>
+      <td colspan="2"><code>cso_rules.yaml</code> · <code>doc_taxonomy.yaml</code> · <code>doc_rule.yaml</code> · <code>class_seed.jsonl</code> <span class="def">(OS 무관)</span></td>
       <td><code>CSOClassify\resources\policy\cso_rules.yaml</code><br>seed 는 기존 배포본에서 복사</td>
     </tr>
   </table></div>
@@ -528,12 +554,34 @@ cd csoclassify-rs-linux
     <tr><td>2</td><td>규칙 엔진<br><span class="def">(규칙셋 로드)</span></td><td><code>… --rule-only --simple --format jsonl</code></td><td><code>{"file":…,"grade":"C"}</code> 형태 JSON</td></tr>
     <tr><td>3</td><td>임베딩<br><span class="def">(ORT + 모델 로드)</span></td><td><code>… --simple --format jsonl</code> <span class="def">(기본 모드)</span></td><td><code>[전파] seed=NN 전파결정=…</code> 줄이 뜸</td></tr>
     <tr><td>4</td><td>PDF 추출<br><span class="def">(pdfium 로드)</span></td><td>PDF 가 든 폴더에 <code>--dir</code> 실행</td><td>PDF 에 <code>grade</code>·<code>signals.rule.hits</code> 가 채워짐</td></tr>
+    <tr><td>5</td><td>구형 OLE 추출<br><span class="def">(자체 CFB 파서)</span> <span class="def">2026-08-26 추가</span></td>
+        <td>구형 <code>.doc</code>/<code>.xls</code>/<code>.ppt</code>/<code>.hwp</code> 가 든 폴더에 <code>--dir</code> 실행</td>
+        <td>요약 줄의 <code>추출실패=0</code><br><span class="def">Rust 판은 사이냅을 아예 쓰지 않습니다</span></td></tr>
   </table></div>
 
   <div class="ok"><b>실측 결과 (2026-08-24 빌드)</b><br>
   Windows·Linux 두 배포본 모두 1~4 전부 통과.
   Linux 바이너리는 <code>libc / libdl / libpthread / libgcc_s</code> 만 참조하며,
   <code>ELF … for GNU/Linux 2.6.32, stripped</code> — glibc 2.17 이상 어디서나 실행됩니다.</div>
+
+  <h3>기준값 — <code>d:\sample</code> 18건 <span class="def">2026-08-26 측정</span></h3>
+  <p>빌드가 제대로 됐는지 가장 빠르게 보는 방법은 <b>같은 폴더를 파이썬 판과 함께 돌려 숫자가 같은지</b>
+  보는 것입니다. 샘플 18건 중 7건이 구형 <code>.doc</code> 라 추출기 문제가 바로 드러납니다.</p>
+<pre><code>csoclassify-rs --dir /tmp/csosample --rules cso_rules.yaml --rule-only --simple --format jsonl
+
+[summary] 총 18개 / 검출 10, C=7 S=3 O=0 미분류=8 추출실패=0, 총시간=139.4ms
+[summary][업무분류] 인사/총무 1 (교육자료 1) / 미분류 17</code></pre>
+  <div class="scroll"><table>
+    <tr><th>엔진</th><th>사이냅</th><th>결과</th></tr>
+    <tr><td>Rust <code>csoclassify-rs</code> <span class="def">Windows·Linux 동일</span></td><td>안 씀</td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
+    <tr><td>Windows Python</td><td>있음</td><td>검출 10, C=7 S=3 O=0</td></tr>
+    <tr><td>Linux Python</td><td><b>없음</b> + <code>--hybridparse</code></td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
+  </table></div>
+  <div class="note">Rust 판은 구형 OLE 를 <b>CFB 컨테이너를 직접 열어</b> 판정·추출합니다
+  (<code>src/ole.rs</code>·<code>src/office_legacy.rs</code>·<code>src/xls.rs</code>·<code>src/hwp5.rs</code>).
+  파이썬 쪽 <code>detect.py</code> 의 OLE 매직 판정 버그
+  (<a href="csoclassify-빌드가이드-python.html#trouble">파이썬 가이드 8-⑧</a>) 와 <b>무관</b>합니다 —
+  그 수정 때문에 Rust 를 재빌드할 필요는 없습니다.</div>
 
   <h3>자주 쓰는 실행 예</h3>
 <pre><code><span class="cmt"># 폴더 전체를 분류해 파일로 저장 (가장 많이 쓰는 형태)</span>
@@ -575,7 +623,7 @@ An error occurred while attempting to load the ONNX Runtime binary at
   <ul>
     <li>파일 이름이 정확한가 — <code>onnxruntime.dll</code> / <code>libonnxruntime.so</code> (버전 숫자 붙으면 안 됨)</li>
     <li><code>models/e5-small-ko/</code> 안에 <code>model.onnx</code>·<code>tokenizer.json</code> 이 있는가</li>
-    <li><code>cso_seed.jsonl</code> 이 실행파일 옆에 있는가 (없으면 전파 자체가 꺼짐)</li>
+    <li><code>class_seed.jsonl</code> 이 실행파일 옆에 있는가 (없으면 전파 자체가 꺼짐)</li>
   </ul>
 
   <h3>④ <code>link.exe not found</code> / <code>linker 'cc' not found</code> <span class="os">Windows</span></h3>
@@ -607,7 +655,9 @@ cargo build --release
 mkdir dist-onedir\windows\models 2&gt;nul
 copy /Y target\release\csoclassify-rs.exe  dist-onedir\windows\
 copy /Y ..\resources\policy\cso_rules.yaml dist-onedir\windows\
-copy /Y ..\dist-onedir\windows\cso_seed.jsonl dist-onedir\windows\
+copy /Y ..\resources\policy\doc_taxonomy.yaml dist-onedir\windows\
+copy /Y ..\resources\policy\doc_rule.yaml dist-onedir\windows\
+copy /Y ..\dist-onedir\windows\class_seed.jsonl dist-onedir\windows\
 copy /Y ..\dist-onedir\windows\_internal\onnxruntime\capi\onnxruntime.dll                  dist-onedir\windows\
 copy /Y ..\dist-onedir\windows\_internal\onnxruntime\capi\onnxruntime_providers_shared.dll dist-onedir\windows\
 copy /Y ..\dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll                          dist-onedir\windows\
@@ -627,8 +677,14 @@ Compress-Archive -Path "$stage\csoclassify-rs-windows" -DestinationPath $out -Co
   <h3>B. Linux 전체 <span class="def">(1) Windows(Git Bash) 에서 업로드</span></h3>
 <pre><code>cd /d/Project/CSOClassify/Rust
 tar -czf /tmp/rustsrc.tgz Cargo.toml Cargo.lock src resources README.md
-plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build"
-pscp  -batch -pw '&lt;PW&gt;' /tmp/rustsrc.tgz mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/</code></pre>
+plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build/assets"
+pscp  -batch -pw '&lt;PW&gt;' /tmp/rustsrc.tgz mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/
+
+<span class="cmt"># ★ 규칙셋·분류체계·seed·README 도 함께 — 이게 있어야 tgz 가 완전해진다(4-3 경고)</span>
+cd /d/Project/CSOClassify
+pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rules.yaml resources/policy/doc_taxonomy.yaml \
+     resources/policy/doc_rule.yaml Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
+     mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/assets/</code></pre>
 
   <h3><span class="def">(2) 서버에서 빌드 + 조립</span></h3>
 <pre><code>export PATH=/MOCOMSYS/.cargo/bin:$PATH
@@ -652,7 +708,14 @@ strip --strip-unneeded $D/libstdc++.so.6
 chmod +x $D/*.so $D/*.so.*
 cp -r /MOCOMSYS/.csoclassify/CSOClassify/models/e5-small-ko $D/models/
 chmod -R u+rwX,go+rX $D/models
-ls -la $D</code></pre>
+cp $B/assets/cso_rules.yaml $B/assets/doc_taxonomy.yaml $B/assets/doc_rule.yaml \
+   $B/assets/class_seed.jsonl $B/assets/README.txt $D/
+ls -la $D
+
+<span class="cmt"># 검증 — RPATH 가 새겨졌는지, 구형 .doc 가 추출되는지</span>
+readelf -d $B/target/release/csoclassify-rs | grep -i rpath   <span class="cmt"># [$ORIGIN] 이어야 함</span>
+cd $D &amp;&amp; ./csoclassify-rs --dir /경로/샘플 --rules cso_rules.yaml --rule-only --simple --format jsonl \
+  | grep summary                                              <span class="cmt"># 추출실패=0 이어야 함</span></code></pre>
 
   <h3><span class="def">(3) Windows 로 내려받아 마무리</span></h3>
 <pre><code>cd /d/Project/CSOClassify/Rust/dist-onedir/linux
@@ -663,7 +726,7 @@ for f in csoclassify-rs libonnxruntime.so libonnxruntime_providers_shared.so \
 done
 
 cd ..
-cp windows/cso_rules.yaml windows/cso_seed.jsonl linux/
+cp windows/cso_rules.yaml windows/doc_taxonomy.yaml windows/doc_rule.yaml windows/class_seed.jsonl linux/
 mkdir -p linux/models &amp;&amp; cp -r windows/models/e5-small-ko linux/models/</code></pre>
 
   <h3><span class="def">(4) tgz 로 묶어 내려받기 — 권장 배포 형태</span></h3>
@@ -675,7 +738,7 @@ chmod +x /tmp/pkg/csoclassify-rs-linux/csoclassify-rs
 cd /tmp/pkg &amp;&amp; tar czf /tmp/csoclassify-rs-linux.tgz csoclassify-rs-linux
 tar tzvf /tmp/csoclassify-rs-linux.tgz | head</code></pre>
 <pre><code><span class="cmt"># Windows(Git Bash) 에서</span>
-cd /d/Project/CSOClassify/Rust/dist-onedir
+cd /d/Project/CSOClassify/Rust/dist-onedir/linux
 pscp -batch -q -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-rs-linux.tgz .
 sha256sum csoclassify-rs-linux.tgz     <span class="cmt"># 서버 값과 대조</span></code></pre>
 
@@ -691,8 +754,11 @@ cd csoclassify-rs-linux
 </section>
 
 <footer>
-  CSOClassify · csoclassify-rs 빌드 가이드 — 2026-08-24 기준<br>
-  빌드 확인: Windows rustc 1.98.0 (MSVC) · Linux rustc 1.95.0 (CentOS 7.9, glibc 2.17, x86_64-unknown-linux-gnu)
+  CSOClassify · csoclassify-rs 빌드 가이드 — 2026-08-26 기준<br>
+  빌드 확인: Windows rustc 1.98.0 (MSVC) · Linux rustc 1.95.0 (CentOS 7.9, glibc 2.17, x86_64-unknown-linux-gnu)<br>
+  <span class="def">2026-08-26 변경 — 구형 OLE 추출 확인 항목(6장 #5)과 3엔진 기준값 추가.
+  조립 단계에 규칙셋·분류체계 복사(4-3 (6)) 명시, tgz 보관 위치를
+  <code>Rust/dist-onedir/linux/</code> 로 고정.</span>
 </footer>
 
 </div>

@@ -38,8 +38,8 @@
 /ui/*.csv
 **/.ipynb_checkpoints/
 cso_result.jsonl
-cso_seed.jsonl
-cso_seed_audit.jsonl
+class_seed.jsonl
+class_seed_audit.jsonl
 cso_override.jsonl
 grades.jsonl
 
@@ -60,3 +60,28 @@ scratch*
 *.bak
 Thumbs.db
 .DS_Store
+
+# ---- 고객사 실데이터 (공개 저장소에 올리지 않는다) -------------------------
+# 분류체계 스냅샷·원본 export·그 위에 쓴 규칙은 고객사 DB(DOC_CLASSIFICATION)에서
+# 나온 값이라 제품 소스가 아니다. 형식은 *.sample.yaml 로 대신 문서화한다.
+# 경로를 앞에 고정하지 않는다 — Rust 포팅판이 Rust/resources/policy/ 에 같은
+# 파일을 하나 더 들고 있어서, 루트만 막으면 그쪽으로 그대로 새어 나간다.
+**/resources/policy/doc_taxonomy.yaml
+**/resources/policy/doc_classification_export.json
+**/resources/policy/doc_rule.yaml
+**/resources/policy/_old-*/
+# UI 가 실제로 읽고 쓰는 정책 폴더 — 실문서 경로·임베딩 벡터·승인자 이름이 들어간다.
+/ui/policy/
+/ui/policy_org/
+/ui/settings.yaml
+*.jsonl.bak*
+
+# ---- 내부 업무 문서 --------------------------------------------------------
+# 주간계획·개발일정·라벨링시트. 설계 HTML 은 기술문서라 남긴다.
+/plan/*.xlsx
+
+# ---- 편집 중 백업 · 에디터 설정 --------------------------------------------
+*.bak
+*.bak-*
+*.bak_*
+/.claude/

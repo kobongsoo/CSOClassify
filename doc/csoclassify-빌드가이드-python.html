@@ -120,8 +120,10 @@
       <p><b>Windows</b><span class="os">dist-onedir\windows\</span></p>
 <div class="tree">csoclassify.exe            <span class="cmt">실행 본체</span>
 _internal\                 <span class="cmt">파이썬 런타임 + 라이브러리</span>
-cso_rules.yaml             <span class="cmt">규칙셋(외장)</span>
-cso_seed.jsonl             <span class="cmt">전파 기준 seed</span>
+cso_rules.yaml             <span class="cmt">보안등급 규칙셋(외장)</span>
+doc_taxonomy.yaml          <span class="cmt">업무분류 체계 스냅샷(외장)</span>
+doc_rule.yaml              <span class="cmt">업무분류 규칙셋(외장)</span>
+class_seed.jsonl             <span class="cmt">전파 기준 seed</span>
 models\e5-small-ko\        <span class="cmt">임베딩 모델(외장)</span>
 synap\windows\
    ├ snf_exe.exe           <span class="cmt">사이냅 텍스트 추출기</span>
@@ -131,8 +133,10 @@ synap\windows\
     <div>
       <p><b>Linux</b><span class="os">dist-onedir/linux/</span></p>
 <div class="tree">csoclassify-onedir-linux.tgz  <span class="cmt">실행본체+_internal 압축</span>
-cso_rules.yaml                <span class="cmt">규칙셋(외장)</span>
-cso_seed.jsonl                <span class="cmt">전파 기준 seed</span>
+cso_rules.yaml                <span class="cmt">보안등급 규칙셋(외장)</span>
+doc_taxonomy.yaml             <span class="cmt">업무분류 체계 스냅샷(외장)</span>
+doc_rule.yaml                 <span class="cmt">업무분류 규칙셋(외장)</span>
+class_seed.jsonl                <span class="cmt">전파 기준 seed</span>
 models/e5-small-ko/           <span class="cmt">임베딩 모델(외장)</span>
 synap/linux/snf_exe           <span class="cmt">사이냅 추출기(정적링크)</span>
 README.txt</div>
@@ -244,8 +248,10 @@ pyinstaller build\csoclassify.spec</code></pre>
 <span class="cmt">:: (1) 실행본체 + 런타임</span>
 xcopy /E /I /Y dist\csoclassify  dist-onedir\windows
 
-<span class="cmt">:: (2) 규칙셋 · 전파 seed</span>
+<span class="cmt">:: (2) 규칙셋(보안등급 · 업무분류) · 전파 seed</span>
 copy /Y resources\policy\cso_rules.yaml dist-onedir\windows\
+copy /Y resources\policy\doc_taxonomy.yaml dist-onedir\windows\
+copy /Y resources\policy\doc_rule.yaml dist-onedir\windows\
 
 <span class="cmt">:: (3) 임베딩 모델</span>
 xcopy /E /I /Y resources\models\e5-small-ko dist-onedir\windows\models\e5-small-ko
@@ -349,7 +355,8 @@ pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-onedir-linux.tgz
     <p>tgz 옆에 규칙셋·모델·사이냅(리눅스용)을 둡니다. 모델·규칙셋은 <b>OS 무관 동일 파일</b>이라 Windows 쪽에서 복사하면 됩니다.</p>
 <pre><code>cd /d/Project/CSOClassify/dist-onedir/linux
 cp ../../resources/policy/cso_rules.yaml .
-cp ../windows/cso_seed.jsonl .
+cp ../../resources/policy/doc_taxonomy.yaml ../../resources/policy/doc_rule.yaml .
+cp ../windows/class_seed.jsonl .
 mkdir -p models synap/linux
 cp -r ../../resources/models/e5-small-ko models/
 cp ../../resources/synap/linux/snf_exe synap/linux/</code></pre>
@@ -378,8 +385,18 @@ chmod +x csoclassify synap/linux/snf_exe
       <td><code>resources\policy\cso_rules.yaml</code> — 텍스트 파일이라 <b>배포 후에도 편집 가능</b></td>
     </tr>
     <tr>
+      <td>업무분류 체계</td>
+      <td><code>doc_taxonomy.yaml</code></td>
+      <td><code>resources\policy\doc_taxonomy.yaml</code> — <code>csoclassify.exe --export-taxonomy</code> 로 DOC_CLASSIFICATION 에서 내보냄. <b>없으면 업무분류 축이 꺼지고 보안등급만 판정</b></td>
+    </tr>
+    <tr>
+      <td>업무분류 규칙셋</td>
+      <td><code>doc_rule.yaml</code></td>
+      <td><code>resources\policy\doc_rule.yaml</code> — <code>--export-taxonomy --scaffold-doc-rule</code> 로 골격 생성 후 손으로 키워드를 채움. <b>없어도 축은 돌지만</b> 규칙 대신 <code>class_seed.jsonl</code> 전파로만 분류(seed 도 없으면 전부 미분류) <span class="def">2026-08-25 변경</span></td>
+    </tr>
+    <tr>
       <td>전파 seed</td>
-      <td><code>cso_seed.jsonl</code></td>
+      <td><code>class_seed.jsonl</code></td>
       <td>이미 분류된 문서들의 벡터 모음. 기존 배포본에서 복사하거나 운영 중 누적</td>
     </tr>
     <tr>
@@ -397,7 +414,8 @@ python scripts/quantize_onnx.py --model e5-small-ko</code></pre>
       <td>Win <code>synap\windows\</code><br>Linux <code>synap/linux/</code></td>
       <td>Win: <code>MpowerAI_v10\pympower_ext\common\filter4-v4.29.0-windows_64bit_VC9\v4\</code><br>
         Linux: <code>resources/synap/linux/snf_exe</code> <span class="def">(정적 링크라 단독 실행)</span><br>
-        <span class="def">상용 컴포넌트. <code>--hybridparse</code> 사용 시 폴백 용도</span></td>
+        <b>기본 모드에서는 필수</b>(없으면 시작하자마자 <code>ExtractError</code>), <code>--hybridparse</code> 에서는 <b>폴백 전용</b>이라 없어도 됩니다
+        <span class="def">상용 컴포넌트</span></td>
     </tr>
     <tr>
       <td>unrar <span class="def">(선택)</span></td>
@@ -479,10 +497,27 @@ python scripts/quantize_onnx.py --model e5-small-ko</code></pre>
     <tr><td>2</td><td>규칙셋을 찾는가</td><td><code>csoclassify --file 샘플.txt</code></td><td>등급 출력<br><span class="def">못 찾으면 안내 후 종료코드 3</span></td></tr>
     <tr><td>3</td><td>임베딩 모델 로드</td><td><code>csoclassify --embed --file 샘플.txt</code></td><td>384차원 벡터 출력</td></tr>
     <tr><td>4</td><td>하이브리드 추출</td><td><code>csoclassify --dir 폴더 -r --hybridparse</code></td><td>pdf·hwp·docx 모두 등급이 매겨짐</td></tr>
-    <tr><td>5</td><td>사이냅 폴백 <span class="def">(선택)</span></td><td>구형 <code>.hwp</code>/<code>.doc</code> 로 실행</td><td>추출 성공</td></tr>
+    <tr><td>5</td><td><b>구형 OLE 를 사이냅 없이</b> <span class="def">2026-08-26 추가</span></td>
+        <td><code>synap/</code> 폴더를 치운 뒤<br><code>csoclassify --dir 폴더 -r --hybridparse</code></td>
+        <td><code>.doc</code>·<code>.xls</code>·<code>.ppt</code>·구형 <code>.hwp</code> 가 <b>추출실패 0</b><br>
+            <span class="def">한 건이라도 <code>감지=binary</code> 로 실패하면 8-⑧</span></td></tr>
   </table></div>
   <div class="note">첫 실행은 모델을 메모리에 올리느라 <b>수십 초</b> 걸릴 수 있습니다(정상).
   이후에는 모델이 상주해 빨라집니다.</div>
+
+  <h3>기준값 — <code>d:\sample</code> 18건 <span class="def">2026-08-26 측정</span></h3>
+  <p>빌드가 제대로 됐는지 가장 빠르게 보는 방법은 <b>같은 폴더를 세 엔진에 돌려 숫자가 같은지</b> 보는 것입니다.
+  샘플 18건 중 7건이 구형 <code>.doc</code> 라 추출기 문제가 바로 드러납니다.</p>
+<pre><code>총 18개 / 검출 10, C=7 S=3 O=0 미분류=8
+[업무분류] 인사/총무 1 (교육자료 1) / 미분류 17</code></pre>
+  <div class="scroll"><table>
+    <tr><th>엔진</th><th>사이냅</th><th>결과</th></tr>
+    <tr><td>Windows Python</td><td>있음</td><td>검출 10, C=7 S=3 O=0</td></tr>
+    <tr><td>Linux Python</td><td><b>없음</b> + <code>--hybridparse</code></td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
+    <tr><td>Rust <code>csoclassify-rs</code></td><td>안 씀</td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
+  </table></div>
+  <div class="note">세 줄이 <b>완전히 같아야</b> 정상입니다. Linux 쪽만 <code>검출 5, C=3 S=2, 추출실패 7</code> 로 나오면
+  <code>detect.py</code> 의 OLE 판정이 옛 버전인 것입니다 → <a href="#trouble">8-⑧</a></div>
 </section>
 
 
@@ -526,6 +561,29 @@ rmdir /S /Q build\pyi-work dist\csoclassify
 
 <span class="cmt"># Linux</span>
 rm -rf build/pyi-work dist/csoclassify</code></pre>
+
+  <h3>⑧ 구형 <code>.doc</code>/<code>.xls</code>/<code>.ppt</code>/<code>.hwp</code> 가 <code>감지=binary</code> 로 추출 실패 <span class="os">공통</span>
+      <span class="def">2026-08-26 수정</span></h3>
+<pre><code>[csoclassify] 추출 실패: /경로/취업규칙.doc :: 사용 가능한 추출기 없음(감지=binary)</code></pre>
+  <p><b>원인</b> — <code>src/csoclassify/extract/detect.py</code> 의 OLE 매직 판정이 <b>슬라이스를 빠뜨린</b> 버전입니다.
+  <code>head</code> 는 앞 <b>2048바이트</b>인데 8바이트 상수와 통째로 비교하면 절대 참이 되지 않아,
+  <code>.doc</code>·<code>.xls</code>·<code>.ppt</code>·구형 <code>.hwp</code>(모두 OLE 복합문서)가 전부
+  <code>binary</code> 로 떨어집니다.</p>
+<pre><code><span class="cmt"># 잘못된 판정 — 절대 참이 되지 않는다</span>
+if head == _OLE_MAGIC:
+
+<span class="cmt"># 올바른 판정 — 바로 아래 ZIP 판정(head[:4])과 같은 방식</span>
+if head[:8] == _OLE_MAGIC:</code></pre>
+  <p><b>왜 여태 안 보였나</b> — 사이냅이 설치된 환경에서는 <code>binary</code> 로 떨어져도
+  <b>snf 폴백이 조용히 받아내</b> 결과가 정상으로 보였습니다. 사이냅이 없는 리눅스 배포본에서만 드러납니다.</p>
+  <p><b>확인</b> — 소스 한 줄로 바로 볼 수 있습니다. <code>doc</code> 이 나와야 정상이고 <code>binary</code> 면 옛 버전입니다.</p>
+<pre><code>PYTHONPATH=src python -c "from csoclassify.extract.detect import detect_format; print(detect_format('샘플.doc'))"</code></pre>
+  <div class="note"><b>고쳐도 기존 판정은 바뀌지 않습니다.</b> <code>d:\sample</code> 18건을 등급뿐 아니라
+  판정 근거 용어까지 전수 대조한 결과 <b>차이 0건</b>이었습니다 — 자체 <code>.doc</code> 파서가 뽑는 텍스트가
+  사이냅이 뽑던 것과 규칙 판정 면에서 동등합니다. 달라지는 것은 <b>사이냅이 없는 환경</b>뿐으로,
+  <code>검출 5 → 10</code>, <code>추출실패 7 → 0</code> 이 됩니다.</div>
+  <div class="note">Rust 판(<code>csoclassify-rs</code>)은 CFB 컨테이너를 직접 열어 판정하므로
+  이 버그와 무관합니다. 재빌드가 필요 없습니다.</div>
   <p class="def">PyInstaller 는 중간 산출물을 캐시합니다. spec 을 고쳤는데 반영이 안 되면 지우고 다시 빌드하세요.</p>
 </section>
 
@@ -544,6 +602,8 @@ pyinstaller build\csoclassify.spec
 
 xcopy /E /I /Y dist\csoclassify dist-onedir\windows
 copy  /Y resources\policy\cso_rules.yaml dist-onedir\windows\
+copy  /Y resources\policy\doc_taxonomy.yaml dist-onedir\windows\
+copy  /Y resources\policy\doc_rule.yaml dist-onedir\windows\
 xcopy /E /I /Y resources\models\e5-small-ko dist-onedir\windows\models\e5-small-ko
 xcopy /E /I /Y ..\MpowerAI_v10\pympower_ext\common\filter4-v4.29.0-windows_64bit_VC9\v4 dist-onedir\windows\synap\windows
 
@@ -572,7 +632,8 @@ ls -lh /tmp/csoclassify-onedir-linux.tgz</code></pre>
 pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-onedir-linux.tgz .
 
 cp ../../resources/policy/cso_rules.yaml .
-cp ../windows/cso_seed.jsonl .
+cp ../../resources/policy/doc_taxonomy.yaml ../../resources/policy/doc_rule.yaml .
+cp ../windows/class_seed.jsonl .
 mkdir -p models synap/linux
 cp -r ../../resources/models/e5-small-ko models/
 cp ../../resources/synap/linux/snf_exe synap/linux/</code></pre>
@@ -585,8 +646,10 @@ chmod +x csoclassify synap/linux/snf_exe
 </section>
 
 <footer>
-  CSOClassify(원본 · Python) 빌드 가이드 — 2026-08-24 기준<br>
-  확인 조합: Windows Python 3.12.10 + PyInstaller 6.22.0 · Linux conda <code>bong</code> Python 3.13.5 + PyInstaller 6.22.0 (CentOS 7.9, glibc 2.17)
+  CSOClassify(원본 · Python) 빌드 가이드 — 2026-08-26 기준<br>
+  확인 조합: Windows Python 3.12.10 + PyInstaller 6.22.0 · Linux conda <code>bong</code> Python 3.13.5 + PyInstaller 6.22.0 (CentOS 7.9, glibc 2.17)<br>
+  <span class="def">2026-08-26 변경 — <code>detect.py</code> OLE 매직 판정 수정(8-⑧). <code>--hybridparse</code> 가 구형
+  <code>.doc</code>/<code>.xls</code>/<code>.ppt</code>/<code>.hwp</code> 를 사이냅 없이 처리합니다. 기준값은 7장.</span>
 </footer>
 
 </div>

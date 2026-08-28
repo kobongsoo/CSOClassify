@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기준 문서(seed) 저장소 — 두 축 통합 설계</title>
+</head>
+<body>
+<style>
+  :root{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+    --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","맑은 고딕",-apple-system,"Apple SD Gothic Neo",system-ui,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","Cascadia Mono",Consolas,"D2Coding",monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+      --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+      --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+      --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+    --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+    --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+    --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.7;-webkit-font-smoothing:antialiased;font-size:16px;letter-spacing:-0.003em;}
+  .wrap{max-width:920px;margin:0 auto;padding:0 24px 96px;}
+
+  header.doc{padding:56px 0 34px;border-bottom:1px solid var(--line);margin-bottom:40px;}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;display:flex;gap:10px;align-items:center;margin-bottom:20px;}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);border-radius:2px;}
+  h1.title{font-size:clamp(28px,4.6vw,44px);line-height:1.12;margin:0 0 14px;font-weight:800;
+    letter-spacing:-0.02em;text-wrap:balance;}
+  .lede{font-size:clamp(16px,2.1vw,19px);color:var(--muted);margin:0 0 22px;max-width:62ch;}
+  .lede b{color:var(--ink);font-weight:600;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;}
+  .chip{font-size:12px;font-family:var(--mono);color:var(--muted);background:var(--surface);
+    border:1px solid var(--line);border-radius:999px;padding:5px 12px;}
+  .chip b{color:var(--ink);font-weight:600;}
+
+  section{margin:52px 0;scroll-margin-top:20px;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:22px;}
+  .sec-num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);
+    border:1px solid var(--line-strong);border-radius:7px;padding:3px 9px;flex:none;line-height:1.3;}
+  h2{font-size:clamp(21px,3vw,27px);margin:0;font-weight:750;letter-spacing:-0.015em;line-height:1.25;text-wrap:balance;}
+  h3{font-size:17px;margin:30px 0 12px;font-weight:700;letter-spacing:-0.01em;}
+  p{margin:0 0 15px;max-width:68ch;}
+  a{color:var(--accent-2);text-underline-offset:3px;text-decoration-thickness:1px;}
+  ul.plain{margin:0 0 15px;padding-left:20px;} ul.plain li{margin:5px 0;color:var(--muted);}
+  ul.plain li b{color:var(--ink);font-weight:600;}
+
+  .tldr{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:12px;padding:22px 24px;box-shadow:var(--shadow);}
+  .tldr .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:10px;}
+  .tldr p{margin:0;font-size:17px;color:var(--ink);max-width:none;}
+  .tldr b{color:var(--accent-2);}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;}
+  .card .cap{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--faint);
+    text-transform:uppercase;margin-bottom:8px;}
+  .card .h{font-weight:700;margin-bottom:6px;font-size:15.5px;}
+  .card .d{font-size:14px;color:var(--muted);margin:0;}
+
+  .twrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);}
+  table{border-collapse:collapse;width:100%;font-size:14px;min-width:520px;background:var(--surface);}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{background:var(--surface-2);font-size:12px;letter-spacing:.03em;color:var(--muted);
+    text-transform:uppercase;font-weight:700;white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,.mono-cell{font-family:var(--mono);font-size:13px;}
+  td b{font-weight:700;}
+
+  .st-pill{font-family:var(--mono);font-weight:700;font-size:12px;padding:2px 8px;border-radius:6px;white-space:nowrap;}
+  .st-pill.on{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+  .st-pill.off{color:var(--muted);background:var(--surface-2);border:1px solid var(--line-strong);}
+  .st-pill.warn{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;
+    overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.65;box-shadow:var(--shadow);color:var(--ink);}
+  pre .cm{color:var(--o);} pre .kw{color:var(--accent-2);font-weight:600;} pre .hi{color:var(--c);font-weight:600;}
+  pre .st{color:var(--s);}
+  code.inl{font-family:var(--mono);font-size:.9em;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;}
+
+  .note{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:16px 18px;
+    font-size:14.5px;display:flex;gap:12px;align-items:flex-start;margin:16px 0;}
+  .note .badge{font-family:var(--mono);font-size:10.5px;font-weight:800;letter-spacing:.06em;
+    padding:3px 8px;border-radius:6px;flex:none;text-transform:uppercase;}
+  .note.safe .badge{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+  .note.warn .badge{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+  .note.bad .badge{color:var(--c);background:var(--c-soft);border:1px solid color-mix(in srgb,var(--c) 35%,transparent);}
+  .note.info .badge{color:var(--accent-2);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent-2) 35%,transparent);}
+  .note p{margin:0;color:var(--muted);max-width:none;}
+  .note b{color:var(--ink);}
+
+  .road{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--line-strong);margin-left:8px;}
+  .phase{position:relative;padding:0 0 24px 26px;}
+  .phase:last-child{padding-bottom:0;}
+  .phase::before{content:"";position:absolute;left:-9px;top:2px;width:15px;height:15px;border-radius:50%;
+    background:var(--surface);border:2.5px solid var(--accent);}
+  .phase .pn{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.05em;}
+  .phase .ph{font-weight:700;margin:2px 0 3px;font-size:15.5px;}
+  .phase .pd{font-size:14px;color:var(--muted);margin:0;max-width:66ch;}
+
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;
+    box-shadow:var(--shadow);}
+  .panel .ptitle{font-weight:750;font-size:15.5px;margin-bottom:12px;}
+  .checkrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:14px;}
+  .checkrow:last-child{border-bottom:none;}
+  .checkrow .n{font-family:var(--mono);font-weight:700;margin-left:auto;color:var(--ink);}
+  .checkrow .btn{font-size:12px;font-family:var(--mono);border:1px solid var(--line-strong);
+    border-radius:7px;padding:3px 9px;color:var(--muted);white-space:nowrap;}
+
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);
+    font-size:13px;color:var(--faint);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+    font-family:var(--mono);letter-spacing:.02em;}
+  @media print{ body{background:#fff;} .tldr,pre,.twrap,.panel{box-shadow:none;} }
+</style>
+
+<div class="wrap">
+
+  <header class="doc">
+    <div class="eyebrow">저장소 설계 · Seed Store</div>
+    <h1 class="title">기준 문서(seed) 저장소<br>— 보안등급 · 업무분류 두 축 통합 설계</h1>
+    <p class="lede">기준 문서 하나가 <b>보안등급(C/S/O)</b> 과 <b>업무분류(dc_id)</b> 두 축을 동시에 떠받치게 만든다. 파일 이름·한 줄 스키마·축별 해제 방식을 정하고, <b>원본이 바뀌거나 사라졌을 때</b> 그것을 어떻게 알아채고 반영할지까지 규정한다.</p>
+    <div class="meta">
+      <span class="chip"><b>대상</b> class_seed.jsonl</span>
+      <span class="chip"><b>축</b> security + doctype</span>
+      <span class="chip"><b>엔진</b> Python · Rust 공통</span>
+      <span class="chip"><b>상태</b> 구현 완료 · 2026-08-28</span>
+      <span class="chip"><b>작성일</b> 2026-08-28</span>
+    </div>
+  </header>
+
+  <div class="tldr">
+    <div class="k">한 줄 요약</div>
+    <p>한 문서 = 한 줄 = 벡터 하나를 유지한 채, <b>엔진이 읽는 키(<code class="inl">grade</code> · <code class="inl">labels.doctype</code> · <code class="inl">vector</code>)는 모양을 그대로 두고</b> 축별 이력·상태를 담는 <code class="inl">axes</code> 블록을 새로 얹는다. 파일 이름은 <b>class_seed.jsonl</b> 로 새로 시작한다(옛 파일 이관 없음). 원본 변경·삭제·분류체계 변경은 <b>시스템이 표시만 하고, 지우는 것은 사람이 한다.</b></p>
+  </div>
+
+  <!-- 01 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>현재 상태 — 두 축은 이미 한 파일에 들어가 있다</h2></div>
+    <p>설계를 새로 짜기 전에 코드가 이미 하고 있는 일부터 확인했다. 결론은 <b>출발점이 생각보다 앞서 있다</b>는 것이다.</p>
+
+    <div class="twrap">
+      <table>
+        <thead><tr><th>축</th><th>저장 위치(한 줄 안에서)</th><th>읽는 코드</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>보안등급</b></td>
+            <td class="mono">행 맨 위 <code class="inl">grade</code> ("C"/"S"/"O")</td>
+            <td class="mono">propagate.py · SeedIndex.from_seed_file<br>propagate.rs · SeedIndex::from_seed_file</td>
+          </tr>
+          <tr>
+            <td><b>업무분류</b></td>
+            <td class="mono"><code class="inl">labels.doctype</code> (dc_id <b>배열</b>)</td>
+            <td class="mono">propagate.py · DoctypeSeedIndex.from_seed_file<br>propagate.rs · DoctypeSeedIndex::from_seed_file</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:16px">한 문서가 한 줄을 차지하고, 그 줄의 <b>벡터 하나를 두 축이 나눠 쓴다</b>. 즉 "두 축을 담을 수 있게 만드는" 일은 이미 끝나 있다. 실제로 없는 것은 그 다음이다.</p>
+
+    <div class="cards">
+      <div class="card"><div class="cap">없음 1</div><div class="h">축별 이력</div><p class="d">누가·언제·왜 이 축을 확정했는지 축마다 따로 남지 않는다. <code class="inl">approved_by</code>·<code class="inl">ts</code> 가 행에 하나뿐이라 나중에 확정한 축이 앞의 기록을 덮는다.</p></div>
+      <div class="card"><div class="cap">없음 2</div><div class="h">축별 해제</div><p class="d">삭제 버튼이 행을 통째로 지운다. "업무분류만 기준에서 빼고 보안등급은 유지"가 불가능하다.</p></div>
+      <div class="card"><div class="cap">없음 3</div><div class="h">원본과의 동기화</div><p class="d">seed 는 원본의 <b>사본(벡터)</b> 을 들고 있다. 원본이 수정·삭제돼도 알아채는 장치가 전혀 없다.</p></div>
+    </div>
+
+    <div class="note bad">
+      <span class="badge">지금 있는 함정</span>
+      <p>UI 의 <code class="inl">add_doctype_seed()</code> 는 <code class="inl">labels.security</code> 를 미러링해 두지만 <b>엔진 어느 쪽도 그 키를 읽지 않는다</b>(둘 다 맨 위 <code class="inl">grade</code> 만 본다). 지금은 무해하지만, 나중에 정리한다며 <code class="inl">grade</code> 를 지우고 <code class="inl">labels.security</code> 만 남기는 순간 <b>보안축 전파가 에러 없이 0건</b>이 된다. 아래 스키마는 이 지점을 정면으로 다룬다.</p>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>파일 이름 — class_seed.jsonl 로 새로 시작</h2></div>
+    <p><code class="inl">cso_</code> 접두사는 이 프로젝트에서 <b>보안축 전용 표식</b>이다(<code class="inl">cso_rules.yaml</code> = 보안규칙, <code class="inl">doc_rule.yaml</code> = 업무분류규칙). 두 축 공통 저장소에는 어느 쪽 접두사도 맞지 않으므로 제3의 이름을 쓴다.</p>
+
+    <div class="twrap">
+      <table>
+        <thead><tr><th>용도</th><th>이름</th></tr></thead>
+        <tbody>
+          <tr><td>기준 문서 저장소</td><td class="mono"><b>class_seed.jsonl</b></td></tr>
+          <tr><td>변경 이력(append-only)</td><td class="mono"><b>class_seed_audit.jsonl</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>찾는 순서</h3>
+    <p><b>하위호환 없음</b> — 옛 이름은 찾지도, 읽지도, 안내하지도 않는다.</p>
+    <pre><span class="kw">--seeds</span> 로 지정한 경로
+   ↓ 없으면
+CSOCLASSIFY_POLICY_DIR/class_seed.jsonl
+   ↓ 없으면
+실행파일 옆 class_seed.jsonl
+   ↓ 없으면
+기준 문서 없음 → 규칙만으로 분류 (지금과 동일, 조용히 진행)</pre>
+
+    <h3>버려지는 것</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>파일</th><th>내용</th><th>처리</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">ui/policy/cso_seed.jsonl</td><td><b>1건</b> (8.6KB)</td><td>버림 — 문서함에서 다시 등록하면 끝</td></tr>
+          <tr><td class="mono">ui/cso_seed_audit.jsonl</td><td>1줄</td><td>버림</td></tr>
+          <tr><td class="mono">Rust/dist-onedir/*/cso_seed.jsonl</td><td>69건</td><td><b>삭제</b> (아래 참고)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:16px">실사용 손실이 1건뿐이라 이관 절차를 만들 이유가 없다. 배포본의 69건은 앞서 "무시하고 항상 <code class="inl">--seeds</code> 로 UI 경로를 넘긴다"로 정한 대상인데, <b>파일이 남아 있으면 <code class="inl">--seeds</code> 를 빠뜨렸을 때 조용히 그 69건이 기준으로 쓰인다.</b> 이름을 바꾸는 김에 아예 지워서 그 함정을 없앤다.</p>
+
+    <div class="note safe">
+      <span class="badge">덤</span>
+      <p>이관·fallback·경고문이 통째로 사라지므로 새 파일은 <b>처음부터 v2 스키마로만</b> 만들어진다. <code class="inl">v</code> 없는 옛 행을 역산하는 분기도 필요 없다.</p>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>한 줄 스키마 (v2)</h2></div>
+
+    <div class="note bad">
+      <span class="badge">불변 규칙</span>
+      <p><b>엔진이 읽는 키의 모양은 절대 바꾸지 않는다.</b> <code class="inl">labels.doctype</code> 을 배열에서 객체로 바꾸면 Rust 의 <code class="inl">as_array()</code> 가 <code class="inl">None</code> 을 돌려주고 그 줄을 <b>조용히 건너뛴다</b> — 에러 한 줄 없이 기준 문서가 사라지는, 가장 나쁜 종류의 고장이다. 새 정보는 전부 <b>엔진이 무시하는 새 블록</b>에 넣는다.</p>
+    </div>
+
+<pre>{
+  <span class="kw">"v"</span>: 2,
+  <span class="kw">"file"</span>: "d:/sample/03.경조사지원규정.txt",
+  <span class="kw">"vector"</span>: [ ... 384개 ... ],
+
+  <span class="cm">// ── 엔진이 읽는 키 (모양 고정 · axes 로부터 자동 생성되는 파생값) ──</span>
+  <span class="hi">"grade"</span>: "C",
+  <span class="hi">"labels"</span>: { "security": "C", "doctype": ["DC_004_003"] },
+
+  <span class="cm">// ── 진실은 여기 · 엔진은 이 블록을 읽지 않는다 ──</span>
+  <span class="kw">"axes"</span>: {
+    "security": { "state": "active", "value": "C",
+                  "source": "phase4", "approved_by": "홍길동",
+                  "ts": "2026-08-28T09:10:00+09:00", "note": "" },
+    "doctype":  { "state": "active", "value": ["DC_004_003"],
+                  "source": "phase6", "approved_by": "홍길동",
+                  "ts": "2026-08-28T09:12:00+09:00", "note": "" }
+  },
+
+  <span class="cm">// ── 원본·벡터의 신원 (동기화 판정 재료) ──</span>
+  <span class="kw">"doc"</span>:   { "hash": "9f2c4a…(SHA-256 16진수)", "size": 12345,
+             "mtime": "2026-08-20T18:03:11+09:00" },
+  <span class="kw">"embed"</span>: { "dim": 384,        <span class="cm">// model 은 엔진이 아직 안 알려 준다</span>
+             "ts": "2026-08-28T09:10:00+09:00" },
+
+  <span class="kw">"ts"</span>: "2026-08-28T09:12:00+09:00", <span class="kw">"approved_by"</span>: "홍길동"
+}</pre>
+
+    <h3>읽는 법 — axes 가 진실, 위쪽은 파생값</h3>
+    <p>저장 직전에 <code class="inl">axes</code> → <code class="inl">grade</code>/<code class="inl">labels</code> 로 <b>한 번 투영(project)하는 함수 하나</b>만 두고, 다른 어떤 코드도 <code class="inl">grade</code> 를 직접 쓰지 않는다. 투영 규칙은 두 줄이면 끝난다.</p>
+<pre><span class="cm"># axes 를 읽어 엔진용 키를 다시 만든다 — 저장할 때마다 무조건 이 함수를 통과시킨다</span>
+security.state == "active"  →  grade = value,  labels.security = value
+doctype.state  == "active"  →  labels.doctype = value
+
+<span class="cm"># 비활성 축은 키 자체를 지운다 (빈 값으로 두지 않는다)</span>
+그 외  →  해당 키를 행에서 <span class="hi">삭제</span></pre>
+
+    <div class="note warn">
+      <span class="badge">왜 빈 값이 아니라 삭제인가</span>
+      <p><code class="inl">"labels.doctype": []</code> 는 엔진이 이미 건너뛰므로 동작은 같다. 하지만 <b>"값이 없다"와 "축을 해제했다"를 사람이 구분할 수 없게 된다</b> — 점검 화면에서 둘은 완전히 다른 조치를 뜻한다.</p>
+    </div>
+
+    <h3>새 필드가 각각 막아 주는 사고</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>필드</th><th>없으면 무슨 일이 생기나</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">doc.hash</td><td>원본 내용이 바뀌어도 <b>낡은 벡터로 계속 전파</b>한다. 두 엔진 모두 <code class="inl">--hash</code>(SHA-256)를 이미 지원하므로 UI 가 분류 실행에 그 인자만 붙이면 공짜로 얻는다.</td></tr>
+          <tr><td class="mono">doc.size / mtime</td><td>해시를 못 구한 경우의 보조 판정 재료. 사람이 눈으로 확인할 때도 쓰인다.</td></tr>
+          <tr><td class="mono">embed.dim</td><td>임베딩 모델을 교체했을 때 <b>옛 벡터와 새 벡터를 코사인으로 비교</b>하게 된다. 유사도가 의미 없는 숫자가 되는데도 전파는 태연히 돌아간다. <b>구현 메모</b> — 엔진이 모델 이름을 결과에 담지 않아 <code class="inl">model</code> 은 아직 비어 있다. 대신 <b>벡터 차원이 대다수와 다른 줄</b>을 점검에서 잡아낸다(모델 교체의 실제 흔적은 대부분 차원 변화로 나타난다).</td></tr>
+          <tr><td class="mono">axes.*.source / approved_by / ts</td><td>축별 책임 추적 불가. 행에 하나뿐인 <code class="inl">approved_by</code> 를 나중 축이 덮어쓴다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>왜 파일을 두 개로 쪼개지 않는가</h3>
+    <p><code class="inl">seed_security.jsonl</code> + <code class="inl">seed_doctype.jsonl</code> 로 나누는 안은 <b>권하지 않는다.</b></p>
+    <ul class="plain">
+      <li>한 문서가 두 축 모두의 기준일 때 <b>384차원 벡터가 두 벌로 복제</b>된다(행당 대략 6~8KB).</li>
+      <li>더 중요한 것 — <b>near-dup 중복 검사가 축을 가로질러 돌지 못한다.</b> 같은 문서를 보안축에선 사본으로 거르고 업무분류축에선 통과시키는 상황이 생긴다.</li>
+      <li>원본 변경·삭제 판정을 <b>두 파일에서 각각</b> 해야 하고, 두 결과가 어긋날 수 있다.</li>
+    </ul>
+    <p>문서가 원자 단위인 이상 행도 문서 단위여야 한다.</p>
+  </section>
+
+  <!-- 04 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>축 하나만 지운다는 것 — state</h2></div>
+    <p>두 축이 생긴 이상 "업무분류만 기준에서 빼고 보안등급은 유지"가 반드시 필요하다. 상태값은 셋이면 충분하다.</p>
+
+    <div class="twrap">
+      <table>
+        <thead><tr><th>state</th><th>뜻</th><th>누가 붙이나</th><th>전파에 쓰이나</th></tr></thead>
+        <tbody>
+          <tr><td><span class="st-pill on">active</span></td><td>관리자가 확정한 기준</td><td>사람</td><td><b>예</b></td></tr>
+          <tr><td><span class="st-pill off">retired</span></td><td>관리자가 이 축을 해제</td><td>사람</td><td>아니오 (이력만 남김)</td></tr>
+          <tr><td><span class="st-pill warn">suspect</span></td><td>원본 변경 · 원본 없음 · 유령 분류코드</td><td><b>시스템</b></td><td><b>아니오</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul class="plain" style="margin-top:16px">
+      <li><b>축 하나 해제</b> → 그 축만 <code class="inl">retired</code>, 다른 축은 그대로. 행은 남는다.</li>
+      <li><b>두 축을 모두 사람이 해제(retired)하면 행을 파일에서 제거한다.</b> 이력은 감사 로그가 갖고 있다.</li>
+      <li><b>다만 suspect 행은 반드시 남긴다.</b> 구현 중에 실제로 겪은 함정이다 — "살아 있는 축이 없으면 지운다"로 만들었더니, 원본이 바뀌어 두 축이 suspect 로 빠진 문서가 <b>저장하는 순간 파일에서 사라졌다</b>. 사람이 확인해 되살릴 대상인데 되살릴 방법도, 무엇이 있었는지 알 방법도 없어진다.</li>
+      <li><b>suspect 는 사람이 아니라 시스템이 붙인다.</b> 사람이 확인해서 되살리거나(active) 지운다.</li>
+    </ul>
+  </section>
+
+  <!-- 05 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>원본이 바뀌거나 사라지면 — 반영 규칙</h2></div>
+    <p>이것이 설계의 진짜 어려운 절반이다. seed 는 <b>원본 문서의 사본(벡터)</b> 을 들고 있어서 원본과 조용히 어긋날 수 있다. 시나리오별로 판정과 조치를 못박아 둔다.</p>
+
+    <div class="twrap">
+      <table>
+        <thead><tr><th style="width:22%">무슨 일</th><th style="width:26%">어떻게 아나</th><th>조치</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>1. 등급 변경</b><br><span style="color:var(--muted);font-size:13px">S → C</span></td>
+            <td>UI 편집</td>
+            <td><code class="inl">axes.security.value</code> 교체 + <code class="inl">ts</code>/<code class="inl">approved_by</code> 갱신 → 투영 → 감사 <code class="inl">update</code></td>
+          </tr>
+          <tr>
+            <td><b>2. 한 축만 해제</b></td>
+            <td>UI 축별 해제 버튼</td>
+            <td><code class="inl">axes.doctype.state = "retired"</code>, <code class="inl">labels.doctype</code> <b>키 삭제</b>. 보안축은 무사</td>
+          </tr>
+          <tr>
+            <td><b>3. 원본 내용이 수정됨</b></td>
+            <td><code class="inl">doc.hash</code> ≠ 이번 분류 결과의 <code class="inl">hash</code></td>
+            <td><span class="st-pill warn">suspect</span> (사유 <code class="inl">stale</code>). <b>자동 삭제 금지 · 자동 재임베딩도 금지</b> — 등급까지 바뀌었는지는 사람만 안다. UI 가 "원본이 바뀐 기준 문서 N건" 배지 → 관리자가 <b>[다시 읽어 갱신]</b> 을 누르면 재추출·재임베딩 후 active 복귀</td>
+          </tr>
+          <tr>
+            <td><b>4. 원본이 삭제/이동됨</b></td>
+            <td>분류 시 경로 부재</td>
+            <td><span class="st-pill warn">suspect</span> (사유 <code class="inl">missing</code>). 즉시 지우지 않는다 — 벡터·라벨은 원본이 없어도 여전히 쓸모 있는 지식이고, <b>네트워크 드라이브가 잠깐 안 붙은 것과 진짜 삭제를 구분할 수 없다.</b> 같은 <code class="inl">doc.hash</code> 가 다른 경로에서 발견되면 "이동된 것 같습니다 — 경로를 갱신할까요?" 로 자동 재연결 제안</td>
+          </tr>
+          <tr>
+            <td><b>5. 분류체계에서 dc_id 가 사라짐</b></td>
+            <td><code class="inl">doc_taxonomy.yaml</code> 에 그 dc_id 없음</td>
+            <td>그 dc_id 만 <code class="inl">axes.doctype.value</code> 에서 빼고 <code class="inl">orphan</code> 으로 기록. 남은 dc_id 가 없으면 축을 <span class="st-pill warn">suspect</span>. <b>이미 빠진 축은 다시 세지 않는다</b> — 안 그러면 정리를 끝낸 뒤에도 경고가 영영 사라지지 않는다(그 줄은 ‘확인 필요’ 목록에서 처리한다). taxonomy 에 <code class="inl">renamed_from</code> 별칭을 두면 자동 이관(미구현)</td>
+          </tr>
+          <tr>
+            <td><b>6. 결과 화면에서 seed 와 다르게 확정</b></td>
+            <td>확정 시 seed 조회</td>
+            <td>조용히 덮지 말 것. <b>"이 문서는 기준 문서(C)입니다 — 기준도 O 로 바꿀까요?"</b> 를 물어야 한다. 안 물으면 결과와 기준이 어긋난 채로 다음 분류에서 <b>그 문서가 스스로를 잘못 가르친다</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note bad" style="margin-top:20px">
+      <span class="badge">대원칙</span>
+      <p><b>시스템은 절대 스스로 지우지 않는다. 표시만 하고, 지우는 것은 사람이 한다.</b> 기준 문서 한 건이 잘못 사라지면 그와 비슷한 문서 수십 건의 분류가 함께 흔들린다. 오탐으로 지우는 쪽이 남겨 두는 쪽보다 훨씬 비싸다.</p>
+    </div>
+
+    <div class="note safe">
+      <span class="badge">비용 0</span>
+      <p>위 판정은 <b>분류를 돌릴 때 공짜로</b> 얻는다 — 어차피 전 문서를 훑으므로 <code class="inl">--hash</code> 결과와 seed 를 대조만 하면 된다. 별도 스캔 작업이 필요 없다.</p>
+    </div>
+  </section>
+
+  <!-- 06 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>기준 문서 점검 — 한 화면</h2></div>
+    <p>위 판정들을 모아 보여줄 자리가 있어야 한다. <b>[기준 문서 점검]</b> 버튼 하나로 다음을 센다.</p>
+
+    <div class="panel">
+      <div class="ptitle">기준 문서 128건 — 보안 96 · 업무분류 74 (둘 다 42)</div>
+      <div class="checkrow"><span>⚠ 원본이 바뀜</span><span class="n">3건</span><span class="btn">다시 읽어 갱신</span></div>
+      <div class="checkrow"><span>⚠ 원본을 못 찾음</span><span class="n">1건</span><span class="btn">이동된 곳 찾기</span><span class="btn">삭제</span></div>
+      <div class="checkrow"><span>⚠ 없는 업무분류 코드</span><span class="n">2건</span><span class="btn">코드 정리</span></div>
+      <div class="checkrow"><span>⚠ 벡터 없음</span><span class="n">0건</span><span class="btn">벡터 만들기</span></div>
+      <div class="checkrow"><span>⚠ 다른 모델로 만든 벡터</span><span class="n">0건</span><span class="btn">다시 읽어 갱신</span></div>
+      <div class="checkrow"><span>⚠ 거의 같은 문서인데 등급이 다름</span><span class="n">1쌍</span><span class="btn">비교</span></div>
+      <div class="checkrow"><span>⚠ 확인 필요로 빠져 있음</span><span class="n">2건</span><span class="btn">다시 사용</span><span class="btn">해제</span></div>
+    </div>
+
+    <div class="note warn">
+      <span class="badge">마지막 줄이 핵심</span>
+      <p>유사도 0.99 인 두 문서가 하나는 <b>C</b>, 하나는 <b>O</b> 로 등록돼 있으면 그 근처 문서는 전부 <code class="inl">mixed</code> 로 떨어져 <b>전파가 사실상 꺼진다</b>. 지금은 이걸 확인할 방법이 전혀 없다.</p>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>감사 로그</h2></div>
+    <p>지금은 <code class="inl">detail</code> 이 자유 문자열이라 나중에 기계가 못 읽는다. <b>축과 전후값을 칸으로 분리</b>한다.</p>
+<pre>{"ts":"2026-08-28T09:12:00+09:00", "action":"update", <span class="hi">"axis":"security"</span>,
+ "file":"d:/sample/03.경조사지원규정.txt",
+ <span class="hi">"before":"S", "after":"C"</span>, "reviewer":"홍길동", "reason":"오분류 정정"}</pre>
+    <ul class="plain">
+      <li><code class="inl">action</code> = <code class="inl">add</code> | <code class="inl">update</code> | <code class="inl">retire</code> | <code class="inl">restore</code> | <code class="inl">suspect</code> | <code class="inl">delete</code></li>
+      <li><code class="inl">axis</code> = <code class="inl">security</code> | <code class="inl">doctype</code> | <code class="inl">-</code>(행 전체)</li>
+      <li>append-only 는 그대로 유지 — 이 파일이 <b>행을 지운 뒤의 유일한 이력</b>이다.</li>
+    </ul>
+  </section>
+
+  <!-- 08 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2>손대야 할 곳</h2></div>
+    <div class="twrap">
+      <table>
+        <thead><tr><th style="width:18%">영역</th><th>대상</th></tr></thead>
+        <tbody>
+          <tr><td><b>Rust</b></td><td class="mono">main.rs · default_seed_path() / 도움말 2줄 / --vector-only 에러문구<br>propagate.rs · 주석 2곳</td></tr>
+          <tr><td><b>Python</b></td><td class="mono">cli.py · 도움말<br>classify/propagate.py · 주석</td></tr>
+          <tr><td><b>UI</b></td><td class="mono">settings.yaml · paths.seed / paths.seed_audit<br>uisettings.py · 기본값<br>seedstore.py · axes 투영·축별 해제·점검<br>app.py · 등록/해제/점검 화면, 분류 실행에 --hash 추가</td></tr>
+          <tr><td><b>문서·배포</b></td><td class="mono">README.md · Rust/README.md · plan/설계서.md<br>linux tgz 패키징 목록 (옛 cso_seed.jsonl 제거)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info">
+      <span class="badge">위험 낮음</span>
+      <p>UI 가 항상 <code class="inl">--seeds</code> 를 넘기는 현행 정책 덕분에 <b>실사용 경로는 파일 이름과 무관</b>하다. 이름 변경의 위험은 배포본 기본 경로와 문서에만 남는다.</p>
+    </div>
+  </section>
+
+  <!-- 09 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">09</span><h2>하는 김에 고칠 것 — 지금 있는 버그</h2></div>
+    <div class="twrap">
+      <table>
+        <thead><tr><th style="width:32%">증상</th><th>원인</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>삭제 버튼이 아무 일도 안 하고 성공으로 보인다</b></td>
+            <td><code class="inl">remove_seed()</code>·<code class="inl">set_grade()</code> 와 app.py 의 중복 확인이 경로를 <b>정규화 없이</b> 비교한다(<code class="inl">add_seed()</code> 만 <code class="inl">norm_file</code> 사용). <code class="inl">D:\sample\a.doc</code> 로 등록된 것을 <code class="inl">d:/sample/a.doc</code> 로 지우면 실패한다</td>
+          </tr>
+          <tr>
+            <td><b>같은 문서가 두 줄로 들어간다</b></td>
+            <td><code class="inl">bulk_add_confident()</code> 의 중복 검사도 원문 경로 집합을 쓴다 — 표기만 다르면 통과한다. 두 줄이 되면 전파에서 <b>같은 문서가 두 번 투표</b>한다</td>
+          </tr>
+          <tr>
+            <td><b>0.985 와 0.950 이 헷갈린다</b></td>
+            <td>seed 등록 시 사본 판정(0.985)과 엔진 전파의 사본 상속(0.950)은 <b>서로 다른 판단이라 값이 달라도 틀린 게 아니다</b>. 다만 이름이 같아서 헷갈린다 → <code class="inl">SEED_DUP_THRESHOLD</code> / <code class="inl">PROPAGATE_DUP_THRESHOLD</code> 로 분리</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">10</span><h2>적용 순서 — 네 단계 모두 반영 완료</h2></div>
+    <div class="note safe">
+      <span class="badge">2026-08-28</span>
+      <p>아래 네 단계를 <b>한 번에 반영</b>했다. 파일 이름·스키마가 동시에 바뀌므로 되돌릴 지점을 하나로 두는 편이 안전하다는 판단이다. 옛 파일은 모두 <code class="inl">.bak-20260828</code> 로 남겼고, Windows·Linux 실행 파일과 리눅스 배포본(tgz)까지 다시 만들어 검증했다.</p>
+    </div>
+    <div class="road">
+      <div class="phase">
+        <div class="pn">STEP 1</div>
+        <div class="ph">axes 블록 + state + 축별 해제</div>
+        <p class="pd">두 축 운영에 당장 필요하고, <b>엔진을 전혀 건드리지 않는다</b>(추가되는 키를 엔진이 무시하므로). UI 와 seedstore 만 수정.</p>
+      </div>
+      <div class="phase">
+        <div class="pn">STEP 2</div>
+        <div class="ph">doc.hash · embed.model 기록 + 점검 화면</div>
+        <p class="pd">이게 없으면 기준 문서가 <b>조용히 썩는다</b>. 분류 실행에 <code class="inl">--hash</code> 를 붙이는 것으로 재료가 마련된다.</p>
+      </div>
+      <div class="phase">
+        <div class="pn">STEP 3</div>
+        <div class="ph">경로 정규화 버그 3건</div>
+        <p class="pd">작지만 <b>지금 실제로 오동작</b>한다. 1·2 와 무관하게 언제든 먼저 고쳐도 된다.</p>
+      </div>
+      <div class="phase">
+        <div class="pn">STEP 4</div>
+        <div class="ph">파일 이름 변경 · 옛 파일 제거</div>
+        <p class="pd">가치는 있지만 급하지 않다. 1~3 이 끝난 뒤 <b>한 번에 배포</b>하는 편이 안전하다 — 이름과 스키마가 동시에 바뀌므로 되돌릴 지점이 하나로 정리된다.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>기준 문서(seed) 저장소 — 두 축 통합 설계</span>
+    <span>CSOClassify · 2026-08-28 · 설계(미구현)</span>
+  </footer>
+
+</div>
+</body>
+</html>

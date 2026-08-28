@@ -49,11 +49,14 @@ def _norm(s):
 # -필드: grade          = 매칭 등급(없으면 None)
 # -필드: confidence     = 신뢰도(0~1)
 # -필드: seed_eligible  = 전파 seed 승격 가능 여부
-# -필드: acl_restricted = 강한 제한 표식(fail-safe C 근거)
+# -필드: acl_restricted = 강한 제한 표식(fail-safe C 근거).
+#                        grade 가 None 인 채 이 값만 True 인 규칙이면, 다른 신호가
+#                        전혀 없을 때에 한해 fuse 가 최고 등급을 만든다.
 # -필드: source         = 걸린 규칙 id(없으면 None)
 #------------------------------------------------------------------
 @dataclass(frozen=True)
 class PathSignal:
+    # 등급 없이 acl_restricted 만 있는 경로 규칙이 가능해져 None 이 들어올 수 있다.
     grade: str
     confidence: float
     seed_eligible: bool

@@ -262,6 +262,66 @@ def _detect_subset(text, include, *, normalize=True):
 # 등급 서열(높을수록 민감). None 은 "해당 없음".
 _GRADE_RANK = {"O": 0, "S": 1, "C": 2}
 
+# 정의된 등급을 '서열 낮은 → 높은' 순으로 나열한 튜플. 오류 메시지에 "O < S < C" 처럼
+# 보여 주거나, 유효성 검사에서 "이 값이 등급 맞나"를 볼 때 쓴다.
+GRADES = tuple(sorted(_GRADE_RANK, key=_GRADE_RANK.get))
+
+
+#------------------------------------------------------------------
+# 알 수 없는 등급 문자열 예외
+#=> 등급 서열에 없는 값(예: 소문자 "c", 오타 "SS")이 등급 계산에 들어왔을 때 던진다.
+#   예전에는 이런 값을 조용히 '무시'해서 그 규칙이 판정에서 통째로 빠졌고, 결과적으로
+#   문서 등급이 실제보다 낮게 나오는 사고로 이어졌다(fail-open). 이제는 소리 내어 실패한다.
+#
+# -필드: grade = 문제가 된 원본 값(그대로 보존해 사용자가 오타를 눈으로 확인)
+#------------------------------------------------------------------
+class UnknownGradeError(ValueError):
+
+    #------------------------------------------------------------------
+    # 예외 생성
+    #=> 문제 값과 "정의된 등급은 무엇인지"를 한 문장으로 만들어 담는다.
+    #
+    # -in: grade = 서열에 없는 등급 값(문자열이 아닐 수도 있어 repr 로 보여 준다)
+    # -in: where = 어디서 나왔는지 설명(예: "regex_pii[rrn].base_grade"). 없으면 생략
+    #
+    # -out: 없음(생성자)
+    # -out: error = 없음
+    #------------------------------------------------------------------
+    def __init__(self, grade, where=None):
+        self.grade = grade
+        loc = f" ({where})" if where else ""
+        super().__init__(
+            f"정의되지 않은 등급 값{loc}: {grade!r} — 정의된 등급: {' < '.join(GRADES)}"
+        )
+
+
+#------------------------------------------------------------------
+# 규칙셋 검증 실패 예외
+#=> cso_rules.yaml 을 읽는 데는 성공했지만 내용이 규칙에 맞지 않을 때 던진다.
+#   위반을 '처음 하나에서 멈추지 않고 전부 모아' 담는 게 핵심 — 관리자가 한 번에
+#   고칠 수 있어야 하기 때문이다.
+#
+# -필드: path       = 문제의 규칙셋 파일 경로
+# -필드: violations = 위반 목록. 각 항목은 dict
+#                     {code, section, rule_id, field, value, detail, hint}
+#------------------------------------------------------------------
+class RuleSetValidationError(Exception):
+
+    #------------------------------------------------------------------
+    # 예외 생성
+    #=> 파일 경로와 위반 목록을 담고, 사람이 읽을 요약문을 메시지로 만든다.
+    #
+    # -in: path       = 규칙셋 파일 경로
+    # -in: violations = 위반 dict 리스트(빈 리스트로는 만들지 않는다)
+    #
+    # -out: 없음(생성자)
+    # -out: error = 없음
+    #------------------------------------------------------------------
+    def __init__(self, path, violations):
+        self.path = path
+        self.violations = list(violations)
+        super().__init__(format_violations(path, self.violations))
+
 # weight → 신뢰도 기본값(cso_rules.yaml 의 confidence 블록으로 덮어쓸 수 있음).
 # 신뢰도는 '검토 큐' 편입/정렬에만 쓰이고 C/S/O 등급은 바꾸지 않는다.
 _REGEX_CONF = {"high": 0.90, "medium": 0.70, "low": 0.50}
@@ -296,20 +356,33 @@ def _default_confidence():
 # 등급 최댓값 계산 (보수적 융합의 핵심)
 #=> 여러 등급 후보 중 "가장 높은(민감한)" 등급을 고른다. C > S > O 서열을 쓰며,
 #   None(해당 없음)은 무시한다. 후보가 전부 None 이면 None 을 반환한다.
-#    1) None 을 걸러낸다
-#    2) _GRADE_RANK 로 순위를 매겨 최댓값 선택
+#    1) None 은 "판단 근거 없음"이라 건너뛴다(정상)
+#    2) 서열에 없는 값이 오면 조용히 넘기지 않고 UnknownGradeError 로 실패시킨다
+#    3) _GRADE_RANK 로 순위를 매겨 최댓값 선택
+#
+#   [왜 예외인가] 예전에는 모르는 값을 rank -1 로 취급해 그냥 건너뛰었다. 그러면
+#   cso_rules.yaml 에 'base_grade: c' 같은 오타가 있어도 아무 경고 없이 그 규칙만
+#   판정에서 빠져 문서 등급이 실제보다 낮게 나온다. 등급이 낮게 나오는 실패는
+#   보안 사고라, 조용히 넘기는 대신 시끄럽게 멈추는 쪽이 안전하다.
+#   규칙셋은 load_rules 에서 미리 검증하므로, 정상 경로에서는 이 예외가 나지 않는다.
 #
 # -in: grades = 등급 문자열/None 들의 반복가능 객체 (예: ["O","C",None])
+# -in: where  = 오류 메시지에 넣을 위치 설명(선택). 예: "signals.rule.grade"
 #
 # -out: grade = 가장 높은 등급 문자열, 전부 None 이면 None
-# -out: error = 없음 (알 수 없는 등급 문자열은 무시)
+# -out: error = 서열에 없는 값이 있으면 UnknownGradeError
 #------------------------------------------------------------------
-def max_grade(grades):
+def max_grade(grades, where=None):
     best = None
     best_rank = -1
     for g in grades:
-        # 알 수 없는 값/None 은 서열에 없으므로 건너뛴다.
-        r = _GRADE_RANK.get(g, -1)
+        # None 은 "이 신호는 등급을 내지 않았다"는 정상 상태 → 후보에서만 제외.
+        if g is None:
+            continue
+        r = _GRADE_RANK.get(g)
+        # 서열에 없는 값 = 오타이거나 다른 등급체계의 값 → 즉시 실패(fail-closed).
+        if r is None:
+            raise UnknownGradeError(g, where)
         if r > best_rank:
             best_rank, best = r, g
     return best
@@ -475,8 +548,10 @@ class StampRule:
 # -필드: id            = 규칙 식별자 (예: "secure_server")
 # -필드: name          = 사람이 읽는 이름
 # -필드: matches       = 부분일치 조각들(로드 시 '/' 정규화 + 소문자화)
-# -필드: grade         = 매칭 시 부여 등급
-# -필드: acl_restricted = True 면 강한 제한 표식(신호 없어도 fail-safe C)
+# -필드: grade         = 매칭 시 부여 등급. acl_restricted=True 인 규칙에 한해 None 가능
+#                       (None = "이 폴더인 건 분명하지만 등급은 내용을 보고 정하라")
+# -필드: acl_restricted = True 면 강한 제한 표식. 내용·파일명 어디서도 신호가 없으면
+#                       fail-safe 로 최고 등급을 준다(fuse.fuse_signals 의 failsafe_acl)
 # -필드: weight        = 신뢰도 가중
 # -필드: seed_eligible = 전파 seed 승격 가능 여부
 #------------------------------------------------------------------
@@ -485,7 +560,9 @@ class PathRule:
     id: str
     name: str
     matches: tuple
-    grade: str = "S"
+    # 기본값을 None 으로 둔다. 예전에는 "S" 였는데, 그 탓에 grade 를 생략한 규칙이
+    # 조용히 S 가 되어 'acl_restricted 만 있는 규칙'을 아예 표현할 수 없었다.
+    grade: str = None
     acl_restricted: bool = False
     weight: str = "high"
     seed_eligible: bool = False
@@ -1300,24 +1377,302 @@ def default_rules_path():
 
 #------------------------------------------------------------------
 # 기본 seed 저장소 경로
-#=> 전파 비교 기준 seed 파일(cso_seed.jsonl)의 위치를 규칙셋과 '같은 규약'으로 정한다.
+#=> 전파 비교 기준 seed 파일(class_seed.jsonl)의 위치를 규칙셋과 '같은 규약'으로 정한다.
 #   기본 분류(--file/--dir)에서 이 파일이 있으면 자동 전파에 쓴다(--seeds 로 덮어쓸 수 있음).
-#    1) 환경변수 CSOCLASSIFY_POLICY_DIR 이 있으면 그 폴더의 cso_seed.jsonl
-#    2) exe 로 실행 중이면 exe 실행 경로(exe 옆)의 cso_seed.jsonl  ← 배포 기본
-#    3) 소스(개발) 실행이면 트리의 resources/policy/cso_seed.jsonl
+#    1) 환경변수 CSOCLASSIFY_POLICY_DIR 이 있으면 그 폴더의 class_seed.jsonl
+#    2) exe 로 실행 중이면 exe 실행 경로(exe 옆)의 class_seed.jsonl  ← 배포 기본
+#    3) 소스(개발) 실행이면 트리의 resources/policy/class_seed.jsonl
 #
 # -in: 없음
 #
-# -out: path = cso_seed.jsonl 절대경로(존재 여부는 확인 안 함 — 호출부가 isfile 로 판단)
+# -out: path = class_seed.jsonl 절대경로(존재 여부는 확인 안 함 — 호출부가 isfile 로 판단)
 # -out: error = 없음
 #------------------------------------------------------------------
 def default_seed_path():
     env = os.environ.get("CSOCLASSIFY_POLICY_DIR")
     if env:
-        return os.path.join(env, "cso_seed.jsonl")
+        return os.path.join(env, "class_seed.jsonl")
     if getattr(sys, "frozen", False):
-        return os.path.join(exe_dir(), "cso_seed.jsonl")
-    return resource_path("policy", "cso_seed.jsonl")
+        return os.path.join(exe_dir(), "class_seed.jsonl")
+    return resource_path("policy", "class_seed.jsonl")
+
+
+# ────────────────────────────────────────────────────────────────────────
+# 규칙셋 검증 (Phase 0 — fail-open 제거)
+#   yaml 에 적힌 등급 값이 정말 정의된 등급인지, bulk 상향이 뒤집히진 않았는지를
+#   '문서를 한 건도 스캔하기 전에' 확인한다. 여기서 걸러야 잘못 분류된 결과가
+#   절반쯤 만들어지는 최악을 막을 수 있다.
+# ────────────────────────────────────────────────────────────────────────
+
+# 등급 필드가 어느 섹션의 어느 키에 있는지 정의.
+#   (YAML 섹션 키, 단일등급 필드들, (base 필드, bulk 필드) 또는 None,
+#    등급 생략을 허용해 주는 조건 필드 또는 None)
+# bulk 쌍이 있는 섹션만 V6(상향 방향) 검사를 한다.
+# paths 만 네 번째 자리가 채워져 있다 — "acl_restricted: true 인 경로 규칙은 grade 를
+# 생략할 수 있다"는 뜻이다. 그 규칙은 등급을 스스로 내지 않고, 내용·파일명 어디서도
+# 신호가 없을 때만 fail-safe 로 최고 등급을 만든다(fuse 의 failsafe_acl 경로).
+_GRADE_SECTIONS = (
+    ("regex_pii",  (),         ("base_grade", "bulk_grade"), None),
+    ("pii_combos", ("grade",), None,                         None),
+    ("keywords",   (),         ("base_grade", "bulk_grade"), None),
+    ("sensitive",  ("grade",), None,                         None),
+    ("stamps",     ("grade",), None,                         None),
+    ("paths",      ("grade",), None,                         "acl_restricted"),
+)
+
+# "키가 아예 없음"과 "키는 있는데 값이 비었음(null)"을 구분하기 위한 표식.
+#   키가 없으면 로더가 기본값을 넣으므로 정상, null 이면 관리자의 실수다.
+_ABSENT = object()
+
+
+#------------------------------------------------------------------
+# 오타 후보 제안
+#=> 잘못 적힌 등급 값이 흔한 오타(소문자/앞뒤 공백)인지 보고, 맞을 법한 등급을 알려준다.
+#   실제로 가장 많이 나오는 실수가 'c'(소문자)와 'C '(뒤 공백)라 이 둘만 잡아도 충분하다.
+#
+# -in: value = 문제가 된 원본 값(문자열이 아닐 수도 있다)
+#
+# -out: hint = 제안할 등급 문자열, 짚이는 게 없으면 None
+# -out: error = 없음
+#------------------------------------------------------------------
+def _grade_hint(value):
+    if not isinstance(value, str):
+        return None
+    # 앞뒤 공백을 없애고 대문자로 맞췄을 때 정의된 등급이 되면 그걸 제안한다.
+    cand = value.strip().upper()
+    return cand if cand in GRADES and cand != value else None
+
+
+#------------------------------------------------------------------
+# 위반 값 표시 문자열
+#=> 보고문에 값을 어떻게 보여 줄지 한 곳에서 정한다. Rust 판(rules.rs 의 show)과
+#   글자 하나까지 같아야 두 구현의 보고문이 일치한다.
+#    · 키 자체가 없음 → "(없음)"   · null → "(null)"
+#    · 문자열 → 'C ' 처럼 따옴표로 감싸 앞뒤 공백이 눈에 보이게
+#    · 그 외(숫자·불리언·목록) → JSON 표기 그대로
+#
+# -in: value = 원본 값(_ABSENT 이면 키가 없었다는 뜻)
+#
+# -out: text = 보고문에 넣을 문자열
+# -out: error = 없음
+#------------------------------------------------------------------
+def _show(value):
+    if value is _ABSENT:
+        return "(없음)"
+    if value is None:
+        return "(null)"
+    if isinstance(value, str):
+        return f"'{value}'"
+    import json as _json
+    return _json.dumps(value, ensure_ascii=False)
+
+
+#------------------------------------------------------------------
+# 값의 자료형 이름
+#=> 오류 메시지에 쓸 자료형 이름을 YAML 쪽 용어로 통일한다. 파이썬 이름(int/dict)을
+#   그대로 쓰면 Rust 판(number/mapping)과 메시지가 달라져 두 구현의 보고문이 갈린다.
+#   관리자에게도 "int" 보다 "number" 가 YAML 문법과 가깝다.
+#
+# -in: value = 원본 값
+#
+# -out: name = "number" | "bool" | "list" | "mapping" | 파이썬 형이름(그 외)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _type_name(value):
+    # bool 은 int 의 하위형이라 반드시 먼저 판별해야 한다.
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, (list, tuple)):
+        return "list"
+    if isinstance(value, dict):
+        return "mapping"
+    return type(value).__name__
+
+
+#------------------------------------------------------------------
+# 위반 1건 만들기
+#=> 검증 결과를 화면 출력과 테스트가 함께 쓰는 dict 한 벌로 통일한다.
+#
+# -in: code    = 검증 항목 코드("V5"/"V6"/"V0")
+# -in: section = YAML 섹션 키(예: "regex_pii")
+# -in: rule_id = 규칙 id(없으면 "#3" 처럼 순번)
+# -in: field   = 문제가 된 필드명(항목 자체 문제면 빈 문자열)
+# -in: value   = 문제가 된 값
+# -in: detail  = 사람이 읽을 설명 한 줄
+#
+# -out: dict = {code, section, rule_id, field, value, detail, hint}
+# -out: error = 없음
+#------------------------------------------------------------------
+def _violation(code, section, rule_id, field, value, detail):
+    return {
+        "code": code, "section": section, "rule_id": rule_id,
+        # value 는 원본(테스트·프로그램용), value_text 는 보고문용 표시 문자열.
+        "field": field, "value": None if value is _ABSENT else value,
+        "value_text": _show(value), "detail": detail,
+        "hint": _grade_hint(value),
+    }
+
+
+#------------------------------------------------------------------
+# 등급 필드 1개 검사 (V5)
+#=> 값이 정의된 등급인지 본다. 키가 아예 없으면 로더가 기본값을 넣으므로 통과시킨다.
+#    1) 키 없음 → 검사 대상 아님(None 반환)
+#    2) 값이 null/문자열 아님/서열에 없음 → 위반
+#
+# -in: item        = 규칙 항목 dict
+# -in: field       = 볼 필드명
+# -in: section     = 섹션 키(메시지용)
+# -in: rule_id     = 규칙 id(메시지용)
+# -in: omit_okay_if = 이 불리언 필드가 True 면 등급 생략/null 을 허용한다(없으면 None).
+#                    paths 의 "acl_restricted" 가 유일한 사용처
+#
+# -out: (violation, grade) = 위반 dict 또는 None, 그리고 검증을 통과한 등급 값(아니면 None)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _check_grade_field(item, field, section, rule_id, omit_okay_if=None):
+    value = item.get(field, _ABSENT)
+    # 생략(또는 null)을 조건부로 허용하는 섹션 — 현재는 paths 뿐.
+    if omit_okay_if is not None and (value is _ABSENT or value is None):
+        if item.get(omit_okay_if) is True:
+            # 등급 없이 acl_restricted 만 있는 규칙 → 의도된 형태. 등급은 None 으로 둔다.
+            return None, None
+        return _violation(
+            "V12", section, rule_id, field, value,
+            f"등급을 생략하려면 {omit_okay_if}: true 여야 합니다"
+            f"(둘 다 없으면 이 규칙은 아무 일도 하지 않습니다)"), None
+    # 키 자체가 없으면 로더 기본값(항상 유효)이 쓰인다 → 검사할 것이 없다.
+    if value is _ABSENT:
+        return None, None
+    if value is None:
+        return _violation("V5", section, rule_id, field, value, "값이 비어 있습니다(null)"), None
+    if not isinstance(value, str):
+        return _violation("V5", section, rule_id, field, value,
+                          f"등급은 문자열이어야 하는데 {_type_name(value)} 입니다"), None
+    if value not in _GRADE_RANK:
+        return _violation("V5", section, rule_id, field, value, "정의되지 않은 등급"), None
+    return None, value
+
+
+#------------------------------------------------------------------
+# 규칙셋 원본(YAML) 검증 — V5·V6
+#=> load_rules 가 파싱한 원시 dict 를 그대로 훑어, 등급 관련 위반을 '전부' 모은다.
+#   첫 오류에서 멈추지 않는 이유는 관리자가 한 번에 고칠 수 있게 하기 위해서다.
+#    1) 섹션마다 항목을 돌며 등급 필드를 검사(V5)
+#    2) base/bulk 쌍이 있으면 bulk 가 base 보다 낮지 않은지 검사(V6)
+#    3) paths 는 grade 를 생략할 수 있는 대신, 그럴 땐 acl_restricted: true 여야 한다(V12)
+#
+#   [V12 가 필요한 이유] 경로 규칙이 grade 도 acl_restricted 도 없으면 그 규칙은
+#   매칭돼도 아무 등급을 만들지 않는다 — 즉 있으나 마나다. 예전에는 grade 를 생략하면
+#   조용히 S 가 됐는데, 그건 관리자가 적지도 않은 등급을 시스템이 지어내는 것이라
+#   더 나빴다. 이제는 둘 중 하나를 반드시 적게 한다.
+#
+#   [V6 가 필요한 이유] bulk_grade 는 "대량 검출 시 등급을 올린다"는 설계다.
+#   그런데 base=S, bulk=O 처럼 거꾸로 적으면 주민번호가 많이 나올수록 등급이
+#   내려간다. 문법상으론 멀쩡해 보여서 눈으로는 놓치기 쉬운 종류의 실수다.
+#
+#   [검증 대상 범위] 로더가 실제로 읽어들이는 항목만 본다. 예를 들어 regex_pii 에서
+#   label 이 없는 옛 항목은 로더가 건너뛰므로 검증도 건너뛴다(쓰이지 않는 규칙을
+#   두고 오류를 내면 이행 중 혼란만 준다).
+#
+# -in: data = yaml.safe_load 결과 dict
+#
+# -out: violations = 위반 dict 리스트(문제 없으면 빈 리스트)
+# -out: error = 없음(예외를 던지지 않는다 — 판단은 호출자 몫)
+#------------------------------------------------------------------
+def validate_rules_data(data):
+    violations = []
+    data = data or {}
+
+    for section, single_fields, bulk_pair, omit_okay_if in _GRADE_SECTIONS:
+        items = data.get(section) or []
+        # 섹션이 리스트가 아니면(예: 들여쓰기 실수로 dict 가 됨) 순회 자체가 무의미하다.
+        if not isinstance(items, list):
+            violations.append(_violation("V0", section, "-", "", items,
+                                         "섹션이 목록(list)이 아닙니다"))
+            continue
+
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict):
+                violations.append(_violation("V0", section, f"#{idx}", "", item,
+                                             "항목이 매핑(mapping)이 아닙니다"))
+                continue
+            rule_id = item.get("id") or f"#{idx}"
+            # 로더가 label 없는 regex_pii 항목을 건너뛰므로 검증도 같은 기준을 쓴다.
+            if section == "regex_pii" and not (item.get("label") or item.get("kopii_label")):
+                continue
+
+            for field in single_fields:
+                v, _ = _check_grade_field(item, field, section, rule_id,
+                                          omit_okay_if=omit_okay_if)
+                if v:
+                    violations.append(v)
+
+            if bulk_pair:
+                base_field, bulk_field = bulk_pair
+                v_base, base_grade = _check_grade_field(item, base_field, section, rule_id)
+                v_bulk, bulk_grade = _check_grade_field(item, bulk_field, section, rule_id)
+                if v_base:
+                    violations.append(v_base)
+                if v_bulk:
+                    violations.append(v_bulk)
+                # 둘 다 유효할 때만 방향을 본다(하나가 오타면 V5 로 이미 보고됨).
+                if base_grade and bulk_grade:
+                    if _GRADE_RANK[bulk_grade] < _GRADE_RANK[base_grade]:
+                        violations.append(_violation(
+                            "V6", section, rule_id, bulk_field, bulk_grade,
+                            f"bulk 는 상향이어야 하는데 낮습니다 "
+                            f"(base={base_grade}({_GRADE_RANK[base_grade]}) → "
+                            f"bulk={bulk_grade}({_GRADE_RANK[bulk_grade]}))"))
+
+    return violations
+
+
+#------------------------------------------------------------------
+# 위반 목록 → 사람이 읽는 보고문
+#=> 검증 코드(V5/V6/V0)별로 묶어 한 화면에 정리한다. 오타 후보가 있으면 함께 보여
+#   관리자가 파일을 뒤지지 않고 바로 고칠 수 있게 한다.
+#
+# -in: path       = 규칙셋 파일 경로
+# -in: violations = validate_rules_data 결과
+#
+# -out: text = 여러 줄 문자열(끝에 개행 없음)
+# -out: error = 없음
+#------------------------------------------------------------------
+def format_violations(path, violations):
+    titles = {
+        "V0": "[V0] 규칙셋 구조 오류",
+        "V5": "[V5] 정의되지 않은 등급 참조",
+        "V6": "[V6] bulk 상향 규칙 위반 (bulk_grade 가 base_grade 보다 낮음)",
+        "V12": "[V12] 경로 규칙에 grade 도 acl_restricted 도 없음",
+    }
+    lines = [
+        f"[규칙셋 오류] {path} — 검증 실패 {len(violations)}건. 분류를 시작하지 않았습니다.",
+        "",
+        f"  정의된 등급: {' < '.join(GRADES)}",
+        "",
+    ]
+    # 코드 순서를 고정해(V0 → V5 → V6) 실행할 때마다 보고서 모양이 흔들리지 않게 한다.
+    for code in ("V0", "V5", "V6", "V12"):
+        group = [v for v in violations if v["code"] == code]
+        if not group:
+            continue
+        lines.append(f"  {titles.get(code, '[' + code + ']')}")
+        for v in group:
+            where = f"{v['section']}[{v['rule_id']}]"
+            if v["field"]:
+                where += f".{v['field']}"
+            hint = f"   → 혹시 {v['hint']} ?" if v.get("hint") else ""
+            lines.append(f"    {where} = {v.get('value_text', v['value'])}  — {v['detail']}{hint}")
+        lines.append("")
+    lines.append(f"  고치는 법: {path} 를 열어 위 항목을 고치세요.")
+    lines.append(f"    · 등급 값은 {'/'.join(GRADES)} 중 하나여야 합니다.")
+    # V12 는 '등급을 고치라'는 안내만으로는 해결이 안 되므로 항목을 하나 더 붙인다.
+    if any(v["code"] == "V12" for v in violations):
+        lines.append("    · 경로 규칙(paths)은 grade 또는 acl_restricted: true 중 "
+                     "하나 이상이 있어야 합니다.")
+    return "\n".join(lines)
 
 
 #------------------------------------------------------------------
@@ -1326,13 +1681,21 @@ def default_seed_path():
 #    1) YAML 파싱 → defaults 블록 해석
 #    2) regex_pii 각 항목을 (ko-pii 라벨 기반) RegexRule 로
 #    3) keywords 각 항목을 KeywordRule 로, paths 를 PathRule 로
+#    4) 등급 값 검증(V5·V6) — 하나라도 어긋나면 RuleSet 을 만들지 않고 실패
 #
-# -in: path = 규칙셋 파일 경로(없으면 기본 경로)
+#   [4단계를 왜 로드에 붙였나] 규칙셋이 잘못된 채로 스캔이 시작되면, 절반쯤
+#   잘못 분류된 결과가 만들어진다. 그 결과는 겉보기에 정상이라 더 위험하다.
+#   그래서 문서를 한 건도 열기 전에 여기서 막는다.
+#
+# -in: path     = 규칙셋 파일 경로(없으면 기본 경로)
+# -in: validate = False 면 검증을 건너뛴다. 검증기 자체를 시험하거나, 잘못된
+#                 규칙셋을 일부러 읽어 봐야 하는 도구용 탈출구다(기본 True)
 #
 # -out: RuleSet
 # -out: error = 파일 없음 시 FileNotFoundError(어디에 두면 되는지 안내 메시지 포함)
+# -out: error = 등급 값이 틀리면 RuleSetValidationError(위반 전체 목록 포함)
 #------------------------------------------------------------------
-def load_rules(path=None):
+def load_rules(path=None, validate=True):
     path = path or default_rules_path()
     # 규칙셋은 exe 옆 외장 파일이라 '깜빡 누락'이 흔하다. 원시 스택 대신 어디에 무엇을
     # 둬야 하는지 알려 주는 친절한 오류로 바꿔, 사용자가 바로 조치할 수 있게 한다.
@@ -1345,6 +1708,13 @@ def load_rules(path=None):
         )
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
+
+    # 등급 값 검증을 '파싱 직후·객체 생성 전'에 한다. 로더가 기본값을 채워 넣기 전의
+    # 원본을 봐야 관리자가 실제로 적은 값을 그대로 짚어 줄 수 있다.
+    if validate:
+        violations = validate_rules_data(data)
+        if violations:
+            raise RuleSetValidationError(path, violations)
 
     d = data.get("defaults", {}) or {}
     defaults = Defaults(
@@ -1442,7 +1812,9 @@ def load_rules(path=None):
             matches=tuple(
                 m.replace("\\", "/").lower() for m in (r.get("match") or [])
             ),
-            grade=r.get("grade", "S"),
+            # 기본값을 주지 않는다 — 생략/null 이면 None(등급 없음)이 되고,
+            # 그것이 허용되는지는 검증(V12)이 acl_restricted 와 함께 판단한다.
+            grade=r.get("grade"),
             acl_restricted=bool(r.get("acl_restricted", False)),
             weight=r.get("weight", "high"),
             seed_eligible=bool(r.get("seed_eligible", False)),

@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>보안등급 · 업무분류 2축 UI/UX 설계서</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+    --ax2:#7c3aed; --ax2-soft:#f1ebfe; --hold:#94a3b8;
+    --mock-bg:#fbfcfe; --mock-bar:#eef1f6;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+      --ax2:#a78bfa; --ax2-soft:#241b3d; --hold:#64748b;
+      --mock-bg:#111827; --mock-bar:#1d2637;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:25px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  header.hero .meta{margin-top:10px;font-size:12.5px;color:var(--muted)}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  h4{font-size:14.5px;margin:16px 0 6px;color:var(--muted)}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .nowrap td:first-child{white-space:nowrap}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .bad{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .ok{border-left:3px solid var(--o);background:color-mix(in srgb,var(--o) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .ax1{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700;
+    background:color-mix(in srgb,var(--c) 14%,transparent);border:1px solid var(--line);color:var(--c)}
+  .ax2{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700;
+    background:var(--ax2-soft);border:1px solid var(--line);color:var(--ax2)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  @media(max-width:880px){.two{grid-template-columns:1fr}ul.toc{columns:1}}
+  .q{border:1px dashed var(--line);border-radius:10px;padding:12px 16px;margin:12px 0;background:var(--chip)}
+  .q b{color:var(--accent)}
+  .prin{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:0 10px 10px 0;
+    padding:12px 16px;margin:12px 0;background:var(--panel)}
+  .prin h4{margin:0 0 6px;color:var(--ink);font-size:15px}
+
+  /* ---------- 가상 화면(mock) 공통 ---------- */
+  .mock{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:14px 0 6px;
+    box-shadow:var(--shadow);background:var(--mock-bg);font-size:13px}
+  .mock .caption{font-size:12.5px;color:var(--muted);padding:6px 12px;border-top:1px dashed var(--line);background:var(--panel)}
+  .mock-title{background:var(--mock-bar);border-bottom:1px solid var(--line);padding:7px 12px;
+    display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--line);display:inline-block}
+  .mbody{padding:14px 16px}
+  .mrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .mspace{justify-content:space-between}
+  .apptitle{font-size:16px;font-weight:800;color:var(--ink)}
+  /* 관점 스위치 */
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:var(--panel)}
+  .seg span{padding:5px 14px;font-size:12.5px;color:var(--muted);border-right:1px solid var(--line);white-space:nowrap}
+  .seg span:last-child{border-right:none}
+  .seg span.on{background:var(--accent);color:#fff;font-weight:700}
+  .seg.v2 span.on{background:var(--ax2)}
+  /* 메뉴 */
+  .nav{display:flex;gap:4px;margin:12px 0 0;border-bottom:2px solid var(--line);flex-wrap:wrap}
+  .nav span{padding:7px 14px;font-size:13px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-2px}
+  .nav span.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+  /* KPI */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .kpi b{display:block;font-size:21px;line-height:1.2}
+  .kpi small{color:var(--muted);font-size:11.5px}
+  @media(max-width:880px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  /* 축 카드 */
+  .axcards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:880px){.axcards{grid-template-columns:1fr}}
+  .axcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .axcard.a1{border-top:3px solid var(--c)} .axcard.a2{border-top:3px solid var(--ax2)}
+  .axcard h5{margin:0 0 2px;font-size:14.5px}
+  .axcard .sub{color:var(--muted);font-size:12px;margin-bottom:10px}
+  /* 막대 */
+  .bar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:8px 0}
+  .bar i{display:block;font-style:normal;font-size:11px;color:#fff;text-align:center;line-height:22px}
+  .legend{font-size:11.5px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}
+  .legend em{font-style:normal;display:inline-flex;align-items:center;gap:4px}
+  .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .hbar{display:grid;grid-template-columns:110px 1fr 44px;gap:8px;align-items:center;margin:5px 0;font-size:12px}
+  .hbar u{text-decoration:none;color:var(--muted);text-align:right}
+  .track{background:var(--chip);border-radius:5px;height:12px;overflow:hidden}
+  .track i{display:block;height:100%;background:var(--ax2)}
+  /* 배지 */
+  .b{display:inline-block;border-radius:6px;padding:1px 8px;font-size:11.5px;font-weight:700;border:1px solid transparent;white-space:nowrap}
+  .bC{background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--c);border-color:color-mix(in srgb,var(--c) 35%,transparent)}
+  .bS{background:color-mix(in srgb,var(--s) 16%,transparent);color:var(--s);border-color:color-mix(in srgb,var(--s) 35%,transparent)}
+  .bO{background:color-mix(in srgb,var(--o) 16%,transparent);color:var(--o);border-color:color-mix(in srgb,var(--o) 35%,transparent)}
+  .bH{background:color-mix(in srgb,var(--hold) 18%,transparent);color:var(--muted);border-color:var(--line)}
+  .chip{display:inline-block;border-radius:999px;padding:1px 9px;font-size:11.5px;
+    background:var(--ax2-soft);color:var(--ax2);border:1px solid color-mix(in srgb,var(--ax2) 30%,transparent);white-space:nowrap}
+  .chip.prop{background:transparent;color:var(--muted);border-style:dashed;border-color:var(--line)}
+  /* 표 */
+  .tbl{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:12.5px}
+  .tbl th{background:var(--mock-bar);font-size:11.5px;padding:7px 10px;color:var(--muted);white-space:nowrap}
+  .tbl td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr.sel td{background:var(--accent-soft)}
+  .fname{font-weight:600}
+  .fpath{color:var(--muted);font-size:11px}
+  /* 폼 요소 */
+  .inp{display:inline-block;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:5px 10px;color:var(--muted);font-size:12.5px;min-width:120px}
+  .btn{display:inline-block;border-radius:8px;padding:6px 14px;font-size:12.5px;font-weight:700;
+    background:var(--accent);color:#fff;border:1px solid transparent}
+  .btn.gh{background:var(--panel);color:var(--ink);border-color:var(--line);font-weight:600}
+  .btn.v2{background:var(--ax2)}
+  .btn.wide{display:block;text-align:center;margin-top:10px}
+  .ck{display:inline-block;width:14px;height:14px;border:1.5px solid var(--line);border-radius:4px;
+    vertical-align:-2px;margin-right:6px;background:var(--panel)}
+  .ck.on{background:var(--ax2);border-color:var(--ax2);position:relative}
+  .ck.on::after{content:"✓";color:#fff;font-size:11px;position:absolute;left:2px;top:-3px}
+  .rd{display:inline-block;width:14px;height:14px;border:1.5px solid var(--line);border-radius:50%;
+    vertical-align:-2px;margin-right:6px;background:var(--panel)}
+  .rd.on{border:4px solid var(--accent);background:var(--panel)}
+  /* 상세 패널 */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .panel.a1{border-top:3px solid var(--c)} .panel.a2{border-top:3px solid var(--ax2)}
+  .panel h5{margin:0 0 8px;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+  .why{list-style:none;padding:0;margin:6px 0}
+  .why li{padding:5px 0;border-bottom:1px dashed var(--line);font-size:12.5px}
+  .why li:last-child{border-bottom:none}
+  .why .src{color:var(--muted);font-size:11px}
+  .alt{background:var(--chip);border:1px dashed var(--line);border-radius:8px;padding:8px 10px;margin-top:10px;font-size:12px;color:var(--muted)}
+  .banner{background:color-mix(in srgb,var(--s) 12%,transparent);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);
+    border-radius:10px;padding:10px 14px;font-size:12.5px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:13px}
+  .kbd2{font-family:"Cascadia Code",Consolas,monospace;background:var(--chip);border:1px solid var(--line);
+    border-radius:5px;padding:0 6px;font-size:11.5px}
+  .queue{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:8px 0}
+  .stepnum{display:inline-flex;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;
+    align-items:center;justify-content:center;font-size:11.5px;font-weight:800;margin-right:6px}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:12.5px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>보안등급 · 업무분류 <b>2축 UI/UX 설계서</b></h1>
+  <p>한 화면에서 <b class="ax1">보안등급(C·S·O)</b> 과 <b class="ax2">업무분류(문서 분류 체계)</b> 두 가지를
+  동시에 다루되, <b>실무 기업 관리자가 설명 없이 바로 쓸 수 있을 만큼 단순하게</b> 만드는 화면 설계</p>
+  <div class="meta">작성 2026-08-25 · 상위 설계 <a href="문서분류체계-연동-분류규칙-설계.html">문서 분류 체계 연동 · 분류 규칙 설계서</a> ·
+  대상 <code>CSOClassify/ui/</code>(Streamlit) · <b>UI/UX 설계만, 구현 없음</b></div>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#prob">1. 지금 화면의 문제</a></li>
+    <li><a href="#who">2. 쓰는 사람과 두 가지 상황</a></li>
+    <li><a href="#prin">3. 설계 원칙 6가지</a></li>
+    <li><a href="#words">4. 쉬운 말 사전 — 용어 전면 교체</a></li>
+    <li><a href="#ia">5. 정보 구조 — 화면 4개 + 관점 스위치</a></li>
+    <li><a href="#s1">6. 화면 A — 현황</a></li>
+    <li><a href="#s2">7. 화면 B — 문서함</a></li>
+    <li><a href="#s3">8. 화면 C — 문서 상세(두 축 나란히)</a></li>
+    <li><a href="#s4">9. 화면 D — 검토함</a></li>
+    <li><a href="#s5">10. 화면 E — 설정</a></li>
+    <li><a href="#visual">11. 두 축의 시각 규약 (색·배지)</a></li>
+    <li><a href="#states">12. 예외 상태 화면</a></li>
+    <li><a href="#map">13. 현행 9개 탭 → 신규 4개 메뉴 매핑</a></li>
+    <li><a href="#a11y">14. 반응형 · 접근성 · 성능</a></li>
+    <li><a href="#nongoal">15. 비목표</a></li>
+    <li><a href="#open">16. 결정 필요 사항</a></li>
+  </ul>
+  <div class="note">이 문서는 <b>화면만</b> 다룬다. 규칙 문법·파일 스키마·충돌 전략은
+  <a href="문서분류체계-연동-분류규칙-설계.html">상위 설계서</a>가 이미 확정했고, 여기서는
+  <b>그 확정 사항을 사람이 어떻게 보고 만지는가</b>만 정한다. 화면이 규칙을 새로 만들지 않는다.</div>
+</section>
+
+<h2 id="prob"><span class="n">1</span> 지금 화면의 문제</h2>
+<section class="card">
+<p>현행 <code>ui/app.py</code> 는 이미 두 축을 다 담고 있다. 문제는 <b>담는 방식</b>이다.</p>
+<div class="scroll"><table>
+<thead><tr><th>지금</th><th>무슨 일이 생기나</th></tr></thead>
+<tbody>
+<tr><td><b>탭 9개</b><br><span class="muted">규칙 설정 · 실행 · 요약 대시보드 · 리포트 · 문서 목록 · 검토 큐 · 업무분류 검토 · seed 관리 · 내보내기</span></td>
+    <td>처음 연 사람이 <b>어디부터 눌러야 하는지</b> 모른다. 9개 중 4개는 관리자가 초기 1회만 쓰는 화면인데 매일 쓰는 화면과 같은 줄에 있다</td></tr>
+<tr><td><b>두 축이 다른 탭에 흩어져 있다</b><br><span class="muted">보안등급 → “문서 목록”, 업무분류 → “업무분류 검토”</span></td>
+    <td>같은 문서를 두 번 찾아야 한다. “이 계약서는 <b>S 등급이면서 법무/계약서</b>”라는 <b>한 문장을 한 화면에서 볼 수 없다</b></td></tr>
+<tr><td><b>사이드바가 파일 경로 입력칸 7개</b><br><span class="muted">cso_result.jsonl · cso_override.jsonl · class_seed.jsonl · class_seed_audit.jsonl · 실행 명령 · PYTHONPATH · 규칙셋</span></td>
+    <td>실무 관리자는 이 파일들이 뭔지 <b>알 필요가 없다</b>. 그런데 화면을 열자마자 가장 먼저 보인다</td></tr>
+<tr><td><b>개발자 용어가 그대로 노출</b><br><span class="muted">오버라이드 · seed · 신뢰도 · 전파 · 규칙셋 · PYTHONPATH</span></td>
+    <td>“오버라이드”가 <b>덮어쓰기인지 취소인지</b> 모른다. 무서워서 안 누른다</td></tr>
+</tbody></table></div>
+<div class="note"><b>이 설계가 바꾸는 것은 기능이 아니라 배치와 말이다.</b> 기능은 이미 다 있다.
+9개를 <b>4개</b>로 접고, 두 축을 <b>한 줄·한 화면</b>에 나란히 놓고, 용어를 전부 한국어 일상어로 바꾼다.</div>
+</section>
+
+<h2 id="who"><span class="n">2</span> 쓰는 사람과 두 가지 상황</h2>
+<section class="card">
+<p>상위 설계서 <b>2-1(두 측면)</b>이 이미 사용자를 둘로 나눠 놓았다. 화면도 그 둘을 그대로 따른다.</p>
+<div class="two">
+  <div>
+    <h4 style="color:var(--c)">상황 ① 보안 담당자 <span class="ax1">보안등급</span></h4>
+    <p class="muted" style="font-size:13px">“이 문서를 <b>어느 수준으로 보호</b>해야 하나?”</p>
+    <ul style="font-size:13.5px">
+      <li>등급이 <b>낮게 매겨진 것</b>이 제일 무섭다 → 판단 못 함·저확신 문서부터 본다</li>
+      <li>등급은 <b>문서당 딱 하나</b>. 고르면 끝난다</li>
+      <li>왜 그 등급인지 <b>근거를 반드시 확인</b>한다(감사 대응)</li>
+      <li>결정이 빨라야 한다 — 하루 수십~수백 건</li>
+    </ul>
+  </div>
+  <div>
+    <h4 style="color:var(--ax2)">상황 ② 문서·기록 담당자 <span class="ax2">업무분류</span></h4>
+    <p class="muted" style="font-size:13px">“이 문서가 <b>무엇에 관한 것</b>인가? 보고서인가 계약서인가, 혹은 둘 다인가?”</p>
+    <ul style="font-size:13.5px">
+      <li>여러 개가 <b>동시에 맞을 수 있다</b> → 고르는 게 아니라 <b>체크</b>한다</li>
+      <li>기계가 <b>제안</b>하고 사람이 <b>확정</b>한다(자동 확정 없음)</li>
+      <li>보안등급은 참고만 한다 — 차선 관심사</li>
+      <li>분류 이름이 <b>회사 분류 체계 그대로</b>여야 한다(전체경로로 인식)</li>
+    </ul>
+  </div>
+</div>
+<div class="warn"><b>한 사람이 두 역할을 겸하는 회사가 더 많다.</b> 그래서 “보안 담당자용 앱”과
+“문서 담당자용 앱”을 따로 만들지 않는다. <b>같은 앱에서 관점만 전환</b>한다(→ <a href="#ia">5장</a>).</div>
+</section>
+
+<h2 id="prin"><span class="n">3</span> 설계 원칙 6가지</h2>
+<section class="card">
+
+<div class="prin"><h4>원칙 1 · 두 축은 <u>항상 같이 보인다</u>. 전환 스위치는 “숨기기”가 아니라 “강조 바꾸기”다</h4>
+<p style="margin:0;font-size:13.5px">관점을 <b>보안등급</b>으로 두어도 업무분류 칸은 사라지지 않고 <b>흐리게</b> 남는다.
+숨기면 “이 문서는 업무분류가 없나?”라는 오해가 생기고, 한 문서의 전체 그림을 볼 수 없다.
+스위치가 바꾸는 것은 <b>정렬 순서·기본 필터·검토함 대상</b> 세 가지뿐이다.</p></div>
+
+<div class="prin"><h4>원칙 2 · 축의 성격을 <u>조작 방식</u>으로 표현한다</h4>
+<p style="margin:0;font-size:13.5px">보안등급은 <b>하나만 고른다</b> → <b>라디오 버튼</b>.
+업무분류는 <b>여러 개가 맞다</b> → <b>체크박스</b>.
+설명 문장을 읽지 않아도 위젯 모양만으로 “하나냐 여럿이냐”가 전달된다.
+<b>충돌 전략(<code>max</code>/<code>all</code>)이라는 말은 화면에 한 번도 나오지 않는다.</b></p></div>
+
+<div class="prin"><h4>원칙 3 · 서열이 있는 축만 색으로 말한다</h4>
+<p style="margin:0;font-size:13.5px">보안등급은 <b>빨강·주황·초록</b>(위험 서열). 업무분류는 <b>전부 같은 보라</b>.
+업무분류에 색을 나눠 주면 “법무가 인사보다 중요해 보이는” 없는 서열이 생긴다.
+상위 설계서 3-1의 “<code>taxonomy</code> 축은 서열이 없다”를 <b>색 규칙으로 강제</b>한 것이다.</p></div>
+
+<div class="prin"><h4>원칙 4 · 기계는 “왜”를 먼저 말한다</h4>
+<p style="margin:0;font-size:13.5px">등급·분류를 보여줄 때 <b>근거 목록을 접지 않고 펼쳐서</b> 같이 낸다.
+사람은 결과를 보고 판단하는 게 아니라 <b>근거를 보고 판단</b>한다. 근거를 한 번 더 클릭해야 나오면 안 본다.
+채택되지 않은 후보(<code>candidates</code>)도 “<b>다른 의견도 있었어요</b>”로 항상 보여준다.</p></div>
+
+<div class="prin"><h4>원칙 5 · 파일·경로·명령어는 <u>설정 화면 안</u>으로 전부 치운다</h4>
+<p style="margin:0;font-size:13.5px">매일 쓰는 세 화면(현황·문서함·검토함)에는 <b>파일 경로가 단 한 개도 나오지 않는다</b>.
+경로는 처음 1회 잡고 안 건드리는 값이다. 사이드바 7칸 → 설정 화면 안 접이식 4블록으로 이동.</p></div>
+
+<div class="prin"><h4>원칙 6 · 되돌릴 수 있다는 것을 화면이 말해 준다</h4>
+<p style="margin:0;font-size:13.5px">“자동 판정은 그대로 보존되고, 내 수정은 따로 쌓인다(append-only)”는 이미 구현된 안전장치인데
+화면이 알려주지 않는다. 수정 버튼 옆에 <b>“원래 판정은 그대로 남습니다”</b> 한 줄을 항상 둔다.
+무서워서 안 누르는 것이 잘못 누르는 것보다 이 도구에서는 더 큰 손해다.</p></div>
+
+</section>
+
+<h2 id="words"><span class="n">4</span> 쉬운 말 사전 — 용어 전면 교체</h2>
+<section class="card">
+<p>화면에 나가는 모든 문자열의 대조표다. <b>왼쪽 말은 화면에 쓰지 않는다.</b>
+(코드 변수명·파일명은 그대로 두고, 화면 표시만 바꾼다.)</p>
+<div class="scroll"><table class="nowrap">
+<thead><tr><th>지금 화면 용어</th><th>바꿀 말</th><th>왜</th></tr></thead>
+<tbody>
+<tr><td>축 / axis</td><td><b>관점</b> <span class="muted">(“무엇을 볼까요”)</span></td><td>“축”은 개발 개념. 사용자는 “보안으로 볼까, 분류로 볼까”로 생각한다</td></tr>
+<tr><td>security 축</td><td><b>보안등급</b> <span class="muted">“얼마나 조심할 문서인가”</span></td><td>부제까지 붙여야 처음 본 사람이 이해한다</td></tr>
+<tr><td>doctype 축</td><td><b>업무분류</b> <span class="muted">“무엇에 관한 문서인가”</span></td><td>회사 관리 화면(문서 분류 체계 관리)과 같은 말</td></tr>
+<tr><td>C / S / O</td><td><b>C 기밀 · S 민감 · O 공개</b></td><td>알파벳만으로는 순서를 모른다. 현행 유지 <span class="ax1">그대로 좋음</span></td></tr>
+<tr><td>보류 / null</td><td><b>판단 못 함</b></td><td>“보류”는 사람이 미룬 것처럼 들린다. 기계가 못 정한 것이다</td></tr>
+<tr><td>오버라이드</td><td><b>등급 바꾸기</b> / <b>내가 고친 것</b></td><td>가장 자주 쓰는 기능인데 이름이 가장 어렵다</td></tr>
+<tr><td>신뢰도 / confidence 0.85</td><td><b>확신 85%</b></td><td>0~1 소수는 읽는 데 시간이 걸린다. 정수 %로</td></tr>
+<tr><td>proposed / confirmed</td><td><b>기계 제안</b> / <b>확정됨</b></td><td>누가 정했는지가 핵심이므로 주어를 넣는다</td></tr>
+<tr><td>rejected</td><td><b>아니라고 표시함</b></td><td>“거절”은 사람에게 하는 말 같다</td></tr>
+<tr><td>seed / seed 저장소</td><td><b>기준 문서</b> <span class="muted">“이런 문서는 이 등급” 본보기</span></td><td>seed 는 은유가 한국어로 안 넘어온다</td></tr>
+<tr><td>임베딩 전파 / embed</td><td><b>비슷한 문서 참고</b></td><td>사용자에게 중요한 것은 방법이 아니라 근거의 종류다</td></tr>
+<tr><td>규칙셋 / cso_rules.yaml</td><td><b>보안등급 판단 기준</b></td><td>파일명은 설정 화면 하단에만 작게</td></tr>
+<tr><td>doc_rule.yaml</td><td><b>업무분류 판단 기준</b></td><td>동일</td></tr>
+<tr><td>doc_taxonomy.yaml / 스냅샷</td><td><b>회사 분류 체계</b> <span class="muted">(가져온 날짜 표시)</span></td><td>사용자는 이것을 “우리 회사 분류표”로 안다</td></tr>
+<tr><td>충돌 전략 max / all / top_n</td><td><b>화면에 표시하지 않음</b></td><td>상위 설계 6-2에서 “고르는 것이 아니라 따라 나오는 값”으로 확정됐다. 고를 수 없는 것을 보여줄 이유가 없다</td></tr>
+<tr><td>candidates</td><td><b>다른 의견</b></td><td>“채택되지 않은 후보”를 한 단어로</td></tr>
+<tr><td>path_titles / 전체경로</td><td><b>법무/규정 &gt; 계약서</b> <span class="muted">(경로 그대로)</span></td><td>관리 화면이 이미 전체경로로 보여준다(설계서 1-3)</td></tr>
+<tr><td>--axis / --propagate / PYTHONPATH</td><td><b>화면에 표시하지 않음</b></td><td>설정에서 체크박스로 바뀌어 사라진다</td></tr>
+</tbody></table></div>
+<div class="ok"><b>문장 규칙</b> — 버튼은 동사로(“등급 바꾸기”, “분류 확정”), 안내문은 존댓말 한 문장으로,
+숫자에는 항상 단위를 붙인다(<b>건</b>, <b>%</b>). 느낌표·이모지 남발 금지, 화면당 아이콘은 <b>축을 구분하는 2종</b>만 쓴다(🔒 / 🗂️).</div>
+</section>
+
+<h2 id="ia"><span class="n">5</span> 정보 구조 — 화면 4개 + 관점 스위치</h2>
+<section class="card">
+<div class="flow">┌─ 상단 고정 ────────────────────────────────────────────────┐
+│  🗂️ 문서 분류 도우미        관점: [🔒 보안등급][🗂️ 업무분류][전체]  │
+└────────────────────────────────────────────────────────────┘
+   ① 현황        ② 문서함        ③ 검토함(12)        ④ 설정
+   한눈에 보기    전부 찾아보기    오늘 할 일          처음 1회
+   ─────────    ─────────      ──────────         ────────
+   두 축 요약     표 + 필터        대기 문서만 순서대로   폴더·기준·실행
+   진입 버튼      행 클릭 → 상세    한 건씩 처리          (관리자만)
+</div>
+
+<h3>5-1. 관점 스위치가 바꾸는 것 — 정확히 세 가지</h3>
+<div class="scroll"><table>
+<thead><tr><th>관점</th><th>문서함 기본 정렬·필터</th><th>검토함에 담기는 문서</th><th>상세 화면 카드 순서</th></tr></thead>
+<tbody>
+<tr><td><span class="ax1">🔒 보안등급</span></td><td>등급 높은 순 → 확신 낮은 순</td><td>판단 못 함 · 확신 60% 미만</td><td>보안등급 카드가 <b>위·크게</b></td></tr>
+<tr><td><span class="ax2">🗂️ 업무분류</span></td><td>미분류 먼저 → 제안 많은 순</td><td>기계 제안이 있고 <b>아직 확정 안 된</b> 문서</td><td>업무분류 카드가 <b>위·크게</b></td></tr>
+<tr><td><span class="pill">전체</span></td><td>최근 처리 순</td><td>둘 중 하나라도 할 일이 있는 문서</td><td>좌우 <b>같은 크기</b></td></tr>
+</tbody></table></div>
+<div class="bad"><b>스위치가 바꾸지 <u>않는</u> 것</b> — 데이터, 저장 위치, 판정 로직, 표시되는 열.
+스위치는 <b>보기 설정</b>일 뿐이라 잘못 눌러도 <b>아무것도 망가지지 않는다</b>. 이 성질을 지켜야
+사용자가 스위치를 겁 없이 누른다.</div>
+
+<h3>5-2. 첫 실행 흐름 — 관리자는 3단계만 거친다</h3>
+<div class="flow"><span class="cmt">처음 1회 (설정 화면)</span>
+  1) 분류할 폴더 고르기          →  D:\collected
+  2) 회사 분류 체계 가져오기      →  22개 분류 확인   <span class="cmt">(없으면 건너뜀 = 보안등급만 사용)</span>
+  3) [분류 시작] 누르기           →  진행률 표시 → 끝나면 자동으로 ① 현황 으로 이동
+
+<span class="cmt">그 다음부터 매일</span>
+  ③ 검토함 → 한 건씩 확인 → 끝 . (필요할 때만 ② 문서함 에서 검색)
+</div>
+<div class="note">현행 UI는 “규칙 설정” 탭이 <b>첫 번째</b>다. 규칙을 먼저 쓰라고 요구하면 아무도 시작하지 못한다.
+새 흐름은 <b>기본 규칙으로 일단 돌려 보고</b>, 결과가 마음에 안 들 때 설정으로 들어가 규칙을 손보게 한다.</div>
+</section>
+
+<h2 id="s1"><span class="n">6</span> 화면 A — 현황 <span class="pill">가상 화면</span></h2>
+<section class="card">
+
+<div class="mock">
+  <div class="mock-title"><span class="dot"></span><span class="dot"></span><span class="dot"></span> 문서 분류 도우미</div>
+  <div class="mbody">
+    <div class="mrow mspace">
+      <div class="apptitle">🗂️ 문서 분류 도우미</div>
+      <div class="mrow">
+        <span class="muted" style="font-size:12px">관점</span>
+        <span class="seg"><span class="on">🔒 보안등급</span><span>🗂️ 업무분류</span><span>전체</span></span>
+        <span class="inp">👤 고봉수</span>
+      </div>
+    </div>
+    <div class="nav"><span class="on">현황</span><span>문서함</span><span>검토함 · 12</span><span>설정</span></div>
+
+    <div class="kpis">
+      <div class="kpi"><b>128</b><small>전체 문서</small></div>
+      <div class="kpi"><b style="color:var(--c)">12</b><small>보안등급 확인 필요</small></div>
+      <div class="kpi"><b style="color:var(--ax2)">33</b><small>업무분류 확정 대기</small></div>
+      <div class="kpi"><b style="font-size:15px;padding-top:5px">8월 24일 11:07</b><small>마지막 분류 실행</small></div>
+    </div>
+
+    <div class="axcards">
+      <div class="axcard a1">
+        <h5>🔒 보안등급 <span class="muted" style="font-weight:400;font-size:12px">— 얼마나 조심할 문서인가</span></h5>
+        <div class="sub">문서 1건에 등급 1개. 신호가 엇갈리면 <b>더 엄격한 쪽</b>으로 정합니다.</div>
+        <div class="bar">
+          <i style="background:var(--c);width:19%">C 24</i>
+          <i style="background:var(--s);width:48%">S 61</i>
+          <i style="background:var(--o);width:29%">O 37</i>
+          <i style="background:var(--hold);width:4%"></i>
+        </div>
+        <div class="legend">
+          <em><span class="sw" style="background:var(--c)"></span>C 기밀 24건</em>
+          <em><span class="sw" style="background:var(--s)"></span>S 민감 61건</em>
+          <em><span class="sw" style="background:var(--o)"></span>O 공개 37건</em>
+          <em><span class="sw" style="background:var(--hold)"></span>판단 못 함 6건</em>
+        </div>
+        <div class="alt" style="margin-top:10px">확인이 필요한 문서 <b style="color:var(--c)">12건</b>
+        <span class="muted">— 판단 못 함 6건 + 확신 60% 미만 6건</span></div>
+        <span class="btn wide">🔒 보안등급 검토 시작 →</span>
+      </div>
+
+      <div class="axcard a2">
+        <h5>🗂️ 업무분류 <span class="muted" style="font-weight:400;font-size:12px">— 무엇에 관한 문서인가</span></h5>
+        <div class="sub">문서 1건에 분류 <b>여러 개</b> 가능. 기계가 제안하고 <b>사람이 확정</b>합니다.</div>
+        <div class="hbar"><span>기술/개발</span><span class="track"><i style="width:100%"></i></span><u>41건</u></div>
+        <div class="hbar"><span>법무/규정</span><span class="track"><i style="width:44%"></i></span><u>18건</u></div>
+        <div class="hbar"><span>영업/마케팅</span><span class="track"><i style="width:37%"></i></span><u>15건</u></div>
+        <div class="hbar"><span>재무/회계</span><span class="track"><i style="width:29%"></i></span><u>12건</u></div>
+        <div class="hbar"><span>인사/총무</span><span class="track"><i style="width:20%"></i></span><u>8건</u></div>
+        <div class="hbar"><span class="muted">아직 분류 없음</span><span class="track"><i style="width:80%;background:var(--hold)"></i></span><u>33건</u></div>
+        <div class="alt" style="margin-top:10px">합계가 128건보다 큰 것은 <b>정상</b>입니다 —
+        한 문서가 여러 분류에 해당할 수 있습니다.</div>
+        <span class="btn v2 wide">🗂️ 업무분류 확정하기 →</span>
+      </div>
+    </div>
+  </div>
+  <div class="caption">화면 A · 현황 — 관점 스위치가 <b>보안등급</b>이라도 업무분류 카드는 그대로 보인다(원칙 1).
+  왼쪽 카드가 먼저 읽히도록 순서만 바뀐다.</div>
+</div>
+
+<h3>6-1. 이 화면이 지켜야 할 것</h3>
+<ul style="font-size:13.5px">
+<li><b>스크롤 없이 끝난다.</b> 현황은 “읽는” 화면이 아니라 “다음에 뭘 할지 정하는” 화면이다. 두 카드 아래에 아무것도 두지 않는다.</li>
+<li><b>큰 버튼은 카드당 1개.</b> 각 카드의 결론은 “그래서 몇 건을 봐야 하나”이고, 버튼은 곧장 <b>검토함</b>으로 보낸다.</li>
+<li><b>합계 &gt; 총건수 안내문은 상시 노출.</b> 이걸 안 적으면 반드시 “숫자가 안 맞는다”는 문의가 온다(상위 설계 7-3).</li>
+<li><b>업무분류는 대분류로 롤업</b>해 5~6줄로 보여준다. 잎(소분류) 22줄을 그대로 나열하지 않는다.</li>
+</ul>
+</section>
+
+<h2 id="s2"><span class="n">7</span> 화면 B — 문서함 <span class="pill">가상 화면</span></h2>
+<section class="card">
+
+<div class="mock">
+  <div class="mock-title"><span class="dot"></span><span class="dot"></span><span class="dot"></span> 문서 분류 도우미 · 문서함</div>
+  <div class="mbody">
+    <div class="mrow mspace">
+      <div class="apptitle">🗂️ 문서 분류 도우미</div>
+      <div class="mrow">
+        <span class="muted" style="font-size:12px">관점</span>
+        <span class="seg"><span>🔒 보안등급</span><span>🗂️ 업무분류</span><span class="on">전체</span></span>
+        <span class="inp">👤 고봉수</span>
+      </div>
+    </div>
+    <div class="nav"><span>현황</span><span class="on">문서함</span><span>검토함 · 12</span><span>설정</span></div>
+
+    <div class="mrow" style="margin:14px 0 10px">
+      <span class="inp" style="min-width:230px">🔎 파일 이름·폴더로 찾기</span>
+      <span class="inp">🔒 보안등급: 전체 ▾</span>
+      <span class="inp">🗂️ 업무분류: 전체 ▾</span>
+      <span class="inp">상태: 확인 필요 ▾</span>
+      <span class="muted" style="font-size:12px">128건 중 <b>34건</b></span>
+    </div>
+
+    <table class="tbl">
+      <thead><tr>
+        <th style="width:44%">문서</th><th>🔒 보안등급</th><th style="width:31%">🗂️ 업무분류</th><th>상태</th>
+      </tr></thead>
+      <tbody>
+        <tr class="sel">
+          <td><div class="fname">용역계약서_한빛테크_2026.docx</div><div class="fpath">D:\collected\법무\</div></td>
+          <td><span class="b bS">S 민감</span> <span class="muted" style="font-size:11px">85%</span></td>
+          <td><span class="chip">법무/규정 &gt; 계약서</span> <span class="chip prop">영업 &gt; 제안서 ?</span></td>
+          <td><span class="muted">확인 필요</span></td>
+        </tr>
+        <tr>
+          <td><div class="fname">임직원_명부_2026.xlsx</div><div class="fpath">D:\collected\인사\</div></td>
+          <td><span class="b bC">C 기밀</span> <span class="muted" style="font-size:11px">95%</span></td>
+          <td><span class="chip">인사/총무 &gt; 복리후생</span></td>
+          <td>✅ 확정됨</td>
+        </tr>
+        <tr>
+          <td><div class="fname">DB설계서_v3.hwp</div><div class="fpath">\\secure\설계\</div></td>
+          <td><span class="b bS">S 민감</span> <span class="muted" style="font-size:11px">72%</span></td>
+          <td><span class="chip prop">기술/개발 &gt; 설계문서 &gt; DB설계서 ?</span></td>
+          <td><span class="muted">확인 필요</span></td>
+        </tr>
+        <tr>
+          <td><div class="fname">2026년_사업계획_초안.pptx</div><div class="fpath">D:\collected\경영\</div></td>
+          <td><span class="b bH">판단 못 함</span></td>
+          <td><span class="muted" style="font-size:11.5px">— 없음</span></td>
+          <td><span style="color:var(--c)">⚠ 확인 필요</span></td>
+        </tr>
+        <tr>
+          <td><div class="fname">제품소개서_공개용.pdf</div><div class="fpath">D:\collected\영업\</div></td>
+          <td><span class="b bO">O 공개</span> <span class="muted" style="font-size:11px">91%</span></td>
+          <td><span class="chip">영업/마케팅 &gt; 고객자료</span></td>
+          <td>✅ 확정됨</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="muted" style="font-size:11.5px;margin-top:8px">
+      점선 표시(<span class="chip prop">분류 ?</span>)는 <b>기계 제안</b>이고, 채워진 표시(<span class="chip">분류</span>)는 <b>사람이 확정</b>한 것입니다.
+    </div>
+  </div>
+  <div class="caption">화면 B · 문서함 — <b>한 행에 두 축이 동시에</b> 있다. 이 표 한 줄이
+  “S 민감이면서 법무/계약서”라는 문장을 그대로 보여준다.</div>
+</div>
+
+<h3>7-1. 표 설계 규칙</h3>
+<div class="scroll"><table>
+<thead><tr><th>항목</th><th>결정</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td>열 개수</td><td><b>4개 고정</b>(문서 · 보안등급 · 업무분류 · 상태)</td><td>가로 스크롤이 생기는 순간 표는 안 읽힌다. 나머지 정보는 전부 상세로</td></tr>
+<tr><td>파일 경로</td><td>파일명 <b>아래 작게</b>, 폴더까지만</td><td>전체 경로는 길어서 표를 망친다. 상세에서 전체 표시</td></tr>
+<tr><td>업무분류 개수</td><td>한 행에 <b>최대 2개</b>, 넘으면 <code>+2</code></td><td>상위 설계 6-3 “저장은 전부, <b>표시만 제한</b>”을 표 레벨에서 적용</td></tr>
+<tr><td>확신도</td><td>등급 옆 <b>회색 %</b>, 정렬용으로만</td><td>막대·게이지를 넣으면 표가 시끄러워진다</td></tr>
+<tr><td>확정/제안 구분</td><td><b>테두리</b>(실선/점선) + <code>?</code> 기호</td><td>색으로 구분하면 업무분류 색 규칙(원칙 3)이 깨진다. <b>색 말고 모양</b>으로 구분</td></tr>
+<tr><td>행 클릭</td><td>같은 화면 <b>아래쪽</b>에 상세 펼침</td><td>새 탭·팝업으로 보내면 목록에서의 위치를 잃는다</td></tr>
+<tr><td>필터</td><td>두 축 필터를 <b>항상 같이</b> 노출</td><td>“법무 분류 중 C 등급만” 같은 <b>교차 질문</b>이 이 도구의 진짜 가치다</td></tr>
+</tbody></table></div>
+<div class="ok"><b>교차 필터가 이 화면의 존재 이유다.</b> 두 축을 각각 다른 탭에 두면
+“<b>계약서인데 O 공개로 잡힌 문서</b>”(=위험 신호)를 찾을 방법이 없다. 한 표에 두 축을 두면 필터 두 개로 끝난다.</div>
+</section>
+
+<h2 id="s3"><span class="n">8</span> 화면 C — 문서 상세(두 축 나란히) <span class="pill">가상 화면</span></h2>
+<section class="card">
+<p>표에서 문서를 고르면 아래에 펼쳐지는 부분이다. <b>이 설계서에서 가장 중요한 화면</b>이다 —
+두 축이 서로를 침범하지 않으면서 한눈에 들어와야 한다.</p>
+
+<div class="mock">
+  <div class="mock-title"><span class="dot"></span><span class="dot"></span><span class="dot"></span> 문서 상세</div>
+  <div class="mbody">
+    <div class="mrow mspace" style="margin-bottom:12px">
+      <div>
+        <div style="font-size:15px;font-weight:800">📄 용역계약서_한빛테크_2026.docx</div>
+        <div class="fpath">D:\collected\법무\용역계약서_한빛테크_2026.docx · 2.4MB · 8월 24일 분류</div>
+      </div>
+      <span class="btn gh">📂 파일 열기</span>
+    </div>
+
+    <div class="axcards">
+      <!-- 보안등급 -->
+      <div class="panel a1">
+        <h5><span>🔒 보안등급</span><span class="b bS">S 민감</span></h5>
+        <div class="muted" style="font-size:11.5px;margin-bottom:6px">확신 85% · 자동 판정 · 문서당 <b>1개</b></div>
+
+        <div style="font-size:12px;font-weight:700;margin-top:10px">왜 이렇게 판단했나</div>
+        <ul class="why">
+          <li>🔴 <b>주민등록번호</b> 12건 발견 <span class="src">— 내용 검사</span></li>
+          <li>🟠 <b>“계약금액”, “갑과 을”</b> 포함 <span class="src">— 내용 키워드</span></li>
+          <li>🟢 폴더 <b>\법무\</b> 는 사내 한정 <span class="src">— 폴더 규칙</span></li>
+          <li>🧭 비슷한 문서 3건이 모두 <b>S 민감</b> <span class="src">— 비슷한 문서 참고</span></li>
+        </ul>
+
+        <div class="alt">💬 <b>다른 의견도 있었습니다</b><br>
+          “대외비” 도장 신호는 <b>C 기밀</b>(95%)을 주장했습니다. 더 엄격한 쪽으로 정하는 규칙에 따라
+          <b>C 로 올라가야 하는지 확인해 주세요.</b></div>
+
+        <div style="font-size:12px;font-weight:700;margin-top:12px">등급 바꾸기</div>
+        <div class="mrow" style="gap:14px;margin:6px 0">
+          <span><span class="rd"></span>C 기밀</span>
+          <span><span class="rd on"></span>S 민감 <span class="muted">(현재)</span></span>
+          <span><span class="rd"></span>O 공개</span>
+        </div>
+        <span class="inp" style="display:block;margin:6px 0">바꾸는 이유를 적어 주세요 (기록에 남습니다)</span>
+        <span class="btn wide">등급 바꾸기</span>
+        <div class="muted" style="font-size:11px;margin-top:6px">✔ 기계의 원래 판정은 지워지지 않고 그대로 남습니다.</div>
+      </div>
+
+      <!-- 업무분류 -->
+      <div class="panel a2">
+        <h5><span>🗂️ 업무분류</span><span class="chip prop">확정 대기</span></h5>
+        <div class="muted" style="font-size:11.5px;margin-bottom:6px">기계 제안 2개 · 문서당 <b>여러 개 가능</b> · 맞는 것을 모두 골라 주세요</div>
+
+        <div style="font-size:12px;font-weight:700;margin-top:10px">기계가 제안한 분류</div>
+        <ul class="why">
+          <li><span class="ck on"></span><b>법무/규정 &gt; 계약서</b> <span class="muted">85%</span>
+            <div class="src" style="margin-left:20px">“용역계약”, “도급계약” 이 본문에 있고, 폴더도 \법무\ 입니다</div></li>
+          <li><span class="ck"></span><b>영업/마케팅 &gt; 제안서</b> <span class="muted">70%</span>
+            <div class="src" style="margin-left:20px">비슷한 문서들이 제안서로 분류돼 있습니다</div></li>
+        </ul>
+
+        <div style="font-size:12px;font-weight:700;margin-top:10px">직접 추가</div>
+        <span class="inp" style="display:block;margin:6px 0">＋ 회사 분류 체계에서 찾기 (예: 계약)</span>
+
+        <div class="mrow" style="margin-top:8px"><span class="ck"></span><span class="muted">해당하는 분류가 없습니다</span></div>
+
+        <span class="inp" style="display:block;margin:8px 0">결정 이유 (선택)</span>
+        <span class="btn v2 wide">이대로 확정 (1개)</span>
+        <div class="muted" style="font-size:11px;margin-top:6px">✔ 체크 안 한 제안은 “아니라고 표시함”으로 기록돼 다음 분류가 좋아집니다.</div>
+      </div>
+    </div>
+  </div>
+  <div class="caption">화면 C · 문서 상세 — 왼쪽은 <b>라디오(하나만)</b>, 오른쪽은 <b>체크박스(여러 개)</b>.
+  위젯 모양만으로 두 축의 성격 차이가 전달된다(원칙 2).</div>
+</div>
+
+<h3>8-1. 이 화면의 핵심 판단 4가지</h3>
+<div class="scroll"><table>
+<thead><tr><th>판단</th><th>내용</th><th>근거</th></tr></thead>
+<tbody>
+<tr><td><b>좌우 배치</b>(위아래 아님)</td><td>두 축을 <b>가로로 나란히</b>. 좁은 화면에서만 세로로 접힘</td>
+    <td>위아래로 두면 아래 카드는 스크롤해야 보이고, 결국 “두 번 보는” 지금 문제로 되돌아간다</td></tr>
+<tr><td><b>근거를 펼친 채로</b></td><td>접이식(expander)을 쓰지 않는다</td>
+    <td>현행 UI는 근거가 <code>st.expander</code> 안에 있다. 접혀 있으면 아무도 안 연다(원칙 4)</td></tr>
+<tr><td><b>“다른 의견” 상시 노출</b></td><td><code>candidates</code> 를 안내 문장으로 번역해 보여준다</td>
+    <td>상위 설계 7-1 “<code>candidates</code> 를 왜 남기나 — 검토자가 왜 C 인가를 되짚으려면 후보 목록이 필요”.
+        <b>남기기만 하고 안 보여주면 남긴 이유가 없다</b></td></tr>
+<tr><td><b>“해당 없음” 체크박스</b></td><td>업무분류에 <b>빈 확정</b>을 명시적으로 만든다</td>
+    <td>“아직 안 본 문서”와 “봤는데 해당 분류가 없는 문서”는 완전히 다르다. 이게 없으면 33건이 영원히 대기에 남는다</td></tr>
+</tbody></table></div>
+
+<h3>8-2. 저장되는 것 — 화면 조작과 파일의 대응</h3>
+<div class="flow"><span class="cmt">[등급 바꾸기] 누름</span>
+  → cso_override.jsonl 에 <b>한 줄 추가</b>
+    {"doc_id":"SF2026…", "axis":"security", "old_grade":"S", "new_grade":"C",
+     "reason":"대외비 도장 확인", "reviewer":"고봉수", "ts":"…"}
+
+<span class="cmt">[이대로 확정] 누름</span>
+  → cso_override.jsonl 에 <b>한 줄 추가</b>
+    {"doc_id":"SF2026…", "axis":"doctype",
+     "confirmed":["DC0061"], "rejected":["DC0031"],
+     "reason":"제안 내용은 첨부일 뿐", "reviewer":"고봉수", "ts":"…"}
+
+<span class="cmt">두 경우 모두 — cso_result.jsonl(기계 판정)은 <b>건드리지 않는다</b></span>
+</div>
+<div class="note">체크 해제한 제안이 <code>rejected</code> 로 함께 저장된다는 사실을 화면이
+<b>한 줄로 알려준다</b>. 상위 설계 7-4-1이 “거절 기록이 규칙 개선에 가장 값진 정보”라고 했으므로,
+사용자가 <b>“체크 안 하면 그냥 무시되겠지”</b>라고 오해하면 안 된다.</div>
+</section>
+
+<h2 id="s4"><span class="n">9</span> 화면 D — 검토함 <span class="pill">가상 화면</span></h2>
+<section class="card">
+<p>“오늘 할 일”만 한 건씩 처리하는 화면. <b>찾지 않고 처리만</b> 한다.</p>
+
+<div class="mock">
+  <div class="mock-title"><span class="dot"></span><span class="dot"></span><span class="dot"></span> 검토함</div>
+  <div class="mbody">
+    <div class="mrow mspace">
+      <div class="apptitle">🗂️ 문서 분류 도우미</div>
+      <div class="mrow">
+        <span class="muted" style="font-size:12px">관점</span>
+        <span class="seg"><span class="on">🔒 보안등급</span><span>🗂️ 업무분류</span><span>전체</span></span>
+        <span class="inp">👤 고봉수</span>
+      </div>
+    </div>
+    <div class="nav"><span>현황</span><span>문서함</span><span class="on">검토함 · 12</span><span>설정</span></div>
+
+    <div class="mrow mspace" style="margin:14px 0 6px">
+      <div><b>보안등급 확인이 필요한 문서 12건</b>
+        <span class="muted" style="font-size:12px">— 판단 못 함 6건 · 확신 낮음 6건</span></div>
+      <div class="muted" style="font-size:12px">3 / 12 처리 중</div>
+    </div>
+    <div class="bar" style="height:8px"><i style="background:var(--accent);width:25%"></i><i style="background:var(--chip);width:75%"></i></div>
+
+    <div class="queue">
+      <div class="mrow mspace">
+        <div>
+          <div class="fname">2026년_사업계획_초안.pptx <span class="b bH">판단 못 함</span></div>
+          <div class="fpath">D:\collected\경영\ · 참고: <span class="chip prop">경영/관리 ?</span></div>
+        </div>
+        <span class="muted" style="font-size:11.5px">1 / 12</span>
+      </div>
+      <ul class="why" style="margin-top:8px">
+        <li>개인정보·키워드가 <b>하나도 발견되지 않았습니다</b> <span class="src">— 내용 검사</span></li>
+        <li>폴더 <b>\경영\</b> 에 대한 규칙이 없습니다 <span class="src">— 폴더 규칙</span></li>
+        <li>비슷한 문서가 <b>충분히 비슷하지 않습니다</b>(가장 비슷한 문서 41%) <span class="src">— 비슷한 문서 참고</span></li>
+      </ul>
+      <div class="mrow" style="margin-top:10px">
+        <span class="btn" style="background:var(--c)">C 기밀 <span class="kbd2" style="background:rgba(255,255,255,.25);border:none;color:#fff">1</span></span>
+        <span class="btn" style="background:var(--s)">S 민감 <span class="kbd2" style="background:rgba(255,255,255,.25);border:none;color:#fff">2</span></span>
+        <span class="btn" style="background:var(--o)">O 공개 <span class="kbd2" style="background:rgba(255,255,255,.25);border:none;color:#fff">3</span></span>
+        <span class="btn gh">나중에 <span class="kbd2">S</span></span>
+        <span class="muted" style="font-size:11.5px">키보드 숫자키로 바로 처리할 수 있습니다</span>
+      </div>
+    </div>
+
+    <div class="queue" style="opacity:.55">
+      <div class="mrow mspace">
+        <div><div class="fname">DB설계서_v3.hwp <span class="b bS">S 민감</span> <span class="muted" style="font-size:11px">확신 72%</span></div>
+          <div class="fpath">\\secure\설계\</div></div>
+        <span class="muted" style="font-size:11.5px">2 / 12</span>
+      </div>
+    </div>
+  </div>
+  <div class="caption">화면 D · 검토함(보안등급 관점) — 한 건씩, 근거를 보고, 버튼 하나로 끝낸다.
+  관점을 <b>업무분류</b>로 바꾸면 같은 자리에 <b>체크박스 목록 + [확정] 버튼</b>이 나온다.</div>
+</div>
+
+<h3>9-1. 관점별 검토함 비교</h3>
+<div class="scroll"><table>
+<thead><tr><th></th><th class="ax1">🔒 보안등급 관점</th><th class="ax2">🗂️ 업무분류 관점</th></tr></thead>
+<tbody>
+<tr><td>담기는 문서</td><td>판단 못 함 · 확신 60% 미만</td><td>제안이 있는데 아직 확정 안 된 문서</td></tr>
+<tr><td>한 건 처리 방법</td><td>버튼 3개 중 <b>하나 클릭</b> (또는 숫자키 1·2·3)</td><td>체크박스 <b>고르고 확정</b> (Enter)</td></tr>
+<tr><td>“이유 적기”</td><td><b>필수</b> — 등급을 사람이 바꾸는 것이므로 감사 기록이 남아야 한다</td><td><b>선택</b> — 확정은 정정이 아니라 정상 절차다</td></tr>
+<tr><td>건너뛰기</td><td>“나중에” — 큐 맨 뒤로</td><td>“나중에” — 큐 맨 뒤로</td></tr>
+<tr><td>다 끝내면</td><td colspan="2">“오늘 검토할 문서가 없습니다 👍” + 현황으로 돌아가는 버튼</td></tr>
+</tbody></table></div>
+<div class="warn"><b>보안등급 검토에만 이유를 필수로 요구하는 이유</b> —
+업무분류 확정은 <b>원래 사람이 하기로 되어 있는 일</b>(상위 설계 7-4-1)이라 매번 이유를 요구하면
+33건을 처리할 수 없다. 반면 보안등급 변경은 <b>기계 판정을 사람이 뒤집는 것</b>이라 근거가 남아야 한다.</div>
+</section>
+
+<h2 id="s5"><span class="n">10</span> 화면 E — 설정 <span class="pill">가상 화면</span></h2>
+<section class="card">
+<p>현행 사이드바 7칸 + 탭 4개(규칙 설정·실행·seed 관리·내보내기)가 전부 이 한 화면으로 들어온다.
+<b>접이식 블록 4개</b>이고, 처음 3개만 펼쳐진 채로 시작한다.</p>
+
+<div class="mock">
+  <div class="mock-title"><span class="dot"></span><span class="dot"></span><span class="dot"></span> 설정</div>
+  <div class="mbody">
+    <div class="nav" style="margin-top:0"><span>현황</span><span>문서함</span><span>검토함 · 12</span><span class="on">설정</span></div>
+
+    <div class="panel" style="margin-top:14px">
+      <h5><span><span class="stepnum">1</span>분류할 폴더</span><span class="muted" style="font-size:11.5px">▾</span></h5>
+      <span class="inp" style="min-width:340px">D:\collected</span> <span class="btn gh">폴더 고르기</span>
+      <div class="muted" style="font-size:11.5px;margin-top:6px">하위 폴더까지 모두 검사합니다 · 현재 128개 문서</div>
+    </div>
+
+    <div class="panel a2" style="margin-top:12px">
+      <h5><span><span class="stepnum" style="background:var(--ax2)">2</span>회사 분류 체계</span><span class="chip">연결됨</span></h5>
+      <div class="mrow mspace">
+        <div style="font-size:12.5px">
+          <b>22개 분류</b> · 최대 3단계 <span class="muted">(경영/관리 · 기술/개발 · 영업/마케팅 · 인사/총무 · 재무/회계 · 법무/규정)</span>
+          <div class="muted" style="font-size:11.5px;margin-top:3px">가져온 날짜 <b>2026-08-24 11:07</b> · 회사 관리 화면에서 분류를 바꾸면 다시 가져와야 반영됩니다</div>
+        </div>
+        <span class="btn gh">🔄 다시 가져오기</span>
+      </div>
+      <div class="muted" style="font-size:11px;margin-top:8px">이 항목을 비우면 <b>업무분류를 쓰지 않고 보안등급만</b> 사용합니다.</div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h5><span><span class="stepnum">3</span>판단 기준</span><span class="muted" style="font-size:11.5px">▾</span></h5>
+      <div class="mrow" style="gap:8px;margin-bottom:8px">
+        <span class="seg v2" style="font-size:12px"><span class="on" style="background:var(--c)">🔒 보안등급 기준</span><span>🗂️ 업무분류 기준</span></span>
+      </div>
+      <table class="tbl">
+        <thead><tr><th>이 말이 나오면</th><th>이 등급으로</th><th>확신</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>주민등록번호 · 여권번호 · 계좌번호</td><td><span class="b bC">C 기밀</span></td><td>95%</td><td class="muted">수정</td></tr>
+          <tr><td>대외비 · 사내한정 · CONFIDENTIAL</td><td><span class="b bC">C 기밀</span></td><td>95%</td><td class="muted">수정</td></tr>
+          <tr><td>계약금액 · 단가 · 견적</td><td><span class="b bS">S 민감</span></td><td>80%</td><td class="muted">수정</td></tr>
+          <tr><td>폴더 <b>\공개\</b> · <b>\홍보\</b></td><td><span class="b bO">O 공개</span></td><td>90%</td><td class="muted">수정</td></tr>
+        </tbody>
+      </table>
+      <div class="mrow" style="margin-top:8px"><span class="btn gh">＋ 기준 추가</span>
+        <span class="muted" style="font-size:11px">신호가 엇갈리면 <b>더 엄격한 등급</b>이 적용됩니다.</span></div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h5><span><span class="stepnum">4</span>분류 실행</span><span class="muted" style="font-size:11.5px">▾</span></h5>
+      <div class="mrow" style="gap:16px;margin-bottom:8px">
+        <span><span class="ck on"></span>🔒 보안등급 판정</span>
+        <span><span class="ck on"></span>🗂️ 업무분류 제안</span>
+        <span><span class="ck on"></span>비슷한 문서 참고 <span class="muted" style="font-size:11px">(느려지지만 정확)</span></span>
+      </div>
+      <span class="btn">▶ 분류 시작</span>
+      <span class="muted" style="font-size:11.5px;margin-left:8px">128개 문서 · 예상 4분</span>
+      <div class="muted" style="font-size:11px;margin-top:10px;border-top:1px dashed var(--line);padding-top:8px">
+        고급 · 결과 파일 <code>ui\cso_result.jsonl</code> · 수정 기록 <code>ui\cso_override.jsonl</code> ·
+        기준 문서 <code>ui\class_seed.jsonl</code> &nbsp;<span style="color:var(--accent)">폴더 열기</span>
+      </div>
+    </div>
+  </div>
+  <div class="caption">화면 E · 설정 — 파일 경로는 <b>맨 아래 “고급” 한 줄</b>로 밀려났다.
+  체크박스 3개가 현행의 <code>--axis</code> · <code>--propagate</code> 옵션을 대신한다.</div>
+</div>
+
+<h3>10-1. 규칙 편집을 “표”로 바꾼다</h3>
+<p>현행 <code>rulesedit.py</code> 는 YAML 을 다룬다. 실무 관리자에게 YAML 을 보여주면 안 된다.
+<b>“이 말이 나오면 → 이 등급으로”</b> 라는 한 문장짜리 표로 바꾼다. 업무분류 기준도 같은 모양이다.</p>
+<div class="scroll"><table>
+<thead><tr><th>YAML 필드</th><th>표의 열 이름</th><th>입력 방식</th></tr></thead>
+<tbody>
+<tr><td><code>terms:</code></td><td><b>이 말이 나오면</b></td><td>태그 입력 — 엔터로 단어 추가</td></tr>
+<tr><td><code>exclude:</code></td><td><b>단, 이 말이 있으면 제외</b></td><td>태그 입력(비워둘 수 있음)</td></tr>
+<tr><td><code>filename:</code></td><td><b>파일 이름에 이 말이 있으면</b></td><td>태그 입력</td></tr>
+<tr><td><code>paths:</code></td><td><b>이 폴더 안이면</b></td><td>폴더 선택</td></tr>
+<tr><td><code>node:</code> (업무분류)</td><td><b>이 분류로</b></td><td><b>회사 분류 체계 트리에서 선택</b> — 직접 입력 불가</td></tr>
+<tr><td><code>grade:</code> (보안등급)</td><td><b>이 등급으로</b></td><td>C / S / O 선택</td></tr>
+<tr><td><code>weight:</code></td><td><b>확신</b></td><td>높음·보통·낮음 3단 → 내부적으로 %로</td></tr>
+<tr><td><code>id:</code> · <code>version:</code> · <code>conflict:</code></td><td colspan="2"><b>화면에 없음</b> — 자동 생성/고정값</td></tr>
+</tbody></table></div>
+<div class="ok"><b><code>node:</code> 는 반드시 트리 선택으로만 입력받는다.</b> 텍스트로 <code>DC0061</code> 을 치게 하면
+오타가 곧 “로드 실패”가 된다(상위 설계 T5). 화면에는 항상 <b>전체경로</b>(법무/규정 &gt; 계약서)를 보여주고
+<code>DC_ID</code> 는 저장할 때만 쓴다.</div>
+</section>
+
+<h2 id="visual"><span class="n">11</span> 두 축의 시각 규약 (색·배지)</h2>
+<section class="card">
+<div class="scroll"><table>
+<thead><tr><th></th><th class="ax1">🔒 보안등급</th><th class="ax2">🗂️ 업무분류</th></tr></thead>
+<tbody>
+<tr><td>아이콘</td><td>🔒 자물쇠</td><td>🗂️ 서랍</td></tr>
+<tr><td>대표색</td><td><b>등급별로 다름</b> — 빨강 C · 주황 S · 초록 O · 회색 판단 못 함</td><td><b>전부 같은 보라</b> — 분류마다 색을 나누지 않음</td></tr>
+<tr><td>모양</td><td>사각 배지 <span class="b bS">S 민감</span></td><td>둥근 알약 <span class="chip">법무/규정 &gt; 계약서</span></td></tr>
+<tr><td>개수 표현</td><td>항상 1개</td><td>여러 개, 넘치면 <code>+N</code></td></tr>
+<tr><td>미정 상태</td><td><span class="b bH">판단 못 함</span> — <b>회색 배지</b>(빈칸 아님)</td><td>“— 없음” <b>회색 글씨</b>(배지 없음)</td></tr>
+<tr><td>제안/확정</td><td>구분 없음(항상 자동 확정)</td><td>점선 <span class="chip prop">제안 ?</span> / 실선 <span class="chip">확정</span></td></tr>
+<tr><td>조작 위젯</td><td>라디오 버튼 · 등급 버튼 3개</td><td>체크박스 · 트리 선택</td></tr>
+<tr><td>패널 상단선</td><td>빨강 3px</td><td>보라 3px</td></tr>
+</tbody></table></div>
+<div class="bad"><b>지켜야 할 금지 규칙</b><br>
+① 업무분류에 <b>등급색(빨/주/초)을 절대 쓰지 않는다</b> — 없는 서열을 만든다.<br>
+② 보안등급에 <b>알약 모양을 쓰지 않는다</b> — 여러 개일 수 있다는 오해를 준다.<br>
+③ 확신도를 <b>색으로 표현하지 않는다</b>(낮으면 빨강 등) — 등급색과 충돌한다. 숫자와 정렬로만 표현한다.</div>
+
+<h3>11-1. “판단 못 함”을 빈칸으로 두지 않는 이유</h3>
+<p>빈칸은 <b>“아직 안 돌렸다”</b>로도 읽히고 <b>“해당 없음”</b>으로도 읽힌다.
+보안등급에서 이 오해는 위험하다 — 미분류 문서가 그냥 지나간다.
+그래서 보안등급은 <b>회색 배지를 반드시 찍고</b>, 업무분류는 <b>정상적으로 비어 있을 수 있으므로</b> 회색 글씨로만 둔다.
+같은 “없음”이라도 두 축에서 의미가 다르기 때문에 표현도 다르게 한다.</p>
+</section>
+
+<h2 id="states"><span class="n">12</span> 예외 상태 화면</h2>
+<section class="card">
+
+<h3>12-1. 업무분류를 아직 안 쓰는 배포 <span class="pill">가장 흔한 상태</span></h3>
+<p>상위 설계 4-6 — 회사 분류 체계 파일이 없으면 <b>보안등급만</b> 돌아간다. 이때 화면은 이렇게 된다.</p>
+<div class="mock">
+  <div class="mbody">
+    <div class="mrow mspace">
+      <div class="apptitle">🗂️ 문서 분류 도우미</div>
+      <div class="mrow">
+        <span class="muted" style="font-size:12px">관점</span>
+        <span class="seg"><span class="on">🔒 보안등급</span><span style="opacity:.4">🗂️ 업무분류 (꺼짐)</span></span>
+      </div>
+    </div>
+    <div class="nav"><span class="on">현황</span><span>문서함</span><span>검토함 · 12</span><span>설정</span></div>
+    <div class="banner" style="margin-top:14px">
+      <div>🗂️ <b>업무분류는 아직 사용하지 않습니다.</b>
+        <span class="muted">회사 분류 체계를 연결하면 “이 문서가 무엇에 관한 것인지”도 함께 정리됩니다.</span></div>
+      <span class="btn gh">설정에서 연결하기 →</span>
+    </div>
+    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><b>128</b><small>전체 문서</small></div>
+      <div class="kpi"><b style="color:var(--c)">12</b><small>보안등급 확인 필요</small></div>
+      <div class="kpi"><b style="font-size:15px;padding-top:5px">8월 24일 11:07</b><small>마지막 분류 실행</small></div>
+    </div>
+  </div>
+  <div class="caption">업무분류 미사용 — 스위치는 <b>남아 있되 흐리게</b>. 메뉴 개수·위치는 그대로다.
+  나중에 켰을 때 화면이 <b>재배치되지 않는다</b>.</div>
+</div>
+<div class="note"><b>기능을 숨기지 않고 “꺼짐”으로 보여주는 이유</b> — 숨기면 그런 기능이 있다는 것을
+영영 모른다. 상위 설계가 “한 줄 알리고 넘어간다”로 정한 원칙을 화면에서도 그대로 따른다.</div>
+
+<h3>12-2. 그 밖의 상태</h3>
+<div class="scroll"><table>
+<thead><tr><th>상태</th><th>화면</th><th>다음 행동 버튼</th></tr></thead>
+<tbody>
+<tr><td>아직 한 번도 안 돌림</td><td>“아직 분류한 문서가 없습니다. 폴더를 고르고 분류를 시작해 보세요.”<br>메뉴는 <b>설정만</b> 활성</td><td><b>▶ 분류 시작</b></td></tr>
+<tr><td>분류 실행 중</td><td>진행률 막대 + <b>처리 중인 파일명</b> + 남은 시간 · 취소 버튼</td><td>중단</td></tr>
+<tr><td>검토함이 비었음</td><td>“오늘 검토할 문서가 없습니다 👍”</td><td>현황으로</td></tr>
+<tr><td>검색 결과 없음</td><td>“조건에 맞는 문서가 없습니다” + <b>어떤 필터가 걸려 있는지 요약</b></td><td>필터 모두 지우기</td></tr>
+<tr><td>회사 분류 체계가 90일 넘게 오래됨</td><td>설정 2번 블록에 <b>주황 경고</b> — “가져온 지 103일 지났습니다”</td><td>🔄 다시 가져오기</td></tr>
+<tr><td>규칙이 없는 분류가 있음</td><td>설정 3번 블록에 회색 안내 — “<b>7개 분류에는 기준이 없어</b> 자동 제안되지 않습니다”</td><td>기준 추가</td></tr>
+<tr><td>수정한 문서가 결과와 안 이어짐<br><span class="muted">(경로 대소문자 문제 — 상위 설계 7-5 실측)</span></td><td>현황 상단에 <b>빨간 배너</b> — “예전에 수정한 4건이 반영되지 않고 있습니다”</td><td>자세히 보기</td></tr>
+</tbody></table></div>
+</section>
+
+<h2 id="map"><span class="n">13</span> 현행 9개 탭 → 신규 4개 메뉴 매핑</h2>
+<section class="card">
+<div class="scroll"><table>
+<thead><tr><th>현행 탭 (<code>app.py</code>)</th><th>신규 위치</th><th>변화</th></tr></thead>
+<tbody>
+<tr><td>⚙️ 규칙 설정</td><td><b>④ 설정 &gt; 3 판단 기준</b></td><td>YAML 편집 → <b>표 편집</b>. 두 축을 스위치로 전환(10-1)</td></tr>
+<tr><td>▶ 실행</td><td><b>④ 설정 &gt; 4 분류 실행</b></td><td>명령어·PYTHONPATH 입력칸 제거, <b>체크박스 3개</b>로</td></tr>
+<tr><td>📊 요약 대시보드</td><td><b>① 현황</b></td><td>두 축 카드로 재구성. 폴더별 차트는 제거(현황에서 안 쓴다)</td></tr>
+<tr><td>🩺 리포트</td><td><b>① 현황 &gt; “자세히 보기”</b></td><td>메뉴에서 내린다 — 매일 보는 화면이 아니다</td></tr>
+<tr><td>📋 문서 목록 · 근거 · 수정</td><td rowspan="2"><b>② 문서함</b> (+ 상세 패널)</td><td rowspan="2"><b>두 탭을 하나로 합친다.</b> 같은 문서를 두 번 찾던 문제가 사라진다(1장)</td></tr>
+<tr><td>🗂️ 업무분류 검토</td></tr>
+<tr><td>⚠️ 검토 큐</td><td><b>③ 검토함</b></td><td>관점에 따라 <b>대상과 조작이 바뀐다</b>(9-1). 키보드 처리 추가</td></tr>
+<tr><td>🌱 seed 관리</td><td><b>④ 설정 &gt; 고급</b></td><td>“<b>기준 문서</b>”로 이름 변경. 일반 사용자에겐 안 보임</td></tr>
+<tr><td>⬇️ 내보내기</td><td><b>② 문서함 우상단 버튼</b></td><td>탭 하나를 쓸 만큼 큰 기능이 아니다. <b>현재 필터 결과 그대로</b> 내보낸다</td></tr>
+<tr><td>사이드바 입력칸 7개</td><td><b>④ 설정</b>(폴더 1개만 노출) · 나머지는 <b>고급</b></td><td>매일 쓰는 화면에서 <b>파일 경로가 사라진다</b>(원칙 5)</td></tr>
+</tbody></table></div>
+
+<h3>13-1. Streamlit 으로 어떻게 만들 것인가 <span class="muted">(구현 아님 · 실현 가능성 확인용)</span></h3>
+<div class="scroll"><table class="nowrap">
+<thead><tr><th>화면 요소</th><th>Streamlit 수단</th><th>비고</th></tr></thead>
+<tbody>
+<tr><td>관점 스위치</td><td><code>st.segmented_control</code> (없으면 <code>st.radio(horizontal=True)</code>)</td><td>값은 <code>st.session_state["view"]</code> 하나에만 둔다</td></tr>
+<tr><td>메뉴 4개</td><td><code>st.tabs</code> 유지</td><td>탭 자체는 문제가 아니었다 — <b>개수</b>가 문제였다</td></tr>
+<tr><td>두 축 카드 좌우</td><td><code>st.columns(2)</code> + <code>st.container(border=True)</code></td><td>좁은 화면에서 자동으로 세로로 쌓인다</td></tr>
+<tr><td>문서함 표</td><td><code>st.dataframe(selection_mode="single-row")</code> (현행 유지)</td><td>배지는 이모지+텍스트로 대체(<code>🔴 C 기밀</code>)</td></tr>
+<tr><td>업무분류 체크 목록</td><td><code>st.checkbox</code> 반복 (현행 <code>doctype_review.py</code> 방식 유지)</td><td>이미 구현돼 있다</td></tr>
+<tr><td>분류 트리 선택</td><td><code>st.selectbox</code> + 전체경로 문자열</td><td>진짜 트리 위젯은 불필요 — 22개는 검색 가능한 목록으로 충분</td></tr>
+<tr><td>키보드 단축키</td><td><b>미지원</b> — 버튼 클릭만</td><td>Streamlit 제약. 9장 <span class="kbd2">1</span><span class="kbd2">2</span><span class="kbd2">3</span> 표기는 <b>Q3 결정 대기</b></td></tr>
+<tr><td>진행률</td><td><code>st.progress</code> + <code>st.status</code> (현행 <code>gerunner.py</code>)</td><td>이미 구현돼 있다</td></tr>
+</tbody></table></div>
+<div class="warn"><b>키보드 단축키는 유일한 미해결 요소다.</b> Streamlit 은 전역 키 입력을 받지 못한다.
+버튼 클릭만으로도 동작에는 문제가 없으나, 검토 속도가 <b>건당 2~3초 느려진다</b>.
+수백 건을 처리하는 회사라면 이것이 채택 여부를 가를 수 있다 → <a href="#open">Q3</a>.</div>
+</section>
+
+<h2 id="a11y"><span class="n">14</span> 반응형 · 접근성 · 성능</h2>
+<section class="card">
+<div class="scroll"><table>
+<thead><tr><th>항목</th><th>규칙</th></tr></thead>
+<tbody>
+<tr><td>기준 해상도</td><td><b>1280×800 이상</b>. 사내 노트북 기준. 두 축 좌우 배치가 성립하는 최소 폭</td></tr>
+<tr><td>좁은 화면(&lt;900px)</td><td>두 축 카드가 <b>세로로 쌓인다</b>. 이때 <b>관점 스위치가 순서를 정한다</b> — 선택한 축이 위</td></tr>
+<tr><td>모바일</td><td><b>지원하지 않는다.</b> 근거를 읽고 판단하는 도구라 작은 화면에서 하면 안 된다</td></tr>
+<tr><td>색각 이상</td><td>등급은 <b>색 + 알파벳 + 한글</b> 3중 표기(<code>🔴 C 기밀</code>). 색만으로 구분되는 정보는 없다</td></tr>
+<tr><td>대비</td><td>배지 텍스트는 본문색 대비 4.5:1 이상. 다크 모드에서 채도를 낮춘 별도 팔레트</td></tr>
+<tr><td>문서 수</td><td>표는 <b>1,000건까지</b> 즉시. 그 이상은 필터를 먼저 걸도록 안내(“조건을 좁혀 주세요”)</td></tr>
+<tr><td>느린 작업</td><td>분류 실행만 느리다. 그 외 모든 조작은 <b>0.5초 안에</b> 반응. 캐시는 현행 <code>@st.cache_data</code> 유지</td></tr>
+</tbody></table></div>
+</section>
+
+<h2 id="nongoal"><span class="n">15</span> 비목표</h2>
+<section class="card">
+<div class="scroll"><table>
+<thead><tr><th>안 하는 것</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td><b>축을 3개 이상으로 늘리는 UI</b></td><td>상위 설계는 <code>flat</code> 축을 예비로 두었지만, 화면은 <b>2축 전제로 최적화</b>한다. 좌우 2단 배치가 그 결정의 결과다</td></tr>
+<tr><td><b>충돌 전략 선택 UI</b></td><td>상위 설계 6-2에서 “고르는 것이 아니라 따라 나오는 값”으로 확정. 고를 수 없는 것에 화면을 주지 않는다</td></tr>
+<tr><td><b>문서 미리보기·뷰어</b></td><td>원본은 “파일 열기”로 <b>기본 프로그램</b>에 맡긴다. 뷰어를 만들면 포맷마다 끝이 없다</td></tr>
+<tr><td><b>여러 사람 동시 사용·권한 관리</b></td><td>현재는 로컬 도구다. “검토자 이름”은 <b>기록용 텍스트</b>이지 로그인이 아니다</td></tr>
+<tr><td><b>일괄 수정(여러 문서 한 번에 등급 변경)</b></td><td>근거를 보지 않고 등급을 바꾸는 경로가 생긴다. 이 도구에서 가장 위험한 기능</td></tr>
+<tr><td><b>업무분류 자동 확정</b></td><td>상위 설계 7-4-1 확정 사항 — 제안만 하고 사람이 확정한다. 화면에 “전부 확정” 버튼을 두지 않는다</td></tr>
+</tbody></table></div>
+<div class="q"><b>일괄 처리는 정말 필요 없나?</b> — 업무분류에는 조건부로 열어 둘 여지가 있다.
+“<b>같은 폴더의 미분류 문서 12건을 모두 ‘기술/개발 &gt; 매뉴얼’로 확정</b>” 같은 조작은 실무에서 자주 필요하다.
+다만 보안등급에는 <b>절대 열지 않는다</b>. → <a href="#open">Q4</a></div>
+</section>
+
+<h2 id="open"><span class="n">16</span> 결정 필요 사항</h2>
+<section class="card">
+
+<div class="q"><b>Q1.</b> 관점 스위치의 <b>기본값</b>을 무엇으로 할 것인가?<br>
+<span class="muted">회사마다 주 사용자가 다르다. ① 보안등급 고정 ② 전체 ③ <b>설정에서 회사가 선택</b>(권장) —
+③이면 설정 1번 블록에 “이 회사의 주 용도” 한 줄이 추가된다.</span></div>
+
+<div class="q"><b>Q2.</b> 업무분류 <b>제안 표시 개수</b>를 몇 개로 할 것인가?<br>
+<span class="muted">상위 설계 6-3은 “저장은 전부(<code>all</code>), 화면은 상위 3~5개”라고 했다.
+표에서는 2개+<code>+N</code>, 상세에서는 <b>3개? 5개?</b> 초기 규칙 정밀도를 보고 정해야 한다.
+확신 40% 미만은 접어 둘 것인지도 함께 결정.</span></div>
+
+<div class="q"><b>Q3.</b> 검토 속도를 위해 <b>Streamlit 을 벗어날 것인가?</b><br>
+<span class="muted">키보드 단축키·드로어·즉시 반응은 Streamlit 에서 어렵다(13-1). 선택지는
+① Streamlit 유지(구현 비용 최소, 속도 손해 감수) ② <code>streamlit-shortcuts</code> 등 컴포넌트 추가
+③ 웹앱으로 재작성(비용 큼). <b>하루 처리 건수</b>가 이 결정을 좌우한다.</span></div>
+
+<div class="q"><b>Q4.</b> <b>업무분류 일괄 확정</b>을 열 것인가?<br>
+<span class="muted">15장 참조. 열 경우 “문서함에서 필터 → 선택 → 한 분류로 확정” 흐름이 되고,
+<b>확정 취소(되돌리기)</b> 화면이 반드시 함께 필요하다. 보안등급 일괄 변경은 <b>열지 않는다</b>로 이미 정했다.</span></div>
+
+<div class="q"><b>Q5.</b> 사용자가 <b>회사 분류 체계를 이 화면에서 편집</b>할 수 있게 할 것인가?<br>
+<span class="muted">진실 출처는 MpowerV11 관리 화면의 <code>DOC_CLASSIFICATION</code> 이다(상위 설계 4-1).
+여기서 편집하면 두 곳이 어긋난다. <b>읽기 전용 + “회사 관리 화면 열기” 링크</b>를 권장한다.</span></div>
+
+<div class="q"><b>Q6.</b> 화면 이름을 <b>“문서 분류 도우미”</b>로 확정할 것인가?<br>
+<span class="muted">현행 제목은 “문서 C/S/O 분류 검토”인데, 이제 C/S/O 만 다루지 않는다.
+두 축을 모두 포괄하면서 쉬운 이름이 필요하다. 대안: “문서 분류 관리”, “문서 등급·분류 도우미”.</span></div>
+
+</section>
+
+<footer>
+  보안등급 · 업무분류 2축 UI/UX 설계서 · 2026-08-25 · UI/UX 설계만, 구현 없음<br>
+  상위 설계 <a href="문서분류체계-연동-분류규칙-설계.html">문서 분류 체계 연동 · 분류 규칙 설계서</a> ·
+  관련 <a href="분류라벨-사용자정의-설계.html">분류 라벨 사용자정의 설계서</a> ·
+  <a href="CSO-분류-UIUX-설계.html">CSO 분류 UI/UX 설계서(1축 시절)</a>
+</footer>
+
+</div>
+</body>
+</html>

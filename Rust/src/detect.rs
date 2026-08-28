@@ -68,7 +68,14 @@ pub fn detect_format(path: &Path) -> Fmt {
     }
     // OLE(구형 doc/xls/ppt/hwp 공용) → 내부 스트림 검사
     if head.starts_with(OLE_MAGIC) {
-        return detect_ole(head);
+        let quick = detect_ole(head);
+        // 앞 2KB 안에 스트림명이 없으면(디렉터리가 파일 뒤쪽에 있는 흔한 경우)
+        // 실제 CFB 디렉터리를 읽어 정확히 가린다. 이 폴백이 없으면 구형 .doc 이
+        // 'ole' 로만 잡혀 추출기가 없는 포맷 취급을 받는다.
+        if quick == Fmt::Ole {
+            return detect_ole_exact(path);
+        }
+        return quick;
     }
     // ZIP(docx/xlsx/pptx/hwpx/일반 zip 공용) → 내부 이름 검사
     if head.starts_with(ZIP_MAGIC) {
@@ -99,6 +106,20 @@ fn detect_ole(head: &[u8]) -> Fmt {
     if has("WordDocument") { return Fmt::Doc; }
     if has("Workbook") || has("Book") { return Fmt::Xls; }
     if has("PowerPoint Document") { return Fmt::Ppt; }
+    if has("FileHeader") || has("HwpSummaryInformation") { return Fmt::Hwp; }
+    Fmt::Ole
+}
+
+/// CFB 디렉터리를 실제로 읽어 OLE 세부 포맷을 가린다(위 휴리스틱이 실패했을 때만).
+/// 파일 전체를 읽으므로 값이 비싸다 — 그래서 폴백으로만 쓴다.
+fn detect_ole_exact(path: &Path) -> Fmt {
+    let data = match std::fs::read(path) { Ok(d) => d, Err(_) => return Fmt::Ole };
+    let ole = match crate::ole::Ole::open(data) { Some(o) => o, None => return Fmt::Ole };
+    let names = ole.names();
+    let has = |n: &str| names.iter().any(|x| *x == n);
+    if has("WordDocument") { return Fmt::Doc; }
+    if has("PowerPoint Document") { return Fmt::Ppt; }
+    if has("Workbook") || has("Book") { return Fmt::Xls; }
     if has("FileHeader") || has("HwpSummaryInformation") { return Fmt::Hwp; }
     Fmt::Ole
 }

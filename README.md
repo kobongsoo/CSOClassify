@@ -55,11 +55,11 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 
 | 옵션 | 동작 | 임베딩 | seed |
 |---|---|---|---|
-| (기본) | 규칙으로 등급 → **미분류(보류)면 seed와 문맥 비교해 자동 전파** | 보류·seed 후보만 | exe 옆 `cso_seed.jsonl`(있으면) |
+| (기본) | 규칙으로 등급 → **미분류(보류)면 seed와 문맥 비교해 자동 전파** | 보류·seed 후보만 | exe 옆 `class_seed.jsonl`(있으면) |
 | `--rule-only` | 규칙(내용·민감정보·스탬프·경로·파일명)**만**으로 분류 (전파 차단) | 안 함(가장 빠름) | 불필요 |
 | `--vector-only` | 규칙 검사 **없이** 문서 벡터를 seed와 비교(전파)해서만 분류 | 전량 임베딩 | **필수** `--seeds` |
 
-> **기본 자동 전파**: `--file`/`--dir` 만 줘도 **exe 옆에 `cso_seed.jsonl` 이 있으면** 규칙 미분류 문서를 그 seed와 임베딩 비교해 자동 분류합니다(확정 문서는 건너뜀). seed 파일이 없으면 규칙만으로 끝냅니다. 전파를 원치 않으면 `--rule-only`.
+> **기본 자동 전파**: `--file`/`--dir` 만 줘도 **exe 옆에 `class_seed.jsonl` 이 있으면** 규칙 미분류 문서를 그 seed와 임베딩 비교해 자동 분류합니다(확정 문서는 건너뜀). seed 파일이 없으면 규칙만으로 끝냅니다. 전파를 원치 않으면 `--rule-only`.
 
 ## 주요 옵션 (전체는 `--help`)
 
@@ -83,7 +83,7 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 | `--with-vector` | **모든 문서**에 임베딩 | — |
 | `--auto-propagate` | 분류 직후 보류 문서를 seed로 **전파까지** | — |
 | `--propagate <jsonl>` | 1차 레코드에 임베딩 전파 적용(모델 불필요) | — |
-| `--seeds <경로>` | 전파 비교 기준 seed(`cso_seed.jsonl`) | 내부 seed |
+| `--seeds <경로>` | 전파 비교 기준 seed(`class_seed.jsonl`) | 내부 seed |
 | `--with-text` | 결과에 추출 텍스트(`text`) 포함 | off(프라이버시) |
 | `--with-pii` | **[주의]** 검출 원문 PII 값을 `pii` 필드로 저장 | off |
 | `--hash` | 각 문서의 **해시(SHA-256)** 를 `hash` 필드로 포함 | off |
@@ -172,6 +172,15 @@ dist-onedir/windows/                    dist-onedir/linux/
   Windows에서 풀면 `_internal`의 .so 심볼릭링크가 깨짐) → `chmod +x csoclassify synap/linux/snf_exe`
   → `./csoclassify --file "문서"`.
 - 규칙셋이 없으면 실행 시 어디에 둘지 안내하고 종료(코드 3).
+- 규칙셋은 **로드 시점에 검증**합니다 — 정의되지 않은 등급(`base_grade: c` 같은 오타),
+  `bulk_grade` 가 `base_grade` 보다 낮은 역전, 아무 일도 하지 않는 경로 규칙(`grade`·
+  `acl_restricted` 둘 다 없음)이 있으면 **문서를 한 건도 읽지 않고** 위반을 전부 모아
+  보여 주고 종료(코드 4). 예전에는 이런 값을 조용히 무시해 그 규칙이 판정에서
+  빠졌고, 문서가 실제보다 낮은 등급을 받았습니다.
+  배포 전 미리 확인: `csoclassify --check-rules --rules cso_rules.yaml` (문서 불필요)
+- 경로 규칙(`paths`)은 `acl_restricted: true` 인 경우 `grade` 를 **생략**할 수 있습니다. 그러면
+  스스로 등급을 내지 않고, 내용·파일명에서 아무 신호도 없을 때만 fail-safe 로 최고 등급을
+  줍니다 — "보안 폴더인데 내용을 못 읽는 파일"이 미분류로 새는 것을 막는 안전망입니다.
 - 리눅스 `snf_exe` 는 정적 링크라 `.so`/헤더 없이 단독 실행.
 
 > onefile(단일 exe) 방식(`build/csoclassify-onefile.spec`)은 스펙만 남겨두고 **현재 빌드 대상이 아닙니다**
@@ -190,13 +199,14 @@ dist-onedir/windows/                    dist-onedir/linux/
 - 기본 로그: `<exe폴더>/log/csoclassify-YYYYMMDD.log`(실행 커맨드·파일별 결과 JSON, 벡터는 축약).
   경로는 `--log`, 화면 출력·DEBUG는 `-v`. 데몬도 같은 파일에 `[PID …]` 로 구분해 기록.
 
-## 검토·규칙편집 UI (Streamlit)
+## 문서자동분류 UI (Streamlit)
 
 ```bash
 pip install -r ui/requirements.txt
 streamlit run ui/app.py        # 또는 ui/실행.bat
 ```
-분류 결과 대시보드·문서목록·검토 큐·seed 관리·**규칙 편집**(주석 보존)·균형/중복 리포트를 제공합니다.
+관리자용 화면 **문서자동분류** 입니다. 현황 대시보드·문서함·검토함·seed 관리·
+**판단 기준 편집**(보안등급 규칙 + 업무분류 규칙, 주석 보존)·균형/중복 리포트를 제공합니다.
 수동 오버라이드는 원본 불변, `cso_override.jsonl` 에 append-only 로 기록.
 
 ## 프로젝트 구조
@@ -217,7 +227,7 @@ src/csoclassify/
   embed/            ONNX 임베더(base + onnx_embedder)
   daemon/           상주 데몬(server/client/ipc/registry)
 resources/policy/cso_rules.yaml   C/S/O 규칙셋(외장)
-ui/                 Streamlit 검토·규칙편집 UI
+ui/                 Streamlit 관리자 화면 "문서자동분류"(검토·판단 기준 편집)
 build/*.spec        PyInstaller 스펙
 doc/                실행 가이드 · 규칙셋 레퍼런스 · 빌드 가이드(Python/Rust) · 작업기록 (HTML)
 ```
@@ -227,7 +237,7 @@ doc/                실행 가이드 · 규칙셋 레퍼런스 · 빌드 가이�
 - ✅ 추출(사이냅)·정제·청킹·CLI·데몬(싱글턴/폴백)·출력·시간측정.
 - ✅ 하이브리드 추출(`--hybridparse`): **내용 감지 → 포맷별 오픈소스 파서**(pdf=pypdfium2·hwp/hwpx·구형 doc/xls/ppt·현대 docx/xlsx/pptx=zip/OOXML 직접파싱(stdlib)·text). snf는 폴백 전용(없으면 미분류). 실측 snf 대비 동급~수십배, 품질 sim≈1.0. 전부 순수py/소형 wheel로 **Windows·Linux(CentOS7) 동일 동작**(xberg는 검토 후 채택 안 함 — 117MB·CentOS7 불가·PDF 느림).
 - ✅ C/S/O 분류: 5신호(rule·sensitive·stamp·path·name) 융합 + 결합식별성(combo) + 임베딩 전파(embed).
-- ✅ PII 20종(ko-pii) · 분류 방식 옵션(`--rule-only`/`--vector-only`) · 검토/규칙편집 UI.
+- ✅ PII 20종(ko-pii) · 분류 방식 옵션(`--rule-only`/`--vector-only`) · 문서자동분류 UI(검토·판단 기준 편집).
 - ✅ onedir 배포(Windows·Linux) · 규칙셋/모델/사이냅 외장화.
 - ✅ 단위/통합 테스트 통과.
 

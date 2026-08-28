@@ -102,17 +102,26 @@ DAEMON_START_WAIT = 20.0         # 데몬 자동기동 후 준비 대기 최대(
 SNF_TIMEOUT = 60                 # snf_exe 1파일 처리 타임아웃(초)
 MIN_TEXT_LEN_WARN = 5            # 추출 텍스트가 이보다 짧으면 경고(손상파일 의심)
 
-# 하이브리드 추출(--hybridparse) 관련 — 설계: doc/CSO_HybridParse.html
-#   기본 off(미지정 시 전부 사이냅=현행). CSOCLASSIFY_HYBRID=1 로 기본 on 가능(CLI 플래그 우선).
-#   --hybridparse: 내용 감지로 포맷별 전용 파서 라우팅(pdf→pypdfium2, hwp/hwpx·doc/xls/ppt·
-#   docx/xlsx/pptx·text). 전용 파서 실패 시 snf 폴백. 전부 순수 파이썬/소형 wheel(CentOS7 호환).
-DEFAULT_HYBRID_PARSE = _env_bool("CSOCLASSIFY_HYBRID", False)
+# 추출 방식 — 설계: doc/CSO_HybridParse.html
+#   [2026-08-26 기본값 변경] 기본이 '자체 파서'(하이브리드)다. 내용 감지로 포맷별
+#   전용 파서를 라우팅한다(pdf→pypdfium2, hwp→HWP5, hwpx→zip/OWPML, doc/ppt→자체파서,
+#   xls→xlrd, docx/xlsx/pptx→python-*, text→직접읽기). 전용 파서가 실패한 파일만
+#   사이냅(snf)으로 폴백한다.
+#   [왜 바꿨나] Rust 포트는 처음부터 자체 파서만 쓴다. Python 이 사이냅을 기본으로
+#   쓰면 같은 문서에서 두 구현의 추출 텍스트가 달라져, 분류 로직이 같아도 결과가
+#   갈린다(실측 354건 중 11건). 기본을 자체 파서로 맞춰 그 원인을 없앤다.
+#   CSOCLASSIFY_HYBRID=0 또는 --synap-only 로 종전(사이냅 단독)으로 되돌릴 수 있다.
+DEFAULT_HYBRID_PARSE = _env_bool("CSOCLASSIFY_HYBRID", True)
 
 # 종료 코드(설계서 §7)
 EXIT_OK = 0
 EXIT_EXTRACT_FAIL = 1
 EXIT_EMBED_FAIL = 2
 EXIT_ARG_ERROR = 3
+# 규칙셋 자체는 찾았지만 내용이 틀린 경우(등급 오타·bulk 역전 등). 배치 스크립트가
+# "파일 없음(3)"과 "내용 오류(4)"를 구분해 대응할 수 있도록 별도 코드를 준다.
+# Rust 판(csoclassify-rs)도 같은 값 4 를 쓴다 — 두 구현의 동작을 일치시킨다.
+EXIT_RULES_INVALID = 4
 
 
 #------------------------------------------------------------------

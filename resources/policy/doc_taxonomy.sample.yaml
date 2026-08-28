@@ -1,0 +1,81 @@
+# ------------------------------------------------------------------
+# 업무분류 체계 스냅샷 — 형식 예시(sample)
+#
+#  이 파일은 "형식이 어떻게 생겼는지"만 보여 주는 가짜 데이터다. 실제로 쓰는
+#  doc_taxonomy.yaml 은 고객사 DB(DOC_CLASSIFICATION)에서 뽑아 만들며, 고객사
+#  고유의 값이라 저장소에 올리지 않는다(.gitignore).
+#
+#  [실제 파일 만드는 법]
+#    1) MPOWER 에서 DOC_CLASSIFICATION 을 JSON 으로 내려받는다
+#       → resources/policy/doc_classification_export.json
+#    2) python scripts/export_taxonomy.py
+#       → resources/policy/doc_taxonomy.yaml 이 만들어진다
+#       --scaffold-doc-rule 을 함께 주면 doc_rule.yaml 골격도 같이 나온다
+#
+#  [실시간이 아니다]
+#    분류할 때 DB 에 붙지 않는다. 이 파일은 '그때 찍은 사진'이고, DB 가 바뀌면
+#    export_taxonomy.py 를 다시 돌려야 반영된다(설계서 3-3).
+#
+#  [칸 설명]
+#    source      = 어디서 뽑았는지(스키마.테이블). 감사 추적용
+#    exported_at = 뽑은 시각 yyyyMMddHHmmss. 결과 레코드의 taxonomy_version 이 된다
+#    node_count  = nodes 개수. 실제 개수와 다르면 로드 단계에서 실패한다
+#    dc_id       = 분류 고유 ID. doc_rule.yaml 의 node: 가 이 값을 가리킨다
+#    parent      = 부모 dc_id. 최상위는 null
+#    order       = 같은 부모 안에서의 표시 순서
+#    title       = 화면에 보이는 이름(전체경로는 부모를 따라 이어 붙여 만든다)
+#    status      = 1 사용 · 0 사용 안 함(0 은 새 분류로 제안되지 않는다)
+# ------------------------------------------------------------------
+taxonomy:
+  source: sample
+  exported_at: '20260101000000'
+  node_count: 9
+  nodes:
+  - dc_id: DC_001
+    parent: null
+    order: 1
+    title: 경영/관리
+    status: 1
+  - dc_id: DC_001_001
+    parent: DC_001
+    order: 1
+    title: 사업계획서
+    status: 1
+  - dc_id: DC_001_003
+    parent: DC_001
+    order: 3
+    title: 보고서
+    status: 1
+  - dc_id: DC_002
+    parent: null
+    order: 2
+    title: 기술/개발
+    status: 1
+  - dc_id: DC_002_001
+    parent: DC_002
+    order: 1
+    title: 설계문서
+    status: 1
+  # 3단(대분류 > 중분류 > 소분류)도 된다 — 깊이에 제한을 두지 않는다.
+  - dc_id: DC_002_001_001
+    parent: DC_002_001
+    order: 1
+    title: 요구사항정의서
+    status: 1
+  - dc_id: DC_003
+    parent: null
+    order: 3
+    title: 법무/규정
+    status: 1
+  - dc_id: DC_003_001
+    parent: DC_003
+    order: 1
+    title: 계약서
+    status: 1
+  # status: 0 은 "더 이상 쓰지 않는 분류"다. 지우지 않고 남기는 이유는, 예전에
+  # 이 분류로 확정된 문서의 이름을 나중에도 화면에 띄울 수 있어야 하기 때문이다.
+  - dc_id: DC_003_009
+    parent: DC_003
+    order: 9
+    title: 폐지된분류예시
+    status: 0

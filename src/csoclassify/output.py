@@ -8,6 +8,36 @@ import json
 
 
 #------------------------------------------------------------------
+# 안전한 JSON 직렬화 (마지막 방어선)
+#=> json.dumps 를 하되, 결과에 'UTF-8 로 쓸 수 없는 글자'가 섞여 있으면 그 자리를
+#   U+FFFD 로 바꿔 돌려준다. 리눅스에서 파일 이름은 그냥 바이트열이라 UTF-8 이
+#   아닐 수 있고(윈도우에서 만든 CP949 이름을 복사한 경우 등), 파이썬은 그런
+#   이름을 읽을 때 짝 없는 대리 문자(\udcXX)를 끼워 넣는다.
+#   [왜 dumps 를 try 로 감싸지 않나] json.dumps 는 str 을 만들 뿐 인코딩을 하지
+#   않아서 여기서는 예외가 나지 않는다. 실제 예외는 그 문자열을 파일에 write 할
+#   때(파일 객체의 UTF-8 인코더에서) 터진다 — 그래서 '만든 문자열'을 검사한다.
+#    1) 만든 문자열을 한 번 encode 해 본다(정상이면 그대로 반환)
+#    2) 실패하면 surrogateescape 로 원래 바이트를 되살린 뒤 replace 로 다시 읽어,
+#       못 읽는 자리만 U+FFFD 로 바꾼다(JSON 구조는 그대로 유지된다)
+#   보통은 cli.safe_text 가 레코드에 들어가기 전에 걸러 주지만, 앞으로 어떤 경로가
+#   추가되더라도 '파일 하나 때문에 배치 전체가 죽는' 일만은 없게 하려고 여기서도 막는다.
+#
+# -in: rec = 직렬화할 값(dict 등)
+# -in: kw  = json.dumps 에 그대로 넘길 인자(indent·separators 등)
+#
+# -out: str = 파일에 그대로 써도 안전한 JSON 문자열
+# -out: error = 없음(인코딩 불가 문자는 U+FFFD 로 대체)
+#------------------------------------------------------------------
+def dumps_safe(rec, **kw):
+    s = json.dumps(rec, ensure_ascii=False, **kw)
+    try:
+        s.encode("utf-8")
+        return s
+    except UnicodeEncodeError:
+        return s.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
+#------------------------------------------------------------------
 # 벡터를 공백구분 문자열로
 #=> [0.01, -0.02, ...] 를 "0.01 -0.02 ..." 로 바꾼다(text 모드용).
 #
@@ -45,8 +75,8 @@ def format_result(result, fmt, timing=True):
         if not timing:
             payload.pop("elapsed_ms", None)
         if fmt == "json":
-            return json.dumps(payload, ensure_ascii=False, indent=2), stderr_str
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":")), stderr_str
+            return dumps_safe(payload, indent=2), stderr_str
+        return dumps_safe(payload, separators=(",", ":")), stderr_str
 
     if fmt == "text":
         file = result.get("file", "")
@@ -164,14 +194,14 @@ class RecordWriter:
     #------------------------------------------------------------------
     def write_record(self, rec):
         if self.fmt == "json":
-            block = json.dumps(rec, ensure_ascii=False, indent=2)
+            block = dumps_safe(rec, indent=2)
             if self.array:
                 self._open_or_sep()
                 self.fp.write(block)
             else:
                 self.fp.write(block + "\n")
         else:  # jsonl (compact 1줄)
-            self.fp.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
+            self.fp.write(dumps_safe(rec, separators=(",", ":")) + "\n")
 
     #------------------------------------------------------------------
     # 미리 만든 본문 문자열 1개 출력(run_embed 의 text/json 혼용용)

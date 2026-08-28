@@ -64,6 +64,49 @@ def expand_glob_braces(pattern):
 
 
 #------------------------------------------------------------------
+# 폴더 안 파일 개수 세기 (화면 안내용)
+#=> "이 폴더에 몇 개가 있나"를 화면에 보여 주려고 센다. 분류 대상 수를 미리
+#   알려 주는 용도라, 정확한 목록이 필요한 실행 경로와 달리 '빠르게·대충'이
+#   목적이다.
+#    1) os.scandir 로 훑는다(glob 보다 빠르고 메모리를 안 쌓는다)
+#    2) cap 을 넘어서면 세기를 멈추고 capped=True 로 알린다 — 파일이 수십만 개인
+#       폴더를 가리켰을 때 화면이 몇 초씩 멈추는 것을 막는다
+#    3) 권한 없는 하위 폴더는 조용히 건너뛴다(안내용 숫자 때문에 화면이
+#       죽으면 안 된다)
+#
+# -in: folder    = 셀 폴더 경로
+# -in: recursive = 하위 폴더까지 셀지(기본 True)
+# -in: cap       = 여기까지만 세고 멈춤(기본 20000)
+#
+# -out: (count, capped) = 파일 수, cap 에 걸려 멈췄으면 True
+# -out: error = 폴더가 없거나 못 읽으면 (0, False)
+#------------------------------------------------------------------
+def count_files(folder, recursive=True, cap=20000):
+    if not folder or not os.path.isdir(folder):
+        return 0, False
+    count = 0
+    stack = [folder]
+    while stack:
+        cur = stack.pop()
+        try:
+            with os.scandir(cur) as it:
+                for e in it:
+                    try:
+                        if e.is_file():
+                            count += 1
+                            # cap 에 닿으면 더 세지 않고 즉시 빠져나온다.
+                            if count >= cap:
+                                return count, True
+                        elif recursive and e.is_dir(follow_symlinks=False):
+                            stack.append(e.path)
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return count, False
+
+
+#------------------------------------------------------------------
 # glob 패턴 목록 펼치기 (UI·CLI 공용 진입점)
 #=> --glob 한 값에 패턴을 여러 개 넣는 두 표기를 모두 받는다.
 #     1) 콤마로 나열   : "*.hwp,*.pdf"        (기본·권장 — 접두가 달라도 됨)
@@ -135,12 +178,16 @@ def run_csoclassify_file(base_cmd, file_path, pythonpath=None, timeout=180):
 
     p = subprocess.run(args, capture_output=True, timeout=timeout, env=env)
     out = p.stdout.decode("utf-8", errors="replace")
+    err = p.stderr.decode("utf-8", errors="replace")
     for line in out.splitlines():
         line = line.strip()
         if line.startswith("{"):
-            return json.loads(line)
+            rec = json.loads(line)
+            # stderr 을 함께 실어 보낸다. 실행은 됐는데 vector 가 없을 때 "왜 없는지"는
+            # 여기(예: "[warn] 알 수 없는 인자: --with-vector")에만 적혀 있다.
+            rec["_stderr"] = err[-600:]
+            return rec
 
-    err = p.stderr.decode("utf-8", errors="replace")
     raise RuntimeError(f"csoclassify 결과를 얻지 못했습니다 (code={p.returncode}). {err[-400:]}")
 
 
@@ -173,6 +220,35 @@ def _run(args, pythonpath, timeout, marker):
 
 
 #------------------------------------------------------------------
+# 회사 분류 체계 가져오기 실행 (doc_taxonomy.yaml 생성)
+#=> MpowerV11 에서 내보낸 JSON 을 읽어 화면이 쓰는 doc_taxonomy.yaml 을 만든다.
+#   실제로 도는 명령은 아래 한 줄이고, 화면은 이 함수만 부른다.
+#     csoclassify --export-taxonomy --export-input <원본.json> --taxonomy <만들 .yaml>
+#   [왜 화면에서 실행하나] 예전에는 이 명령을 글로만 알려 주고 관리자가 직접
+#   명령창에서 치게 했다. 분류 체계를 연결하지 않으면 업무분류 축이 통째로 꺼지는데,
+#   그 첫 관문을 명령창에 맡기면 대부분 거기서 멈춘다.
+#
+# -in: base_cmd     = 실행 인자 리스트(parse_base_cmd 결과)
+# -in: export_input = MpowerV11 이 내보낸 원본 JSON 경로
+# -in: taxonomy_out = 만들어 낼 doc_taxonomy.yaml 경로
+# -in: pythonpath   = 모듈 실행 시 PYTHONPATH
+# -in: timeout      = 최대 대기(초). 파일 한 개 변환이라 짧아도 된다
+#
+# -out: SimpleNamespace(returncode, stderr, summary, args)
+#        args = 실제로 실행한 명령(실패했을 때 화면에 그대로 보여 주려고 담는다)
+# -out: error = timeout 시 예외 전파
+#------------------------------------------------------------------
+def run_export_taxonomy(base_cmd, export_input, taxonomy_out, pythonpath=None,
+                        timeout=180):
+    args = list(base_cmd) + ["--export-taxonomy",
+                             "--export-input", export_input,
+                             "--taxonomy", taxonomy_out]
+    r = _run(args, pythonpath, timeout, "[csoclassify]")
+    r.args = args
+    return r
+
+
+#------------------------------------------------------------------
 # 폴더 분류 실행 (Phase 1 수집 / Phase 3 분류의 "실행")
 #=> csoclassify 로 폴더를 분류(기본)해 out_path(jsonl)에 저장한다. 벡터도 함께
 #   뽑아(--with-vector) 이후 seed 비교·승격에 쓸 수 있게 한다.
@@ -181,7 +257,7 @@ def _run(args, pythonpath, timeout, marker):
 # -in: folder      = 대상 폴더
 # -in: out_path    = 결과 jsonl 저장 경로
 # -in: glob        = 파일 패턴(기본 *)
-# -in: recursive   = 하위 폴더 포함(-r)
+# -in: recursive   = (쓰이지 않음) 두 엔진 모두 --dir 은 항상 재귀다
 # -in: with_vector = 벡터도 산출(기본 True)
 # -in: pythonpath  = 모듈 실행 시 PYTHONPATH
 # -in: timeout     = 최대 대기(초, 폴더가 크면 오래 걸림)
@@ -196,8 +272,9 @@ def run_csoclassify_dir(base_cmd, folder, out_path, glob="*", recursive=True,
                              "--format", "jsonl", "--out", out_path, "--no-timing"]
     if with_vector:
         args.append("--with-vector")
-    if recursive:
-        args.append("-r")
+    # -r 은 넘기지 않는다. 두 엔진 모두 --dir 이면 **언제나 하위 폴더까지** 훑는다
+    # (Python cli.py 의 -r 은 help 에 '(무시됨)' 이라 적혀 있고, Rust 는 walkdir 로
+    # 항상 재귀한다). Rust 판은 모르는 인자라며 경고까지 찍어 로그만 지저분해졌다.
     return _run(args, pythonpath, timeout, "[classify]")
 
 
@@ -215,19 +292,21 @@ def run_csoclassify_dir(base_cmd, folder, out_path, glob="*", recursive=True,
 # -in: folder      = 대상 폴더
 # -in: out_path    = 결과 jsonl 저장 경로
 # -in: glob        = 파일 패턴(기본 *)
-# -in: recursive   = 하위 폴더 포함(-r)
+# -in: recursive   = (쓰이지 않음) 두 엔진 모두 --dir 은 항상 재귀다
 # -in: embed_mode  = 임베딩 정책. "needed"=보류·seed_eligible 만(기본, 빠름),
 #                    "all"=전량, "none"=임베딩 안 함
 # -in: pythonpath  = 모듈 실행 시 PYTHONPATH
 # -in: timeout     = 최대 대기(초)
 # -in: on_progress = 콜백 fn(done:int, total:int, path:str). None 이면 진행보고 생략
+# -in: extra_args  = 그대로 덧붙일 인자 리스트(예: ["--taxonomy", "…", "--doc-rules", "…"]).
+#                    업무분류 축을 켤 때 화면이 넘긴다. None 이면 아무것도 안 붙는다
 #
 # -out: SimpleNamespace(returncode, stderr, summary)
 # -out: error = 시작 실패 등은 예외 전파(호출부에서 표시)
 #------------------------------------------------------------------
 def run_csoclassify_dir_stream(base_cmd, folder, out_path, glob="*", recursive=True,
                                embed_mode="needed", pythonpath=None, timeout=3600,
-                               on_progress=None):
+                               on_progress=None, extra_args=None):
     # 분류가 기본 동작이므로 --classify 는 생략한다(임베딩 정책만 아래에서 지정).
     args = list(base_cmd) + ["--dir", folder, "--glob", glob,
                              "--format", "jsonl", "--out", out_path, "--no-timing",
@@ -236,8 +315,13 @@ def run_csoclassify_dir_stream(base_cmd, folder, out_path, glob="*", recursive=T
         args.append("--embed-needed")
     elif embed_mode == "all":
         args.append("--with-vector")
-    if recursive:
-        args.append("-r")
+    # -r 은 넘기지 않는다. 두 엔진 모두 --dir 이면 **언제나 하위 폴더까지** 훑는다
+    # (Python cli.py 의 -r 은 help 에 '(무시됨)' 이라 적혀 있고, Rust 는 walkdir 로
+    # 항상 재귀한다). Rust 판은 모르는 인자라며 경고까지 찍어 로그만 지저분해졌다.
+    # 업무분류(doctype) 축 관련 인자(--taxonomy/--doc-rules/--axis)를 화면에서 그대로
+    # 넘길 수 있게 열어 둔다. 안 주면 지금까지와 똑같이 보안등급만 도는 배포가 된다.
+    if extra_args:
+        args += list(extra_args)
 
     env = dict(os.environ)
     env["PYTHONUTF8"] = "1"              # 자식이 UTF-8 로 출력(한글 깨짐 방지)
@@ -279,24 +363,3 @@ def run_csoclassify_dir_stream(base_cmd, folder, out_path, glob="*", recursive=T
                            stderr="\n".join(err_lines), summary=summary)
 
 
-#------------------------------------------------------------------
-# 임베딩 전파 실행 (Phase 3 — seed 비교)
-#=> csoclassify --propagate 로 1차 결과의 보류 문서를 seed 저장소와 비교해 재분류한다.
-#
-# -in: base_cmd     = 실행 인자 리스트
-# -in: records_path = 1차 결과 jsonl(입력)
-# -in: out_path     = 재분류 결과 저장 경로
-# -in: seeds_path   = 비교 기준 seed 저장소(cso_seed.jsonl, 없으면 코퍼스 내부)
-# -in: pythonpath   = 모듈 실행 시 PYTHONPATH
-# -in: timeout      = 최대 대기(초)
-#
-# -out: SimpleNamespace(returncode, stderr, summary)
-# -out: error = timeout 시 예외 전파
-#------------------------------------------------------------------
-def run_propagate(base_cmd, records_path, out_path, seeds_path=None,
-                  pythonpath=None, timeout=1800):
-    args = list(base_cmd) + ["--propagate", records_path,
-                             "--format", "jsonl", "--out", out_path]
-    if seeds_path:
-        args += ["--seeds", seeds_path]
-    return _run(args, pythonpath, timeout, "[propagate]")

@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>문서 분류 체계 연동 · 분류 규칙 설계서</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+    --ax2:#7c3aed; --ax2-soft:#f1ebfe;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+      --ax2:#a78bfa; --ax2-soft:#241b3d;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:25px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  header.hero .meta{margin-top:10px;font-size:12.5px;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  h4{font-size:14.5px;margin:16px 0 6px;color:var(--muted)}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .nowrap td:first-child{white-space:nowrap}
+  .def{color:var(--muted);font-size:.85em}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .bad{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .ok{border-left:3px solid var(--o);background:color-mix(in srgb,var(--o) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .tag{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700;
+    border:1px solid var(--line);background:var(--chip)}
+  .tag.must{color:var(--c)} .tag.should{color:var(--s)} .tag.may{color:var(--o)}
+  .ax1{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700;
+    background:color-mix(in srgb,var(--c) 14%,transparent);border:1px solid var(--line);color:var(--c)}
+  .ax2{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700;
+    background:var(--ax2-soft);border:1px solid var(--line);color:var(--ax2)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  @media(max-width:880px){.two{grid-template-columns:1fr}ul.toc{columns:1}}
+  .phase{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:0 10px 10px 0;
+    padding:12px 16px;margin:12px 0;background:var(--panel)}
+  .phase h4{margin:0 0 6px;color:var(--ink);font-size:15px}
+  .q{border:1px dashed var(--line);border-radius:10px;padding:12px 16px;margin:12px 0;background:var(--chip)}
+  .q b{color:var(--accent)}
+  .strat{border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:12px 0;background:var(--panel)}
+  .strat h4{margin:0 0 4px;font-size:15px;color:var(--ink)}
+  .strat h4 code{font-size:.95em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>문서 분류 체계 연동 · 분류 규칙 설계서</h1>
+  <p>현재 운영 중인 <code>DOC_CLASSIFICATION</code> 업무 분류 체계를 CSOClassify 규칙 엔진에 연동하고,
+  <b>신호 충돌 해소 전략을 선택 가능하게</b> 만드는 설계</p>
+  <div class="meta">작성 2026-08-24 · 근거 자료 <code>2025 문서 분류 체계\수정.pptx</code>(3매) ·
+  대상 <code>CSOClassify</code>(Python) 및 <code>Rust/</code>(csoclassify-rs) · <b>설계만, 구현 없음</b></div>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#src">1. 근거 자료 — 현행 분류 체계</a></li>
+    <li><a href="#key">2. 핵심 관찰 — 축이 두 개다</a></li>
+    <li><a href="#axes">3. 설계 개요 — 분류 축(axis)</a></li>
+    <li><a href="#tax">4. 업무 분류 축 설계</a></li>
+    <li><a href="#rules">5. 업무 분류 규칙 형태</a></li>
+    <li><a href="#conflict">6. 충돌 해소 전략 <b>(핵심)</b></a></li>
+    <li><a href="#output">7. 출력 스키마 · 결과 파일 운영</a></li>
+    <li><a href="#validate">8. 검증 규칙</a></li>
+    <li><a href="#impact">9. 구현 영향 범위</a></li>
+    <li><a href="#roadmap">10. 개발 진행순서</a></li>
+    <li><a href="#risk">11. 리스크 · 대응</a></li>
+    <li><a href="#open">12. 결정 필요 사항</a></li>
+  </ul>
+  <div class="note">이 문서는 <a href="분류라벨-사용자정의-설계.html">분류 라벨 사용자정의 설계서</a>를
+  <b>대체하지 않고 확장</b>한다. 그 문서는 “보안등급 라벨을 관리자가 정의한다”를 다루고,
+  이 문서는 “<b>보안등급과는 다른 축</b>인 업무 분류를 함께 다룬다 + 충돌을 어떻게 낼지 고른다”를 다룬다.
+  그 문서에서 <b>비목표 N1(다축 분류)로 미뤄 둔 것</b>을, 실제 운영 체계가 요구하므로 여기서 정면으로 설계한다.</div>
+</section>
+
+
+<h2 id="src"><span class="n">1</span> 근거 자료 — 현행 분류 체계</h2>
+<section class="card">
+  <p><code>수정.pptx</code> 3매에서 확인한 내용이다. 추정 없이 자료에 있는 것만 적었다.</p>
+
+  <h3>1-1. 테이블 <span class="def">— 슬라이드 1·2</span></h3>
+  <p><code>Mpower10U.DOC_CLASSIFICATION</code> — <b>자기참조 트리</b> 한 테이블로 분류 체계 전체를 담는다.</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>컬럼</th><th>형식</th><th>설명</th><th>비고</th></tr>
+    <tr><td><code>DC_ID</code></td><td>VARCHAR(40)</td><td>문서 분류 체계 아이디</td><td><b>PK</b></td></tr>
+    <tr><td><code>PARENT_DC_ID</code></td><td>VARCHAR(40)</td><td>상위 분류 체계 아이디</td><td>INDEX_01 · NULL 이면 최상위</td></tr>
+    <tr><td><code>ORDER_NUM</code></td><td>INT</td><td>정렬 순서</td><td>기본 0</td></tr>
+    <tr><td><code>TITLE</code></td><td>VARCHAR(40)</td><td>분류 체계 이름</td><td>NOT NULL</td></tr>
+    <tr><td><code>REG_DATE</code> · <code>REG_USER_ID</code></td><td>CHAR(14) · VARCHAR(40)</td><td>등록일시 · 등록자</td><td>YYYYMMDDHH24MISS</td></tr>
+    <tr><td><code>MOD_DATE</code> · <code>MOD_USER_ID</code></td><td>CHAR(14) · VARCHAR(40)</td><td>수정일시 · 수정자</td><td></td></tr>
+    <tr><td><code>COMMENT</code></td><td>VARCHAR(4000)</td><td>설명</td><td></td></tr>
+    <tr><td><code>STATUS</code></td><td>CHAR(1)</td><td>사용여부</td><td><b>1=사용 · 0=미사용</b>, 기본 '1'</td></tr>
+  </table></div>
+  <p class="def">InnoDB · utf8mb4 · <code>IX_DOC_CLASSIFICATION_01 (PARENT_DC_ID)</code></p>
+
+  <h3>1-2. 실제 운영 중인 트리 <span class="def">— 슬라이드 3 (관리 화면 캡처)</span></h3>
+  <p>메뉴 위치: <code>MpowerV11 ADMIN → 개인 정보 검출 → 검출 관리 → 문서 분류 체계 관리</code>.
+  <b>개인정보 검출 정책과 같은 관리 화면에 있다</b> — 연동 지점이 자연스럽다는 뜻이다.</p>
+<div class="tree">경영/관리                <span class="cmt">[+] 하위 있음(화면에서 접힘)</span>
+기술/개발
+   ├ 설계문서
+   │    ├ 요구사항정의서
+   │    ├ 화면설계서
+   │    └ DB설계서
+   ├ 매뉴얼
+   └ 테스트결과서
+영업/마케팅
+   ├ 제안서
+   ├ 견적서
+   └ 고객자료
+인사/총무
+   ├ 채용서류
+   ├ 교육자료
+   └ 복리후생
+재무/회계
+   ├ 세금계산서
+   ├ 예산서
+   └ 결산자료
+법무/규정
+   ├ 계약서
+   ├ 사내규정
+   └ 인증서류</div>
+  <p class="def"><b>최대 3계층</b>이 확인된다(대분류 &gt; 중분류 &gt; 소분류). 다만 테이블 구조는 자기참조라
+  깊이 제한이 없으므로, 설계는 <b>임의 깊이</b>를 가정한다.</p>
+
+  <h3>1-3. 관리 화면이 다루는 항목</h3>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>화면 항목</th><th>대응 컬럼</th><th>비고</th></tr>
+    <tr><td>상위 명칭(*)</td><td><code>PARENT_DC_ID</code></td><td>트리에서 선택(+/− 버튼)</td></tr>
+    <tr><td>명칭(*)</td><td><code>TITLE</code></td><td>필수</td></tr>
+    <tr><td>상태(*)</td><td><code>STATUS</code></td><td>사용 / 미사용</td></tr>
+    <tr><td>정렬 순서</td><td><code>ORDER_NUM</code></td><td></td></tr>
+    <tr><td>생성일 · 등록자</td><td><code>REG_DATE</code> · <code>REG_USER_ID</code></td><td>읽기 전용</td></tr>
+    <tr><td><b>전체경로</b></td><td>—</td><td>계산 표시. 예: <code>기술/개발 &gt; 설계문서 &gt; 요구사항정의서</code></td></tr>
+    <tr><td>설명</td><td><code>COMMENT</code></td><td></td></tr>
+    <tr><td>추가 / 저장 / 삭제</td><td>—</td><td>노드 CRUD</td></tr>
+  </table></div>
+  <div class="note"><b>“전체경로”가 화면에 있다는 점이 설계에 중요하다.</b> 운영자는 분류를
+  <b>잎 노드 하나</b>가 아니라 <b>경로 전체</b>로 인식한다. 분류 결과도 잎만 내지 말고
+  경로를 함께 내야 화면과 말이 맞는다(→ <a href="#tax">4-4</a>).</div>
+
+  <div class="warn"><b>이 자료에 없어서 이 설계가 가정하지 않은 것</b> — 문서와 분류를 잇는
+  <b>매핑 테이블</b>(어느 문서가 어느 분류인지), 분류별 권한·보존기한, 자동분류 규칙 저장 위치.
+  자료에는 <b>분류 체계(어휘) 자체</b>만 있다. 이들이 이미 있다면 <a href="#open">12장 Q1</a>에서 확인이 필요하다.</div>
+</section>
+
+
+<h2 id="key"><span class="n">2</span> 핵심 관찰 — 축이 두 개다</h2>
+<section class="card">
+  <p>이 자료를 CSOClassify 에 얹으려 할 때 가장 먼저 부딪히는 사실은 이것이다.</p>
+  <div class="bad" style="font-size:15.5px">
+  <b><code>DOC_CLASSIFICATION</code> 은 C/S/O 를 <u>대체하는 것이 아니라, 전혀 다른 질문에 답한다.</u></b>
+  </div>
+
+  <div class="two">
+    <div>
+      <p><span class="ax1">축 1 · 보안등급</span></p>
+      <div class="scroll"><table class="nowrap">
+        <tr><th>질문</th><td>이 문서는 <b>얼마나 위험한가</b></td></tr>
+        <tr><th>라벨</th><td>C · S · O</td></tr>
+        <tr><th>서열</th><td><b>있다</b> (C &gt; S &gt; O)</td></tr>
+        <tr><th>개수</th><td>문서당 <b>정확히 1개</b></td></tr>
+        <tr><th>충돌</th><td>“더 위험한 쪽”이 정답 → <code>max</code></td></tr>
+        <tr><th>출처</th><td>CSOClassify <code>cso_rules.yaml</code></td></tr>
+      </table></div>
+    </div>
+    <div>
+      <p><span class="ax2">축 2 · 업무 분류</span></p>
+      <div class="scroll"><table class="nowrap">
+        <tr><th>질문</th><td>이 문서는 <b>무엇에 관한 것인가</b></td></tr>
+        <tr><th>라벨</th><td>기술/개발&gt;설계문서&gt;… (트리)</td></tr>
+        <tr><th>서열</th><td><b>없다</b> — 계약서가 견적서보다 “높지” 않다</td></tr>
+        <tr><th>개수</th><td>문서당 <b>1개 이상</b> 가능</td></tr>
+        <tr><th>충돌</th><td>“더 위험한 쪽”이라는 개념이 <b>성립하지 않는다</b></td></tr>
+        <tr><th>출처</th><td><code>DOC_CLASSIFICATION</code> 테이블</td></tr>
+      </table></div>
+    </div>
+  </div>
+
+  <h3>한 문서는 두 축을 동시에 가진다</h3>
+<pre><code>D:\collected\법무\용역계약서_한빛테크_2026.docx
+
+  <span class="cmt">축 1 (보안등급)</span>   S           <span class="cmt">← 계약 상대·금액 포함, 사내 한정</span>
+  <span class="cmt">축 2 (업무분류)</span>   법무/규정 &gt; 계약서
+                     영업/마케팅 &gt; 제안서   <span class="cmt">← 제안 내용이 첨부돼 둘 다 맞다</span></code></pre>
+
+  <div class="warn"><b>여기서 두 번째 요구사항의 근거가 나온다.</b><br>
+  축 1 에서 “주민번호(S)와 대외비 스탬프(C)가 충돌” → <b>C 를 택하는 것이 옳다</b>. 안전측이다.<br>
+  축 2 에서 “계약서와 제안서가 충돌” → <b>어느 쪽을 택해도 틀린다.</b> 질문 자체가 성립하지 않는다.
+  <b>둘 다 내는 것</b>이 정답이다.<br>
+  그래서 “충돌을 어떻게 낼지”는 <b>축마다 달라야</b> 한다(→ <a href="#conflict">6장</a>).</div>
+
+  <h3 id="two-sides">2-1. 두 측면 <span class="pill">2026-08-24 확정</span></h3>
+  <p>운영자가 이 도구를 쓰는 상황은 <b>두 가지로 나뉘며, 각각 중요하게 보는 것이 다르다.</b>
+  이것이 축 설계와 충돌 전략을 모두 결정한다.</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th style="width:14%">측면</th><th>무엇이 중요한가</th><th>충돌이 나면</th><th>전략</th></tr>
+    <tr>
+      <td><span class="ax1">보안 측면</span><br><span class="def">CSO 분류</span></td>
+      <td><b>보안이 최우선.</b> 이 문서를 어느 수준으로 보호해야 하는가</td>
+      <td>더 엄격한 쪽을 적용한다. 덜 보호하는 실수가 훨씬 비싸다</td>
+      <td><b><code>max</code> 무조건 적용</b><br><span class="def">선택지가 아니라 고정</span></td>
+    </tr>
+    <tr>
+      <td><span class="ax2">분류 측면</span><br><span class="def">기업 문서분류</span></td>
+      <td><b>분류체계에 따른 분류만 중요.</b> 이 문서가 ‘보고서’인지 ‘계약서’인지,
+          <b>혹은 둘 다인지</b> 확인할 수 있으면 된다.
+          <b>보안은 차선 고려사항</b></td>
+      <td>해당하는 것을 <b>전부</b> 낸다. 하나를 고르면 나머지를 버리는 것</td>
+      <td><b><code>all</code></b></td>
+    </tr>
+  </table></div>
+  <div class="ok"><b>이 결정이 설계를 단순하게 만든다.</b>
+  충돌 전략은 <b>운영자가 매번 고르는 옵션이 아니라, 축의 성격에서 자동으로 따라 나오는 값</b>이다.
+  덕분에 “전략을 잘못 골라 등급이 약해지는” 사고 경로 자체가 사라진다(→ <a href="#conflict">6-2</a>).
+  <span class="def">초안에서 전략을 6종 나열했다가, 이 결정으로 실제 쓰이는 3종으로 줄였다.</span></div>
+</section>
+
+
+<h2 id="axes"><span class="n">3</span> 설계 개요 — 분류 축(axis)</h2>
+<section class="card">
+  <p><b>축</b>을 일급 개념으로 도입한다. 축이란 “서로 배타적인 라벨 한 벌 + 그 라벨을 정하는 방법”이다.
+  기존 C/S/O 는 <b>축이 하나뿐이었던 특수한 경우</b>가 된다.</p>
+
+  <h3>3-1. 스키마 — 축의 성격은 <b>개념</b>, 실제 문법은 <b>파일 2개</b></h3>
+  <p>“축”이라는 개념(라벨 구조·서열·충돌 전략)은 아래처럼 하나의 표로 설명할 수 있지만,
+  <b>실제로 규칙 파일에 이 문법 그대로 적는 것은 아니다.</b> 3-2 결정에 따라
+  축마다 <b>파일이 통째로 나뉘고</b>, 각 파일이 자기 축의 성격을 스스로 담는다. 아래는 두 파일의
+  실제 스키마다.</p>
+
+  <div class="two">
+    <div>
+      <p><span class="ax1">① <code>cso_rules.yaml</code></span> <span class="def">(기존 · 무변경)</span></p>
+<pre><code><span class="cmt"># security 축 — 파일 자체가 이 축 전용이므로</span>
+<span class="cmt"># axis: 헤더가 필요 없다(파일 자체가 축을 정함 — 3-2-1)</span>
+version: "cso-2026.09.1"
+
+keywords: [ … ]
+regex_pii: [ … ]
+sensitive: [ … ]
+stamps: [ … ]
+paths: [ … ]</code></pre>
+      <div class="scroll"><table class="nowrap">
+        <tr><td><code>kind</code></td><td><code>ordered</code> <span class="def">(암묵)</span></td></tr>
+        <tr><td><code>order</code></td><td><code>[O, S, C]</code></td></tr>
+        <tr><td><code>conflict</code></td><td><b><code>max</code> 고정</b></td></tr>
+        <tr><td><code>cardinality</code></td><td>1</td></tr>
+        <tr><td><code>required</code></td><td>true</td></tr>
+      </table></div>
+    </div>
+    <div>
+      <p><span class="ax2">② <code>doc_rule.yaml</code></span> <span class="def">(신규)</span></p>
+<pre><code><span class="cmt"># doctype 축 — axis: 헤더조차 없다(3-2-1). 진짜 바뀌는 값 하나만 최상위에 적는다</span>
+version: "doc-2026.09.1"
+
+conflict: all          <span class="cmt"># 생략하면 all(기본). top_n 필요시 {strategy: top_n, n: 3, min_confidence: 0.6}</span>
+
+doctype_rules:
+- id: dt_contract
+  node: DC0061
+  …</code></pre>
+      <div class="scroll"><table class="nowrap">
+        <tr><td><code>kind</code></td><td><code>taxonomy</code> <span class="def">(고정 · 코드에 내장, 파일에 안 적음)</span></td></tr>
+        <tr><td><code>order</code></td><td>없음(트리에 서열 없음)</td></tr>
+        <tr><td><code>conflict</code></td><td><code>all</code> <span class="def">(기본, 유일하게 파일에 적는 값)</span> · <code>top_n</code></td></tr>
+        <tr><td><code>cardinality</code></td><td>n <span class="def">(고정 · taxonomy 축은 항상 다중값)</span></td></tr>
+        <tr><td><code>required</code></td><td>false <span class="def">(고정 · 4-6)</span></td></tr>
+      </table></div>
+    </div>
+  </div>
+  <p class="def">두 파일로 나눈 이유·비교표는 → <a href="#split">3-2</a>.</p>
+
+  <div class="note"><b><code>kind</code> 가 무엇을 결정하나</b>
+  <div class="scroll"><table class="nowrap">
+    <tr><th><code>kind</code></th><th>라벨 구조</th><th>서열</th><th>쓸 수 있는 <code>conflict</code></th></tr>
+    <tr><td><code>ordered</code></td><td>평평한 목록 + <code>order</code></td><td>있음</td>
+        <td><b><code>max</code> 만</b><br>
+            <span class="def">서열이 있다는 것은 “더 위험한 쪽”이 정의된다는 뜻이고,
+            그러면 안전측을 택하는 것 외에 정당한 선택지가 없다</span></td></tr>
+    <tr><td><code>taxonomy</code></td><td>트리(부모-자식)</td><td>없음</td>
+        <td><code>all</code> <span class="def">(기본)</span> · <code>top_n</code><br>
+            <span class="def">— <code>max</code> 는 <b>사용 불가</b>(서열이 없어 정의되지 않음)</span></td></tr>
+    <tr><td><code>flat</code> <span class="def">(예비)</span></td><td>평평한 목록</td><td>없음</td>
+        <td><code>all</code> · <code>top_n</code></td></tr>
+  </table></div>
+  이 표는 <b>코드에 내장된 규칙을 설명하는 참고표</b>다 — <code>kind</code> 는 더 이상 파일에 적는 값이
+  아니고(3-2-1), 파일이 곧 축을 정한다(<code>cso_rules.yaml</code> → ordered, <code>doc_rule.yaml</code> →
+  taxonomy). 다만 <code>doc_rule.yaml</code> 의 <code>conflict:</code> 에 <code>max</code> 를 적으면
+  <b>검증에서 강제</b>로 막는다(T2, → <a href="#validate">8장</a>) — 조용히 아무 값이나 고르는 것보다 낫다.</div>
+
+  <h3 id="split">3-2. 규칙을 파일 하나가 아니라 <b>축별로 두 파일</b>에 나눈다 <span class="pill">2026-08-24 확정</span></h3>
+  <div class="note"><b>확정</b> — <code>axes:</code> 블록을 <code>cso_rules.yaml</code> 안에 함께 적지 않는다.
+  대신 축마다 <b>파일을 통째로 분리</b>한다.</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>파일</th><th>축</th><th>내용</th><th>손대는 사람</th></tr>
+    <tr><td><code>cso_rules.yaml</code> <span class="def">(기존 · 무변경)</span></td>
+        <td><span class="ax1">security</span></td>
+        <td><code>keywords</code>·<code>regex_pii</code>·<code>sensitive</code>·<code>stamps</code>·<code>paths</code></td>
+        <td>보안 담당</td></tr>
+    <tr><td><code>doc_rule.yaml</code> <span class="def">(신규)</span></td>
+        <td><span class="ax2">doctype</span></td>
+        <td><code>doctype_rules</code> 목록 (5-1) — <code>doc_taxonomy.yaml</code> 의 <code>DC_ID</code> 를 참조</td>
+        <td>문서분류체계 담당</td></tr>
+  </table></div></div>
+
+  <p>3-1 의 <code>axes:</code> 스키마는 <b>개념 설명용으로 남긴다</b> — “축이란 무엇인가”를 보여 주는 그림이지,
+  실제로 그 문법 그대로 파일에 적는 것은 아니다. 대신 각 파일이 <b>자기 축을 스스로 선언</b>한다.</p>
+<pre><code><span class="cmt"># cso_rules.yaml — 지금과 100% 동일. axes: 블록은 애초에 문법에 없다(3-2-1)</span>
+keywords: [ … ]
+paths: [ … ]
+
+<span class="cmt"># doc_rule.yaml — 3-2-1: axis: 헤더 자체를 없앤다. conflict: 하나만 최상위에 (생략 시 all)</span>
+conflict: all
+
+doctype_rules:
+- id: dt_contract
+  node: DC0061
+  …</code></pre>
+
+  <h4>왜 <code>axes:</code> 통합 문서 대신 파일 분리인가</h4>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>기준</th><th>한 파일에 <code>axes:</code> 통합</th><th><b>파일을 축별로 분리</b></th></tr>
+    <tr><td>기존 <code>cso_rules.yaml</code></td>
+        <td>스키마가 바뀐다 — <code>axes:</code>·<code>doctype_rules:</code> 블록이 새로 들어감</td>
+        <td><b>글자 하나 안 바뀐다.</b> 기존 배치·파서·검증이 손댈 것이 없다</td></tr>
+    <tr><td>편집 충돌</td>
+        <td>보안 규칙과 업무분류 규칙을 <b>같은 파일</b>에서 고친다 — 담당자가 다르면
+            리뷰·git diff 가 매번 섞인다</td>
+        <td>파일이 다르므로 <b>diff 가 절대 섞이지 않는다</b></td></tr>
+    <tr><td>“한 규칙이 두 축을 동시에?” (T4)</td>
+        <td>검증으로 <b>매번 잡아야</b> 하는 실수</td>
+        <td><code>grade:</code> 와 <code>node:</code> 가 <b>서로 다른 파일 문법</b>이라
+            <b>애초에 섞어 적을 수 없다</b> — 검증이 아니라 구조로 막는다</td></tr>
+    <tr><td>변경 빈도</td>
+        <td>초기엔 <code>doctype_rules</code> 가 계속 늘어나는데(22개 노드),
+            그때마다 보안 규칙과 같은 파일이 커진다</td>
+        <td><code>doc_rule.yaml</code> 만 자주 바뀌고 <code>cso_rules.yaml</code> 은 <b>조용하다</b></td></tr>
+    <tr><td>배포</td>
+        <td>업무분류를 안 쓰는 배포도 <code>axes:</code> 스키마를 이해해야 함(하위호환으로 흡수는 됨)</td>
+        <td><code>doc_rule.yaml</code> 이 <b>없으면 그냥 doctype 축을 끈다</b> — 4-6 과 동일한
+            “있으면 켜지고 없으면 꺼지는 외장 자산” 원칙을 <b>규칙 파일에도</b> 그대로 적용</td></tr>
+  </table></div>
+
+  <div class="warn"><b>손해 보는 것도 있다</b> — 두 파일을 같이 봐야 “이 문서가 왜 이렇게 분류됐나”를
+  완전히 알 수 있다(보안+업무분류 근거가 파일 두 개에 흩어짐). 다만 실행 결과 레코드(7-1)에는
+  <code>labels.security</code>·<code>labels.doctype</code> 이 <b>한 곳에 같이 나오므로</b>,
+  “결과를 볼 때”가 아니라 “규칙을 고칠 때”만 겪는 불편이다. 감수할 만하다고 판단한다.</div>
+
+  <h3 id="noheader">3-2-1. <code>axis:</code> 헤더도 없앤다 — 바뀌는 값이 하나뿐이라서 <span class="pill">2026-08-24 확정</span></h3>
+  <div class="note"><b>확정</b> — <code>doc_rule.yaml</code> 맨 위에 <code>axis: {id, kind, conflict, cardinality,
+  required, taxonomy}</code> 여섯 필드를 적던 것을 없애고, <b>실제로 바뀌는 값 하나(<code>conflict</code>)만</b>
+  최상위에 남긴다.</div>
+
+  <p>파일이 이미 축을 하나로 고정하고 있는데(3-2 — <code>doc_rule.yaml</code>은 항상 doctype 축 전용),
+  그 파일 안에 <code>id: doctype</code>라고 <b>또 적는 것은 자기소개를 두 번 하는 것</b>과 같다.
+  여섯 필드를 하나씩 짚어 보면 실제로 바뀔 수 있는 값은 하나뿐이다.</p>
+
+  <div class="scroll"><table class="nowrap">
+    <tr><th>필드</th><th>실제로 바뀌나</th><th>왜 고정인가 / 왜 남기나</th><th>판정</th></tr>
+    <tr><td><code>id: doctype</code></td><td>아니오</td>
+        <td><code>doc_rule.yaml</code> 이라는 파일 자체가 “이건 doctype 축 규칙”이라는 뜻이다(3-2).
+            파일 하나에 축 하나만 담기로 한 순간 이 필드는 <b>항상 같은 값</b>이 된다</td>
+        <td><span class="tag must">제거</span></td></tr>
+    <tr><td><code>kind: taxonomy</code></td><td>아니오</td>
+        <td>업무분류는 트리 구조라는 사실 자체가 바뀌지 않는다. <code>ordered</code> 로 바뀔 이유가 없다</td>
+        <td><span class="tag must">제거 · 코드에 하드코딩</span></td></tr>
+    <tr><td><code>cardinality: n</code></td><td>아니오</td>
+        <td><code>kind: taxonomy</code> 면 다중 라벨이라는 것이 3-1 표에서 이미 <b>규칙으로 정해져 있다</b>
+            — <code>kind</code> 가 정해지면 자동으로 따라오는 값이라 별도로 적을 이유가 없다</td>
+        <td><span class="tag must">제거 · kind 에서 유도</span></td></tr>
+    <tr><td><code>required: false</code></td><td>아니오</td>
+        <td>doctype 축은 4-6에서 이미 “스냅샷 없으면 끈다”로 확정했다 — <code>true</code> 로 바뀔 여지가
+            애초에 설계에서 막혀 있다</td>
+        <td><span class="tag must">제거 · 4-6 에서 고정</span></td></tr>
+    <tr><td><code>taxonomy: doc_taxonomy.yaml</code></td><td>아니오 <span class="def">(4-2-1 확정 이후)</span></td>
+        <td>4-2-1 에서 스냅샷 파일명을 <b>고정</b>하기로 했으므로, 이 필드는 항상 같은 값을 적는 꼴이 됐다.
+            경로를 바꿔야 하는 드문 경우는 <b>파일 내용이 아니라 실행 옵션</b>(<code>--taxonomy</code>,
+            9장)의 몫이다 — “규칙이 무엇을 뜻하는가”와 “파일을 어디서 찾는가”는 다른 층이다</td>
+        <td><span class="tag must">제거 · CLI 로 이동</span></td></tr>
+    <tr><td><code>conflict: all</code></td><td><b>예</b></td>
+        <td>초기엔 규칙이 거칠어 <code>top_n</code> 으로 눌러야 할 수도 있다(6-3). <b>유일하게 배포마다
+            다를 수 있는 값</b>이라 남긴다. 생략하면 <code>all</code></td>
+        <td><span class="tag may">유지</span></td></tr>
+  </table></div>
+
+  <div class="ok"><b>결과</b> — <code>doc_rule.yaml</code> 맨 위는 이제
+  <code>conflict: all</code> <span class="def">(그나마도 생략 가능)</span> 한 줄뿐이다.
+  이건 <code>cso_rules.yaml</code> 이 애초에 <code>axes:</code> 블록을 쓰지 않는 것(3-2 표)과
+  <b>같은 정신을 doctype 쪽까지 끝까지 민 것</b>이다 — 안 바뀌는 값을 적으라고 하지 않는다.</div>
+
+  <h4 id="jsonexport">MPOWER 쪽 원본이 JSON 인 경우</h4>
+  <p><code>DOC_CLASSIFICATION</code> 을 관리 화면·배치가 <code>doc_classification_export.json</code> 처럼
+  <b>JSON 으로</b> 내보내는 경우가 있다. 이때도 파이프라인은 그대로다 — <b>4-1 의 “① 내보내기”가
+  포맷만 JSON 일 뿐</b>, 그 다음 단계(스냅샷 로드 → 규칙 참조)는 바뀌지 않는다.</p>
+<div class="tree">DOC_CLASSIFICATION (MySQL)
+        │
+        │  ① 내보내기 — CSV/JSON 등 <b>원본 포맷은 무관</b>
+        ▼
+doc_classification_export.json     <span class="cmt">MPOWER 관리 화면/배치가 내보낸 그대로 — 사람이 손대지 않음</span>
+        │
+        │  ①-b export_taxonomy.py 가 표준 스냅샷 형식으로 변환
+        ▼
+doc_taxonomy.yaml                  <span class="cmt">CSOClassify 가 실제로 읽는 파일(4-2). 어휘(트리)만 담는다</span>
+        │
+        │  ② doc_rule.yaml 이 이 스냅샷의 DC_ID 를 참조(4-3)
+        ▼
+doc_rule.yaml                      <span class="cmt">사람이 terms/exclude/filename/paths 를 직접 채워 넣는 파일(5-1)</span></div>
+  <div class="note"><b><code>doc_rule.yaml</code> 은 JSON 에서 자동으로 완성되지 않는다.</b>
+  JSON(=DB 원본)에는 <b>어휘(트리 구조·이름)만</b> 있고, “무엇이 계약서인가”를 가르는
+  <b>매칭 키워드는 사람만 알 수 있다</b>(5장 서두). 그래서 <code>export_taxonomy.py</code> 는
+  두 가지를 한다 — <b>①</b> <code>doc_taxonomy.yaml</code> 을 만들고, <b>②</b> 처음 붙이는 배포를 돕기 위해
+  <code>doc_rule.yaml</code> 의 <b>골격</b>(활성 노드마다 <code>id</code>·<code>node</code>·빈
+  <code>terms: []</code> 한 줄)을 <code>--scaffold-doc-rule</code> 옵션으로 생성해 줄 수 있다 —
+  <b>내용은 비어 있고</b>, 사람이 채워야 규칙으로 동작한다. 자동분류가 아니라 <b>타이핑을 줄여 주는 것</b>이다.</div>
+
+  <h3 id="loadtime">3-3. 분류 실행 시 <code>doc_rule.yaml</code> + <code>doc_taxonomy.yaml</code> <b>두 파일을 함께</b> 로드한다</h3>
+  <p>doctype 축을 처리할 때는 <b>규칙(문법)</b>과 <b>어휘(트리)</b>가 서로 다른 파일에 있으므로 둘 다 있어야 뜻이 완성된다.</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>파일</th><th>답하는 질문</th><th>없으면</th></tr>
+    <tr><td><code>doc_rule.yaml</code></td><td>“무엇을 계약서로 볼 것인가” <span class="def">(매칭 규칙)</span></td>
+        <td>doctype 축 비활성(T16)</td></tr>
+    <tr><td><code>doc_taxonomy.yaml</code></td><td>“<code>DC0061</code> 이 어떤 노드이고 전체경로가 뭔가” <span class="def">(어휘·트리)</span></td>
+        <td>doctype 축 비활성(T14, <a href="#notax">4-6</a>)</td></tr>
+  </table></div>
+  <p><code>doc_rule.yaml</code> 은 <code>node: DC0061</code> 처럼 <b>ID만</b> 적고 있으므로(4-3),
+  그 ID가 실제로 어떤 분류인지·경로가 뭔지는 <code>doc_taxonomy.yaml</code> 없이는 알 수 없다.
+  반대로 <code>doc_taxonomy.yaml</code> 만 있으면 트리는 알아도 <b>“무엇을 보고 그 분류라고 판단할지”가 없다.</b>
+  그래서 둘 중 하나라도 없으면 doctype 축 전체를 끈다(8장 T14·T16 — “있으면 켜지고 없으면 꺼지는 외장 자산” 원칙, 4-6).</p>
+
+  <div class="warn"><b>“함께 로드한다”가 “실시간으로 같이 바뀐다”는 뜻은 아니다.</b>
+  <code>doc_taxonomy.yaml</code> 은 <a href="#tax">4-1</a>에서 이미 정한 대로 <b>스냅샷</b>이다 —
+  DB(<code>DOC_CLASSIFICATION</code>)를 <code>export_taxonomy.py</code> 로 <b>다시 내보내야만</b> 갱신된다.
+  CSOClassify 는 로컬 CLI 로, 분류를 실행하는 동안 <b>MySQL 에 전혀 접속하지 않는다</b>(오프라인 전제, §1).</p>
+  <div class="tree">DB 에서 노드를 고침
+        │
+        │  (내보내기를 다시 돌리기 <b>전까지는</b> 아무 것도 안 바뀐다)
+        ▼
+export_taxonomy.py 실행               <span class="cmt">사람/스케줄러가 “지금” 시켜야 한다</span>
+        │
+        ▼
+doc_taxonomy.yaml 갱신                <span class="cmt">이 시점부터 새 스냅샷</span>
+        │
+        ▼
+csoclassify 실행                      <span class="cmt">doc_rule.yaml + doc_taxonomy.yaml 를 함께 로드, 이후로는 DB 를 안 본다</span></div>
+  묵은 스냅샷을 쓰는 실수는 완전히 막지는 않지만, <code>exported_at</code> 기준 90일이 지나면
+  경고한다(T13, 8장) — “느슨하게 동기화되지만 조용히 낡지는 않는다”가 이 설계의 실제 동작이다.</div>
+</section>
+
+
+<h2 id="tax"><span class="n">4</span> 업무 분류 축 설계</h2>
+<section class="card">
+
+  <h3>4-1. 어휘를 어디서 가져오나 — DB 직결이 아니라 <b>스냅샷 동기화</b></h3>
+  <p>CSOClassify 는 <b>서버·인터넷 없이 도는 로컬 CLI</b>다(설계서 §1). 분류할 때마다 MySQL 에
+  붙는 구조는 이 전제를 깬다. 그래서 <b>DB → 파일 스냅샷</b> 방식을 쓴다.</p>
+<div class="tree">DOC_CLASSIFICATION (MySQL)
+        │
+        │  ① 내보내기 (관리 화면 또는 배치)
+        ▼
+doc_taxonomy.yaml            <span class="cmt">exe 옆 외장 파일 — 규칙셋과 같은 취급</span>
+        │
+        │  ② 로드 (오프라인)
+        ▼
+csoclassify / csoclassify-rs</div>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>선택지</th><th>장점</th><th>단점</th><th>판정</th></tr>
+    <tr><td><b>스냅샷 파일</b></td><td>오프라인 유지 · 재현 가능 · 배포본에 동봉</td>
+        <td>트리를 고치면 다시 내보내야 함</td><td><span class="tag may">채택</span></td></tr>
+    <tr><td>실행 시 DB 조회</td><td>항상 최신</td>
+        <td>오프라인 전제 파괴 · DB 접속정보 배포 필요 · 분류 도중 트리가 바뀌면 결과 일관성 깨짐</td>
+        <td><span class="tag must">기각</span></td></tr>
+    <tr><td>규칙셋에 직접 작성</td><td>파일 1개</td>
+        <td>DB 가 진실 출처인데 사람이 두 번 관리 → 반드시 어긋난다</td><td><span class="tag must">기각</span></td></tr>
+  </table></div>
+
+  <h3>4-2. 스냅샷 형식</h3>
+<pre><code><span class="cmt"># doc_taxonomy.yaml — DOC_CLASSIFICATION 을 그대로 옮긴 것. 사람이 손대지 않는다.</span>
+taxonomy:
+  source: DOC_CLASSIFICATION
+  exported_at: "20260824110743"     <span class="cmt"># 언제 뽑았는지 (재현·감사용)</span>
+  node_count: 22
+  nodes:
+  - {dc_id: DC0002, parent: null,   order: 20, title: 기술/개발,       status: 1}
+  - {dc_id: DC0021, parent: DC0002, order: 10, title: 설계문서,        status: 1}
+  - {dc_id: DC0211, parent: DC0021, order: 10, title: 요구사항정의서,  status: 1}
+  - {dc_id: DC0212, parent: DC0021, order: 20, title: 화면설계서,      status: 1}
+  - {dc_id: DC0213, parent: DC0021, order: 30, title: DB설계서,        status: 1}
+  - {dc_id: DC0006, parent: null,   order: 60, title: 법무/규정,       status: 1}
+  - {dc_id: DC0061, parent: DC0006, order: 10, title: 계약서,          status: 1}
+  <span class="cmt"># … STATUS=0(미사용) 노드도 함께 내보낸다. 이유는 4-5.</span></code></pre>
+
+  <h3 id="snapname">4-2-1. 파일명 — 고정이름 하나, <code>doc_taxonomy_20260809.yaml</code> 처럼 <b>타임스탬프를 붙이지 않는다</b></h3>
+  <div class="note"><b>확정</b> — 내보낼 때마다 <b>같은 경로 <code>doc_taxonomy.yaml</code> 를 덮어쓴다.</b>
+  파일 이름에 날짜를 넣지 않는다.</div>
+
+  <div class="scroll"><table class="nowrap">
+    <tr><th>안</th><th>동작</th><th>장점</th><th>단점</th><th>판정</th></tr>
+    <tr><td><b>고정 파일명</b><br><code>doc_taxonomy.yaml</code></td>
+        <td>내보낼 때마다 같은 파일을 덮어씀</td>
+        <td>실행기가 <b>어디를 읽어야 할지</b> 항상 명확함 — <code>cso_rules.yaml</code>·<code>doc_rule.yaml</code> 과
+            같은 방식(“exe 옆 외장 파일”)</td>
+        <td>이전 스냅샷은 덮어써지면 사라짐</td><td><span class="tag may">채택</span></td></tr>
+    <tr><td>타임스탬프 파일명<br><code>doc_taxonomy_20260809.yaml</code></td>
+        <td>내보낼 때마다 새 파일 생성, 계속 쌓임</td>
+        <td>과거 스냅샷이 파일로 남아 “그때 트리가 어땠는지” 되짚기 쉬움</td>
+        <td>실행기가 <b>“최신 파일이 뭔지”를 매번 찾아야</b> 함(디렉터리 스캔 + 정렬) —
+            찾는 로직 자체가 새 실패 지점이 된다(파일 여러 개·이름 형식 어긋남·타임존 등).
+            무한정 쌓여 디스크를 먹는다</td><td><span class="tag must">기각</span></td></tr>
+  </table></div>
+
+  <p><b>“그때 스냅샷이 뭐였는지”는 파일명이 아니라 파일 <i>안</i>의 <code>exported_at</code> 과,
+  분류 결과 레코드의 <code>taxonomy_version</code>(7-1)이 담당한다.</b> 예를 들어 어떤 문서가
+  <code>taxonomy_version: "20260809110000"</code> 로 분류됐다면, 그 시점의 트리가 어땠는지는
+  <b>결과 레코드 자체에 이미 적혀 있다</b> — 물리 파일이 그 시점 그대로 남아 있을 필요가 없다.
+  즉 “버전 추적”은 <b>파일명이 아니라 파일 내용 + 결과 레코드</b>가 하는 일이다.</p>
+
+  <div class="warn"><b>그래도 과거 스냅샷을 파일로 남기고 싶다면</b> — <code>export_taxonomy.py</code> 가
+  <b>활성 경로(<code>doc_taxonomy.yaml</code>)는 그대로 덮어쓰되</b>, 별도
+  <code>history/doc_taxonomy_20260809110000.yaml</code> 같은 <b>보관용 사본</b>을 추가로 남기는 것은 무방하다.
+  다만 이건 <b>감사·롤백용 부산물</b>일 뿐, csoclassify 실행기는 <code>history/</code> 를 <b>절대 읽지 않는다</b> —
+  읽는 파일은 언제나 고정 경로 하나다. R1(리스크 11장, “스냅샷이 DB 와 어긋남”)의 대응도 이 원칙과 같다.</div>
+
+  <h3>4-3. 노드를 무엇으로 참조하나 — <code>DC_ID</code></h3>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>참조 방식</th><th>규칙 예</th><th>이름을 바꾸면</th><th>판정</th></tr>
+    <tr><td><b><code>DC_ID</code></b></td><td><code>node: DC0061</code></td>
+        <td><b>그대로 동작</b> — 규칙 수정 불필요</td><td><span class="tag may">채택</span></td></tr>
+    <tr><td><code>TITLE</code></td><td><code>node: 계약서</code></td>
+        <td><b>전부 끊어진다</b> — 조용히 미분류가 된다</td><td><span class="tag must">기각</span></td></tr>
+    <tr><td>전체경로 문자열</td><td><code>node: 법무/규정&gt;계약서</code></td>
+        <td>상위 이름만 바뀌어도 끊어진다</td><td><span class="tag must">기각</span></td></tr>
+  </table></div>
+  <div class="note">관리 화면은 <code>TITLE</code> 로 보여 주지만 <b>규칙 파일은 <code>DC_ID</code> 로 적는다.</b>
+  사람이 읽기 어려우므로, 규칙 편집기와 검증 보고문은 항상
+  <code>DC0061 (법무/규정 &gt; 계약서)</code> 처럼 <b>경로를 함께</b> 보여 준다.</div>
+
+  <h3>4-4. 결과는 잎이 아니라 <b>경로</b>로 낸다</h3>
+  <p>관리 화면이 “전체경로”를 보여 주므로(1-3), 결과도 경로를 담아야 운영자의 인식과 일치한다.
+  또 상위 분류로 집계(“기술/개발 문서가 몇 건인가”)할 때 경로가 없으면 매번 트리를 다시 타야 한다.</p>
+<pre><code>{"dc_id": "DC0211",
+ "path_ids":   ["DC0002", "DC0021", "DC0211"],
+ "path_titles":["기술/개발", "설계문서", "요구사항정의서"],
+ "path": "기술/개발 &gt; 설계문서 &gt; 요구사항정의서"}</code></pre>
+
+  <h3>4-5. <code>STATUS=0</code>(미사용)과 삭제된 노드</h3>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>상황</th><th>동작</th><th>이유</th></tr>
+    <tr><td><code>STATUS=0</code> 노드를 규칙이 참조</td>
+        <td>로드 시 <b>경고</b>, 그 규칙은 <b>비활성</b>(매칭 시도 안 함)</td>
+        <td>운영자가 “당분간 안 쓴다”고 끈 것이다. 오류로 막으면 트리를 끄지도 못한다</td></tr>
+    <tr><td>스냅샷에 없는 <code>DC_ID</code> 를 규칙이 참조</td>
+        <td><b>오류 · 종료</b></td>
+        <td>노드가 삭제됐거나 스냅샷이 낡았다는 뜻. 조용히 미분류가 되면 “분류가 안 되네?”로만 보인다</td></tr>
+    <tr><td>스냅샷에 있으나 어떤 규칙도 참조하지 않는 노드</td>
+        <td><b>경고</b>(건수만)</td>
+        <td>그 분류로는 아무 문서도 자동분류되지 않는다는 사실을 운영자가 알아야 한다</td></tr>
+    <tr><td>이미 낸 결과가 참조하던 노드가 삭제됨</td>
+        <td>결과는 <b>고치지 않는다</b>. 조회 시 <code>(삭제된 분류)</code> 로 표시</td>
+        <td>과거 판정은 과거의 사실이다(감사 기록)</td></tr>
+  </table></div>
+  <p class="def">그래서 스냅샷에는 <code>STATUS=0</code> 노드도 <b>함께</b> 내보낸다 — 빼 버리면 “꺼진 노드”와
+  “삭제된 노드”를 구분할 수 없어 위 두 줄이 같은 동작이 된다.</p>
+
+  <h3 id="notax">4-6. 스냅샷이 없으면 — 보안 축만 돌린다 <span class="pill">2026-08-24 확정</span></h3>
+  <div class="note"><b>확정</b> — <code>doc_taxonomy.yaml</code> 이 없으면
+  <b>업무분류 축은 반영하지 않고 보안 축만</b> 처리한다.</div>
+  <p>보안 축만 쓰는 배포(기존 CSOClassify 그대로)와, 두 축을 다 쓰는 배포가 <b>같은 실행파일</b>이어야 한다.
+  분류체계 스냅샷은 <b>있으면 켜지고 없으면 꺼지는 외장 자산</b>으로 다룬다 —
+  모델·<code>pdfium</code>·<code>class_seed.jsonl</code> 을 다루는 방식과 같다.</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>상황</th><th>동작</th><th>종료코드</th></tr>
+    <tr><td>스냅샷 없음 · <b>기본 실행</b></td>
+        <td>doctype 축 <b>비활성</b>. 경고 1줄 출력 후 security 만 처리.
+            결과에서 <code>labels.doctype</code> 을 <b>아예 생략</b>한다
+            <span class="def">(빈 목록이 아니라 키 자체가 없다 — “분류 못 함”과 “축을 안 씀”은 다르다)</span></td>
+        <td>0 <span class="def">정상</span></td></tr>
+    <tr><td>스냅샷 없음 · <b><code>--axis doctype</code> 명시</b></td>
+        <td><b>오류 · 종료.</b> 하라고 지시한 일을 못 하는 상황이므로 조용히 넘기지 않는다</td>
+        <td><b>4</b></td></tr>
+    <tr><td>스냅샷 없음 · <code>doctype_rules</code> 는 규칙셋에 있음</td>
+        <td>경고 — “규칙 N개가 비활성입니다”. 처리는 계속</td>
+        <td>0</td></tr>
+    <tr><td>스냅샷 있음 · <code>doctype_rules</code> 가 없음</td>
+        <td>경고 — 어휘는 있는데 규칙이 없어 아무것도 분류되지 않는다(T9)</td>
+        <td>0</td></tr>
+  </table></div>
+<pre><code>[csoclassify] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.
+              보안등급(security)만 판정합니다. 분류체계를 쓰려면
+              scripts/export_taxonomy.py 로 내보낸 뒤 exe 옆에 두세요.</code></pre>
+  <div class="warn"><b>“조용히”가 아니라 “한 줄 알리고” 넘어간다.</b>
+  스냅샷을 깜빡 빠뜨린 배포에서 업무분류가 통째로 비어 있는데 아무 말이 없으면,
+  <b>규칙이 나쁜 것으로 오해</b>해 엉뚱한 곳을 고치게 된다.</div>
+</section>
+
+
+<h2 id="rules"><span class="n">5</span> 업무 분류 규칙 형태</h2>
+<section class="card">
+  <p><code>DOC_CLASSIFICATION</code> 은 <b>어휘만</b> 준다. “무엇이 계약서인가”는 규칙이 있어야 한다.
+  기존 규칙 문법(키워드·경로·파일명)을 <b>그대로 재사용</b>하고, 결과가 향하는 축만 바꾼다.</p>
+
+  <h3>5-1. 규칙 섹션</h3>
+<pre><code><span class="cmt"># doc_rule.yaml — cso_rules.yaml 과는 별개 파일(3-2). axis: 헤더는 없다(3-2-1)</span>
+conflict: all          <span class="cmt"># 생략하면 all(기본)</span>
+
+doctype_rules:
+
+- id: dt_contract
+  node: DC0061                        <span class="cmt"># 법무/규정 &gt; 계약서</span>
+  weight: high
+  terms:                              <span class="cmt"># 내용 키워드 (기존 keywords 와 같은 문법)</span>
+  - 계약서
+  - 용역계약
+  - 도급계약
+  - 갑과 을
+  exclude:                            <span class="cmt"># 오탐 제외어</span>
+  - 계약서 양식
+  filename:                           <span class="cmt"># 파일명 신호 (선택)</span>
+  - 계약서
+  paths:                              <span class="cmt"># 경로 신호 (선택)</span>
+  - /법무/
+  - /계약/
+
+- id: dt_req_spec
+  node: DC0211                        <span class="cmt"># 기술/개발 &gt; 설계문서 &gt; 요구사항정의서</span>
+  weight: high
+  terms: [요구사항정의서, 요구사항 명세, 기능요구사항, SRS]
+  filename: [요구사항, 요구사항정의서]
+
+- id: dt_tax_invoice
+  node: DC0511                        <span class="cmt"># 재무/회계 &gt; 세금계산서</span>
+  weight: high
+  terms: [세금계산서, 공급가액, 부가세, 사업자등록번호]
+  paths: [/재무/, /회계/, /세금/]</code></pre>
+
+  <div class="note"><b>규칙 문법 자체는 기존과 다른 점이 <code>node:</code> 한 줄뿐이다.</b>
+  <code>grade: C</code> 대신 <code>node: DC0061</code> 을 적는다. 스캔 엔진(키워드 매칭·제외어·경로 비교)은
+  <b>이미 있는 것을 그대로 쓴다</b> — 새로 만들 필요가 없다. 다만 <b>적는 파일이 다르다</b>(3-2) —
+  이 블록은 <code>cso_rules.yaml</code> 이 아니라 <code>doc_rule.yaml</code> 에 적는다.</div>
+
+  <h3 id="fieldsrc">5-1-1. 필드별 출처 — <code>doc_taxonomy.yaml</code>(DB) 참조 vs 관리자 수동 입력</h3>
+  <p><code>doc_rule.yaml</code> 한 규칙 블록 안에서도 필드마다 <b>출처가 다르다.</b> 이걸 구분하지 않으면
+  “DB를 다시 내보내면 이 필드도 자동으로 채워지겠지”라는 오해가 생긴다. <b>실제로는 한 줄뿐이다.</b></p>
+
+  <div class="scroll"><table class="nowrap">
+    <tr><th>필드</th><th>출처</th><th>동기화되나</th><th>비고</th></tr>
+    <tr><td><code>node:</code></td>
+        <td><b><span class="ax2">doc_taxonomy.yaml 참조</span></b> <span class="def">(DB 값)</span></td>
+        <td><b>예</b> — <code>DC_ID</code> 가 스냅샷에 없으면 로드 실패(T5)</td>
+        <td>이 규칙이 <b>어떤 분류에 대한 것인지</b>를 가리키는 유일한 링크. 4-3 참조</td></tr>
+    <tr><td><span class="def">(구 <code>axis.taxonomy:</code>)</span></td>
+        <td><span class="def">해당 없음 — 3-2-1 로 폐지</span></td>
+        <td><span class="def">—</span></td>
+        <td>스냅샷 경로는 4-2-1 확정 이후 <b>항상 고정</b>이라 파일에 적지 않는다.
+            바꿔야 하면 <code>--taxonomy</code> 실행 옵션(9장)을 쓴다</td></tr>
+    <tr><td><code>id:</code></td>
+        <td><span class="tag may">관리자 수동</span></td>
+        <td>동기화 없음</td>
+        <td>규칙 자체의 이름표. DB에는 없는 값 — 관리자가 임의로 붙인다</td></tr>
+    <tr><td><code>weight:</code></td>
+        <td><span class="tag may">관리자 수동</span></td>
+        <td>동기화 없음</td>
+        <td>이 규칙이 얼마나 확실한 신호인지에 대한 <b>사람의 판단</b></td></tr>
+    <tr><td><code>terms:</code></td>
+        <td><span class="tag may">관리자 수동</span></td>
+        <td>동기화 없음</td>
+        <td>“무엇이 계약서인가”는 DB에 없다 — 문서 내용을 읽어 본 사람만 안다</td></tr>
+    <tr><td><code>exclude:</code></td>
+        <td><span class="tag may">관리자 수동</span></td>
+        <td>동기화 없음</td>
+        <td>오탐을 겪어 본 뒤에야 채워지는 필드 — DB가 알 수 있는 정보가 아니다</td></tr>
+    <tr><td><code>filename:</code></td>
+        <td><span class="tag may">관리자 수동</span> <span class="def">(단, 스캐폴드 시 최초 제안값만 DB 참고)</span></td>
+        <td><b>아니오</b> — 최초 1회 채워준 뒤로는 완전히 수동</td>
+        <td>아래 참고</td></tr>
+    <tr><td><code>paths:</code></td>
+        <td><span class="tag may">관리자 수동</span></td>
+        <td>동기화 없음</td>
+        <td>부서·폴더 관행은 회사마다 달라 DB(문서분류체계)에 없다</td></tr>
+  </table></div>
+
+  <div class="note"><b><code>filename:</code> 이 “DB 참고”처럼 보이는 이유와, 실제로는 아닌 이유</b><br>
+  <code>doc_taxonomy.yaml</code> 의 <code>title</code>(예: “계약서”)이 <code>filename:</code> 후보와
+  글자가 겹치는 경우가 많다 — 그래서 헷갈리기 쉽다. 하지만 이건 <b>실행 시 참조가 아니라</b>,
+  <code>export_taxonomy.py --scaffold-doc-rule</code>(3-2)이 골격을 만들 때 <b>딱 한 번</b>
+  <code>title</code> 을 <code>filename:</code> 의 <b>첫 제안값으로 복사</b>해 주는 것뿐이다.
+  그 뒤로는 <code>doc_rule.yaml</code> 안의 평범한 텍스트일 뿐, <code>doc_taxonomy.yaml</code> 이
+  갱신돼도 <b>따라 바뀌지 않는다</b> — <code>title</code> 이 “계약서”에서 “계약서(용역)”으로 바뀌어도
+  이미 써 놓은 <code>filename:</code> 은 그대로다. <code>terms:</code>·<code>exclude:</code>·<code>paths:</code> 는
+  이런 제안조차 없다 — 처음부터 사람이 채운다.</div>
+
+  <div class="ok"><b>한 줄 요약</b> — <code>doc_rule.yaml</code> 에서 <b>DB(<code>doc_taxonomy.yaml</code>)를
+  진짜로 참조하는 필드는 <code>node:</code> 딱 하나뿐</b>이다 <span class="def">(3-2-1 로 <code>axis.taxonomy:</code>
+  마저 없앴다)</span>. 나머지(<code>weight</code>·<code>terms</code>·<code>exclude</code>·<code>filename</code>·<code>paths</code>·
+  <code>conflict</code>)는 전부 관리자가 채우는 영역이고, <code>filename</code> 조차 <b>최초 제안값만</b> DB를
+  베낄 뿐 이후로는 독립적인 텍스트다. 이래서 <a href="#split">3-2</a>에서 “<code>doc_taxonomy.yaml</code> 을
+  다시 내보내도 <code>doc_rule.yaml</code> 의 사람 입력을 건드리지 않는다”고 단정할 수 있었다.</div>
+
+  <h3>5-2. 신뢰도와 계층 — 깊은 노드가 이긴다</h3>
+  <p>한 문서가 <code>설계문서</code>(중분류)와 <code>요구사항정의서</code>(소분류)에 <b>동시에</b> 걸리는 일은 흔하다.
+  이건 “충돌”이 아니라 <b>같은 가지의 조상-자손</b>이다.</p>
+  <div class="ok"><b>규칙 — 조상은 자손에 흡수된다.</b>
+  <code>요구사항정의서</code>가 걸리면 <code>설계문서</code>·<code>기술/개발</code>은 <b>이미 경로에 들어 있으므로</b>
+  별도 라벨로 내지 않는다. 결과가 중복되지 않고, 상위 집계는 <code>path_ids</code> 로 언제든 가능하다.
+  <br><span class="def">서로 다른 가지끼리 걸린 경우(계약서 + 제안서)만 진짜 충돌이며, 그때 <a href="#conflict">6장</a>의 전략이 작동한다.</span></div>
+
+  <h3>5-3. 두 축의 규칙이 서로를 침범하지 않게</h3>
+  <div class="scroll"><table class="nowrap" id="axsep">
+    <tr><th></th><th><span class="ax1">security 규칙</span></th><th><span class="ax2">doctype 규칙</span></th></tr>
+    <tr><td>결과 필드</td><td><code>grade: C</code></td><td><code>node: DC0061</code></td></tr>
+    <tr><td><b>파일</b></td><td><code>cso_rules.yaml</code></td><td><code>doc_rule.yaml</code> <span class="def">(3-2)</span></td></tr>
+    <tr><td>섹션</td><td><code>keywords</code> · <code>regex_pii</code> · <code>sensitive</code> · <code>stamps</code> · <code>paths</code></td>
+        <td><code>doctype_rules</code></td></tr>
+    <tr><td>한 규칙이 둘 다?</td><td colspan="2"><b>파일이 다르므로 애초에 불가능하다</b> — <code>grade:</code> 와
+        <code>node:</code> 를 한 블록에 같이 적을 방법 자체가 없다. 같은 키워드를 두 축에 쓰고 싶으면
+        <code>cso_rules.yaml</code> 과 <code>doc_rule.yaml</code> 에 각각 규칙을 적는다
+        <span class="def">(중복처럼 보이지만, 어휘가 겹칠 뿐 판단 근거가 다르다 — 나중에 한쪽만 고칠 일이 반드시 생긴다)</span>.
+        <a href="#validate">8장 T4</a> 는 <b>단일 파일 시절의 방어선이었으나 이제 구조적으로 불필요</b>하다 —
+        검증 목록에서 제거한다</td></tr>
+  </table></div>
+
+  <h3 id="prop">5-4. 임베딩 전파(Signal B)를 업무분류에도 적용 <span class="pill">Q4 확정 2026-08-24</span></h3>
+  <div class="note"><b>확정</b> — 전파를 <b>doctype 축에도</b> 적용한다.</div>
+  <p>“비슷한 문서는 같은 주제”는 임베딩이 <b>가장 잘 하는 일</b>이다. 보안등급보다 오히려 잘 맞는다 —
+  등급은 문서 안 한 줄(주민번호·스탬프)로 갈리지만, 주제는 문서 전체의 성격이라 벡터가 그대로 담는다.</p>
+
+  <h4>현재 알고리즘(security) — 값 하나를 고른다</h4>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>단계</th><th>동작</th><th>상수</th></tr>
+    <tr><td>① 최근접 k개</td><td>코사인 유사도 상위 k</td><td><code>DEFAULT_K=10</code></td></tr>
+    <tr><td>② 사본 상속</td><td>1등 유사도가 이 값 이상이면 그 등급을 그대로</td><td><code>DUP_THRESHOLD=0.950</code></td></tr>
+    <tr><td>③ 너무 멂</td><td>1등조차 이 값 미만이면 보류</td><td><code>MIN_SIM=0.55</code></td></tr>
+    <tr><td>④ 가중 다수결</td><td>등급별로 유사도만큼 득표 → 1등 득표율이 이 값 미만이면 보류</td>
+        <td><code>MIN_SHARE=0.70</code></td></tr>
+  </table></div>
+
+  <h4>doctype 확장 — 라벨마다 독립적으로 판단한다</h4>
+  <p>①②③은 그대로 두고 <b>④만 바꾼다.</b> 다중 라벨이므로 “1등을 뽑는” 대신
+  <b>라벨별 점수를 각각 계산해 임계값을 넘는 것을 전부</b> 채택한다.</p>
+<pre><code><span class="cmt"># 개념 (구현 아님)</span>
+분모 = Σ sim(이웃 전부)
+for dc_id in 이웃들이 가진 모든 분류:
+    score[dc_id] = Σ sim(그 dc_id 를 가진 이웃) / 분모
+    if score[dc_id] &gt;= MIN_SHARE_DOCTYPE:
+        채택
+
+<span class="cmt"># 예) 이웃 10개 중 7개가 '계약서'(합 5.6), 4개가 '제안서'(합 2.9), 분모 8.1</span>
+<span class="cmt">#     계약서 0.69 · 제안서 0.36  →  임계 0.40 이면 계약서만, 0.30 이면 둘 다</span></code></pre>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>상수</th><th>security</th><th>doctype</th><th>왜 다른가</th></tr>
+    <tr><td>득표 임계</td><td><code>MIN_SHARE</code> 0.70</td><td><code>MIN_SHARE_DOCTYPE</code> <b>더 낮게</b></td>
+        <td>다중 라벨은 표가 <b>여러 라벨로 갈라진다</b>. 0.70 을 그대로 쓰면 아무것도 안 걸린다.
+            게다가 결과가 <b>후보 제안</b>이라(Q2) 관대해도 사람이 걸러 준다.
+            <b>초기값은 실측 후 정한다</b> — 지금 숫자를 못 박지 않는다</td></tr>
+    <tr><td>사본 상속</td><td>등급 1개 상속</td><td><b>라벨 집합 전체</b> 상속</td>
+        <td>거의 같은 문서면 분류도 통째로 같다고 보는 것이 자연스럽다</td></tr>
+    <tr><td>보류 표현</td><td><code>grade: null</code></td><td><b>빈 목록</b></td>
+        <td>“분류를 못 정했다”는 뜻은 같다</td></tr>
+  </table></div>
+
+  <h4>seed 저장소 — 한 파일에 두 축</h4>
+  <p>축마다 seed 파일을 따로 두면 <b>같은 벡터를 두 번 저장</b>하게 된다. 벡터가 파일 크기의 대부분이므로
+  (현재 <code>class_seed.jsonl</code> 은 69건에 0.6MB) 한 파일에 축별 라벨을 함께 담는다.</p>
+<pre><code><span class="cmt"># class_seed.jsonl (확장)</span>
+{"file": "…/용역계약서.docx", "doc_id": "SF2026…",
+ "labels": {"security": "S", "doctype": ["DC0061"]},
+ "vector": [ … 384차원 … ]}
+
+<span class="cmt"># 구버전(하위호환): grade 필드만 있으면 security 라벨로 읽는다</span>
+{"file": "…", "grade": "S", "vector": [ … ]}</code></pre>
+
+  <div class="ok"><b>Q2(후보 제안)와 Q4(전파)가 선순환을 만든다</b>
+<div class="tree">규칙으로 후보 제안  →  사람이 확정  →  확정본이 seed 가 됨  →  전파가 정확해짐
+      ↑                                                          │
+      └──────────────────  다음 문서의 후보가 좋아짐  ←───────────┘</div>
+  <b>사람이 확정한 문서가 가장 좋은 seed 다.</b> 규칙으로만 붙인 라벨은 오탐이 섞이지만,
+  확정본은 사람이 보증한 것이다. 그래서 doctype seed 는 <b>확정된 문서만</b> 쓴다
+  (<code>status: confirmed</code> — <a href="#output">7-1</a>).
+  규칙 작성 비용이 큰 22개 노드를 <b>전부 규칙으로 덮지 않아도</b>,
+  몇 건만 확정해 두면 전파가 나머지를 끌어올린다.</div>
+</section>
+
+
+<h2 id="conflict"><span class="n">6</span> 충돌 해소 전략 <span class="pill">핵심</span></h2>
+<section class="card">
+  <p>“여러 신호가 충돌하면 어떻게 할 것인가”를 <b>축마다 다르게</b> 정한다.
+  지금은 <code>max</code>(더 위험한 쪽) 하나만 코드에 박혀 있어, 서열이 없는 축을 다룰 수 없다.</p>
+
+  <h3>6-1. 두 측면이 전략을 결정한다</h3>
+  <div class="two">
+    <div>
+      <div class="ok"><b><span class="ax1">보안 측면</span> — <code>max</code> 무조건</b><br><br>
+      <code>주민번호 12건</code> → S<br>
+      <code>대외비 스탬프</code> → C<br>
+      → <b>C</b><br><br>
+      둘 다 사실이고, 더 엄격한 쪽을 적용하는 것이 안전하다.
+      <b>덜 보호하는 실수</b>가 <b>더 보호하는 실수</b>보다 훨씬 비싸다.
+      보안 축에서는 이것 말고 정당한 선택이 없다.</div>
+    </div>
+    <div>
+      <div class="bad"><b><span class="ax2">분류 측면</span> — <code>all</code></b><br><br>
+      <code>계약 조항</code> → 법무/규정 &gt; 계약서<br>
+      <code>제안 내용</code> → 영업/마케팅 &gt; 제안서<br>
+      → <b>둘 다</b><br><br>
+      어느 쪽이 “더 위험”한가? <b>질문이 성립하지 않는다.</b>
+      하나를 고르면 나머지를 <b>버리는</b> 것이고, 그 문서는 다른 분류로는 영원히 검색되지 않는다.</div>
+    </div>
+  </div>
+
+  <h3>6-2. 전략은 고르는 것이 아니라 <b>따라 나오는 것</b></h3>
+  <p>초안에서는 운영자가 전략을 자유롭게 고르도록 설계했다. <a href="#two-sides">2-1</a>의 결정에 따라
+  <b>축의 성격이 전략을 확정</b>하는 쪽으로 바꿨다.</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>축</th><th><code>kind</code></th><th>전략</th><th>바꿀 수 있나</th></tr>
+    <tr><td><span class="ax1">security</span></td><td><code>ordered</code></td><td><b><code>max</code></b></td>
+        <td><b>불가.</b> 규칙셋에 다른 값을 적으면 로드 실패(T2)</td></tr>
+    <tr><td><span class="ax2">doctype</span></td><td><code>taxonomy</code></td><td><b><code>all</code></b></td>
+        <td>결과가 폭주할 때만 <code>top_n</code> 으로 <b>개수만</b> 제한</td></tr>
+  </table></div>
+
+  <div class="ok"><b>얻는 것</b>
+  <ul style="margin:6px 0 0">
+    <li><b>사고 경로가 사라진다.</b> “보안 축 전략을 잘못 골라 등급이 약해지는” 실수를 할 방법이 없다.</li>
+    <li><b>운영자가 결정할 것이 줄어든다.</b> 축을 정하면 전략은 자동이다.</li>
+    <li><b>설계가 작아진다.</b> 전략 6종 → 실제로 쓰이는 3종.</li>
+  </ul></div>
+
+  <div class="warn"><b>초안에서 뺀 것과 그 이유</b>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>뺀 전략</th><th>이유</th></tr>
+    <tr><td><code>min</code></td>
+        <td>보안 축에서는 “가장 덜 보호하는 쪽”을 고르는 것이라 <b>시스템의 존재 이유와 정반대</b>다.
+            분류 축에서는 서열이 없어 정의되지 않는다. <b>쓸 데가 없다.</b></td></tr>
+    <tr><td><code>first</code></td>
+        <td>이건 축의 충돌 전략이 아니라 <b>규칙 매칭 단계</b>의 동작이다
+            (경로 규칙 <code>scan_path</code> 가 첫 매칭에서 멈추는 것). 층이 다르므로 섞지 않는다.
+            <span class="def">경로 규칙의 “먼저 적은 것이 우선”은 그대로 유지된다 — 축 전략과 무관하다.</span></td></tr>
+    <tr><td><code>primary_plus</code></td>
+        <td>보안 축은 <code>max</code> 로 값이 이미 하나이고, 충돌 근거는
+            <code>candidates</code>(<a href="#output">7-1</a>)에 그대로 남는다 — <b>등급을 여러 개 내지 않고도
+            충돌을 다 보여 줄 수 있다.</b> 별도 전략이 필요 없다.<br>
+            <span class="def">외부 시스템이 분류를 1개만 받는 경우는 전략이 아니라 <b>연동 계층</b>에서
+            대표 1개를 고르면 된다 → <a href="#open">12장 Q1</a>.</span></td></tr>
+  </table></div></div>
+
+  <h3>6-3. 전략 카탈로그</h3>
+
+  <div class="strat">
+    <h4><code>max</code> — 서열 최고값 1개 <span class="pill">security 고정</span></h4>
+    <p>후보 중 서열이 가장 높은 것 하나. <b>현재 동작 그대로.</b> <code>kind: ordered</code> 전용.</p>
+<pre><code>후보: S(주민번호 0.90) · C(대외비 0.95) · O(경로 0.90)
+결과: {"value": "C", "confidence": 0.95, "decided_by": ["stamp"],
+       "candidates": [ … 채택 안 된 S·O 도 그대로 보존 … ]}</code></pre>
+  </div>
+
+  <div class="strat">
+    <h4><code>all</code> — 해당하는 모든 라벨 <span class="pill">doctype 기본</span></h4>
+    <p>임계값(<code>min_confidence</code>)을 넘은 후보를 <b>전부</b> 낸다. 신뢰도 내림차순 정렬.
+    “보고서인지 계약서인지 <b>혹은 둘 다인지</b>”에 답하는 것이 목적이므로, 개수를 줄이지 않는 것이 기본이다.</p>
+    <div class="note"><b>저장과 표시를 나눈다</b>(Q2 후보 제안) — 결과 파일에는 <code>all</code> 로
+    <b>전부 저장</b>하고, 검토 화면에는 상위 3~5개만 보여 준다.
+    데이터를 버리지 않으면서 사람이 볼 것은 줄인다. <code>top_n</code> 을 쓰면 <b>저장 단계에서</b> 잘리므로
+    되돌릴 수 없다 — 화면을 정리하려는 목적이라면 <code>top_n</code> 이 아니라 표시 제한을 쓴다.</div>
+<pre><code>후보: 계약서(0.85) · 제안서(0.70)
+결과: {"values": [
+         {"dc_id":"DC0061","path":"법무/규정 &gt; 계약서",   "confidence":0.85},
+         {"dc_id":"DC0031","path":"영업/마케팅 &gt; 제안서", "confidence":0.70}]}</code></pre>
+  </div>
+
+  <div class="strat">
+    <h4><code>top_n</code> — 상위 N개 <span class="pill">all 의 안전밸브</span></h4>
+    <p><code>all</code> 과 같되 개수를 자른다. 규칙이 아직 거칠어 문서 하나에 분류가 8개씩 붙는
+    초기 단계에서만 쓴다. <b>규칙이 정밀해지면 <code>all</code> 로 되돌린다.</b></p>
+<pre><code>conflict: {strategy: top_n, n: 3, min_confidence: 0.6}</code></pre>
+    <div class="warn"><b>잘라낸 것은 반드시 알린다.</b> 후보가 7개인데 3개만 냈다면
+    <code>"truncated": 4</code> 를 함께 낸다. 조용히 자르면 “전부 나온 결과”로 오해된다 —
+    <b>“둘 다인지 확인”이라는 목적 자체가 무너진다.</b></div>
+  </div>
+
+  <h3>6-4. 실행 모드 — 어느 측면으로 돌릴 것인가</h3>
+  <p>두 측면은 <b>필요한 계산량이 크게 다르다.</b> 분류 측면에서는 보안이 차선이므로,
+  가장 비싼 단계인 <b>PII 검출을 통째로 건너뛸 수 있다</b>.</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>명령</th><th>계산하는 것</th><th>결과</th><th>속도</th></tr>
+    <tr><td><code>--axis security</code></td>
+        <td>PII 검출 · 키워드 · 스탬프 · 경로 · 파일명</td>
+        <td><code>labels.security</code> 만<br><span class="def">= 지금의 CSOClassify</span></td>
+        <td>기준</td></tr>
+    <tr><td><code>--axis doctype</code></td>
+        <td>키워드 · 경로 · 파일명 <b>only</b><br>
+            <span class="def">ko-pii 20라벨 검출 <b>생략</b></span></td>
+        <td><code>labels.doctype</code> 만</td>
+        <td><b>크게 빠름</b><br><span class="def">PII 검출이 전체에서 가장 무거운 단계</span></td></tr>
+    <tr><td><span class="def">(생략 · 기본)</span></td><td>가능한 축 전부 <span class="def">(아래 조건 참고)</span></td>
+        <td>가능한 두 축 모두</td><td>기준</td></tr>
+  </table></div>
+  <div class="warn"><b>“기본 = 두 축 전부”가 아니라 “기본 = 가능한 축 전부”다 <span class="pill">4-6 조건</span></b><br>
+  <code>--axis</code> 를 생략했을 때 실제로 몇 개 축이 도는지는 <code>doc_rule.yaml</code>·
+  <code>doc_taxonomy.yaml</code> 이 <b>있는지에 달렸다</b>(4-6·T14·T16).
+  <div class="scroll"><table class="nowrap">
+    <tr><th><code>doc_rule.yaml</code> + <code>doc_taxonomy.yaml</code></th><th><code>--axis</code> 생략 시 동작</th></tr>
+    <tr><td>둘 다 있음</td><td>두 축 모두 처리</td></tr>
+    <tr><td>하나라도 없음</td><td><b>security 만</b> 처리(경고 1줄, 종료코드 0) —
+        <b>지금의 CSOClassify 와 정확히 같은 동작</b></td></tr>
+  </table></div>
+  이래야 <a href="#split">3-2</a>의 하위호환 원칙(“<code>doc_rule.yaml</code> 이 없으면
+  <code>cso_rules.yaml</code> 만으로 지금과 100% 같이 돈다”)이 <b>실행 옵션 레벨에서도</b> 그대로 성립한다 —
+  기존 사용자는 인자를 하나도 안 바꿔도, doctype 관련 파일을 배포에 안 넣는 한 결과가 달라지지 않는다.
+  반대로 <code>--axis doctype</code> 처럼 <b>명시적으로</b> 요청했는데 파일이 없으면, 그건 “못 하는 일을
+  시켰다”는 뜻이므로 조용히 넘기지 않고 <b>종료코드 4</b>로 막는다(4-6 표).</div>
+  <div class="note"><b>“보안은 차선 고려사항”이 성능 이점으로 이어진다.</b>
+  업무 분류만 필요한 대량 스캔(예: 전사 문서 재분류)에서 PII 검출을 건너뛰면 처리량이 크게 올라간다.
+  반대로 <code>--axis security</code> 는 지금의 동작과 정확히 같아, 기존 배치를 손대지 않아도 된다.
+  <span class="def">실제 배수는 코퍼스의 문서 크기·포맷에 좌우되므로 측정 후 문서화한다.</span></div>
+
+  <h3>6-5. 어디까지 지정할 수 있나</h3>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>범위</th><th>지정 위치</th><th>비고</th></tr>
+    <tr><td>축의 전략</td><td>security: 코드에 <code>max</code> 하드코딩(적는 곳 없음) ·
+        doctype: <code>doc_rule.yaml</code> 최상위 <code>conflict:</code> <span class="def">(3-2-1)</span></td>
+        <td>security 는 <code>max</code> 고정. doctype 은 <code>all</code>/<code>top_n</code></td></tr>
+    <tr><td>실행할 축</td><td><code>--axis &lt;id&gt;</code></td><td>6-4</td></tr>
+    <tr><td>실행 시 전략 덮어쓰기</td><td><code>--conflict doctype=top_n:3</code></td>
+        <td><b>doctype 축에만</b> 허용. security 는 덮어쓸 수 없다</td></tr>
+    <tr><td>규칙별 전략</td><td colspan="2"><b>지원하지 않는다.</b> 규칙마다 다른 전략을 쓰면
+        “이 결과가 왜 이렇게 나왔는지”를 사람이 추적할 수 없다</td></tr>
+  </table></div>
+  <div class="warn"><b>실행 시 덮어쓰기를 결과에 각인한다.</b> 같은 규칙셋·같은 문서인데 결과가 다르면
+  나중에 재현이 불가능하다. 레코드에 <code>"strategy": "top_n:3"</code> 을 남긴다.</div>
+</section>
+
+
+<h2 id="output"><span class="n">7</span> 출력 스키마 · 결과 파일 운영</h2>
+<section class="card">
+  <h3>7-1. 레코드</h3>
+<pre><code>{
+  "file":    "D:/collected/법무/용역계약서_한빛테크_2026.docx",
+  "key":     "D:/collected/법무/용역계약서_한빛테크_2026.docx",   <span class="cmt">정규화 경로(7-5-3)</span>
+  "doc_id":  "SF20260724110743001",                              <span class="cmt">← MpowerV11 sfile_id (7-5)</span>
+  "doc_id_source": "sfile_id",                                   <span class="cmt">sfile_id | content | path</span>
+  "schema": 2,
+
+  "labels": {
+    "security": {                                  <span class="cmt">← cardinality: 1</span>
+      "value": "S",
+      "confidence": 0.85,
+      "strategy": "max",
+      "method": "fusion",
+      "decided_by": ["rule"],
+      "candidates": [                              <span class="cmt">채택되지 않은 후보도 남긴다(감사)</span>
+        {"value":"S","confidence":0.85,"from":"rule"},
+        {"value":"O","confidence":0.90,"from":"path"}
+      ]
+    },
+    "doctype": {                                   <span class="cmt">← cardinality: n</span>
+      "values": [
+        {"dc_id":"DC0061","path":"법무/규정 &gt; 계약서",
+         "path_ids":["DC0006","DC0061"],"confidence":0.85,"from":["rule","name"]},
+        {"dc_id":"DC0031","path":"영업/마케팅 &gt; 제안서",
+         "path_ids":["DC0003","DC0031"],"confidence":0.70,"from":["embed"]}
+      ],
+      "strategy": "all",
+      "status": "proposed",                        <span class="cmt">proposed | confirmed (Q2)</span>
+      "truncated": 0
+    }
+  },
+
+  "signals": { … },                                <span class="cmt">기존 그대로(감사 근거)</span>
+  "rule_version": "cso-2026.09.1",                  <span class="cmt">← cso_rules.yaml 버전(security)</span>
+  "doctype_rule_version": "doc-2026.09.1",          <span class="cmt">← doc_rule.yaml 버전(3-2, 파일이 분리돼 버전도 따로 간다)</span>
+  "taxonomy_version": "20260824110743",             <span class="cmt">← doc_taxonomy.yaml 스냅샷 시각(어휘)</span>
+  "ts": "…"
+}</code></pre>
+  <p class="def">버전이 세 개로 늘어난 것은 <b>파일이 세 개(3-2 + 4-1)이기 때문</b>이다 —
+  <code>cso_rules.yaml</code>(규칙·security) · <code>doc_rule.yaml</code>(규칙·doctype) ·
+  <code>doc_taxonomy.yaml</code>(어휘). 셋 중 무엇이 바뀌어서 결과가 달라졌는지 줄 하나로 구분된다.</p>
+
+  <div class="note"><b><code>candidates</code> 를 왜 남기나</b> — <code>max</code> 로 하나를 고르는 순간
+  나머지 근거가 사라진다. 검토자가 “왜 C 인가”를 되짚으려면 후보 목록이 필요하다.
+  저장 비용은 문서당 수백 바이트다.<br>
+  <b>이 필드가 “충돌하는 신호를 모두 보고 싶다”를 충족한다</b> — 보안 등급 값은 <code>max</code> 로
+  <b>하나만</b> 내면서도, 어떤 신호가 어떤 등급을 주장했는지는 <b>전부</b> 남는다.
+  등급을 여러 개 낼 필요가 없다.</div>
+
+  <h3>7-2. 하위호환 — 기존 <code>grade</code> 필드</h3>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>필드</th><th>동작</th></tr>
+    <tr><td><code>grade</code></td><td><code>labels.security.value</code> 를 <b>그대로 복사</b>해 유지한다.
+        기존 UI·배치가 손대지 않아도 계속 동작한다</td></tr>
+    <tr><td><code>confidence</code> · <code>method</code> · <code>decided_by</code> · <code>seed_eligible</code></td>
+        <td>동일하게 security 축의 값을 복사</td></tr>
+    <tr><td>폐기 시점</td><td><b>정하지 않는다.</b> 비용이 거의 없고, 없애서 얻을 것도 없다</td></tr>
+  </table></div>
+  <div class="ok"><b>이 설계의 이행 부담이 낮은 이유</b> — <code>doc_rule.yaml</code> 을 안 두면 지금과 같고
+  <span class="def">(3-2 · 4-6)</span>, 두더라도 <code>grade</code> 는 계속 나온다. <b>doctype 축을 켠
+  소비자만</b> 새 필드를 읽으면 된다.</div>
+
+  <h3>7-3. 집계 · 요약</h3>
+<pre><code>총 128건
+  [보안등급]  C 24 · S 61 · O 37 · 미분류 6
+  [업무분류]  기술/개발 41 (설계문서 22 · 매뉴얼 12 · 테스트결과서 7)
+              법무/규정 18 (계약서 11 · 사내규정 5 · 인증서류 2)
+              …
+              미분류 33            <span class="cmt">← 어느 분류에도 안 걸린 문서</span>
+  ※ 업무분류 합계(148)가 총건수(128)보다 큰 것은 정상 — 한 문서가 여러 분류를 가질 수 있다.</code></pre>
+  <p class="def">트리 축은 <b>상위 노드로 롤업</b>해 보여 준다. 잎만 나열하면 22줄이 되어 읽히지 않는다.</p>
+
+  <h3 id="store">7-4. 결과 파일이 곧 저장소다 <span class="pill">Q1 결정 2026-08-24</span></h3>
+  <div class="note"><b>확정</b> — 문서↔분류 <b>매핑 테이블은 없다.</b> 결과는 <b>파일로만</b> 관리한다.</div>
+  <p>이 결정에는 좋은 면과 반드시 설계해야 할 면이 각각 있다.</p>
+  <div class="two">
+    <div><div class="ok"><b>좋은 면 — 다중 라벨에 제약이 없다</b><br>
+      1:1 컬럼 구조에 맞출 필요가 없으므로 <code>all</code> 전략을 <b>그대로</b> 쓸 수 있다.
+      “계약서이면서 제안서”를 두 줄로 쪼개거나 하나를 버릴 이유가 없다.
+      <a href="#conflict">6-2</a>에서 <code>primary_plus</code> 를 뺀 판단도 이걸로 확실해진다.</div></div>
+    <div><div class="warn"><b>설계해야 할 면 — 파일이 곧 DB 다</b><br>
+      DB 라면 공짜로 얻었을 것 — <b>기본키·갱신·조회·이력</b> — 을 파일 구조로 직접 정해야 한다.
+      아래 7-5·7-6 이 그것이다.</div></div>
+  </div>
+
+  <h4>파일 역할 분담</h4>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>파일</th><th>내용</th><th>쓰기 방식</th><th>수정</th></tr>
+    <tr><td><code>cso_result.jsonl</code></td><td>자동 판정 결과(두 축)</td><td>실행 시 생성</td>
+        <td><b>절대 고치지 않는다</b> — 감사 기록</td></tr>
+    <tr><td><code>cso_override.jsonl</code></td><td>사람의 수정</td><td><b>append-only</b> · 나중 줄이 우선</td>
+        <td>이력 보존(지우지 않음)</td></tr>
+    <tr><td><code>doc_taxonomy.yaml</code></td><td>분류 체계 스냅샷</td><td>DB 에서 내보내기(4-1)</td>
+        <td>사람이 손대지 않음</td></tr>
+    <tr><td><code>class_seed.jsonl</code></td><td>전파 기준 seed</td><td>큐레이션</td><td>security 축 전용</td></tr>
+  </table></div>
+  <p class="def">이 분담은 <b>이미 <code>ui/</code> 에서 쓰고 있는 방식</b>이다(<code>ui/app.py</code> 의
+  “원본 자동분류는 절대 수정하지 않는다” 원칙). 새로 만드는 게 아니라 doctype 축까지 넓히는 것이다.</p>
+
+  <h3 id="propose">7-4-1. 제안(proposed)과 확정(confirmed) <span class="pill">Q2 확정 2026-08-24</span></h3>
+  <div class="note"><b>확정</b> — 업무분류는 <b>자동 확정하지 않고 후보를 제안</b>한다. 사람이 고른다.</div>
+  <p>22개 노드 전부에 정밀한 규칙을 쓰는 것은 비용이 크고, 초기 오분류 부담도 크다.
+  <b>후보를 내고 사람이 확정</b>하는 편이 실용적이며, 확정본이 다시 전파 seed 가 되어
+  정확도가 스스로 올라간다(<a href="#prop">5-4</a>).</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>상태</th><th>누가 만드나</th><th>어디에</th><th>매핑 테이블 적재</th></tr>
+    <tr><td><code>proposed</code></td><td>규칙 · 전파(자동)</td><td><code>cso_result.jsonl</code></td>
+        <td><b>안 한다</b> — 넣으면 “분류됨”으로 오인된다</td></tr>
+    <tr><td><code>confirmed</code></td><td><b>사람</b>이 검토 화면에서 확정</td>
+        <td><code>cso_override.jsonl</code> <span class="def">(append-only, 기존 구조 확장)</span></td>
+        <td><b>한다</b> — <code>SOURCE='M'</code>(7-5-5)</td></tr>
+  </table></div>
+  <div class="warn"><b>보안 축은 지금처럼 자동 확정이다.</b> 제안/확정 구분은 <b>doctype 축에만</b> 적용한다.
+  보안등급은 “후보를 제안하고 기다린다”가 성립하지 않는다 — 분류되지 않은 문서를 방치할 수 없기 때문이다.
+  <span class="def">보안 축에도 사람의 수정(오버라이드)은 지금처럼 가능하다. 그건 확정 절차가 아니라 정정이다.</span></div>
+
+  <h4>확정 기록 형태</h4>
+<pre><code><span class="cmt"># cso_override.jsonl — 축을 명시해 두 축의 수정이 섞이지 않게 한다</span>
+{"doc_id":"SF2026…", "axis":"doctype",
+ "confirmed":["DC0061"], "rejected":["DC0031"],
+ "reason":"제안 내용은 첨부일 뿐 계약서가 본체", "reviewer":"고봉수", "ts":"…"}
+
+{"doc_id":"SF2026…", "axis":"security",
+ "old_grade":"C", "new_grade":"S", "reason":"…", "reviewer":"…", "ts":"…"}</code></pre>
+  <p class="def"><b><code>rejected</code> 를 함께 남기는 이유</b> — “사람이 보고 뺐다”와
+  “애초에 제안되지 않았다”는 다르다. 규칙을 개선할 때 <b>어떤 제안이 거절당했는지</b>가
+  가장 값진 정보다. 나중에 규칙 정밀도를 측정하는 근거가 된다.</p>
+
+  <h3 id="docid">7-5. 문서 식별자 <code>doc_id</code> <span class="pill">2026-08-24 확정</span></h3>
+  <div class="note"><b>확정</b> — 결과 레코드에 <b><code>doc_id</code></b> 를 넣는다.
+  추후 문서분류체계 DB 에서 <b><code>DC_ID</code> 와 짝을 이루는 키</b>가 된다.
+  <b>C/S/O 보안등급 분류에서는 필수가 아니다</b>(아래 7-5-4).<br>
+  <b>값은 MpowerV11 의 문서 고유 ID <code>sfile_id</code> 를 쓴다</b>
+  <span class="def">(Q5 확인 2026-08-24)</span> — 해시로 만들어 내지 않는다.</div>
+
+  <p>지금은 매핑 테이블이 없지만(<a href="#open">Q1</a>), <b>나중에 생길 것을 전제로 지금부터 키를 심어 둔다.</b>
+  나중에 넣으려면 과거 결과를 전부 다시 돌려야 하지만, 지금 넣어 두면 그때 <b><code>INSERT</code> 만</b> 하면 된다.</p>
+
+  <div class="bad"><b>[실측] 키가 없어서 지금 이미 손해가 나고 있다.</b><br>
+  현재 <code>ui/app.py</code> 는 결과와 사람의 수정을 <b>경로 문자열 정확 일치</b>로 잇는다
+  (<code>latest.get(rec["file"])</code>, <code>app.py:212</code>). 저장소의 실제 데이터로 확인하면:
+<pre style="margin:8px 0"><code>grades.jsonl        30건   키 예: 'D:\collected\HWP\…'
+cso_override.jsonl  17건   키 예: 'd:\collected\HWP\…'   <span class="cmt">← 드라이브 문자 소문자</span>
+
+정확히 일치하는 키        0건
+대소문자를 무시하면 일치   4건   <span class="cmt">← 사람이 고친 4건이 조용히 반영되지 않고 있다</span></code></pre>
+  DB 였다면 문서 ID 가 키였을 문제다. <b>안정된 식별자가 필요한 이유가 매핑 준비 하나만이 아니다.</b></div>
+
+  <h4>7-5-1. 형식 — <code>VARCHAR(40)</code></h4>
+  <p><code>DC_ID</code> 가 <code>VARCHAR(40)</code> 이므로 <code>doc_id</code> 도 같은 폭으로 맞춘다.
+  매핑 테이블에서 두 컬럼이 나란히 놓일 것이고, 집 스타일을 따르는 편이 낫다. 이 제약이 형식을 결정한다.</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>후보</th><th>길이</th><th>판정</th></tr>
+    <tr><td>SHA-256 hex 전체</td><td>64자</td><td><span class="tag must">불가</span> — 40 을 넘는다</td></tr>
+    <tr><td>SHA-1 hex</td><td><b>정확히 40자</b></td>
+        <td><span class="tag should">비권장</span> — 충돌 내성이 약하다. 지금은 문제없어도 굳이 고를 이유가 없다</td></tr>
+    <tr><td><b>SHA-256 앞 40 hex 자</b></td><td>40자 <span class="def">(160비트)</span></td>
+        <td><span class="tag may">채택</span> — 이미 계산하는 값을 자르기만 하면 된다.
+            충돌 확률은 1억 문서 기준 약 <code>10⁻³³</code> 로 사실상 0</td></tr>
+  </table></div>
+  <p class="def">SHA-256 은 <b>이미 구현돼 있다</b> — <code>cli.py:354 _file_hash()</code> ·
+  <code>Rust/src/main.rs:149</code>. 지금은 <code>--hash</code>/<code>--simple</code> 일 때만 계산하지만,
+  추출 단계에서 <b>파일을 어차피 전부 읽으므로</b> 항상 계산해도 추가 I/O 가 없다.</p>
+  <div class="warn"><b>위 표는 폴백(②·③)에만 해당한다.</b> 기본값은 <code>sfile_id</code> 이고,
+  그 값의 형식·길이는 MpowerV11 이 정한다.
+  <b><code>VARCHAR(40)</code> 에 들어가는지 확인이 필요하다</b> → <a href="#open">Q6</a>.
+  40자를 넘으면 매핑 테이블의 <code>DOC_ID</code> 폭을 <code>sfile_id</code> 에 맞춰 넓히면 된다
+  — <b>ID 를 자르는 선택은 하지 않는다</b>(자르면 충돌이 생기고, 원래 시스템과 대조도 못 한다).</div>
+
+  <h4>7-5-2. 무엇으로 만드나 — 우선순위 3단계</h4>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>순위</th><th>출처</th><th><code>doc_id_source</code></th><th>성질</th></tr>
+    <tr><td>①</td><td><b><code>sfile_id</code></b> — MpowerV11 의 문서 고유 ID
+        <span class="pill">확정</span><br>
+        <span class="def">얻는 방법은 7-5-2-1</span></td>
+        <td><code>sfile_id</code></td>
+        <td><b>기본이자 정답.</b> 문서를 수정해도, 옮겨도, 이름을 바꿔도 유지된다.
+            시스템이 이미 부여한 값이라 <b>우리가 정체성을 정의할 필요가 없다</b></td></tr>
+    <tr><td>②</td><td>내용 SHA-256 앞 40자 <span class="def">(폴백)</span></td>
+        <td><code>content</code></td>
+        <td><code>sfile_id</code> 를 못 얻은 문서용. 무상태·결정적이지만
+            <b>문서를 수정하면 값이 바뀐다</b>(R13)</td></tr>
+    <tr><td>③</td><td>정규화 경로의 SHA-256 앞 40자 <span class="def">(폴백)</span></td><td><code>path</code></td>
+        <td>내용도 못 읽는 파일(암호 zip·손상 파일) 대비</td></tr>
+  </table></div>
+  <p>어느 것을 썼는지 <b>레코드에 남긴다</b>(<code>doc_id_source</code>).
+  <b>②·③으로 떨어진 문서는 매핑 테이블에 그대로 넣으면 안 된다</b> —
+  그 값은 <code>sfile_id</code> 가 아니라 우리가 만들어 낸 값이라, DB 쪽 문서와 이어지지 않는다.
+  적재 시 <code>doc_id_source == "sfile_id"</code> 인 행만 넣고, 나머지는 <b>보류 목록</b>으로 뽑아
+  왜 ID 를 못 얻었는지 확인하게 한다.</p>
+
+  <div class="warn"><b>완벽한 식별자는 없다 — 무엇이 “같은 문서”인가의 문제다</b>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>기준</th><th>문서를 <b>수정</b>하면</th><th>문서를 <b>이동·개명</b>하면</th><th>복사본은</th></tr>
+    <tr><td>내용 해시 ②</td><td><b>id 가 바뀐다</b> — 매핑이 끊어진다</td><td>유지</td><td>같은 id</td></tr>
+    <tr><td>경로 해시 ③</td><td>유지</td><td><b>id 가 바뀐다</b></td><td>다른 id</td></tr>
+    <tr><td><b><code>sfile_id</code></b> ①</td><td>유지</td><td>유지</td><td>시스템이 정한 대로</td></tr>
+  </table></div>
+  계약서를 개정해도 <b>같은 계약서</b>다 — 이 관점에서는 내용 해시가 약하다.
+  <b><code>sfile_id</code> 가 있으므로 이 고민은 끝났다</b> — 시스템이 이미 “같은 문서”를 정의해 두었고,
+  우리는 그 정의를 따르기만 하면 된다. ②·③은 <b>ID 를 못 얻은 문서에서만</b> 쓰인다.</div>
+
+  <h4 id="getsfile">7-5-2-1. <code>sfile_id</code> 획득 — 입력 목록 방식 <span class="pill">A 확정 2026-08-24</span></h4>
+  <p>CSOClassify 는 파일시스템을 스캔하고 <code>sfile_id</code> 는 MpowerV11 이 안다.
+  둘을 <b>목록 파일</b>로 잇는다. MpowerV11 이 <code>{경로, sfile_id}</code> 목록을 뽑아 주면,
+  CSOClassify 는 그 목록을 읽어 <code>doc_id</code> 를 채운다.</p>
+  <div class="ok"><b>이 방식을 고른 이유</b> —
+  <b>OS 를 가리지 않고</b>(리눅스 배포본도 그대로 동작) · <b>오프라인이 유지되며</b> ·
+  <b>파일을 건드리지 않는다</b>(원본 무변경). 대안이었던 NTFS ADS 는 Windows 전용에 복사·메일 전송 시
+  소실되고, 파일명 규칙 추출은 서버 저장 규칙이 바뀌면 조용히 끊어진다.</div>
+
+  <h4>목록 형식 — jsonl</h4>
+<pre><code><span class="cmt"># filelist.jsonl — MpowerV11 이 생성. 한 줄 = 문서 1건. UTF-8(BOM 허용).</span>
+{"path": "D:/collected/법무/용역계약서_한빛테크_2026.docx", "sfile_id": "SF20260724110743001"}
+{"path": "D:/collected/인사/임직원_명부_2026.xlsx",        "sfile_id": "SF20260724110812007"}
+{"path": "//secure/설계/DB설계서_v3.hwp",                  "sfile_id": "SF20260801093311042"}</code></pre>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>필드</th><th>필수</th><th>설명</th></tr>
+    <tr><td><code>path</code></td><td><b>필수</b></td>
+        <td>문서 경로. <b>절대경로 권장.</b> 상대경로면 <b>목록 파일이 있는 폴더</b> 기준으로 푼다
+            <span class="def">(현재 작업폴더 기준이 아니다 — 목록과 함께 옮겨도 깨지지 않게)</span></td></tr>
+    <tr><td><code>sfile_id</code></td><td><b>필수</b></td>
+        <td>MpowerV11 문서 고유 ID. 빈 문자열이면 없는 것으로 본다</td></tr>
+    <tr><td><code>hash</code></td><td>선택</td>
+        <td>있으면 실제 파일 해시와 대조해 <b>목록이 낡았는지</b> 알려 준다(경고만, 처리는 계속)</td></tr>
+    <tr><td>그 밖의 필드</td><td>—</td><td><b>무시한다.</b> MpowerV11 이 편한 대로 더 담아도 된다</td></tr>
+  </table></div>
+  <p class="def">CSV 도 받는다 — 첫 줄이 헤더이고 <code>path</code>·<code>sfile_id</code> 열이 있으면 인식한다.
+  MpowerV11 쪽에서 뽑기 쉬운 형식을 쓰면 된다.</p>
+
+  <h4>CLI — 기존 인자와의 관계</h4>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>조합</th><th>스캔 대상</th><th><code>doc_id</code></th><th>쓰임새</th></tr>
+    <tr><td><code>--filelist L</code> <span class="def">단독</span></td>
+        <td><b>목록에 적힌 파일만</b></td><td>목록의 <code>sfile_id</code></td>
+        <td><b>정식 운영.</b> MpowerV11 이 “이번에 분류할 문서”를 정한다</td></tr>
+    <tr><td><code>--filelist L</code> + <code>--dir D</code></td>
+        <td><b><code>--dir</code> 이 정한다</b></td>
+        <td>목록에 있으면 <code>sfile_id</code>, 없으면 폴백 해시</td>
+        <td>폴더를 통째로 훑되 아는 문서에는 ID 를 붙이고 싶을 때</td></tr>
+    <tr><td><code>--dir D</code> <span class="def">단독</span></td>
+        <td><code>--dir</code></td><td>전부 폴백 해시</td>
+        <td>지금까지의 동작. 보안 축만 볼 때는 이것으로 충분</td></tr>
+  </table></div>
+  <p class="def">규칙은 하나다 — <b><code>--dir</code>/<code>--file</code> 이 있으면 그쪽이 대상을 정하고,
+  목록은 ID 사전 역할만 한다.</b> 없으면 목록이 대상을 정한다.</p>
+
+  <h4>경로 매칭 — 정규화 키로 잇는다</h4>
+  <p>목록의 <code>path</code> 와 실제 스캔 경로는 <b>표기가 다를 수 있다</b>
+  (<code>/</code> vs <code>\</code>, 드라이브 문자 대소문자, <code>..</code>).
+  <a href="#docid">7-5-3</a>의 정규화 키로 맞춘 뒤 잇는다.
+  <b>이미 확인된 문제라</b>(같은 저장소에서 <code>D:</code>/<code>d:</code> 불일치 4건) 여기서도 같은 처리를 쓴다.</p>
+
+  <h4 id="flvalid">목록 검증</h4>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>#</th><th>상황</th><th>처리</th></tr>
+    <tr><td>F1</td><td>줄 파싱 실패</td>
+        <td>그 줄 건너뛰고 <b>건수 보고</b>. <b>전부 실패하면 오류·종료</b>
+            <span class="def">(형식을 잘못 준 것이지 데이터 문제가 아니다)</span></td></tr>
+    <tr><td>F2</td><td><code>sfile_id</code> 가 비었거나 없음</td><td>그 줄 무시 · 건수 보고</td></tr>
+    <tr><td><b>F3</b></td><td>같은 정규화 경로가 두 번 나오는데 <code>sfile_id</code> 가 <b>다름</b></td>
+        <td><b>오류 · 종료.</b> 한 파일에 두 ID 는 모순이라 어느 쪽을 골라도 틀린다</td></tr>
+    <tr><td>F4</td><td>목록에 있는데 <b>파일이 없음</b></td><td>경고 · 건수 보고 <span class="def">(목록이 낡았을 수 있다)</span></td></tr>
+    <tr><td>F5</td><td>스캔 대상인데 <b>목록에 없음</b></td>
+        <td>폴백 해시로 <code>doc_id</code> 생성 · <b>건수를 요약에 표시</b>
+            <span class="def">→ 그 행은 매핑 테이블에 넣지 않는다(R14)</span></td></tr>
+    <tr><td>F6</td><td><code>hash</code> 가 있는데 실제 파일과 <b>다름</b></td>
+        <td>경고 · 건수 보고. 처리는 계속 <span class="def">(문서가 수정됐다는 뜻 — 그래도 같은 문서다)</span></td></tr>
+    <tr><td>F7</td><td>같은 <code>sfile_id</code> 가 여러 경로에</td>
+        <td>경고만. <b>정상일 수 있다</b>(같은 문서의 복사본)</td></tr>
+  </table></div>
+
+  <h4>요약 출력에 ID 획득 현황을 표시</h4>
+<pre><code>총 128건
+  [문서 ID]  sfile_id 121 · 폴백(content) 6 · 폴백(path) 1
+             ※ 폴백 7건은 매핑 테이블 적재 대상이 아닙니다. --report-missing-id 로 목록 확인
+  [보안등급] C 24 · S 61 · O 37 · 미분류 6
+  [업무분류] 기술/개발 41 · 법무/규정 18 · … · 미분류 33</code></pre>
+  <div class="note"><b>ID 를 못 얻은 건수를 첫 줄에 둔다.</b> 이 수치가 조용히 커지면
+  <b>매핑에 들어가지 못하는 문서가 쌓인다</b> — 아무 오류도 나지 않아 알아채기 어려운 종류다(R14).</div>
+
+  <h4>7-5-3. 매칭 순서</h4>
+<pre><code>① doc_id 일치                    → 같은 문서
+② 없으면 key(정규화 경로) 일치    → 같은 문서로 보고 "rematched_by":"path" 기록
+③ 그래도 없고 대소문자만 다르면   → "rematched_by":"case" 기록
+④ 전부 실패                      → 새 문서</code></pre>
+  <p><b><code>key</code>(정규화 경로)도 함께 남긴다.</b> 구분자 <code>/</code> 통일 · 드라이브 문자 대문자 ·
+  <code>..</code> 해소. <code>doc_id</code> 가 바뀌는 상황(문서 수정)에서 ②가 이어 주는 역할을 한다.</p>
+  <div class="warn"><b>대소문자는 OS 에 걸려 있다.</b> Windows 는 경로 대소문자를 구분하지 않고 Linux 는 구분한다.
+  정규화 규칙을 OS 별로 다르게 하면 <b>같은 결과 파일이 OS 를 옮길 때 다르게 해석된다</b>.
+  그래서 정규화는 <b>대소문자를 보존</b>하되(리눅스 기준), 매칭 실패 시 ③으로 한 번 더 시도하고
+  <b>그 사실을 기록</b>한다. 조용히 같게 취급하지 않는다.
+  <span class="def">지금 저장소의 4건이 정확히 ③으로 구제된다.</span></div>
+
+  <h4>7-5-4. 보안 축에서는 필수가 아니다</h4>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>축</th><th><code>doc_id</code></th><th>이유</th></tr>
+    <tr><td><span class="ax2">doctype</span></td><td><b>필수</b></td>
+        <td>추후 <code>DOC_ID × DC_ID</code> 매핑의 한쪽 키가 된다. 없으면 DB 로 넣을 수 없다</td></tr>
+    <tr><td><span class="ax1">security</span></td><td><b>선택</b> <span class="def">(기본 on)</span></td>
+        <td>C/S/O 등급은 <b>문서분류체계 DB 와 조인할 일이 없다</b> — 지적하신 대로다.<br>
+            다만 위의 override 매칭 문제는 이 축에도 있고, 계산 비용이 사실상 0 이므로
+            <b>넣어서 손해 볼 것이 없다</b>. 끄려면 <code>--no-doc-id</code></td></tr>
+  </table></div>
+
+  <h4>7-5-5. 추후 매핑 테이블 <span class="def">(제안 — 지금 만들지 않는다)</span></h4>
+  <p><code>doc_id</code> 를 지금 심어 두면 나중에 이런 테이블에 <b>그대로 들어간다</b>.
+  기존 <code>DOC_CLASSIFICATION</code> 의 스타일(VARCHAR(40) 키 · CHAR(14) 일시 · CHAR(1) 상태)을 따랐다.</p>
+<pre><code>-- 문서 ↔ 분류 체계 매핑 (추후)
+CREATE TABLE Mpower10U.DOC_CLASSIFICATION_MAP (
+    -- 문서 식별자 = MpowerV11 sfile_id
+    --   폭은 sfile_id 실제 형식에 맞춘다(Q6). 40 을 넘으면 넓힌다 — 자르지 않는다.
+    DOC_ID        VARCHAR(40)   NOT NULL,
+    -- 분류 체계 아이디 (DOC_CLASSIFICATION.DC_ID)
+    DC_ID         VARCHAR(40)   NOT NULL,
+    -- 신뢰도 0.000~1.000
+    CONFIDENCE    DECIMAL(4,3)  DEFAULT NULL,
+    -- 어떤 신호가 정했는지 (rule,name,path …)
+    DECIDED_BY    VARCHAR(100)  DEFAULT NULL,
+    -- 판정 출처 (A:자동, M:사람확정)
+    SOURCE        CHAR(1)       DEFAULT 'A',
+    -- 등록일시 (YYYYMMDDHH24MISS)
+    REG_DATE      CHAR(14)      NOT NULL,
+    -- 사용여부 (1:사용, 0:미사용)
+    STATUS        CHAR(1)       DEFAULT '1',
+    PRIMARY KEY (DOC_ID, DC_ID)
+) ENGINE=InnoDB
+DEFAULT CHARSET=utf8mb4;
+
+CREATE INDEX IX_DOC_CLASSIFICATION_MAP_01 ON Mpower10U.DOC_CLASSIFICATION_MAP (DC_ID);</code></pre>
+  <div class="ok"><b>복합 PK <code>(DOC_ID, DC_ID)</code> 가 다중 라벨을 자연스럽게 받는다.</b>
+  “계약서이면서 제안서”는 <b>두 행</b>이 된다. <a href="#conflict">6장</a>의 <code>all</code> 전략과 정확히 맞물린다 —
+  1:1 컬럼이었다면 하나를 버려야 했을 것이다.<br>
+  <span class="def">역인덱스 <code>(DC_ID)</code> 는 “계약서인 문서 전부” 조회용이다.</span></div>
+
+  <h3>7-6. 재실행 · 누적 · 규모</h3>
+  <h4>같은 문서를 다시 스캔하면</h4>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>안</th><th>동작</th><th>장점</th><th>단점</th><th>판정</th></tr>
+    <tr><td>덮어쓰기</td><td>최신 결과만 남김</td><td>파일이 작다</td>
+        <td>“규칙을 바꾸기 전엔 뭐였나”를 알 수 없다</td><td><span class="tag should">보류</span></td></tr>
+    <tr><td><b>append + 최신 우선</b></td><td>줄을 덧붙이고 조회 시 마지막 줄 채택</td>
+        <td>이력 보존 · <code>cso_override.jsonl</code> 과 <b>같은 방식</b>이라 규칙이 하나</td>
+        <td>파일이 커진다</td><td><span class="tag may">채택</span></td></tr>
+  </table></div>
+  <p class="def">각 줄에 <code>rule_version</code>·<code>taxonomy_version</code>·<code>ts</code> 가 이미 들어가므로,
+  “어느 규칙 버전으로 매긴 결과인지”가 줄마다 자명하다.</p>
+
+  <h4>규모 — 언제 이 결정을 다시 볼 것인가</h4>
+  <p>현재 <code>ui/cso_result.jsonl</code> 은 <b>2.6MB</b> 다. 조회는 파일 전체를 훑는 방식이라
+  건수에 비례해 느려진다. 파일 방식을 유지하되 <b>다시 검토할 기준을 미리 정해 둔다.</b></p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>규모</th><th>대응</th></tr>
+    <tr><td>~수만 건</td><td>지금 방식 그대로. 전체 훑기로 충분</td></tr>
+    <tr><td>수만~수십만 건</td><td><b>파생 인덱스</b> 도입 — <code>key → 파일 오프셋</code> 을 담은 보조 파일.
+        <b>원본 jsonl 이 여전히 진실 출처</b>이고 인덱스는 언제든 다시 만들 수 있는 파생물이다</td></tr>
+    <tr><td>그 이상 · 동시 접근 필요</td><td>저장 방식 재검토(SQLite 등). <b>이 설계의 범위 밖</b>이며,
+        그때 결정을 다시 하면 된다 — 지금 미리 만들 이유는 없다</td></tr>
+  </table></div>
+  <div class="note"><b>파생 인덱스를 “나중에” 로 미루는 이유</b> — 인덱스는 <b>원본에서 언제든 재생성</b>되므로
+  미루는 비용이 낮다. 반대로 키 정규화(7-5)는 <b>미루면 잘못된 데이터가 쌓인다</b> — 지금 해야 한다.
+  둘의 시급도가 다르다.</div>
+</section>
+
+
+<h2 id="validate"><span class="n">8</span> 검증 규칙</h2>
+<section class="card">
+  <p>기존 검증(V0/V5/V6/V12 — Phase 0 구현 완료)에 축·분류체계 항목을 더한다.
+  원칙은 같다 — <b>문서를 한 건도 읽기 전에, 위반을 전부 모아, 종료코드 4</b>.</p>
+  <div class="scroll"><table class="nowrap">
+    <tr><th>#</th><th>검사</th><th>실패 시</th></tr>
+    <tr><td><s>T1</s></td><td><s><code>axes[].id</code> 가 비어 있지 않고 중복되지 않는가</s>
+        <span class="def">— 3-2-1 로 <code>axes:</code> 목록 자체가 사라져 폐지</span></td>
+        <td class="def">해당 없음</td></tr>
+    <tr><td><b>T2</b></td><td><code>doc_rule.yaml</code> 의 <code>conflict:</code> 값이
+        <code>all</code>·<code>top_n</code> 중 하나인가 <span class="def">(3-2-1 — <code>kind</code> 는
+        더 이상 파일에 없고 코드에 <code>taxonomy</code> 로 고정돼 있어, <code>max</code> 자체를
+        <b>적을 문법이 없다</b>. 그래도 오타로 <code>max</code>·<code>min</code> 등을 적으면 여기서 막는다)</span></td>
+        <td>종료</td></tr>
+    <tr><td><s>T3</s></td><td><s><code>kind: ordered</code> 인데 <code>order</code> 가 없는가 / 중복인가</s>
+        <span class="def">— security 의 <code>order: [O,S,C]</code> 는 애초에 파일이 아니라 코드에 고정(3-2·3-2-1)
+        되어 있어 폐지</span></td><td class="def">해당 없음</td></tr>
+    <tr><td><s>T4</s></td><td><s>한 규칙이 <code>grade</code> 와 <code>node</code> 를 동시에 가지는가</s>
+        <span class="def">— 3-2 파일 분리로 <b>구조적으로 불가능</b>해져 폐지(5-3)</span></td>
+        <td class="def">해당 없음</td></tr>
+    <tr><td>T5</td><td><code>doc_rule.yaml</code> 의 <code>doctype_rules[].node</code> 가 스냅샷(<code>doc_taxonomy.yaml</code>)에 <b>존재</b>하는가</td>
+        <td>종료 <span class="def">(삭제됐거나 스냅샷이 낡음 → 4-5)</span></td></tr>
+    <tr><td>T6</td><td>참조한 노드가 <code>STATUS=0</code> 인가</td><td><b>경고</b> · 규칙 비활성</td></tr>
+    <tr><td>T7</td><td>스냅샷 트리에 <b>순환</b>이 있는가 <span class="def">(A→B→A)</span></td>
+        <td>종료 — 경로 계산이 무한루프에 빠진다</td></tr>
+    <tr><td>T8</td><td><code>parent</code> 가 스냅샷에 없는 노드를 가리키는가 <span class="def">(고아)</span></td><td>종료</td></tr>
+    <tr><td><s>T9</s></td><td><s><code>required: true</code> 인 축에 규칙이 하나도 없는가</s>
+        <span class="def">— <code>required</code> 는 3-2-1 로 파일에서 사라졌다(security 는 항상 필수·doctype 은
+        항상 선택, 둘 다 코드에 고정). 다만 “security 규칙이 하나도 없는 배포”는 다른 층의 문제이므로
+        기존 <code>cso_rules.yaml</code> 검증(V-시리즈, Phase 0)이 이미 다룬다</span></td>
+        <td class="def">해당 없음</td></tr>
+    <tr><td>T10</td><td><code>top_n</code> 인데 <code>n</code> 이 없거나 &lt; 1 인가</td><td>종료</td></tr>
+    <tr><td>T11</td><td><code>--conflict</code> 로 <b>security 축</b>을 덮어쓰려 했는가</td>
+        <td>종료 <span class="def">(6-5 — 보안 축은 실행 시에도 바꿀 수 없다)</span></td></tr>
+    <tr><td>T12</td><td><span class="def">(경고)</span> 어떤 규칙도 참조하지 않는 분류 노드가 있는가</td>
+        <td>경고 · 건수 표시</td></tr>
+    <tr><td>T13</td><td><span class="def">(경고)</span> 스냅샷이 오래됐는가 <span class="def">(exported_at 기준, 기본 90일)</span></td>
+        <td>경고 — DB 트리와 어긋났을 수 있다</td></tr>
+    <tr><td><b>T14</b></td><td><code>doc_taxonomy.yaml</code> <b>파일 자체가 없는가</b></td>
+        <td>기본 실행이면 <b>경고 후 doctype 축 비활성</b>(종료 0) ·
+            <code>--axis doctype</code> 명시면 <b>종료 4</b> → <a href="#notax">4-6</a></td></tr>
+    <tr><td>T15</td><td>doctype seed 가 있는데 <code>status</code> 가 <code>confirmed</code> 가 아닌가</td>
+        <td>그 줄 제외 · 건수 보고 <span class="def">(제안 상태를 seed 로 쓰면 오탐이 번진다 → 5-4)</span></td></tr>
+    <tr><td><b>T16</b></td><td><code>doc_rule.yaml</code> <b>파일 자체가 없는가</b> <span class="def">(3-2)</span></td>
+        <td><code>doc_taxonomy.yaml</code> 은 있는데 <code>doc_rule.yaml</code> 만 없으면 —
+            <b>경고 후 doctype 축 비활성</b>(종료 0, T14 와 동일 취급). 어휘는 있어도
+            규칙이 없으면 아무것도 분류되지 않으므로 동작은 같다. <code>--axis doctype</code> 명시면
+            <b>종료 4</b></td></tr>
+  </table></div>
+
+  <h4>축을 어디까지 켤지 — 자산에 따른 자동 판정</h4>
+  <div class="scroll"><table class="nowrap">
+    <tr><th><code>doc_taxonomy.yaml</code></th><th>모델·onnxruntime</th><th>동작</th></tr>
+    <tr><td>없음</td><td>무관</td><td>security 만 · 규칙 판정 <span class="def">(전파는 자산 유무대로)</span></td></tr>
+    <tr><td>있음</td><td>없음</td><td>두 축 · <b>규칙만</b>, 전파 생략(양쪽 축 모두)</td></tr>
+    <tr><td>있음</td><td>있음</td><td>두 축 · 규칙 + 전파 <span class="def">(완전 구성)</span></td></tr>
+  </table></div>
+
+  <h4>보고문 예 (설계안)</h4>
+<pre><code>[규칙셋 오류] cso_rules.yaml — 검증 실패 3건. 분류를 시작하지 않았습니다.
+
+  축: security(ordered/max) · doctype(taxonomy/all)
+  분류체계: doc_taxonomy.yaml  노드 22개  내보낸시각 20260824110743
+
+  [T5] 분류체계에 없는 노드 참조
+    doctype_rules[dt_contract].node = 'DC0061'  — 스냅샷에 없습니다
+        → 노드가 삭제됐거나 doc_taxonomy.yaml 이 낡았습니다. 다시 내보내세요.
+  [T2] kind 와 conflict 조합이 맞지 않음
+    axes[doctype]  kind=taxonomy 에는 conflict=max 를 쓸 수 없습니다(서열이 없습니다)
+        → all 또는 top_n 을 쓰세요.
+  [T4] 한 규칙이 두 축을 동시에 지정
+    doctype_rules[dt_hr].grade='S' 와 .node='DC0041' 이 함께 있습니다
+        → 규칙을 두 개로 나누세요.
+
+종료코드 4 (규칙셋 검증 실패)</code></pre>
+</section>
+
+
+<h2 id="impact"><span class="n">9</span> 구현 영향 범위</h2>
+<section class="card">
+  <div class="scroll"><table class="nowrap">
+    <tr><th>파일</th><th>변경</th><th>등급</th><th>규모</th></tr>
+    <tr><td colspan="4" style="background:var(--chip);font-weight:700">코어</td></tr>
+    <tr><td><code>classify/axes.py</code> <span class="def">신규</span></td>
+        <td><code>Axis</code>·<code>Taxonomy</code> 타입, 스냅샷 로드, 경로 계산, 순환 검사</td>
+        <td><span class="tag must">필수</span></td><td>대</td></tr>
+    <tr><td><code>classify/conflict.py</code> <span class="def">신규</span></td>
+        <td>전략 6종 구현. 입력=후보 목록, 출력=선택 결과. <b>순수 함수</b>라 단위 테스트가 쉽다</td>
+        <td><span class="tag must">필수</span></td><td>중</td></tr>
+    <tr><td><code>classify/rules.py</code></td>
+        <td><code>cso_rules.yaml</code>(security) 파싱 — <b>3-2 결정으로 axes·doctype_rules 는 안 들어온다.
+            기존 파싱 로직 사실상 무변경</b></td>
+        <td><span class="tag must">필수</span></td><td>소</td></tr>
+    <tr><td><code>classify/doc_rules.py</code> <span class="def">신규</span></td>
+        <td><code>doc_rule.yaml</code> 파싱 · 최상위 <code>conflict:</code> 검증(T2, 3-2-1) · <code>doctype_rules</code>
+            검증(T5·T6·T12) · <code>doc_taxonomy.yaml</code> 과의 교차검증</td>
+        <td><span class="tag must">필수</span></td><td>대</td></tr>
+    <tr><td><code>classify/fuse.py</code></td>
+        <td>축별 융합으로 일반화 — 지금의 <code>max</code> 고정을 전략 호출로 교체</td>
+        <td><span class="tag must">필수</span></td><td>중</td></tr>
+    <tr><td><code>classify/engine.py</code></td><td><code>labels</code> 조립, <code>grade</code> 복사(하위호환)</td>
+        <td><span class="tag must">필수</span></td><td>중</td></tr>
+    <tr><td><code>cli.py</code></td><td><code>--taxonomy</code> · <code>--doc-rules</code>(기본값: <code>cso_rules.yaml</code> 옆
+            <code>doc_rule.yaml</code> 자동 탐색, 3-2) · <code>--conflict</code> · <code>--axis</code>(축 선택 실행) · 집계 롤업</td>
+        <td><span class="tag must">필수</span></td><td>중</td></tr>
+    <tr><td><code>classify/propagate.py</code></td>
+        <td>전파는 <b>security 축에만</b> 적용(→ <a href="#open">12장 Q4</a>). seed 에 축 각인</td>
+        <td><span class="tag should">권장</span></td><td>중</td></tr>
+    <tr><td colspan="4" style="background:var(--chip);font-weight:700">Rust</td></tr>
+    <tr><td><code>Rust/src/rules.rs</code> · <code>axes.rs</code>(신규)</td>
+        <td>Python 과 동일. <code>enum Grade</code> → 축별 라벨 인덱스</td>
+        <td><span class="tag must">필수</span></td><td>대</td></tr>
+    <tr><td><code>Rust/src/main.rs</code></td><td>CLI·집계·종료코드</td><td><span class="tag must">필수</span></td><td>중</td></tr>
+    <tr><td colspan="4" style="background:var(--chip);font-weight:700">연동 · UI</td></tr>
+    <tr><td><code>scripts/export_taxonomy.py</code> <span class="def">신규</span></td>
+        <td><code>DOC_CLASSIFICATION</code>(또는 <code>doc_classification_export.json</code>, <a href="#jsonexport">3-2</a>)
+            → <code>doc_taxonomy.yaml</code> 내보내기. <code>--scaffold-doc-rule</code> 로
+            <code>doc_rule.yaml</code> 골격(빈 <code>terms</code>) 생성 지원</td>
+        <td><span class="tag must">필수</span></td><td>소</td></tr>
+    <tr><td><code>ui/app.py</code></td><td>축 탭 분리, 다중 라벨 표시, 트리 필터, 오버라이드를 축별로</td>
+        <td><span class="tag should">권장</span></td><td>대</td></tr>
+    <tr><td><code>cli.py</code> · <code>engine.py</code> · <code>Rust/src/main.rs</code></td>
+        <td><b><code>doc_id</code> 생성</b>(7-5) — 폴백 SHA-256 앞 40자 ·
+            <code>--no-doc-id</code> · <code>doc_id_source</code> 기록</td>
+        <td><span class="tag must">필수</span></td><td>중</td></tr>
+    <tr><td><code>filelist.py</code> <span class="def">신규</span> · <code>Rust/src/filelist.rs</code> <span class="def">신규</span></td>
+        <td><b><code>--filelist</code> 목록 로드</b>(7-5-2-1) — jsonl/csv 파싱 · 정규화 키 색인 ·
+            검증 F1~F7 · 미획득 건수 집계</td>
+        <td><span class="tag must">필수</span></td><td>중</td></tr>
+    <tr><td><code>cli.py</code> · <code>main.rs</code></td>
+        <td><code>--filelist</code> 와 <code>--dir</code>/<code>--file</code> 의 대상 결정 규칙 ·
+            <code>--report-missing-id</code> · 요약의 문서 ID 줄</td>
+        <td><span class="tag must">필수</span></td><td>소</td></tr>
+    <tr><td><code>ui/app.py</code> · <code>output.py</code></td>
+        <td><b>키 정규화 + <code>doc_id</code> 우선 매칭</b>(7-5-3) — 결과·오버라이드 연결.
+            <span class="def">현재 실측 4건이 조용히 누락 중이라 <b>단독으로도 고칠 값어치가 있다</b></span></td>
+        <td><span class="tag must">필수</span></td><td>중</td></tr>
+    <tr><td><code>ui/rulesedit.py</code></td><td><code>doctype_rules</code> 편집 — 노드를 <b>트리에서 선택</b></td>
+        <td><span class="tag should">권장</span></td><td>대</td></tr>
+  </table></div>
+  <div class="note"><b>가장 큰 신규 작업은 <code>conflict.py</code> 가 아니라 UI 다.</b>
+  전략 6종은 순수 함수라 며칠이면 되지만, “값이 여러 개인 분류”를 검토·수정하는 화면은 새로 설계해야 한다.</div>
+</section>
+
+
+<h2 id="roadmap"><span class="n">10</span> 개발 진행순서</h2>
+<section class="card">
+<div class="tree">이미 완료  Phase 0  fail-closed 검증(V0·V5·V6·V12)     <span class="cmt">2026-08-24</span>
+   │
+   ▼
+D0  문서 식별자 doc_id         <span class="cmt">7-5 — doc_id 자리 + 폴백 해시 + 경로 정규화 + 매칭 순서</span>
+   │                        <span class="cmt">→ 이 설계와 무관하게 지금 4건이 누락 중. 단독으로 먼저 해도 된다</span>
+   │                        <span class="cmt">→ 추후 DOC_ID × DC_ID 매핑의 준비이기도 하다</span>
+   ├─ D0b  --filelist 어댑터     <span class="cmt">7-5-2-1 — jsonl/csv 목록 → sfile_id 주입 (A 확정)</span>
+   │                        <span class="cmt">→ 코어를 안 바꾸므로 D1~ 과 병렬로 붙여도 된다</span>
+   ▼
+D1  분류체계 스냅샷           <span class="cmt">export_taxonomy.py + doc_taxonomy.yaml + 트리 로드/검증</span>
+   │                        <span class="cmt">→ 이 단계만으로도 "트리가 코드에 들어왔다"는 성과</span>
+   ▼
+D2  doc_rule.yaml 로더        <span class="cmt">doc_rules.py 신설 · conflict: 파싱(3-2-1) · cso_rules.yaml 은 무변경(3-2)</span>
+   │                        <span class="cmt">→ security 쪽 결과는 이 단계에서 손 안 댄다. 되돌릴 위험이 가장 낮은 지점</span>
+   ▼
+D3  충돌 전략 분리            <span class="cmt">conflict.py — max 를 전략 하나로 빼내고 all·top_n 추가</span>
+   │                        <span class="cmt">→ 축마다 다른 전략이 가능해진다(security=max 고정)</span>
+   ▼
+D4  doctype 축 가동           <span class="cmt">doctype_rules · 경로 출력 · all 전략으로 실제 분류</span>
+   ├────────────┬────────────┐
+   ▼            ▼            ▼
+D5 출력·집계   D6 UI        D7 전파 확장
+   labels 스키마  축 탭·다중라벨  doctype 다중라벨 전파
+   status 필드    확정 흐름       seed = 확정본만</div>
+
+  <div class="phase" style="border-left-color:var(--s)">
+    <h4>D0 — 문서 식별자 <code>doc_id</code> <span class="def">(선행: 없음 · 이 설계와 독립)</span></h4>
+    <p><code>doc_id</code> 필드 · <code>doc_id_source</code> · 경로 정규화 · 매칭 순서 ①~④ 구현(7-5).
+    두 가지 이유로 필수다 — <b>①</b> Q1 결정으로 결과 파일이 유일 저장소가 됐고,
+    <b>②</b> 추후 <code>DOC_ID × DC_ID</code> 매핑의 한쪽 키를 지금부터 심어 두어야 한다.</p>
+    <p><b>어댑터는 나중에 붙여도 된다.</b> D0 에서는 <code>doc_id</code> 를 <b>받아서 담는 자리</b>와
+    폴백(해시)을 만들고, <code>--filelist</code>(<a href="#getsfile">7-5-2-1</a>)는 <b>D0b</b> 로 덧붙인다.
+    코어는 값이 어디서 왔는지 모르므로 나중에 붙여도 변경이 없다.</p>
+    <div class="phase" style="border-left-color:var(--ax2);margin:10px 0 0">
+      <h4>D0b — <code>--filelist</code> 어댑터 <span class="def">(선행: D0)</span></h4>
+      <p>jsonl/csv 목록 로드 · 정규화 키 색인 · 검증 F1~F7 · <code>--dir</code> 과의 대상 결정 규칙 ·
+      요약의 문서 ID 줄 · <code>--report-missing-id</code>.</p>
+      <p class="def"><b>완료 판정</b> — 목록에 있는 문서는 <code>doc_id_source="sfile_id"</code> 로,
+      없는 문서는 폴백으로 채워지고, <b>양쪽 건수가 요약에 나온다</b>.
+      같은 경로에 다른 <code>sfile_id</code> 가 있으면 <b>로드가 실패</b>한다(F3).</p>
+    </div>
+    <p class="def"><b>완료 판정</b> — 모든 레코드에 <code>doc_id</code>·<code>key</code>·<code>doc_id_source</code> 가 있고,
+    저장소의 <code>cso_override.jsonl</code> 17건 중 현재 누락되는 <b>4건이 정상 반영</b>되며
+    <code>rematched_by</code> 가 그 사실을 표시한다.</p>
+  </div>
+
+  <div class="phase">
+    <h4>D1 — 분류체계 스냅샷 <span class="def">(선행: 없음)</span></h4>
+    <p><code>DOC_CLASSIFICATION</code> 내보내기 · <code>doc_taxonomy.yaml</code> 로드 · 경로 계산 ·
+    순환/고아 검사(T7·T8).</p>
+    <p class="def"><b>완료 판정</b> — 22개 노드가 로드되고, 임의 <code>DC_ID</code> 의 전체경로가
+    관리 화면과 <b>글자까지 같게</b> 나온다.</p>
+  </div>
+  <div class="phase">
+    <h4>D2 — <code>doc_rule.yaml</code> 로더 <span class="def">(선행: 없음 · D1 과 병렬 가능)</span></h4>
+    <p><code>classify/doc_rules.py</code> 신설, 최상위 <code>conflict:</code> 파싱(3-2-1), <code>doc_rule.yaml</code> 부재 시
+    doctype 축 비활성(T16). <code>cso_rules.yaml</code> 은 <b>3-2 결정에 따라 손대지 않는다.</b></p>
+    <p class="def"><b>완료 판정</b> — <code>doc_rule.yaml</code> 이 없어도 기존 <code>cso_rules.yaml</code> 만으로
+    돌린 결과가 <b>완전히 동일</b>(security-only 배포 회귀 없음).</p>
+  </div>
+  <div class="phase">
+    <h4>D3 — 충돌 전략 분리 <span class="def">(선행: D2)</span></h4>
+    <p><code>conflict.py</code> 신설, 전략 3종(<code>max</code>·<code>all</code>·<code>top_n</code>),
+    검증 T2·T10·T11, <code>--conflict</code> 덮어쓰기(doctype 한정).</p>
+    <p class="def"><b>완료 판정</b> — <code>max</code> 결과가 <b>이전과 완전히 같고</b>,
+    보안 축에 <code>all</code>·<code>min</code> 을 적으면 <b>로드가 실패</b>한다.</p>
+  </div>
+  <div class="phase">
+    <h4>D4 — doctype 축 가동 <span class="def">(선행: D1 + D3)</span></h4>
+    <p><code>doc_rule.yaml</code> 의 <code>doctype_rules</code> 섹션, 조상 흡수(5-2), 경로 출력, T5·T6·T12
+    <span class="def">(T4 는 3-2 파일 분리로 폐지)</span>.</p>
+    <p class="def"><b>완료 판정</b> — 계약서 샘플이 <code>법무/규정 &gt; 계약서</code> 로 분류되고,
+    계약+제안 혼합 문서에서 <b>둘 다</b> 나온다.</p>
+  </div>
+  <div class="phase">
+    <h4>D5·D6·D7 <span class="def">(선행: D4 · 서로 병렬 가능)</span></h4>
+    <p><b>D5</b> 출력·집계 스키마(<code>labels</code>·<code>status</code>·집계 롤업) ·
+    <b>D6</b> 검토 UI(축 탭 · 다중 라벨 · <b>제안→확정 흐름</b> · 상위 N 표시 제한) ·
+    <b>D7</b> 전파 확장(doctype 라벨별 독립 점수 · seed 파일 두 축 통합 · 확정본만 seed).</p>
+    <p class="def"><b>D6 → D7 순서를 권한다.</b> 전파의 doctype seed 는 <b>사람이 확정한 문서</b>인데,
+    확정할 화면이 없으면 seed 가 모이지 않는다(<a href="#prop">5-4</a>의 선순환).
+    D7 을 먼저 하면 초기 seed 를 손으로 만들어야 한다.</p>
+  </div>
+
+  <div class="note"><b>중단 지점</b> — 이 설계의 목적은 <b>D4 에서 완성된다</b>(“보고서인지 계약서인지
+  혹은 둘 다인지”에 답하는 것). D3 까지만 하면 축 구조와 전략 분리는 끝나지만 업무 분류는 아직 못 한다.
+  <b>D1 → D4 가 최소 단위</b>이고, D2·D3 은 그 사이에 반드시 거쳐야 하는 정리 작업이다.</div>
+</section>
+
+
+<h2 id="risk"><span class="n">11</span> 리스크 · 대응</h2>
+<section class="card">
+  <div class="scroll"><table class="nowrap">
+    <tr><th>#</th><th>리스크</th><th>영향</th><th>대응</th></tr>
+    <tr><td>R1</td><td><b>스냅샷이 DB 와 어긋남</b> — 트리를 고치고 다시 안 내보냄</td>
+        <td>새 분류로 자동분류가 안 되거나, 없는 노드 참조로 종료</td>
+        <td>T5(오류)·T13(오래됨 경고) · 결과에 <code>taxonomy_version</code> 각인 · 내보내기를 배치로</td></tr>
+    <tr><td>R2</td><td><code>all</code> 전략에서 <b>결과 폭주</b> — 문서 하나에 분류 8개</td>
+        <td>검토 불가 · 집계 왜곡</td>
+        <td><code>top_n</code> + <code>min_confidence</code> · 규칙 정밀도 개선 · 잘린 건수 공개</td></tr>
+    <tr><td>R3</td><td>기존 소비자가 <b>다중 라벨</b>을 못 읽음</td><td>연동 파손</td>
+        <td><code>grade</code> 유지(7-2) · doctype 은 <b>옵트인</b> · <code>primary_plus</code> 로 이행</td></tr>
+    <tr><td>R4</td><td>보안 축에 실수로 <code>all</code>/<code>min</code> 지정</td>
+        <td>등급이 여러 개 나오거나 가장 약한 등급 선택 → <b>사고</b></td>
+        <td><b>설계로 원천 차단</b> — <code>ordered</code> 축은 <code>max</code> 만 허용(T2),
+            실행 시 덮어쓰기도 금지(T11). 잘못 적으면 로드가 실패한다</td></tr>
+    <tr><td>R5</td><td><code>TITLE</code> 변경으로 규칙이 끊어짐</td><td>조용한 미분류</td>
+        <td><code>DC_ID</code> 참조(4-3) — 설계로 원천 차단</td></tr>
+    <tr><td>R6</td><td>트리 <b>순환</b>(A→B→A)</td><td>경로 계산 무한루프 · 프로세스 정지</td>
+        <td>T7 로 로드 시 차단</td></tr>
+    <tr><td>R7</td><td>두 축의 규칙이 <b>서로 섞임</b></td><td>어느 축 결과인지 추적 불가</td>
+        <td><span class="def">3-2 결정으로 <code>cso_rules.yaml</code>/<code>doc_rule.yaml</code> 파일 자체가 갈려
+        구조적으로 차단됨(T4 폐지) — 섹션 분리(5-3)</span></td></tr>
+    <tr><td>R8</td><td>Python·Rust <b>전략 구현 불일치</b></td><td>같은 입력에 다른 분류</td>
+        <td>전략별 <b>공통 테스트 벡터</b> — 후보 목록 → 기대 출력을 JSON 으로 고정하고 양쪽에서 실행</td></tr>
+    <tr><td>R9</td><td><b>doctype 전파의 오분류</b> — 비슷하지만 주제가 다른 문서에 라벨이 번짐</td>
+        <td>후보가 지저분해져 검토 피로가 커진다</td>
+        <td><b>결과가 확정이 아니라 제안</b>이라 사람이 거른다(Q2) · <code>rejected</code> 기록으로
+            임계값을 실측 조정(5-4) · seed 는 <b>확정본만</b> 써서 오탐이 번지는 것을 끊는다(T15)</td></tr>
+    <tr><td>R10</td><td><code>--conflict</code> 로 뽑은 결과를 정식 결과로 오인</td><td>재현 불가</td>
+        <td>레코드에 <code>strategy</code> 각인(6-5)</td></tr>
+    <tr><td><b>R11</b></td><td><b>문서 키 불일치</b> — 경로 표기가 달라 사람의 수정이 결과와 이어지지 않음
+        <span class="def">(현재 실측 4건)</span></td>
+        <td>검토 결과가 <b>조용히 사라진다</b>. 아무 오류도 나지 않아 알아채기 어렵다</td>
+        <td>키 정규화 + 해시 보조키(7-5) · <code>rematched_by</code> 표시 · <b>D0 로 선행 처리</b></td></tr>
+    <tr><td>R13</td><td><s><b><code>doc_id</code> 정체성 선택의 부작용</b> —
+        내용 해시는 문서를 수정할 때마다 id 가 바뀐다</s></td>
+        <td>매핑에서 과거 분류가 끊어짐</td>
+        <td style="color:var(--o);font-weight:700">✔ 해소 — <code>sfile_id</code> 사용 확정(Q5).
+            <span style="font-weight:400">해시는 ID 를 못 얻은 문서의 폴백으로만 남는다</span></td></tr>
+    <tr><td><b>R15</b></td><td><b>목록이 낡음</b> — 뽑은 뒤 문서가 추가·삭제·이동됨</td>
+        <td>새 문서가 ID 없이 처리되거나(F5), 없는 파일을 가리킴(F4).
+            <b>조용히 누적되면 매핑 누락이 쌓인다</b></td>
+        <td>F4·F5 건수를 <b>요약 첫 줄에 표시</b> · 선택 <code>hash</code> 필드로 수정 감지(F6) ·
+            목록 생성을 분류 실행과 <b>같은 배치에 묶는다</b></td></tr>
+    <tr><td><b>R14</b></td><td><b><code>sfile_id</code> 를 못 얻는 문서</b> —
+        목록에 없는 파일(F5)</td>
+        <td>폴백 해시가 들어가는데, 그 값은 <b>MpowerV11 문서와 이어지지 않는다</b>.
+            그대로 적재하면 <b>같은 문서가 두 건으로</b> 들어간다</td>
+        <td>적재는 <code>doc_id_source == "sfile_id"</code> 인 행만.
+            나머지는 <b>보류 목록</b>으로 뽑아 원인을 확인(7-5-2).
+            건수를 요약에 표시해 조용히 넘어가지 않게 한다</td></tr>
+    <tr><td>R12</td><td>결과 파일이 유일 저장소인데 <b>유실·손상</b></td>
+        <td>분류 이력 전체 소실 — DB 백업 같은 안전망이 없다</td>
+        <td>결과·오버라이드를 <b>백업 대상으로 명시</b>. 자동 결과는 재실행으로 복구되지만
+            <b>사람의 수정은 복구 불가</b>이므로 <code>cso_override.jsonl</code> 이 특히 중요하다</td></tr>
+  </table></div>
+</section>
+
+
+<h2 id="open"><span class="n">12</span> 결정 필요 사항</h2>
+<section class="card">
+  <p>자료(<code>수정.pptx</code>)만으로는 답할 수 없어 확인이 필요한 것들이다. 각 항목에 권고안을 함께 적었다.</p>
+
+  <div class="q" style="border-style:solid;border-color:var(--o)">
+    <p><b>Q1. 문서↔분류 매핑 테이블이 이미 있는가?</b>
+    <b style="color:var(--o)">→ 결정됨 (2026-08-24) — 없다. 결과 파일로만 관리한다</b></p>
+    <p><b>따라오는 것</b></p>
+    <ul style="margin:6px 0">
+      <li><b>다중 라벨에 제약이 없다</b> — 1:1 컬럼에 맞출 필요가 없으므로 <code>all</code> 전략을
+        그대로 쓴다. <a href="#conflict">6-2</a>에서 <code>primary_plus</code> 를 뺀 판단이 확정된다.</li>
+      <li><b>결과 파일이 곧 저장소(system of record)가 된다</b> → <a href="#store">7-4 ~ 7-6</a> 신설.
+        DB 라면 공짜로 얻었을 기본키·갱신·조회·이력을 파일 구조로 직접 정해야 한다.</li>
+      <li><b>키 정규화가 필수가 됐다</b> — 실측 결과 지금 이미 사람의 수정 4건이 경로 표기 차이로
+        누락되고 있다(<a href="#docid">7-5</a>). 로드맵 <b>D0</b> 로 선행 처리한다.</li>
+      <li><b>추후 매핑을 대비해 <code>doc_id</code> 를 지금부터 넣는다</b>
+        <span class="def">(2026-08-24 추가 지시)</span> — <code>DC_ID</code> 와 짝이 될
+        <code>VARCHAR(40)</code> 키. 나중에 넣으려면 과거 결과를 전부 다시 돌려야 한다
+        → <a href="#docid">7-5</a>, 테이블 초안 7-5-5.</li>
+      <li><b>백업 정책이 필요하다</b> — 자동 결과는 재실행으로 복구되지만
+        <b>사람의 수정은 복구할 방법이 없다</b>(R12).</li>
+    </ul>
+  </div>
+
+  <div class="q" style="border-style:solid;border-color:var(--o)">
+    <p><b>Q2. 업무 분류를 자동으로 매길 것인가, 사람이 고르는 것을 보조만 할 것인가?</b>
+    <b style="color:var(--o)">→ 결정됨 (2026-08-24) — 후보 제안</b></p>
+    <p><b>설계 반영</b> — <a href="#propose">7-4-1</a>(제안/확정 상태 · 확정 기록 형태) ·
+    <a href="#conflict">6-3</a>(저장은 <code>all</code>, 화면은 상위 N) ·
+    <a href="#prop">5-4</a>(확정본이 전파 seed) · 로드맵 D6.</p>
+    <ul style="margin:6px 0">
+      <li>업무분류 결과는 <code>status: proposed</code> 로 나오고, 사람이 확정하면
+        <code>confirmed</code> 가 된다. <b>매핑 테이블에는 확정된 것만</b> 넣는다 —
+        제안을 넣으면 “분류됨”으로 오인된다.</li>
+      <li>거절한 후보(<code>rejected</code>)도 기록한다. 규칙을 개선할 때
+        <b>어떤 제안이 거절당했는지</b>가 가장 값진 정보다.</li>
+      <li><b>보안 축은 지금처럼 자동 확정</b>이다. 분류되지 않은 문서를 방치할 수 없으므로
+        “제안하고 기다린다”가 성립하지 않는다.</li>
+    </ul>
+  </div>
+
+  <div class="q" style="border-style:solid;border-color:var(--o)">
+    <p><b>Q3. 보안등급 축의 <code>conflict</code> 를 실제로 바꿀 일이 있는가?</b>
+    <b style="color:var(--o)">→ 결정됨 (2026-08-24) — 바꾸지 않는다</b></p>
+    <p><b>확정된 내용</b> — 문서분류는 두 측면으로 나뉜다.</p>
+    <ol style="margin:6px 0">
+      <li><b>보안 측면(CSO 분류)</b> — 보안이 중요하므로 <b>무조건 <code>max</code> 정책 적용</b>.
+        선택지가 아니다.</li>
+      <li><b>분류 측면(기업 문서분류)</b> — 보안보다 분류체계에 따른 분류만 중요.
+        이 문서가 ‘보고서’인지 ‘계약서’인지 <b>혹은 둘 다인지</b> 확인할 수 있으면 된다.
+        <b>보안은 차선 고려사항.</b></li>
+    </ol>
+    <p><b>설계 반영</b> —
+    <a href="#two-sides">2-1</a>(두 측면 표) ·
+    <a href="#conflict">6-2</a>(전략은 축에서 따라 나온다, 초안 6종 → 3종) ·
+    <a href="#conflict">6-4</a>(<code>--axis</code> 실행 모드, 분류 측면은 PII 검출 생략) ·
+    <a href="#validate">8장</a> T2·T11(보안 축을 약하게 만들 경로를 검증으로 차단) ·
+    <a href="#output">7-1</a>(<code>candidates</code> 로 충돌 근거는 전부 보존).</p>
+  </div>
+
+  <div class="q" style="border-style:solid;border-color:var(--o)">
+    <p><b>Q4. 임베딩 전파(Signal B)를 doctype 축에도 적용할 것인가?</b>
+    <b style="color:var(--o)">→ 결정됨 (2026-08-24) — 적용한다</b></p>
+    <p><b>설계 반영</b> — <a href="#prop">5-4</a>(라벨별 독립 점수 · seed 파일 두 축 통합) ·
+    로드맵 D7 · 리스크 R9 갱신.</p>
+    <ul style="margin:6px 0">
+      <li>“비슷한 문서는 같은 주제”는 <b>임베딩이 가장 잘 하는 일</b>이다.
+        보안등급보다 오히려 잘 맞는다 — 등급은 문서 안 한 줄로 갈리지만
+        주제는 문서 전체의 성격이라 벡터가 그대로 담는다.</li>
+      <li>알고리즘은 <b>④ 가중 다수결만</b> 바꾼다. “1등을 뽑는” 대신
+        <b>라벨별 점수를 각각 계산해 임계값을 넘는 것을 전부</b> 채택한다.
+        ①최근접 ②사본상속 ③너무멂 은 그대로다.</li>
+      <li><b>Q2 와 맞물려 선순환이 된다</b> — 제안 → 사람 확정 → 확정본이 seed →
+        전파가 정확해짐 → 다음 후보가 좋아짐. 22개 노드를 전부 규칙으로 덮지 않아도
+        몇 건만 확정해 두면 전파가 나머지를 끌어올린다.</li>
+      <li><code>MIN_SHARE_DOCTYPE</code> 은 security 의 0.70 보다 <b>낮아야</b> 한다
+        (다중 라벨은 표가 갈라진다). <b>초기값은 실측 후 정한다</b> — 지금 숫자를 못 박지 않는다.</li>
+    </ul>
+  </div>
+
+  <div class="q" style="border-style:solid;border-color:var(--o)">
+    <p><b>Q5. MpowerV11 에 문서 고유 ID 가 이미 있는가?</b>
+    <b style="color:var(--o)">→ 결정됨 (2026-08-24) — 있다. <code>sfile_id</code></b></p>
+    <p><b>설계 반영</b> — <code>doc_id</code> 의 값은 <code>sfile_id</code> 로 확정한다(<a href="#docid">7-5</a>).
+    해시로 만들어 내지 않는다.</p>
+    <ul style="margin:6px 0">
+      <li><b>R13 해소</b> — “문서를 수정하면 id 가 바뀐다”는 문제가 사라진다.
+        시스템이 부여한 ID 라 수정·이동·개명을 모두 견딘다.</li>
+      <li>해시(②·③)는 <b><code>sfile_id</code> 를 못 얻은 문서의 폴백</b>으로만 남는다.
+        그런 행은 매핑 테이블에 넣지 않고 보류 목록으로 뽑는다(R14).</li>
+      <li>우리가 “같은 문서란 무엇인가”를 정의할 필요가 없어졌다 —
+        <b>설계에서 가장 애매하던 부분이 없어졌다.</b></li>
+    </ul>
+  </div>
+
+  <div class="q" style="border-style:solid;border-color:var(--o)">
+    <p><b>Q6. <code>sfile_id</code> 를 파일 스캐너가 어떻게 얻는가?</b>
+    <b style="color:var(--o)">→ 결정됨 (2026-08-24) — A. 입력 목록 방식</b></p>
+    <p><b>설계 반영</b> — <a href="#getsfile">7-5-2-1</a> 에 목록 형식(jsonl/csv) ·
+    <code>--filelist</code> 와 <code>--dir</code> 의 관계 · 정규화 키 매칭 ·
+    목록 검증 F1~F7 · 요약의 ID 획득 현황을 정리했다. 로드맵 <b>D0b</b>.</p>
+    <ul style="margin:6px 0">
+      <li><b>OS 를 가리지 않는다</b> — 리눅스 배포본도 같은 방식으로 동작한다.
+        ADS 방식이었다면 Windows 전용 코드가 갈라졌을 것이다.</li>
+      <li><b>원본 파일을 건드리지 않는다</b> — 분류 도구가 문서를 수정하지 않는다는 성질이 유지된다.</li>
+      <li><b>목록 생성은 MpowerV11 몫</b>이다. CSOClassify 는 읽기만 한다.</li>
+    </ul>
+    <div class="warn" style="margin:8px 0 0"><b>남은 확인 — <code>sfile_id</code> 의 형식과 최대 길이</b><br>
+    <code>VARCHAR(40)</code> 에 들어가면 7-5-5 초안 그대로 쓰고, 넘으면 매핑 테이블의
+    <code>DOC_ID</code> 폭만 넓힌다. <b>ID 를 잘라 쓰지는 않는다.</b>
+    이 값은 D0b 구현에 영향을 주지 않으므로 <b>진행을 막지는 않는다</b> —
+    스키마 초안을 확정할 때 알려 주시면 된다.</div>
+  </div>
+
+  <div class="q" style="border-style:solid;border-color:var(--o)">
+    <p><b>Q7. 업무분류 규칙을 <code>cso_rules.yaml</code> 에 <code>axes:</code> 로 합칠 것인가,
+    <code>doc_rule.yaml</code> 로 따로 뺄 것인가?</b>
+    <b style="color:var(--o)">→ 결정됨 (2026-08-24) — 파일을 축별로 분리한다</b></p>
+    <p><b>설계 반영</b> — <a href="#split">3-2</a>(파일 분리 결정·비교표·JSON 원본 파이프라인) ·
+    5-1·5-3(규칙 예시·섹션 표 갱신) · 7-1(<code>doctype_rule_version</code> 추가) ·
+    8장 T4 폐지·T16 신설 · 9장(<code>doc_rules.py</code> 신설, <code>rules.py</code> 는 사실상 무변경) ·
+    로드맵 D2·D4 갱신.</p>
+    <ul style="margin:6px 0">
+      <li><b>기존 <code>cso_rules.yaml</code> 은 글자 하나 안 바뀐다</b> — <code>axes:</code> 블록도
+        <code>doctype_rules:</code> 섹션도 들어오지 않는다. 지금 배포와 <b>완전히 동일</b>.</li>
+      <li>“한 규칙이 두 축을 동시에 갖는다”는 실수가 <b>검증이 아니라 파일 구조로</b> 막힌다
+        (<code>grade:</code> 와 <code>node:</code> 를 같은 곳에 적을 수가 없다) — T4 폐지.</li>
+      <li>업무분류 규칙만 자주 바뀌는 초기 단계에서, <code>cso_rules.yaml</code> 의 git diff 가
+        조용히 유지된다.</li>
+      <li>MPOWER 원본이 <code>doc_classification_export.json</code> 처럼 <b>JSON</b> 이어도
+        파이프라인은 그대로다 — <code>export_taxonomy.py</code> 가 그 JSON 을 읽어
+        <code>doc_taxonomy.yaml</code>(어휘)을 만들고, 필요하면 <code>doc_rule.yaml</code> 골격까지
+        생성해 준다(내용은 사람이 채움) → <a href="#jsonexport">3-2</a>.</li>
+      <li><b>손해</b> — “왜 이렇게 분류됐나”를 규칙 차원에서 완전히 보려면 파일 두 개를 봐야 한다.
+        다만 실행 결과 레코드에는 두 축이 한 곳에 모이므로(7-1), 결과를 볼 때는 문제되지 않는다.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  CSOClassify — 문서 분류 체계 연동 · 분류 규칙 설계서 · 2026-08-24<br>
+  근거: <code>C:\Users\bong9\Desktop\2025 문서 분류 체계\수정.pptx</code> (슬라이드 3매) ·
+  코드 인용은 2026-08-24 기준 저장소 상태 · <b>설계만 담으며 구현 변경을 포함하지 않는다</b>
+</footer>
+
+</div>
+</body>
+</html>

@@ -13,7 +13,7 @@ pdfium)은 바이너리에 넣지 않고 **exe 옆 외부 파일로 런타임 �
 | `--rule-only` | 규칙만(임베딩·전파 없음, 가장 빠름) | 99.5% (211중 210) |
 | `--vector-only` | 규칙 없이 벡터-seed 비교만(--seeds 필수) | **100%** (AI 10/10) |
 
-> 기본 모드는 **exe 옆 `cso_seed.jsonl`(또는 `--seeds`)이 있으면 자동으로 전파를 켠다** — 원본과 동일.
+> 기본 모드는 **exe 옆 `class_seed.jsonl`(또는 `--seeds`)이 있으면 자동으로 전파를 켠다** — 원본과 동일.
 > 임베딩은 e5-small-ko ONNX 를 onnxruntime 으로 돌리며, Python(pypdfium2 아님, onnxruntime)과
 > **임베딩 벡터가 완전 일치**(코사인=1.000000, probe 3종 검증). 전파 알고리즘(near-dup 상속·k-최근접
 > 유사도 가중 다수결)도 propagate.py 그대로.
@@ -28,7 +28,6 @@ pdfium)은 바이너리에 넣지 않고 **exe 옆 외부 파일로 런타임 �
 | `onnxruntime.dll` | 16MB | 임베딩 추론 런타임(전파/--vector-only 시) |
 | `models/e5-small-ko/` | 129MB | ONNX 모델 + tokenizer(전파/--vector-only 시) |
 | `pdfium.dll` | 7MB | PDF 추출 시 |
-| `cso_seed.jsonl` | 0.6MB | 전파 비교 기준 seed(있으면 기본 전파 on) |
 
 > 모델·런타임 경로 탐색: `CSO_MODEL`/`ORT_DYLIB_PATH` 환경변수 → **exe 옆** `models/e5-small-ko/`·
 > `onnxruntime.dll`. 없으면 전파를 조용히 생략(규칙 결과만). `--rule-only` 는 이들 없이도 동작.
@@ -82,12 +81,43 @@ cargo build --release           REM → target\release\csoclassify-rs.exe (2.3MB
 csoclassify-rs --dir "D:\분류함" --rules cso_rules.yaml --simple --nosummary --format jsonl
 csoclassify-rs --file a.docx    --rules cso_rules.yaml
 ```
-옵션: `--file/--dir · --rules · --format json|jsonl · --out · --simple · --hash · --with-pii · --rule-only · --vector-only · --auto-propagate · --seeds · --summary · --nosummary · --failsafe`
+옵션: `--file/--dir · --rules · --format json|jsonl · --out · --simple · --hash · --with-pii · --rule-only · --vector-only · --with-vector · --auto-propagate · --seeds · --summary · --nosummary · --failsafe`
+- `--format json|jsonl` : **안 주면 `--out` 확장자를 따른다**(`.jsonl`/`.ndjson`→jsonl, `.json`→json,
+  모르는 확장자·`--out` 없음→json). 추론되면 stderr 에 한 줄 알린다. `--format` 을 직접 주면 확장자와 달라도 그 값이 이긴다.
+  파이썬 판 `resolve_format()` 과 같은 표를 쓴다.
+  <br>※ 전에는 `--out result.jsonl` 로 저장해도 JSON 배열이 들어가 뷰어가 열지 못했다.
 - `--with-pii` : [프라이버시 예외] 검출된 **원문 PII 값**을 `pii:[{label,value,start,end}]` 로 함께 저장(기본 off, 건수만).
+
+**오류 로그** — 오류가 나면 실행 파일 옆 `csoclassify_err_YYYYMMDD.log` 에 남긴다(`src/errlog.rs`).
+실행 명령줄·오류 메시지·종료코드가 들어가고, 패닉(예상 못 한 내부 오류)은 파일:줄 위치까지 남는다.
+**오류가 없으면 파일도 안 생긴다** — 파일이 보인다는 것 자체가 신호가 되어야 하기 때문이다.
+위치는 환경변수 `CSOCLASSIFY_ERRLOG=<파일경로>` 로 바꾼다(파이썬 판과 같은 이름·같은 규칙).
+로그를 못 써도(권한 없음 등) 분류는 그대로 진행한다.
+
 - `--rule-only` : 규칙만(임베딩·전파 없음). `--vector-only` 와 배타.
-- `--vector-only` : 규칙 없이 벡터-seed 비교만(`--seeds` 또는 exe 옆 cso_seed.jsonl 필수). `--rule-only` 와 배타.
+- `--vector-only` : 규칙 없이 벡터-seed 비교만(`--seeds` 또는 exe 옆 class_seed.jsonl 필수). `--rule-only` 와 배타.
+- `--with-vector` : **모든 문서**를 임베딩해 결과 레코드에 `vector`(384차원) 필드로 포함(RAG 색인 등).
+  파이썬 판의 같은 이름 인자와 **같은 벡터**를 낸다 — `d:\sample` 18건 실측 코사인 1.000000000
+  (최대 절대오차 1.5e-08 = float32 반올림 수준). 모델 로드 실패·본문 없음이면 필드를 아예 넣지 않는다.
+  <br>※ 2026-08-26 이전 판은 추출 원문을 그대로 임베딩해 파이썬과 코사인 0.94~0.98 로 어긋났다
+  (파이썬은 `clean_text()` 로 정제한 텍스트를 넣는다). 지금은 `embed::clean_for_embed()` 로 같은 모양을 만든 뒤 넣는다.
+- `--propagate <결과파일>` : 1차 결과(jsonl/json 배열/객체 1개 모두 가능)를 읽어 **전파만** 다시 도는 2차 패스.
+  `--file/--dir` 대신 쓰며 **문서·모델·규칙셋이 전부 불필요**하다(저장된 신호를 되살려 재융합).
+  파이썬 `--propagate` 와 인자·출력·통계 줄이 같다 — 같은 1차 파일로 실측 시 통계
+  (`seeds=71 already_graded=10 embed_decided=4 still_unclassified=4`)와 18개 레코드의
+  `grade`/`confidence`/`method`/`decided_by`/`labels`/`signals` 가 전부 일치.
+  <br>※ 1차 파일 끝의 `{"summary":…}` 줄은 문서가 아니므로 버린다(파이썬은 레코드로 세어 `no_vector` 를 1 더 잡고 낡은 요약을 다시 쓴다).
+  <br>※ 유사도가 동점인 이웃의 나열 순서는 두 판이 다를 수 있다(파이썬 `np.argsort` 가 불안정 정렬). 판정에는 영향 없음.
 - `--auto-propagate` : 보류 문서 전파(seed 있으면 기본 on이라 명시 불필요).
-- `--seeds <cso_seed.jsonl>` : 전파 기준 seed(미지정 시 exe 옆 cso_seed.jsonl).
+- `--seeds <class_seed.jsonl>` : 전파 기준 seed(미지정 시 exe 옆 class_seed.jsonl).
+- `--check-rules` : 규칙셋의 등급 값만 검사하고 종료(문서를 읽지 않음). 정상 0, 검증 실패 4.
+
+**규칙셋 검증(fail-closed)** — 로드 시점에 등급 값을 검사한다. 정의되지 않은 등급(`base_grade: c` 오타 등)이나
+`bulk_grade` 가 `base_grade` 보다 낮은 역전이 있으면 문서를 한 건도 읽지 않고 위반을 전부 모아 보고하고
+**종료코드 4** 로 끝난다. 보고문·종료코드는 Python 판과 동일하다(바이트 단위 일치 확인).
+예전에는 이런 값을 조용히 무시해 그 규칙이 판정에서 빠졌고, 문서가 실제보다 낮은 등급을 받았다.
+경로 규칙은 `acl_restricted: true` 면 `grade` 를 생략할 수 있고(스스로 등급을 내지 않고 무신호일 때만
+fail-safe 최고등급), 둘 다 없으면 V12 위반이다. Python 판과 동작·메시지가 같다.
 
 리눅스 바이너리 — **CentOS7(glibc 2.17)에서 gnu 타깃으로 빌드**한다. 실행파일에 `RPATH=$ORIGIN` 을 박아
 `libonnxruntime.so` 가 요구하는 신형 `libstdc++.so.6` 를 exe 옆에서 찾게 하는 것이 핵심이다

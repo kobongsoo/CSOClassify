@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CSOClassify — 요약 (5p)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#232B5D; --blue:#1B5FA8; --blue-l:#E8EEF7;
+  --c:#C62828; --c-bg:#FBE9E9; --s:#B07400; --s-bg:#FDF4DF; --o:#2E7D32; --o-bg:#E7F4E9;
+  --ink:#1F2430; --body:#333945; --muted:#6B7484; --line:#DDE2EA; --panel:#F7F8FA;
+  --stage:#E9EDF3;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:var(--stage);
+  font-family:'Noto Sans KR','Malgun Gothic',-apple-system,sans-serif;color:var(--body);
+  -webkit-font-smoothing:antialiased}
+#stage{position:fixed;inset:0;display:grid;place-items:center;overflow:hidden}
+.slide{width:1280px;height:720px;background:#fff;position:absolute;
+  border-radius:6px;box-shadow:0 10px 40px rgba(30,40,70,.18);
+  padding:40px 54px 58px;display:none;flex-direction:column;transform-origin:center center}
+.slide.on{display:flex}
+.kicker{font-size:15px;font-weight:700;color:var(--blue);letter-spacing:.02em;margin-bottom:6px}
+h1{font-size:34px;line-height:1.25;font-weight:900;color:var(--navy);margin:0 0 4px}
+.rule{height:3px;background:var(--blue);width:64px;border-radius:2px;margin:12px 0 18px}
+.body{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
+.pageno{position:absolute;right:56px;bottom:24px;font-size:13px;color:#9AA3B2;letter-spacing:.06em}
+.brand{position:absolute;left:56px;bottom:24px;font-size:13px;color:#9AA3B2}
+
+/* 표지 겸 요약 */
+.cover{background:linear-gradient(150deg,#1B2A55 0%,#243568 55%,#1B5FA8 130%);color:#fff;
+  padding:56px 74px;justify-content:center;display:none}
+.cover.on{display:flex}
+.cover h1{color:#fff;font-size:48px;line-height:1.2;margin:0}
+.cover .dot{width:70px;height:5px;background:#5B8FD6;border-radius:3px;margin-bottom:24px}
+.cover .tag{font-size:20px;color:#B9C6E4;margin-top:16px;font-weight:500;line-height:1.55}
+.cover .meta{margin-top:14px;font-size:15px;color:#8FA0C8}
+.ckpi{display:flex;gap:14px;margin-top:38px}
+.ckpi div{flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);
+  border-radius:12px;padding:15px 16px}
+.ckpi .v{font-size:27px;font-weight:900;color:#fff;line-height:1.15}
+.ckpi .v small{font-size:14px;font-weight:700;color:#B9C6E4}
+.ckpi .l{font-size:12.8px;color:#AEBBDE;margin-top:5px;line-height:1.45}
+
+/* 카드 */
+.cols{display:flex;gap:16px;align-items:stretch}
+.col{flex:1;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.card h3{margin:0 0 9px;font-size:16.5px;color:var(--blue);font-weight:700}
+.card p{margin:0 0 6px;font-size:14px;line-height:1.6}
+.card p:last-child{margin-bottom:0}
+.card.hi{background:var(--blue-l);border-color:#B9CDE6}
+.navybar{background:var(--navy);color:#fff;border-radius:12px;padding:13px 20px;margin-top:14px}
+.navybar p{margin:0 0 5px;font-size:14.5px;line-height:1.55;color:#DCE3F2}
+.navybar p:last-child{margin:0}
+.navybar b{color:#fff}
+.lead{font-size:19px;line-height:1.6;color:var(--navy);font-weight:700;margin:0 0 16px}
+
+/* 표 */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{background:var(--navy);color:#fff;font-weight:700;padding:8px 10px;text-align:left;font-size:13px}
+td{border-bottom:1px solid var(--line);padding:7px 10px;vertical-align:top;line-height:1.5}
+tr:last-child td{border-bottom:none}
+td.k{font-weight:700;color:var(--navy);white-space:nowrap;background:#F4F6FA}
+table.zebra tr:nth-child(even) td{background:#FAFBFD}
+table.zebra tr:nth-child(even) td.k{background:#EFF2F7}
+table.sm{font-size:12.8px} table.sm td{padding:5.5px 9px} table.sm th{padding:6px 9px;font-size:12.4px}
+tr.us td{background:var(--blue-l) !important;font-weight:500}
+tr.us td.k{background:#D7E4F4 !important;color:var(--navy)}
+.tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12.5px;font-weight:700;line-height:1.7}
+.t-c{background:var(--c-bg);color:var(--c)} .t-s{background:var(--s-bg);color:var(--s)}
+.t-o{background:var(--o-bg);color:var(--o)} .t-b{background:var(--blue-l);color:var(--blue)}
+.t-g{background:#EEF0F4;color:var(--muted)}
+
+/* 3단 필터 */
+.pipe{display:flex;gap:11px;align-items:stretch}
+.ph{flex:1;border:1.5px solid var(--line);border-radius:12px;background:#fff;overflow:hidden;display:flex;flex-direction:column}
+.ph .hd{padding:9px 14px;font-size:14px;font-weight:700;color:#fff}
+.ph.p1 .hd{background:#1B5FA8} .ph.p2 .hd{background:#4A6FB5} .ph.p3 .hd{background:#7A5EA8}
+.ph .bd{padding:12px 14px;font-size:13.4px;line-height:1.62;flex:1}
+.ph .bd b{color:var(--navy)}
+.ph .ft{padding:8px 14px;background:#F4F6FA;border-top:1px solid var(--line);font-size:12.8px;font-weight:700;color:var(--navy)}
+.arrow{align-self:center;color:#B7C1D0;font-size:22px;font-weight:700}
+
+/* 등급 */
+.grades{display:flex;gap:10px;margin-top:12px}
+.gr{flex:1;border-radius:10px;padding:10px 14px;border:1.5px solid}
+.gr .g{font-size:18px;font-weight:900} .gr .n{font-size:13px;font-weight:700;margin-top:1px}
+.gr .d{font-size:12.3px;color:var(--muted);margin-top:2px;line-height:1.45}
+.gr.C{background:var(--c-bg);border-color:#EEC4C4} .gr.C .g,.gr.C .n{color:var(--c)}
+.gr.S{background:var(--s-bg);border-color:#E8CE93} .gr.S .g,.gr.S .n{color:var(--s)}
+.gr.O{background:var(--o-bg);border-color:#BFE0C5} .gr.O .g,.gr.O .n{color:var(--o)}
+.gr.N{background:#EEF0F4;border-color:#DDE2EA} .gr.N .g,.gr.N .n{color:var(--muted)}
+
+/* KPI */
+.kpis{display:flex;gap:12px}
+.kpi{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px;text-align:center}
+.kpi .v{font-size:28px;font-weight:900;color:var(--navy);line-height:1.15}
+.kpi .v small{font-size:14px;font-weight:700;color:var(--muted)}
+.kpi .l{font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.4}
+.kpi.b{background:var(--blue-l);border-color:#B9CDE6} .kpi.b .v{color:var(--blue)}
+
+/* 막대 */
+.bars{margin-top:4px}
+.br{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:13px}
+.br .nm{width:96px;text-align:right;color:var(--body);font-weight:700;flex:none}
+.br .tk{flex:1;background:#EEF1F6;border-radius:4px;height:16px;overflow:hidden}
+.br .fl{height:100%;border-radius:4px}
+.br .vl{width:92px;color:var(--muted);flex:none;font-size:12.4px}
+
+.note{font-size:12.4px;color:var(--muted);margin-top:9px;line-height:1.55}
+.note b{color:var(--body)}
+ul.ck{margin:0;padding-left:0;list-style:none}
+ul.ck li{font-size:13.8px;line-height:1.6;margin-bottom:4px;padding-left:14px;position:relative}
+ul.ck li:before{content:'·';position:absolute;left:3px;color:var(--blue);font-weight:900}
+ul.ck li b{color:var(--navy)}
+.mono{font-family:Consolas,'D2Coding',monospace;font-size:12.5px}
+/* 정보량이 많은 슬라이드용 미세 축소 */
+.tight .card{padding:14px 16px}
+.tight .card{padding:13px 14px}
+.tight .card h3{font-size:14.6px;margin-bottom:7px;line-height:1.35}
+.tight .card p{font-size:12.6px;line-height:1.5;margin-bottom:5px}
+.tight .tag{font-size:11.6px;padding:1px 7px}
+.tight h1{font-size:30px} .tight .rule{margin:10px 0 13px}
+.tight .navybar{padding:10px 18px;margin-top:10px}
+.tight .navybar p{font-size:13.6px;line-height:1.5}
+.tight table.sm{font-size:12.1px} .tight table.sm td{padding:4.5px 8px;line-height:1.45}
+.tight table.sm th{padding:5px 8px;font-size:12px}
+.tight .cols+.cols{margin-top:10px !important}
+
+.hint{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);font-size:12px;color:#8A93A3;
+  background:rgba(255,255,255,.9);padding:6px 14px;border-radius:20px;box-shadow:0 2px 10px rgba(0,0,0,.06);
+  transition:opacity .4s}
+.bar{position:fixed;top:0;left:0;height:3px;background:var(--blue);z-index:9;transition:width .18s}
+
+@media print{
+  html,body{background:#fff}
+  #stage{position:static;display:block;overflow:visible}
+  .slide{display:flex !important;position:relative;transform:none !important;
+    box-shadow:none;border-radius:0;page-break-after:always;margin:0}
+  .hint,.bar{display:none}
+  @page{size:1280px 720px;margin:0}
+}
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<div id="stage">
+
+<!-- 1 표지 겸 한장 요약 -->
+<section class="slide cover">
+  <div class="dot"></div>
+  <h1>CSOClassify — 하이브리드 문서분류</h1>
+  <div class="tag">기존업체 방식(출처·문맥·LLM)의 한계를 분석해<br>
+    <b style="color:#fff">1차 메타데이터 → 2차 AI → 3차 관리자</b> 3단 필터로 구현했습니다.</div>
+  <div class="meta">보안연구소 고봉수 · 2026. 08. 20 · <span style="color:#6E80AE">요약본 (전체 16p 중 핵심)</span></div>
+  <div class="ckpi">
+    <div><div class="v">401<small>건</small></div><div class="l">실측 대상<br>D:\분류함 전수 스캔</div></div>
+    <div><div class="v">72.3<small>%</small></div><div class="l">자동 검출<br>C 60 · S 149 · O 81</div></div>
+    <div><div class="v">0.12<small>초</small></div><div class="l">10페이지 문서<br>PDF 4,393p 실측 환산</div></div>
+    <div><div class="v">56 : 16 : 25</div><div class="l">1차 룰 : 2차 AI : 3차 관리자<br>단계별 판정 분담(%)</div></div>
+  </div>
+</section>
+
+<!-- 2 기존업체 분석 -->
+<section class="slide">
+  <div class="kicker">01 · 기존업체 분석</div>
+  <h1>세 가지 방식과 공통 한계</h1><div class="rule"></div>
+  <div class="body">
+    <table class="zebra sm">
+      <tr><th style="width:12%">업체 / 방식</th><th style="width:33%">장점</th><th style="width:33%">한계</th><th style="width:11%">속도</th><th style="width:11%">분류근거</th></tr>
+      <tr><td class="k">소프트캠프<br><span style="font-weight:400">출처 기반</span></td>
+        <td>· 문서를 열지 않아 열람 리스크 없음<br>· 텍스트 추출·임베딩 불필요 → 대량 초고속</td>
+        <td>· 내용을 안 봐서 <b>실제 민감도를 모름</b><br>· USB 복사·압축 해제 시 출처 소실<br>· Windows/NTFS 종속</td>
+        <td><span class="tag t-o">매우 빠름</span></td><td><span class="tag t-g">미흡</span></td></tr>
+      <tr><td class="k">엠클라우독<br><span style="font-weight:400">문맥(벡터) 기반</span></td>
+        <td>· 규칙 없이 Seed 문서만으로 구축<br>· 표현·양식이 달라도 문맥으로 분류</td>
+        <td>· 카테고리당 Seed 20건+ 사전 확보 필요<br>· 양식만 같으면 민감정보 무관하게 동일 분류<br>· <b>전 문서 임베딩</b> → 비용·시간 증가</td>
+        <td><span class="tag t-s">중간</span></td><td><span class="tag t-g">미흡</span></td></tr>
+      <tr><td class="k">인젠트<br><span style="font-weight:400">AI(LLM) 기반</span></td>
+        <td>· 규칙·Seed 모두 불필요<br>· 문맥 이해로 변형에 강함</td>
+        <td>· <b>전 문서 LLM 분석 → 시간·비용 매우 큼</b><br>· 판정 근거 불투명 — 오분류 추적 곤란</td>
+        <td><span class="tag t-c">매우 느림</span></td><td><span class="tag t-g">미흡</span></td></tr>
+      <tr class="us"><td class="k">이노테나<br><span style="font-weight:400"><b>하이브리드</b></span></td>
+        <td>· 룰(PII·사전·민감정보·표식·경로) 5종 신호 융합<br>· <b>보류 문서만</b> 임베딩 → 정확도·비용 동시 확보<br>· 결합식별성(주민+계좌) 등 법적 기준 반영</td>
+        <td>· 규칙셋·사전 초기 설계와 오탐 튜닝 공수<br>· 스캔·이미지 문서는 OCR 별도 필요</td>
+        <td><span class="tag t-o">빠름</span></td><td><span class="tag t-b">충실</span></td></tr>
+    </table>
+    <div class="navybar">
+      <p><b>분석 결론</b> — 세 방식은 서로 <b>다른 것만</b> 본다(출처만 / 문맥만 / LLM 판단만). 하나만 쓰면 반드시 빈틈이 생기고,
+        <b>3사 모두 "왜 그 등급인지" 소명할 근거가 남지 않는다.</b></p>
+      <p><b>그래서 설계 원칙</b> — ① 싼 신호 먼저(룰) ② 비싼 신호는 남은 것만(AI) ③ 그래도 안 되면 사람(관리자) ④ <b>모든 판정에 근거를 남긴다</b></p>
+    </div>
+  </div>
+  <div class="brand">CSOClassify</div><div class="pageno">02</div>
+</section>
+
+<!-- 3 3단 필터 -->
+<section class="slide">
+  <div class="kicker">02 · 제안 방식</div>
+  <h1>3단 필터 — 1차 메타데이터 · 2차 AI · 3차 관리자</h1><div class="rule"></div>
+  <div class="body">
+    <div class="pipe">
+      <div class="ph p1">
+        <div class="hd">1차 · 메타데이터 필터 &nbsp;<span style="opacity:.8;font-weight:500">PII + 사전(키워드)</span></div>
+        <div class="bd">
+          ① <b>PII 검출</b> — ko-pii 20종(주민·카드·계좌·여권·주소 …), 대량 검출 시 상향<br>
+          ② <b>결합식별성(COMBO)</b> — 주민+계좌 → C, 전화·메일·주소 2종+ → S<br>
+          ③ <b>기밀사전 키워드</b> — 대외비·극비 등, 본문·파일명 공통<br>
+          ④ <b>법상 민감정보</b> — 건강·유전·사상·노조·범죄경력 → C<br>
+          ⑤ <b>보안분류 스탬프</b> — 머리 400자 또는 2회 이상 반복일 때만 인정<br>
+          ⑥ <b>경로 · 파일명</b> — 본문을 열지 않는 값싼 출처 신호<br>
+          <span style="color:var(--blue);font-weight:700">→ 5종 신호를 보수적 max 융합(가장 민감한 등급 채택)</span>
+        </div>
+        <div class="ft">빠르고 값싸다 · 근거가 남는다 &nbsp;→&nbsp; 실측 <b>226건(56%)</b> 확정</div>
+      </div>
+      <div class="arrow">›</div>
+      <div class="ph p2">
+        <div class="hd">2차 · AI 필터 &nbsp;<span style="opacity:.8;font-weight:500">문맥(벡터) 비교</span></div>
+        <div class="bd">
+          룰은 <b>"쓰여 있는 것"</b> 만 잡는다. 표현·양식이 달라 안 걸린 문서를 구제하는 단계.<br><br>
+          · 1차 <b>보류(none) 문서만</b> 벡터화<br>
+          · <span class="mono">e5-small-ko</span> 384차원 int8 소형 모델<br>
+          · Seed 문서와 <b>코사인 유사도</b> 비교 → 임계 이상이면 등급 전파<br>
+          · 룰로 확정된 고신뢰 문서는 <b>Seed 로 자동 승격</b> (Seed 0건에서도 시작 가능)<br><br>
+          <b style="color:var(--c)">안전장치</b> — 임베딩은 보조 신호일 뿐, <b>1차 확정 등급을 뒤집지 않는다</b>
+        </div>
+        <div class="ft">전 문서 아닌 41.6%만 임베딩 &nbsp;→&nbsp; <b>64건(16%)</b> 구제</div>
+      </div>
+      <div class="arrow">›</div>
+      <div class="ph p3">
+        <div class="hd">3차 · 관리자 필터 &nbsp;<span style="opacity:.8;font-weight:500">수동 검토</span></div>
+        <div class="bd">
+          자동분류는 끝이 아니라 <b>초안</b>. 기계가 확신 못한 것을 사람에게 넘긴다.<br><br>
+          <b>검토 큐로 오는 것</b><br>
+          · 1·2차로도 못 정한 보류 문서<br>
+          · 신뢰도 낮음 · 과분류 의심<br>
+          · 텍스트 추출 실패(스캔·이미지)<br><br>
+          <b>담당자</b> — 판정 근거를 보고 등급 확정·수정 (원본 불변, append-only 기록)<br><br>
+          <b style="color:var(--blue)">환류</b> — 확정 결과를 Seed·규칙셋에 되먹여 <b>다음 회차 정확도 상승</b>
+        </div>
+        <div class="ft">최종 책임 · 자가 학습 루프 &nbsp;→&nbsp; <b>100건(25%)</b> 이관</div>
+      </div>
+    </div>
+    <div class="grades">
+      <div class="gr C"><div class="g">C</div><div class="n">기밀</div><div class="d">AI 학습·반출 금지</div></div>
+      <div class="gr S"><div class="g">S</div><div class="n">민감</div><div class="d">승인 후 제한적 허용</div></div>
+      <div class="gr O"><div class="g">O</div><div class="n">공개</div><div class="d">생성형 AI 활용 허용</div></div>
+      <div class="gr N"><div class="g">?</div><div class="n">보류 none</div><div class="d">다음 단계로 이관</div></div>
+    </div>
+    <div class="note"><b>핵심</b> — 앞 단계에서 확정된 문서는 뒤 단계를 <b>건너뛴다</b>. 이것이 타사 대비 정확도와 비용을 동시에 잡는 지점이다.</div>
+  </div>
+  <div class="brand">CSOClassify</div><div class="pageno">03</div>
+</section>
+
+<!-- 4 실측 -->
+<section class="slide">
+  <div class="kicker">03 · 실측 결과</div>
+  <h1>D:\분류함 실측 — 375파일 · 409MB · 17종 포맷</h1><div class="rule"></div>
+  <div class="body">
+    <div class="kpis">
+      <div class="kpi"><div class="v">401<small>건</small></div><div class="l">총 처리 (ZIP 전개 포함)</div></div>
+      <div class="kpi b"><div class="v">290<small>건</small></div><div class="l">검출 <b>72.3%</b> · C 60 · S 149 · O 81</div></div>
+      <div class="kpi"><div class="v">158.7<small>초</small></div><div class="l">전체 소요 · 문서당 평균 0.40초</div></div>
+      <div class="kpi b"><div class="v">0.12<small>초</small></div><div class="l">10페이지 문서 환산<br>(페이지당 12.3ms)</div></div>
+    </div>
+    <div class="cols" style="margin-top:14px">
+      <div class="col card">
+        <h3>단계별 판정 분담 — 설계 의도대로 동작</h3>
+        <div class="bars" style="margin-top:9px">
+          <div class="br"><div class="nm">1차 룰</div><div class="tk"><div class="fl" style="width:56.4%;background:#1B5FA8"></div></div><div class="vl">226건 · 56%</div></div>
+          <div class="br"><div class="nm">2차 AI</div><div class="tk"><div class="fl" style="width:16.0%;background:#4A6FB5"></div></div><div class="vl">64건 · 16%</div></div>
+          <div class="br"><div class="nm">3차 관리자</div><div class="tk"><div class="fl" style="width:24.9%;background:#7A5EA8"></div></div><div class="vl">100건 · 25%</div></div>
+        </div>
+        <h3 style="margin-top:14px">단계별 소요 시간 (총 158.7초)</h3>
+        <div class="bars" style="margin-top:9px">
+          <div class="br"><div class="nm">추출</div><div class="tk"><div class="fl" style="width:16%;background:#7FA8D4"></div></div><div class="vl">25.6초 · 16%</div></div>
+          <div class="br"><div class="nm">룰 스캔</div><div class="tk"><div class="fl" style="width:66%;background:#1B5FA8"></div></div><div class="vl">104.7초 · 66%</div></div>
+          <div class="br"><div class="nm">임베딩</div><div class="tk"><div class="fl" style="width:15%;background:#7A5EA8"></div></div><div class="vl">23.5초 · 15%</div></div>
+        </div>
+        <div class="note" style="margin-top:9px"><b>의외의 결과</b> — 비쌀 줄 알았던 임베딩(15%)이 아니라
+          <b>룰 스캔(66%)이 병목</b>. PII 정규식이 전문을 훑기 때문 → 최적화 여지가 크다.</div>
+      </div>
+      <div class="col">
+        <div class="card hi" style="height:100%">
+          <h3>특이사항 — 압축파일(ZIP) 처리</h3>
+          <p style="font-size:13.6px">ZIP 은 그 자체로 아무 내용이 없다. 출처기반은 <b>압축 해제 시 출처가 소실</b>되고, 문맥기반은 열지 못한다 — 실무 최대 사각지대.</p>
+          <ul class="ck" style="margin-top:8px">
+            <li>내부 파일을 풀어 <b>하나하나 개별 분류</b> (중첩 압축 재귀)</li>
+            <li>결과에 <span class="mono">"압축경로/내부경로"</span> 표기 → <b>어느 파일이 C 인지 특정</b></li>
+            <li>압축 자체 등급 = 내부 <b>최고 위험등급 롤업</b> · 처리 후 임시폴더 자동 삭제</li>
+          </ul>
+          <table class="sm" style="margin-top:10px;background:#fff;border-radius:8px;overflow:hidden">
+            <tr><td class="k">실제 사례</td><td class="mono">LGCNS교육.zip</td></tr>
+            <tr><td class="k">전개</td><td><b>27건</b> · 16.5초 (건당 0.61초)</td></tr>
+            <tr><td class="k">내부 등급</td><td><span class="tag t-c">C 2</span> <span class="tag t-s">S 20</span> <span class="tag t-o">O 2</span> <span class="tag t-g">미분류 3</span></td></tr>
+            <tr><td class="k">압축 등급</td><td><span class="tag t-c">C</span> ← 롤업</td></tr>
+          </table>
+          <div class="note" style="margin-top:9px;color:var(--body)">파일명은 "교육 자료" 지만 안에 <b>C 등급 2건</b>이 있었다.
+            <b>겉면만 보는 방식으로는 절대 못 잡는 케이스.</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="brand">CSOClassify · 2026-08-20 실측</div><div class="pageno">04</div>
+</section>
+
+<!-- 5 검토사항 -->
+<section class="slide tight">
+  <div class="kicker">04 · 검토사항</div>
+  <h1>검토사항 5가지 — 결정이 필요합니다</h1><div class="rule"></div>
+  <div class="body">
+    <div class="cols">
+      <div class="col card"><h3>① 품질 측정 방안</h3>
+        <p><b>현재 정답셋(ground truth)이 없다.</b> "몇 건이 분류됐나"는 알지만 "맞는가"는 미측정.
+          단순 정확도는 무의미 — <b>어느 방향으로 틀렸는지</b>가 중요:<br>
+           <span class="tag t-c">과소분류</span> C·S→O = <b>유출 직결</b> &nbsp;
+           <span class="tag t-s">과대분류</span> O→C·S = 업무 마비</p>
+        <p><b>방안</b> 층화 표본 200~300건 교차 라벨링 · 3차 <b>오버라이드 로그를 정답으로 축적</b> · 회귀 테스트셋 고정</p>
+        <p><b>목표(안)</b> C 재현율 ≥95% · 과대분류 ≤10% · 보류율 ≤15%(현 24.9%)</p></div>
+      <div class="col card"><h3>② 배포 크기 — 266MB</h3>
+        <p>모델 <b>129MB</b> · 파이썬 런타임 <b>108MB</b> · 사이냅+본체 15MB</p>
+        <p>엔드포인트 대량 배포 시 부담. 망분리 환경 업데이트 채널도 고려 필요.</p>
+        <p><b>경감 방안</b><br>
+          · <span class="mono">--rule-only</span> 전용 = <b>약 137MB</b> (2차 AI 포기)<br>
+          · <b>2차 AI 는 중앙 서버</b>, 엔드포인트는 룰만 <span class="tag t-b">권장</span><br>
+          · 모델만 별도 채널로 1회 배포 후 공유</p></div>
+      <div class="col card"><h3>③ 실시간 속도</h3>
+        <p>일반 문서(10p) 0.12~0.4초 <span class="tag t-o">가능</span><br>
+           581p PDF 7.5초 · ZIP 16.5초 <span class="tag t-c">불가</span><br>
+           콜드 스타트 +2.4초 <span class="tag t-s">데몬 필수</span></p>
+        <p><b>배치(야간 전수)는 문제없다.</b> 반출·저장 시점 <b>동기 차단은 체감 지연</b> 발생.</p>
+        <p><b>권장</b> 데몬 상주 · 임계 초과분은 <b>비동기 큐</b> · 압축은 즉시 차단 후 사후 분류 · 해시 캐시로 재검사 회피</p></div>
+      <div class="col card"><h3>④ 스캔·이미지 (OCR 부재)</h3>
+        <p>본문 텍스트를 읽어 판정하므로 <b>텍스트 없는 문서는 구조적으로 검출 불가</b>.
+          스캔 PDF · 첨부 이미지 · jpg/png — <b>정작 가장 민감한 서류가 여기 많다.</b></p>
+        <p><b>실제 사례</b> <span class="mono">(신규)문서중앙화 제품소개-1.pdf</span> — 6.7MB · <b>44페이지</b>인데
+          추출 텍스트 <b style="color:var(--c)">35자</b> → 미분류</p>
+        <p><b>대응</b> ① 글자수 임계 미만 시 <span class="mono">"OCR 필요"</span> 플래그 → 3차 큐 우선 이관
+          ② 선택적 OCR 연동(속도·용량 재검토) ③ 추출 실패 시 <b>기본등급 S 강제</b> 여부</p></div>
+      <div class="col card hi" style="flex:1.45"><h3>⑤ 라이선스 확인 — 사이냅 + 오픈소스 모듈</h3>
+        <p><span class="tag t-c">상용</span> <b>사이냅 문서필터</b> <span class="mono">snf_exe·snf_win.dll</span><br>
+          실측 결과 <b>라이선스 키가 바이너리에 임베드</b>돼 있어 배포 시 <b>키도 함께 나간다</b>.
+          → <b>배포 전 사이냅과 재배포 조건(시험판·기간제한) 확인 필수</b></p>
+        <p><span class="tag t-s">LGPL-2.1+</span> <span class="tag t-c">독점(RAR)</span> <b>압축 해제</b> —
+          py7zr <b>소스 제공 의무</b>, unrar <b>독점 포맷 재배포 조건</b> 검토. 7z·rar 미지원 결정 시 <b>둘 다 제거 가능</b></p>
+        <p><span class="tag t-g">확인 필요</span> <b>임베딩 모델</b> <span class="mono">e5-small-ko</span> —
+          가중치 라이선스·상용 재배포 가능 여부</p>
+        <p><span class="tag t-o">MIT·BSD·Apache</span> <b>그 외 전부 제약 없음</b> —
+          onnxruntime·ko-pii·PyYAML·tokenizers·numpy·olefile·xlrd·pypdfium2.
+          PyInstaller 는 GPLv2 <b>+ 번들 예외</b>라 산출물에 영향 없음</p>
+        <p style="color:var(--blue)"><b>이미 회피한 것</b> — HWP·OOXML 파서를 <b>자체 구현</b>해
+          <span class="mono">pyhwp(AGPL)</span> 등 까다로운 의존을 처음부터 배제</p></div>
+    </div>
+    <div class="navybar">
+      <p><b>결정 필요</b> — ① 목표 지표 · ② 배포 형태(266MB vs 137MB) · ③ 실시간 임계값·압축 정책 · ④ OCR 도입 · <b>⑤ 사이냅 재배포 조건 + py7zr·unrar·모델 라이선스 (배포 전 필수)</b></p>
+      <p><b>다음 단계</b> — 표본 라벨링으로 정확도 실측 → 규칙셋 튜닝 → 룰 정규식 최적화(현 66%) → 실시간 PoC</p>
+    </div>
+  </div>
+  <div class="brand">CSOClassify</div><div class="pageno">05</div>
+</section>
+
+</div>
+<div class="hint" id="hint">← → 이동 · F 전체화면 · P 인쇄(PDF)</div>
+<script>
+const slides=[...document.querySelectorAll('.slide')];
+let i=0;
+function fit(){
+  const s=Math.min(innerWidth/1320,innerHeight/760);
+  slides.forEach(el=>el.style.transform='scale('+s+')');
+}
+function show(n){
+  i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((el,k)=>el.classList.toggle('on',k===i));
+  document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+  location.hash=i+1;
+}
+addEventListener('resize',fit);
+addEventListener('keydown',e=>{
+  const k=e.key;
+  if(k==='ArrowRight'||k==='PageDown'||k===' '||k==='Enter'){show(i+1);e.preventDefault();}
+  else if(k==='ArrowLeft'||k==='PageUp'||k==='Backspace'){show(i-1);e.preventDefault();}
+  else if(k==='Home'){show(0);} else if(k==='End'){show(slides.length-1);}
+  else if(k==='f'||k==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+  else if(k==='p'||k==='P'){print();}
+});
+addEventListener('click',e=>{ if(e.target.closest('a'))return; show(e.clientX<innerWidth*0.32?i-1:i+1); });
+fit();
+show(location.hash?parseInt(location.hash.slice(1))-1||0:0);
+setTimeout(()=>document.getElementById('hint').style.opacity=0,4200);
+</script>
+</body>
+</html>

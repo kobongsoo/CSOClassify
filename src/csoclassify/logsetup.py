@@ -35,6 +35,30 @@ def default_log_path():
 
 
 #------------------------------------------------------------------
+# 오류 전용 로그 파일 경로
+#=> 위의 일반 로그(log/csoclassify-YYYYMMDD.log)에는 정상 처리 기록까지 전부
+#   들어가 수천 줄이 된다. 문제가 생겼을 때 "무엇이 잘못됐나"만 빨리 보려면
+#   오류만 따로 모은 파일이 필요하다. 그래서 실행 파일 바로 옆에
+#   csoclassify_err_YYYYMMDD.log 로 오류(ERROR 이상)만 따로 남긴다.
+#    1) 환경변수 CSOCLASSIFY_ERRLOG 가 있으면 그 경로를 그대로 쓴다
+#       (읽기전용 폴더에 설치했거나 여러 대의 로그를 한곳에 모을 때)
+#    2) 없으면 exe 옆 csoclassify_err_YYYYMMDD.log
+#   Rust 판(csoclassify-rs)도 같은 이름·같은 환경변수를 쓴다.
+#
+# -in: 없음
+#
+# -out: path = 오류 로그 파일 절대경로
+# -out: error = 없음
+#------------------------------------------------------------------
+def default_err_log_path():
+    env = os.environ.get("CSOCLASSIFY_ERRLOG")
+    if env:
+        return os.path.abspath(env)
+    day = time.strftime("%Y%m%d")
+    return os.path.join(resources.exe_dir(), f"csoclassify_err_{day}.log")
+
+
+#------------------------------------------------------------------
 # 모듈용 로거 얻기
 #=> get_logger("csoclassify.pipeline") 처럼 자식 로거를 돌려준다. 자식은 부모
 #   ('csoclassify')의 핸들러/레벨을 물려받아, 설정을 한 곳에서만 관리하면 된다.
@@ -43,6 +67,25 @@ def default_log_path():
 #
 # -out: logger = logging.Logger (부모 'csoclassify' 의 자식)
 # -out: error = 없음
+#------------------------------------------------------------------
+# 로그 파일 인코딩 고르기 — 새 파일이면 UTF-8 BOM
+#=> 파일은 항상 UTF-8 로 쓴다. 그런데 Windows 의 메모장·엑셀·PowerShell 은 BOM 이
+#   없는 UTF-8 을 ANSI(cp949)로 읽어 한글이 통째로 깨진다("화면" → "?붾㈃").
+#   처음 만드는 파일에만 BOM 을 붙여 그 오해를 막는다 — 이어쓰는 파일에 또 붙이면
+#   파일 중간에 BOM 이 박힌다.
+#
+# -in: path = 로그 파일 경로
+#
+# -out: str = "utf-8-sig"(새 파일) 또는 "utf-8"(이어쓰기)
+# -out: error = 없음(경로를 못 읽으면 안전하게 "utf-8")
+#------------------------------------------------------------------
+def _log_encoding(path):
+    try:
+        return "utf-8" if os.path.isfile(path) and os.path.getsize(path) > 0 else "utf-8-sig"
+    except OSError:
+        return "utf-8"
+
+
 #------------------------------------------------------------------
 def get_logger(name):
     return logging.getLogger(name)
@@ -59,13 +102,15 @@ def get_logger(name):
 #    3) verbose 면 stderr 핸들러도 추가(화면에서 실시간 확인)
 #    4) 핸들러가 하나도 없으면 NullHandler 로 'No handlers' 경고 방지
 #
-# -in: log_path = 로그 파일 경로(None 이면 파일 로그 없음)
-# -in: verbose  = True 면 DEBUG 레벨 + 화면(stderr) 출력
+# -in: log_path     = 로그 파일 경로(None 이면 파일 로그 없음)
+# -in: verbose      = True 면 DEBUG 레벨 + 화면(stderr) 출력
+# -in: err_log_path = 오류(ERROR 이상) 전용 로그 경로(None 이면 안 남김).
+#                     오류가 실제로 날 때만 파일이 생긴다(delay=True)
 #
 # -out: logger = 구성된 'csoclassify' 로거
 # -out: error = 없음(파일 열기 실패는 조용히 무시하고 화면/Null 로 진행)
 #------------------------------------------------------------------
-def setup_logging(log_path=None, verbose=False):
+def setup_logging(log_path=None, verbose=False, err_log_path=None):
     logger = logging.getLogger(_ROOT_NAME)
     # 자식→부모까지만 흐르게 하고 루트로는 전파하지 않아 중복 출력을 막는다.
     logger.propagate = False
@@ -88,7 +133,7 @@ def setup_logging(log_path=None, verbose=False):
             parent = os.path.dirname(os.path.abspath(log_path))
             if parent:
                 os.makedirs(parent, exist_ok=True)
-            fh = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+            fh = logging.FileHandler(log_path, mode="a", encoding=_log_encoding(log_path))
             fh.setFormatter(fmt)
             logger.addHandler(fh)
             # 새 실행 시작을 이전 로그와 눈으로 구분하도록 구분선을 파일에 먼저 남긴다.
@@ -102,6 +147,24 @@ def setup_logging(log_path=None, verbose=False):
                 pass
         except OSError:
             # 로그 파일을 못 열어도 본 기능은 계속되어야 하므로 조용히 넘어간다.
+            pass
+
+    # (2-2) 오류 전용 로그: ERROR 이상만 exe 옆 csoclassify_err_YYYYMMDD.log 로.
+    #   delay=True 가 핵심이다 — 이렇게 해야 '실제로 오류가 났을 때' 비로소 파일이
+    #   만들어진다. 안 그러면 정상 실행마다 빈 파일이 쌓여, 파일이 있다는 것만으로는
+    #   오류가 있었는지 알 수 없게 된다(있으면 = 오류가 있었다, 가 되어야 유용하다).
+    if err_log_path:
+        try:
+            parent = os.path.dirname(os.path.abspath(err_log_path))
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            eh = logging.FileHandler(err_log_path, mode="a",
+                                     encoding=_log_encoding(err_log_path), delay=True)
+            eh.setLevel(logging.ERROR)
+            eh.setFormatter(fmt)
+            logger.addHandler(eh)
+        except OSError:
+            # 오류 로그를 못 열어도 본 기능은 계속되어야 한다.
             pass
 
     # (3) 화면 로그: verbose 일 때만(평소엔 stdout/stderr 를 깔끔하게 유지).

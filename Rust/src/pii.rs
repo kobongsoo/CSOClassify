@@ -144,8 +144,30 @@ static RE_RRN_PREFIXED: Lazy<Regex> = Lazy::new(|| Regex::new(r"[0-9]([0-9]{6})(
 // 카드(ko-pii card.py): 구분자 그룹형 또는 무구분 13~19자리.
 static RE_CARD: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:[0-9]{4}[-. /]\s?[0-9]{4}[-. /]\s?[0-9]{4}[-. /]\s?[0-9]{1,7}|[0-9]{13,19})").unwrap());
 static RE_BRN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d{3}[-\s]?\d{2}[-\s]?\d{5}").unwrap());
-static RE_CORP: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d{6}[-\s]?\d{7}").unwrap());
-static RE_PHONE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:01[016789]|0[2-6][0-5]?)[-\s.]?\d{3,4}[-\s.]?\d{4}").unwrap());
+// 법인등록번호: 구분자는 RRN 과 같은 규약(하이픈·점·슬래시·공백, 줄바꿈 래핑 포함).
+// 예전에는 `[-\s]?` 뿐이라 "110111.0000002" 처럼 점으로 쓴 표기를 놓쳤다 —
+// 못 잡으면 문서가 실제보다 낮은 등급을 받으므로 파이썬과 같은 폭으로 맞춘다.
+static RE_CORP: Lazy<Regex> = Lazy::new(||
+    Regex::new(r"([0-9]{6})(?:\s?[-./]\s?|[-./\s]{0,2})([0-9]{7})").unwrap());
+// 전화번호(ko-pii phone.py 와 1:1). 국제 접두는 +82 / 0082 / 82, 그 뒤에 (0) 이
+// 끼는 표기까지 받는다. 국제표기에서는 지역번호·통신사번호의 맨 앞 0 이 빠진다(E.123).
+const PH_INTL: &str = r"(?:\+82|0082|82)[-.\s]?(?:\(0\)[-.\s]?)?";
+static RE_PH_MOBILE: Lazy<Regex> = Lazy::new(||
+    Regex::new(r"(01[01679])[-.\s]{0,3}(\d{3,4})[-.\s]{0,3}(\d{4})").unwrap());
+static RE_PH_MOBILE_INTL: Lazy<Regex> = Lazy::new(||
+    Regex::new(&format!(r"{}(1[01679])[-.\s]{{0,3}}(\d{{3,4}})[-.\s]{{0,3}}(\d{{4}})", PH_INTL)).unwrap());
+static RE_PH_SEOUL: Lazy<Regex> = Lazy::new(||
+    Regex::new(r"(02)[-.\s)\]]{0,3}(\d{3,4})[-.\s]{0,3}(\d{4})").unwrap());
+static RE_PH_SEOUL_INTL: Lazy<Regex> = Lazy::new(||
+    Regex::new(&format!(r"{}(2)[-.\s]{{0,3}}(\d{{3,4}})[-.\s]{{0,3}}(\d{{4}})", PH_INTL)).unwrap());
+static RE_PH_REGIONAL: Lazy<Regex> = Lazy::new(||
+    Regex::new(r"(03[1-3]|04[1-4]|05[1-5]|06[1-4]|070)[-.\s)\]]{0,3}(\d{3,4})[-.\s]{0,3}(\d{4})").unwrap());
+static RE_PH_REGION_INTL: Lazy<Regex> = Lazy::new(||
+    Regex::new(&format!(r"{}(3[1-3]|4[1-4]|5[1-5]|6[1-4]|70)[-.\s]{{0,3}}(\d{{3,4}})[-.\s]{{0,3}}(\d{{4}})", PH_INTL)).unwrap());
+// 대표번호(15xx~18xx, KISA 번호자원 가이드). 4-4 라 제품번호와 모양이 같아 오탐이
+// 남지만, 파이썬 판이 recall 을 택한 것과 같은 판단을 그대로 따른다.
+static RE_PH_REPRESENT: Lazy<Regex> = Lazy::new(||
+    Regex::new(r"(1[5-8]\d{2})[-.\s]{0,3}(\d{4})").unwrap());
 static RE_EMAIL: Lazy<Regex> = Lazy::new(|| Regex::new(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}").unwrap());
 // 여권(ko-pii passport.py): 대문자 prefix 화이트리스트(2자 우선) + 8자리.
 static RE_PASSPORT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(PP|PM|PS|PO|PD|PR|PT|M|S|G|O|D|R|T)([0-9]{8})").unwrap());
@@ -349,6 +371,11 @@ fn det_brn(text: &str) -> Vec<Det> {
     for m in RE_BRN.find_iter(text) {
         if !isolated(text, &m, is_digit, is_digit) { continue; }
         let d = digits(m.as_str());
+        // 모두 0 인 placeholder 는 체크섬을 통과하지만(합=0 → 검증숫자 0) 실제
+        // 사업자가 아니다. 표의 빈칸을 0 으로 채운 문서에서 무더기로 잡히고,
+        // 겹침 해소에서 전화번호 자리를 빼앗아 두 라벨의 집계까지 어긋난다
+        // (실측: 주소록 한 건에서 사업자등록번호 1→13, 전화 647→636).
+        if d.iter().all(|&x| x == 0) { continue; }
         if brn_checksum_ok(&d) {
             out.push(Det { start: m.start(), end: m.end(), risk: R_HIGH, conf: 1.0, label: "BUSINESS_REG" });
         }
@@ -368,13 +395,50 @@ fn det_corp(text: &str) -> Vec<Det> {
 }
 
 // ================= 전화 / 단순 정규식 / 여권 =================
+/// 전화번호 검출(ko-pii phone.py 전면 대응).
+///
+/// 예전에는 정규식 하나로 뭉뚱그렸는데, 그러면 **국제표기(+82/0082)·070·대표번호
+/// (15xx~18xx)·구분자가 여러 칸인 표기**를 통째로 놓쳤다(실측: 파이썬 5건 중 1건만
+/// 검출). 전화번호를 못 잡으면 문서가 실제보다 낮은 등급을 받으므로, 덜 잡는 쪽이
+/// 더 위험하다. 그래서 파이썬과 같은 패턴 7개를 같은 순서로 적용한다.
+///
+/// [순서가 중요한 이유] 국제표기가 먼저다. "+82-10-1234-5678" 은 안쪽에 국내표기
+/// 모양("10-1234-5678")을 품고 있어서, 국내 패턴이 먼저 잡으면 `+82` 가 잘려 나간다.
+/// 파이썬과 똑같이 이미 잡은 구간과 겹치면 건너뛴다.
 fn det_phone(text: &str) -> Vec<Det> {
-    let mut out = Vec::new();
-    for m in RE_PHONE.find_iter(text) {
-        if !isolated(text, &m, is_digit, is_digit) { continue; }
-        // 모바일(01x) = HIGH, 유선 = MEDIUM.
-        let risk = if m.as_str().trim_start().starts_with("01") { R_HIGH } else { R_MED };
-        out.push(Det { start: m.start(), end: m.end(), risk, conf: 1.0, label: "PHONE" });
+    let mut out: Vec<Det> = Vec::new();
+    let mut seen: Vec<(usize, usize)> = Vec::new();
+
+    // (정규식, 모바일인가, 앞에 '+' 도 금지인가)
+    //   국제표기는 앞에 '+' 가 오는 게 정상이라 '+' 를 금지하지 않는다.
+    //   국내표기는 '+' 가 앞에 오면 국제표기의 일부이므로 금지한다(= 국제 패턴에 양보).
+    let steps: [(&Lazy<Regex>, bool, bool); 7] = [
+        (&RE_PH_MOBILE_INTL, true,  false),
+        (&RE_PH_SEOUL_INTL,  false, false),
+        (&RE_PH_REGION_INTL, false, false),
+        (&RE_PH_MOBILE,      true,  true),
+        (&RE_PH_REGIONAL,    false, true),
+        (&RE_PH_SEOUL,       false, true),
+        (&RE_PH_REPRESENT,   false, true),
+    ];
+
+    for (re, mobile, no_plus) in steps {
+        for m in re.find_iter(text) {
+            // look-around 이 없으므로 앞뒤 경계는 코드로 본다.
+            let b = text.as_bytes();
+            let before_ok = m.start() == 0 || {
+                let p = b[m.start() - 1];
+                !p.is_ascii_digit() && !(no_plus && p == b'+')
+            };
+            let after_ok = m.end() >= b.len() || !b[m.end()].is_ascii_digit();
+            if !before_ok || !after_ok { continue; }
+            // 앞선 패턴이 이미 가져간 구간이면 양보한다(파이썬 _overlaps 와 동일).
+            if seen.iter().any(|&(s, e)| m.start() < e && s < m.end()) { continue; }
+            seen.push((m.start(), m.end()));
+            // 휴대전화는 개인 직통(HIGH), 유선·VoIP·대표번호는 사업장 다수(MEDIUM).
+            let risk = if mobile { R_HIGH } else { R_MED };
+            out.push(Det { start: m.start(), end: m.end(), risk, conf: 1.0, label: "PHONE" });
+        }
     }
     out
 }
@@ -692,9 +756,15 @@ fn det_account(text: &str) -> Vec<Det> {
             if check_before && g.start() > 0 && text.as_bytes()[g.start() - 1].is_ascii_digit() {
                 continue;
             }
-            let d = digits(g.as_str());
+            // 정규식 꼬리의 `[\s\-]*` 가 뒤따르는 공백·줄바꿈까지 삼킨다. 그대로 두면
+            // 검출값에 "\r\n" 이 붙어 나오고(--with-pii), span 이 실제보다 길어져
+            // 겹침 해소에서 다른 라벨을 부당하게 밀어낸다. 파이썬 판이 group(1) 을
+            // rstrip 해 span 을 줄이는 것과 똑같이 맞춘다.
+            let raw = g.as_str().trim_end();
+            let end = g.start() + raw.len();
+            let d = digits(raw);
             if (10..=16).contains(&d.len()) {
-                spans.push((g.start(), g.end()));
+                spans.push((g.start(), end));
             }
         }
     };
@@ -877,4 +947,105 @@ fn det_pnu(text: &str) -> Vec<Det> {
         out.push(Det { start: m.start(), end: m.end(), risk: R_LOW, conf: 0.9, label: "PNU" });
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 편의 함수 — 한 라벨만 켜고 검출 건수를 센다.
+    fn count(text: &str, label: &str) -> u32 {
+        let want: HashSet<String> = [label.to_string()].into_iter().collect();
+        *pii_counts(text, &want).get(label).unwrap_or(&0)
+    }
+
+    // 체크섬이 맞는 실제 번호는 잡아야 한다.
+    #[test]
+    fn 유효한_사업자등록번호는_검출한다() {
+        // 국세청 규칙을 통과하는 값(하이픈 유무 모두).
+        assert_eq!(count("사업자등록번호 220-81-62517 입니다.", "BUSINESS_REG"), 1);
+        assert_eq!(count("2208162517", "BUSINESS_REG"), 1);
+    }
+
+    // 체크섬이 틀리면 걸러야 한다(3-2-5 모양만 맞는 숫자).
+    #[test]
+    fn 체크섬_틀리면_거른다() {
+        assert_eq!(count("220-81-62518", "BUSINESS_REG"), 0);
+    }
+
+    // 회귀 핵심 — 모두 0 인 placeholder 는 체크섬을 통과하지만 실제 사업자가 아니다.
+    // 표의 빈칸을 0 으로 채운 문서에서 무더기로 오검출되던 것을 막는다.
+    #[test]
+    fn 전부0인_placeholder는_거른다() {
+        assert_eq!(count("0000000000", "BUSINESS_REG"), 0);
+        assert_eq!(count("000-00-00000", "BUSINESS_REG"), 0);
+        // 0 이 섞여 있어도 전부 0 이 아니면 체크섬 규칙대로 판단한다.
+        assert_eq!(count("000-00-00001", "BUSINESS_REG"), 0);   // 체크섬 불일치
+    }
+
+    // ── 전화번호(ko-pii phone.py 7패턴 대응) ─────────────────────
+    // 예전에는 정규식 하나뿐이라 아래 넷을 통째로 놓쳤다. 전화번호를 못 잡으면
+    // 문서가 실제보다 낮은 등급을 받으므로 '덜 잡는' 쪽이 더 위험하다.
+    #[test]
+    fn 국제표기_전화번호를_잡는다() {
+        assert_eq!(count("연락 +82-10-1234-5678", "PHONE"), 1);
+        assert_eq!(count("연락 0082 10 9876 5432", "PHONE"), 1);
+        assert_eq!(count("서울 +82-2-123-4567", "PHONE"), 1);
+        assert_eq!(count("지역 +82-31-123-4567", "PHONE"), 1);
+    }
+
+    #[test]
+    fn voip_070과_대표번호를_잡는다() {
+        assert_eq!(count("070-1234-5678", "PHONE"), 1);
+        assert_eq!(count("대표 1588-1234", "PHONE"), 1);
+        assert_eq!(count("대표 1666-9999", "PHONE"), 1);
+    }
+
+    // 구분자가 여러 칸이어도 한 건으로 본다(파이썬 [-.\s]{0,3} 과 동일).
+    #[test]
+    fn 구분자_여러칸도_한건이다() {
+        assert_eq!(count("010 - 1234 - 5678", "PHONE"), 1);
+        assert_eq!(count("010.1234.5678", "PHONE"), 1);
+    }
+
+    // 국제표기가 안쪽 국내표기보다 먼저다 — 순서가 뒤집히면 "+82" 가 잘려 나간다.
+    #[test]
+    fn 국제표기가_국내표기보다_우선이다() {
+        let want: HashSet<String> = ["PHONE".to_string()].into_iter().collect();
+        let recs = pii_records("+82-10-1234-5678", &want);
+        assert_eq!(recs.len(), 1);
+        assert!(recs[0].1.starts_with("+82"), "값={:?}", recs[0].1);
+    }
+
+    // ── 법인등록번호 구분자(ko-pii corp_reg.py 와 동일 폭) ────────
+    // 점·슬래시로 쓴 표기를 놓치면 그 문서가 낮은 등급을 받는다.
+    #[test]
+    fn 법인등록번호는_점_슬래시_구분자도_받는다() {
+        assert_eq!(count("110111-0000002", "CORP_REG"), 1);
+        assert_eq!(count("110111.0000002", "CORP_REG"), 1);
+        assert_eq!(count("110111/0000002", "CORP_REG"), 1);
+        assert_eq!(count("110111 0000002", "CORP_REG"), 1);
+    }
+
+    // ── 계좌번호 span 꼬리 ────────────────────────────────────────
+    // 정규식 꼬리가 줄바꿈까지 삼키면 검출값이 오염되고, span 이 길어져
+    // 겹침 해소에서 다른 라벨을 부당하게 밀어낸다.
+    #[test]
+    fn 계좌번호_span은_공백을_물지_않는다() {
+        let want: HashSet<String> = ["ACCOUNT".to_string()].into_iter().collect();
+        let recs = pii_records("계좌번호 110-234-567890
+
+다음 줄", &want);
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].1, "110-234-567890");
+    }
+
+    // placeholder 를 거르면 그 자리를 전화번호가 되찾는다(겹침 해소 확인).
+    #[test]
+    fn placeholder자리는_다른_라벨이_가져간다() {
+        let want: HashSet<String> = ["BUSINESS_REG".to_string(), "PHONE".to_string()]
+            .into_iter().collect();
+        let got = pii_counts("연락처 010-0000-0000", &want);
+        assert_eq!(*got.get("BUSINESS_REG").unwrap_or(&0), 0);
+    }
 }
