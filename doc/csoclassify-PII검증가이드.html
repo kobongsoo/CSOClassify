@@ -672,10 +672,18 @@ csoclassify.exe --dir &lt;검사폴더&gt; --hybridparse --rule-only --simple --
   </div>
 
   <div class="warn">
-    <strong>차이가 나도 PII 버그가 아닐 수 있습니다.</strong> Rust 판은 아직
-    doc·xls·ppt·hwp5·이미지에서 <strong>글자를 못 뽑습니다</strong>(건너뜁니다).
-    이런 파일은 애초에 텍스트가 달라서 결과가 다를 수밖에 없으니,
-    비교 대상에서 빼거나 <code>.txt</code>·<code>.md</code> 위주로 검사하세요.
+    <strong>차이가 나도 PII 버그가 아닐 수 있습니다.</strong> 두 판은 문서에서 글자를
+    뽑는 방식이 달라서, <strong>PII 검출이 같아도 결과가 갈릴 수 있습니다.</strong>
+    <ul>
+      <li><strong>이미지</strong>(jpg·png): Rust 는 본문을 못 뽑습니다(Python 은 사이냅 OCR).
+          비교 대상에서 빼세요.</li>
+      <li><strong>구형 오피스</strong>(doc·xls·ppt·hwp): Rust 도 자체 파서로 <strong>읽습니다.</strong>
+          실측에서 <code>.doc</code>·<code>.hwp</code> 는 완전 일치했고,
+          <code>.xls</code> 는 1,434건 중 1건 차이가 있었습니다 — 추출 단계의 미세한 차이입니다.</li>
+      <li><strong>html</strong>: Rust 는 정규식으로 태그를 걷어내 <code>&lt;script&gt;</code> 안의
+          글자가 새어 나올 수 있습니다.</li>
+    </ul>
+    가장 깨끗한 비교는 <code>.txt</code>·<code>.md</code> 입니다.
     자세한 갭 목록은 <code>Rust/README.md</code> 의 “아직 안 된 것”에 있습니다.
   </div>
 </section>
