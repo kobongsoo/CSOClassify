@@ -283,9 +283,13 @@ def propagate(vec, seeds, k=DEFAULT_K, dup_threshold=DUP_THRESHOLD,
     if vec is None or seeds is None or seeds.size == 0:
         return EmbedSignal(None, 0.0, False, "no_seeds", 0.0, [])
 
+    # vec=미분류된 문서 벡터, seeds=class_seed.jsonl에 벡터
+    # => def cosine(self, vec) 함수 호출해서 cosine 비교함.
     sims = seeds.cosine(vec)
+
     # 유사도 내림차순 상위 k 개 인덱스.
     order = np.argsort(-sims)[:k]
+    
     # 이웃마다 (어느 seed 문서, 등급, 유사도)를 함께 담아 감사에 쓴다.
     files = seeds.files
     top = [

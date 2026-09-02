@@ -14,6 +14,7 @@ import yaml
 
 from csoclassify import cli
 from csoclassify import config
+from csoclassify import errcodes
 from csoclassify.classify import axes as A
 from csoclassify.classify import doc_rules as D
 
@@ -197,17 +198,21 @@ def test_기본축_스냅샷없으면_경고후_통과(tmp_path, capsys):
 
 
 #------------------------------------------------------------------
-# --axis doctype 인데 스냅샷이 없으면 종료(4)
+# --axis doctype 인데 스냅샷이 없으면 종료(3 = 인자 오류)
+#=> [2026-09-01 계약 변경] 예전에는 4(내용 오류)로 나갔다. '파일이 없다'는 부른 쪽이
+#   경로를 고치면 되는 문제라, 규칙셋 내용이 틀린 것과 같은 코드로 뭉뚱그리면 배치가
+#   대응을 나눌 수 없다. 오류 계약(plan/CLI-오류출력-설계.html)의 2003 taxonomy_missing.
 #
 # -in: 없음
 # -out: 없음(단언)
 # -out: error = 없음
 #------------------------------------------------------------------
-def test_axis_doctype인데_스냅샷없으면_종료4(tmp_path):
+def test_axis_doctype인데_스냅샷없으면_종료3(tmp_path):
     args = SimpleNamespace(axis="doctype", taxonomy=str(tmp_path / "없음.yaml"), doc_rules=None)
     taxonomy, drs, code = cli._load_doctype_axis(args, _fake_log())
     assert (taxonomy, drs) == (None, None)
-    assert code == config.EXIT_RULES_INVALID
+    assert code == config.EXIT_ARG_ERROR
+    assert errcodes.code_of("taxonomy_missing") == 2003
 
 
 #------------------------------------------------------------------

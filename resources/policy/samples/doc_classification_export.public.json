@@ -1,0 +1,449 @@
+{
+  "source": "PublicOrg.DOC_CLASSIFICATION",
+  "export_server": "sample://doc-classification-example (가짜 예시 데이터)",
+  "node_count": 28,
+  "nodes": [
+    {
+      "dc_id": "DC_001",
+      "parent_dc_id": null,
+      "order_num": 1,
+      "title": "정책/계획",
+      "status": 1,
+      "path_ids": [
+        "DC_001"
+      ],
+      "path_titles": [
+        "정책/계획"
+      ],
+      "path": "정책/계획"
+    },
+    {
+      "dc_id": "DC_001_001",
+      "parent_dc_id": "DC_001",
+      "order_num": 1,
+      "title": "업무계획",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001"
+      ],
+      "path_titles": [
+        "정책/계획",
+        "업무계획"
+      ],
+      "path": "정책/계획 > 업무계획"
+    },
+    {
+      "dc_id": "DC_001_002",
+      "parent_dc_id": "DC_001",
+      "order_num": 2,
+      "title": "기본계획",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_002"
+      ],
+      "path_titles": [
+        "정책/계획",
+        "기본계획"
+      ],
+      "path": "정책/계획 > 기본계획"
+    },
+    {
+      "dc_id": "DC_001_003",
+      "parent_dc_id": "DC_001",
+      "order_num": 3,
+      "title": "종합대책",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_003"
+      ],
+      "path_titles": [
+        "정책/계획",
+        "종합대책"
+      ],
+      "path": "정책/계획 > 종합대책"
+    },
+    {
+      "dc_id": "DC_001_004",
+      "parent_dc_id": "DC_001",
+      "order_num": 4,
+      "title": "추진실적",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_004"
+      ],
+      "path_titles": [
+        "정책/계획",
+        "추진실적"
+      ],
+      "path": "정책/계획 > 추진실적"
+    },
+    {
+      "dc_id": "DC_002",
+      "parent_dc_id": null,
+      "order_num": 2,
+      "title": "대국민공지",
+      "status": 1,
+      "path_ids": [
+        "DC_002"
+      ],
+      "path_titles": [
+        "대국민공지"
+      ],
+      "path": "대국민공지"
+    },
+    {
+      "dc_id": "DC_002_001",
+      "parent_dc_id": "DC_002",
+      "order_num": 1,
+      "title": "보도자료",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001"
+      ],
+      "path_titles": [
+        "대국민공지",
+        "보도자료"
+      ],
+      "path": "대국민공지 > 보도자료"
+    },
+    {
+      "dc_id": "DC_002_001_001",
+      "parent_dc_id": "DC_002_001",
+      "order_num": 1,
+      "title": "조간보도자료",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001",
+        "DC_002_001_001"
+      ],
+      "path_titles": [
+        "대국민공지",
+        "보도자료",
+        "조간보도자료"
+      ],
+      "path": "대국민공지 > 보도자료 > 조간보도자료"
+    },
+    {
+      "dc_id": "DC_002_001_002",
+      "parent_dc_id": "DC_002_001",
+      "order_num": 2,
+      "title": "석간보도자료",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001",
+        "DC_002_001_002"
+      ],
+      "path_titles": [
+        "대국민공지",
+        "보도자료",
+        "석간보도자료"
+      ],
+      "path": "대국민공지 > 보도자료 > 석간보도자료"
+    },
+    {
+      "dc_id": "DC_002_001_003",
+      "parent_dc_id": "DC_002_001",
+      "order_num": 3,
+      "title": "보도참고자료",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001",
+        "DC_002_001_003"
+      ],
+      "path_titles": [
+        "대국민공지",
+        "보도자료",
+        "보도참고자료"
+      ],
+      "path": "대국민공지 > 보도자료 > 보도참고자료"
+    },
+    {
+      "dc_id": "DC_002_002",
+      "parent_dc_id": "DC_002",
+      "order_num": 2,
+      "title": "안내책자",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_002"
+      ],
+      "path_titles": [
+        "대국민공지",
+        "안내책자"
+      ],
+      "path": "대국민공지 > 안내책자"
+    },
+    {
+      "dc_id": "DC_002_003",
+      "parent_dc_id": "DC_002",
+      "order_num": 3,
+      "title": "공고문",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_003"
+      ],
+      "path_titles": [
+        "대국민공지",
+        "공고문"
+      ],
+      "path": "대국민공지 > 공고문"
+    },
+    {
+      "dc_id": "DC_003",
+      "parent_dc_id": null,
+      "order_num": 3,
+      "title": "법령/지침",
+      "status": 1,
+      "path_ids": [
+        "DC_003"
+      ],
+      "path_titles": [
+        "법령/지침"
+      ],
+      "path": "법령/지침"
+    },
+    {
+      "dc_id": "DC_003_001",
+      "parent_dc_id": "DC_003",
+      "order_num": 1,
+      "title": "법률개정",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_001"
+      ],
+      "path_titles": [
+        "법령/지침",
+        "법률개정"
+      ],
+      "path": "법령/지침 > 법률개정"
+    },
+    {
+      "dc_id": "DC_003_002",
+      "parent_dc_id": "DC_003",
+      "order_num": 2,
+      "title": "가이드라인",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_002"
+      ],
+      "path_titles": [
+        "법령/지침",
+        "가이드라인"
+      ],
+      "path": "법령/지침 > 가이드라인"
+    },
+    {
+      "dc_id": "DC_003_003",
+      "parent_dc_id": "DC_003",
+      "order_num": 3,
+      "title": "고시·훈령",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_003"
+      ],
+      "path_titles": [
+        "법령/지침",
+        "고시·훈령"
+      ],
+      "path": "법령/지침 > 고시·훈령"
+    },
+    {
+      "dc_id": "DC_003_004",
+      "parent_dc_id": "DC_003",
+      "order_num": 4,
+      "title": "유권해석",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_004"
+      ],
+      "path_titles": [
+        "법령/지침",
+        "유권해석"
+      ],
+      "path": "법령/지침 > 유권해석"
+    },
+    {
+      "dc_id": "DC_004",
+      "parent_dc_id": null,
+      "order_num": 4,
+      "title": "사업발주",
+      "status": 1,
+      "path_ids": [
+        "DC_004"
+      ],
+      "path_titles": [
+        "사업발주"
+      ],
+      "path": "사업발주"
+    },
+    {
+      "dc_id": "DC_004_001",
+      "parent_dc_id": "DC_004",
+      "order_num": 1,
+      "title": "제안요청서",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_001"
+      ],
+      "path_titles": [
+        "사업발주",
+        "제안요청서"
+      ],
+      "path": "사업발주 > 제안요청서"
+    },
+    {
+      "dc_id": "DC_004_002",
+      "parent_dc_id": "DC_004",
+      "order_num": 2,
+      "title": "입찰공고",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_002"
+      ],
+      "path_titles": [
+        "사업발주",
+        "입찰공고"
+      ],
+      "path": "사업발주 > 입찰공고"
+    },
+    {
+      "dc_id": "DC_004_003",
+      "parent_dc_id": "DC_004",
+      "order_num": 3,
+      "title": "과제공모",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_003"
+      ],
+      "path_titles": [
+        "사업발주",
+        "과제공모"
+      ],
+      "path": "사업발주 > 과제공모"
+    },
+    {
+      "dc_id": "DC_004_004",
+      "parent_dc_id": "DC_004",
+      "order_num": 4,
+      "title": "기술협상안",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_004"
+      ],
+      "path_titles": [
+        "사업발주",
+        "기술협상안"
+      ],
+      "path": "사업발주 > 기술협상안"
+    },
+    {
+      "dc_id": "DC_005",
+      "parent_dc_id": null,
+      "order_num": 5,
+      "title": "조사/통계",
+      "status": 1,
+      "path_ids": [
+        "DC_005"
+      ],
+      "path_titles": [
+        "조사/통계"
+      ],
+      "path": "조사/통계"
+    },
+    {
+      "dc_id": "DC_005_001",
+      "parent_dc_id": "DC_005",
+      "order_num": 1,
+      "title": "실태조사",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_001"
+      ],
+      "path_titles": [
+        "조사/통계",
+        "실태조사"
+      ],
+      "path": "조사/통계 > 실태조사"
+    },
+    {
+      "dc_id": "DC_005_002",
+      "parent_dc_id": "DC_005",
+      "order_num": 2,
+      "title": "재정동향",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_002"
+      ],
+      "path_titles": [
+        "조사/통계",
+        "재정동향"
+      ],
+      "path": "조사/통계 > 재정동향"
+    },
+    {
+      "dc_id": "DC_005_003",
+      "parent_dc_id": "DC_005",
+      "order_num": 3,
+      "title": "국가개황",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_003"
+      ],
+      "path_titles": [
+        "조사/통계",
+        "국가개황"
+      ],
+      "path": "조사/통계 > 국가개황"
+    },
+    {
+      "dc_id": "DC_006",
+      "parent_dc_id": null,
+      "order_num": 6,
+      "title": "종이민원",
+      "status": 0,
+      "path_ids": [
+        "DC_006"
+      ],
+      "path_titles": [
+        "종이민원"
+      ],
+      "path": "종이민원"
+    },
+    {
+      "dc_id": "DC_006_001",
+      "parent_dc_id": "DC_006",
+      "order_num": 1,
+      "title": "민원접수대장",
+      "status": 1,
+      "path_ids": [
+        "DC_006",
+        "DC_006_001"
+      ],
+      "path_titles": [
+        "종이민원",
+        "민원접수대장"
+      ],
+      "path": "종이민원 > 민원접수대장"
+    }
+  ]
+}

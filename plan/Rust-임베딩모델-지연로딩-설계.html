@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rust 임베딩 모델 지연 로딩 — 규칙으로 끝나면 모델을 읽지 않는다</title>
+</head>
+<body>
+<style>
+  :root{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+    --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","맑은 고딕",-apple-system,"Apple SD Gothic Neo",system-ui,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","Cascadia Mono",Consolas,"D2Coding",monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+      --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+      --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+      --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+    --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+    --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+    --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.7;-webkit-font-smoothing:antialiased;font-size:16px;letter-spacing:-0.003em;}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 24px 96px;}
+  header.doc{padding:56px 0 34px;border-bottom:1px solid var(--line);margin-bottom:40px;}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;display:flex;gap:10px;align-items:center;margin-bottom:20px;}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);border-radius:2px;}
+  h1.title{font-size:clamp(28px,4.6vw,44px);line-height:1.12;margin:0 0 14px;font-weight:800;
+    letter-spacing:-0.02em;text-wrap:balance;}
+  .lede{font-size:clamp(16px,2.1vw,19px);color:var(--muted);margin:0 0 22px;max-width:64ch;}
+  .lede b{color:var(--ink);font-weight:600;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;}
+  .chip{font-size:12px;font-family:var(--mono);color:var(--muted);background:var(--surface);
+    border:1px solid var(--line);border-radius:999px;padding:5px 12px;}
+  .chip b{color:var(--ink);font-weight:600;}
+  section{margin:52px 0;scroll-margin-top:20px;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:22px;}
+  .sec-num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);
+    border:1px solid var(--line-strong);border-radius:7px;padding:3px 9px;flex:none;line-height:1.3;}
+  h2{font-size:clamp(21px,3vw,27px);margin:0;font-weight:750;letter-spacing:-0.015em;line-height:1.25;}
+  h3{font-size:17px;margin:30px 0 12px;font-weight:700;letter-spacing:-0.01em;}
+  p{margin:0 0 15px;max-width:72ch;}
+  ul.plain{margin:0 0 15px;padding-left:20px;} ul.plain li{margin:5px 0;color:var(--muted);}
+  ul.plain li b{color:var(--ink);font-weight:600;}
+  ol.plain{margin:0 0 15px;padding-left:22px;} ol.plain li{margin:6px 0;color:var(--muted);}
+  ol.plain li b{color:var(--ink);font-weight:600;}
+  .tldr{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:12px;padding:22px 24px;box-shadow:var(--shadow);}
+  .tldr .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:10px;}
+  .tldr p{margin:0;font-size:17px;color:var(--ink);max-width:none;}
+  .tldr b{color:var(--accent-2);}
+  .twrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);margin:16px 0;}
+  table{border-collapse:collapse;width:100%;font-size:14px;min-width:640px;background:var(--surface);}
+  th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{background:var(--surface-2);font-size:12px;letter-spacing:.03em;color:var(--muted);
+    text-transform:uppercase;font-weight:700;white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,.mono-cell{font-family:var(--mono);font-size:13px;white-space:nowrap;}
+  code.inl{font-family:var(--mono);font-size:.9em;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;}
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;
+    overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.65;box-shadow:var(--shadow);color:var(--ink);}
+  pre .cm{color:var(--o);} pre .kw{color:var(--accent-2);font-weight:600;} pre .hi{color:var(--c);font-weight:600;}
+  .note{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:16px 18px;
+    font-size:14.5px;display:flex;gap:12px;align-items:flex-start;margin:16px 0;}
+  .note .badge{font-family:var(--mono);font-size:10.5px;font-weight:800;letter-spacing:.06em;
+    padding:3px 8px;border-radius:6px;flex:none;text-transform:uppercase;}
+  .note.safe .badge{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+  .note.warn .badge{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+  .note.bad .badge{color:var(--c);background:var(--c-soft);border:1px solid color-mix(in srgb,var(--c) 35%,transparent);}
+  .note.info .badge{color:var(--accent-2);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent-2) 35%,transparent);}
+  .note p{margin:0;color:var(--muted);max-width:none;}
+  .note b{color:var(--ink);}
+  .grp{font-family:var(--mono);font-weight:800;font-size:12px;padding:2px 8px;border-radius:6px;white-space:nowrap;
+    color:var(--accent);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);}
+  .x{color:var(--c);font-weight:700}
+  .ok{color:var(--o);font-weight:700}
+  .wn{color:var(--s);font-weight:700}
+  .src{font-family:var(--mono);font-size:12px;color:var(--faint);}
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);
+    font-size:13px;color:var(--faint);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+    font-family:var(--mono);letter-spacing:.02em;}
+  @media print{ body{background:#fff;} .tldr,pre,.twrap{box-shadow:none;} }
+</style>
+
+<div class="wrap">
+
+  <header class="doc">
+    <div class="eyebrow">성능 설계 · Lazy Model Load</div>
+    <h1 class="title">Rust 임베딩 모델 지연 로딩<br>— 규칙으로 끝나면 모델을 읽지 않는다</h1>
+    <p class="lede">Rust 판은 임베딩이 <b>한 건도 필요 없는 실행에서도</b> ONNX 모델(118MB)과 토크나이저(17MB)를
+    빠짐없이 읽는다. 상주 데몬이 없어 이 비용을 <b>프로세스마다 새로 낸다</b>. 1차 규칙 스캔 결과를 보고
+    <b>필요할 때만</b> 모델을 올리도록 게이트를 세우고, 함께 죽어 있는 <code class="inl">--embed-needed</code> 를 살린다.</p>
+    <div class="meta">
+      <span class="chip"><b>대상</b> Rust 엔진 (csoclassify-rs)</span>
+      <span class="chip"><b>범위</b> main.rs 모드결정 · 2차 임베딩 단계</span>
+      <span class="chip"><b>결과 변화</b> 없음(동작 불변)</span>
+      <span class="chip"><b>상태</b> 설계 · <b class="ok">구현 완료 2026-09-02</b></span>
+      <span class="chip"><b>작성일</b> 2026-09-02</span>
+    </div>
+  </header>
+
+  <div class="tldr">
+    <div class="k">한 줄 요약</div>
+    <p>임베딩은 <b>문서 단위로는 이미 지연</b>돼 있다. 남은 것은 <b>모델 로딩 자체를 조건부로</b> 만드는 것 —
+    <code class="inl">need</code> 를 먼저 한 바퀴 돌려 <b>한 건도 필요 없으면 세션을 만들지 않는다</b>.
+    데몬이 있는 Python 은 얻을 게 없지만, <b>데몬이 없는 Rust 는 개별 호출 건당 약 1.4초</b>를 통째로 덜어낸다.</p>
+  </div>
+
+  <!-- 1 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>지금 무엇이 문제인가</h2></div>
+
+    <h3>① 문서 단위 지연은 이미 있다 — 없는 것은 "모델 로딩" 지연이다</h3>
+    <p>두 판 모두 <b>어떤 문서를 임베딩할지</b>는 이미 가린다. 판정 조건도 글자 그대로 같다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>항목</th><th>Python</th><th>Rust</th></tr></thead>
+        <tbody>
+          <tr><td>문서별 벡터 계산 지연</td>
+              <td class="ok">있음 <span class="src">cli.py:1583 <code class="inl">need_vec</code></span></td>
+              <td class="ok">있음 <span class="src">main.rs:1309 <code class="inl">need</code></span></td></tr>
+          <tr><td><b>모델(세션) 로딩 지연</b></td>
+              <td class="ok">있음 <span class="src">cli.py:1297 · client.py:241 — 첫 요청 때 생성/기동</span></td>
+              <td class="x">없음 <span class="src">main.rs:1298 — 무조건 로드</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Rust 도 "프로그램 시작 시" 읽는 것은 아니다. 1차 규칙 스캔이 <b>전부 끝난 뒤</b>(main.rs:1297)다.
+    문제는 시점이 아니라, <b><code class="inl">need</code> 를 한 번도 따져보지 않고</b> 세션을 만든다는 것이다.</p>
+
+<pre><span class="cm">// Rust/src/main.rs:1297</span>
+if embed_mode != "none" {
+    match embed::Embedder::load() {          <span class="hi">// ← need 를 보지 않고 무조건</span>
+        Some(mut embedder) =&gt; {
+            for it in items.iter_mut() {
+                let need = embed_mode == "all" || it.grade.is_none()
+                        || it.seed_eligible || dt_undecided;
+                if need { it.vector = embedder.embed_document(&amp;it.text); }
+            }                                 <span class="cm">// need 가 전부 false 면 → 한 건도 안 돌리고 끝</span></pre>
+
+    <p>이때 실제로 치르는 비용은 다음과 같다.</p>
+    <ul class="plain">
+      <li><b>model.onnx 118MB</b> — <code class="inl">Session::builder().with_optimization_level(Level3).commit_from_file()</code></li>
+      <li><b>tokenizer.json 17MB</b> — <code class="inl">Tokenizer::from_file()</code></li>
+      <li><b>onnxruntime.dll 16MB</b> 동적 로딩</li>
+    </ul>
+    <div class="note info">
+      <span class="badge">중요</span>
+      <p>반복 호출이면 OS 페이지 캐시가 118MB 를 물고 있어 <b>디스크 I/O 는 사라진다</b>. 그런데도 고정비가 안 줄어드는 이유는
+      <b>ORT 세션 구성과 Level3 그래프 최적화가 CPU 작업</b>이기 때문이다. 워밍으로 없어지지 않는다.</p>
+    </div>
+
+    <h3>② 데몬이 없어서, 이 비용을 프로세스마다 새로 낸다</h3>
+    <p>Rust 판에는 상주 데몬이 없다. <code class="inl">--daemon</code>·<code class="inl">--serve</code>·<code class="inl">--status</code>·<code class="inl">--stop</code> 은
+    호출부 호환을 위해 <b>인자만 받고 조용히 무시</b>한다(main.rs:231). 즉 <b>모든 실행이 콜드 스타트</b>다.</p>
+
+    <h3>③ <code class="inl">--embed-needed</code> 가 파싱만 되고 읽히지 않는다</h3>
+    <p>Rust 는 이 인자를 <code class="inl">Opts.embed_needed</code> 에 받아두지만, <b>그 필드를 읽는 코드가 없다</b>.
+    선언(main.rs:60) · 초기화(main.rs:146) · 대입(main.rs:204) 세 곳이 전부다. 모드 결정은 이 값을 보지 않는다.</p>
+<pre><span class="cm">// Rust/src/main.rs:1168 — embed_needed 가 등장하지 않는다</span>
+let m = if opts.with_vector { "all" } else if auto_prop { "needed" } else { "none" };</pre>
+    <p>결과적으로 Rust 는 <code class="inl">--embed-needed</code> 를 무시하고 <b>seed 파일 존재 여부로만</b> 모드를 정한다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>상황</th><th>Python <span class="src">cli.py:1239</span></th><th>Rust <span class="src">현재</span></th></tr></thead>
+        <tbody>
+          <tr><td><code class="inl">--embed-needed</code> + seed 파일 있음</td><td class="mono ok">needed</td><td class="mono ok">needed <span class="src">(우연히 일치)</span></td></tr>
+          <tr><td><code class="inl">--embed-needed</code> + <b>seed 파일 없음</b></td><td class="mono ok">needed <span class="src">(강제)</span></td><td class="mono x">none <span class="src">— 임베딩 전혀 안 함</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note warn">
+      <span class="badge">지금 영향</span>
+      <p>UI 는 <code class="inl">--seeds</code> 로 <b>빈 파일이라도 반드시 만들어 넘기므로</b>(app.py:2085) 현재 화면 경로에서는 결과가 같다.
+      하지만 <code class="inl">--seeds</code> 없이 Rust 를 직접 부르는 연동처에서는 <code class="inl">--embed-needed</code> 가 먹지 않는다.
+      <code class="inl">--serve</code> 를 조용히 무시하는 것과 <b>같은 종류의 함정</b>이다.</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>데몬 유무가 이 최적화의 값어치를 정한다</h2></div>
+    <p>핵심은 하나다 — <b>모델 로딩 비용을 프로세스 수명이 얼마나 희석해 주는가.</b>
+    이 최적화의 값어치는 그 희석률에 <b>반비례</b>한다.</p>
+
+    <h3>Python — 데몬이 기본 on, 무한 상주</h3>
+    <ul class="plain">
+      <li><code class="inl">DEFAULT_DAEMON = True</code> · <code class="inl">DEFAULT_IDLE_TIMEOUT = 0</code>(무한, 자동종료 없음) <span class="src">config.py:95-96</span></li>
+      <li>모델이 별도 프로세스에 상주 → 2회차 호출부터 <code class="inl">model_load = 0</code> <span class="src">cli.py:1322</span></li>
+      <li>데몬 기동조차 <code class="inl">request_embed_text</code> → <code class="inl">_ready_record()</code> 안에서만 일어난다 <span class="src">client.py:241</span>
+          → <b>임베딩이 한 건도 필요 없으면 데몬이 아예 안 뜬다</b></li>
+    </ul>
+    <p>→ 이 지연 로딩은 Python 에 <b>이미 구현돼 있고, 게다가 얻을 것도 거의 없다</b>(어차피 웜).
+    유일하게 남는 이득은 <b>상주 데몬이 안 떠서 수백 MB RSS 가 안 잡히는 것</b>이다. 유휴시간 무한이 기본이라 이건 은근히 크다.</p>
+
+    <h3>Rust — 데몬 없음, 매 프로세스가 콜드 스타트</h3>
+    <p>실측 근거는 <code class="inl">Rust/README.md:163-196</code>. 200건(pdf 69·txt 64·pptx 28·docx 18·md 11·xlsx 6·hwpx 3·html 1),
+    <code class="inl">--with-vector</code>, 동일 PC.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>호출 방식</th><th>Rust</th><th>Python(데몬 on)</th><th>Python(--no-daemon)</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inl">--files-from</code> 1회 (200건 한 프로세스)</td><td class="mono ok">44.0s <span class="src">(0.22s/건)</span></td><td class="mono">84.0s</td><td class="mono">62.8s</td></tr>
+          <tr><td><code class="inl">--file</code> 200회 (파일마다 프로세스)</td><td class="mono x">320.6s</td><td class="mono ok">265.5s</td><td class="mono">471.6s</td></tr>
+          <tr><td><b>건당 고정비</b>(개별 호출)</td><td class="mono x">1.60s</td><td class="mono ok">1.33s</td><td class="mono">2.36s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>여기서 <b>건당 고정비 ≈ 1.60 − 0.22 ≈ 1.4초</b>가 나온다. 사실상 전부 모델 로딩이다.
+    README 가 "갭"이라 부른 <b>개별 호출에서 Python(데몬)에 지는 구간</b>(320.6s vs 265.5s)의 정체가 이것이다.</p>
+
+    <div class="twrap">
+      <table>
+        <thead><tr><th>시나리오</th><th>이 최적화의 값어치</th></tr></thead>
+        <tbody>
+          <tr><td>Python + 데몬 on</td><td>≈0 (이미 웜). 다만 <b>데몬 미기동 → 메모리 절약</b></td></tr>
+          <tr><td>Python + <code class="inl">--no-daemon</code></td><td>중간 (이미 지연 구현돼 있음)</td></tr>
+          <tr><td><b>Rust + <code class="inl">--file</code> 개별 호출</b></td><td class="ok"><b>가장 큼 — 규칙 확정 건당 ~1.4초 제거</b></td></tr>
+          <tr><td>Rust + <code class="inl">--files-from</code> 배치</td><td>미미 (배치당 1.4초 한 번)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info">
+      <span class="badge">달리 말하면</span>
+      <p>이것은 <b>"데몬이 없기 때문에" 하는 최적화</b>다. 훗날 Rust 데몬을 만들면 값어치는 Python 수준(≈0)으로 떨어진다.
+      그래도 무해하고 정확성은 그대로라 되돌릴 필요는 없다.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>선결 확인 — 호출부는 <code class="inl">--with-vector</code> 를 쓰는가</h2></div>
+    <p><code class="inl">--with-vector</code> 는 <code class="inl">embed_mode = "all"</code> 로 가고, 그러면 <code class="inl">need</code> 가 언제나 참이라
+    <b>게이트가 절대 걸리지 않는다</b>. 그래서 구현 전에 호출부부터 확인했다. 결론: <b>평상시 분류에는 쓰지 않는다.</b></p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>호출 경로</th><th>인자</th><th>embed_mode</th><th>게이트</th></tr></thead>
+        <tbody>
+          <tr><td><b>대량 분류 실행</b>(분류 화면 ▸ 실행)<br><span class="src">app.py:2215 → run_csoclassify_dir_stream → gerunner.py:398</span></td>
+              <td class="mono"><b>--embed-needed</b></td><td class="mono">needed</td><td class="ok">걸림</td></tr>
+          <tr><td>기준 문서 1건 온디맨드 임베딩<br><span class="src">app.py:1618 _embed_file_ondemand → gerunner.py:173</span></td>
+              <td class="mono">--with-vector --file</td><td class="mono">all</td><td>안 걸림 <span class="src">(당연 — 벡터가 목적)</span></td></tr>
+          <tr><td>기준 문서 여러 건 일괄 임베딩<br><span class="src">app.py:1207 · 2950 embed_files → gerunner.py:557</span></td>
+              <td class="mono">--with-vector</td><td class="mono">all</td><td>안 걸림 <span class="src">(당연 — 벡터가 목적)</span></td></tr>
+          <tr><td><code class="inl">run_csoclassify_dir</code> <span class="src">gerunner.py:339</span></td>
+              <td class="mono">--with-vector</td><td class="mono">all</td><td class="wn">호출부 없음 — 죽은 함수</td></tr>
+        </tbody>
+      </table>
+    </div>
+<pre><span class="cm">// ui/gerunner.py:398 — 대량 분류는 needed 가 기본이다</span>
+def build_classify_args(..., <span class="kw">embed_mode="needed"</span>, ...):
+    if embed_mode == "needed":
+        args.append(<span class="hi">"--embed-needed"</span>)      <span class="cm"># ← 화면 실행 버튼이 타는 경로</span>
+    elif embed_mode == "all":
+        args.append("--with-vector")</pre>
+    <p><code class="inl">run_csoclassify_dir_stream</code> 도 <code class="inl">embed_mode="needed"</code> 가 기본이고(gerunner.py:415),
+    app.py:2215 는 이 인자를 넘기지 않는다. 화면 안내문도 같은 말을 한다 —
+    <i>"<code class="inl">--embed-needed</code> 는 판단 못 한 문서만 임베딩해 빠르게 도는 기본값입니다"</i>(app.py:2134).</p>
+    <div class="note safe">
+      <span class="badge">판정</span>
+      <p>제안한 지연 로딩은 <b>실제 UI 워크플로에서 유효하다.</b> 나머지 두 경로는 "벡터를 얻는 것 자체가 목적"이라
+      게이트가 안 걸리는 것이 정상이다.</p>
+    </div>
+    <div class="note warn">
+      <span class="badge">주의</span>
+      <p>§02 의 벤치마크는 <code class="inl">--with-vector</code> 로 측정됐다. 즉 <b>그 표의 320.6s 는 게이트를 넣어도 그대로다.</b>
+      효과를 재려면 벤치 명령을 <code class="inl">--embed-needed</code> 로 바꿔야 한다.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>설계 A — 로딩 게이트 <code class="inl">need_any</code></h2></div>
+    <p>로딩 직전에 <code class="inl">need</code> 를 미리 한 바퀴 돌려, <b>하나라도 참일 때만</b> 로드한다.
+    구조상 <code class="inl">Option&lt;Embedder&gt;</code> 지연 초기화보다 이쪽이 기존 코드를 덜 건드린다.</p>
+
+<pre><span class="cm">// 배치 전체를 보고 한 번에 판정 — 2차 단계 진입 직전</span>
+let has_undecided   = items.iter().any(|it| it.grade.is_none());
+let dt_undecided_any = items.iter().any(|it|
+        it.dt.as_ref().map_or(false, |s| s.values.is_empty()));
+
+let seed_elig_any    = items.iter().any(|it| it.seed_eligible);
+
+let need_any = embed_mode == "all"   <span class="cm">// --with-vector / --vector-only : 전량 필요</span>
+            || has_undecided          <span class="cm">// security 전파 대상이 있다</span>
+            || dt_undecided_any       <span class="cm">// 업무분류 전파 대상이 있다</span>
+            || (opts.embed_needed &amp;&amp; seed_elig_any);  <span class="hi">// 승격 후보 벡터가 '출력물'이 될 때</span>
+
+if embed_mode != "none" &amp;&amp; <span class="hi">need_any</span> {
+    match embed::Embedder::load() { ... }   <span class="cm">// 기존 블록 그대로</span>
+}</pre>
+
+    <h3><code class="inl">seed_eligible</code> 은 '그 벡터를 쓰는 곳이 있느냐'로 갈린다</h3>
+    <p>질문에서 짚으신 대로 <code class="inl">seed_eligible</code> 문서도 1차 검출 뒤에 임베딩하면 된다.
+    다만 <b>그 벡터가 어디에 쓰이느냐에 따라 판단이 갈린다</b> — 두 경우를 나눠 봐야 한다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>쓰임</th><th>벡터가 필요한가</th><th>근거</th></tr></thead>
+        <tbody>
+          <tr><td><b>전파용으로만</b><br><span class="src">(인자 없는 기본 실행)</span></td>
+              <td class="x">필요 없다 — <code class="inl">has_undecided</code> 가 흡수</td>
+              <td>내부 seed 인덱스 <code class="inl">SeedIndex::from_records</code> 는 <b>오직 security 전파 루프에서만</b> 쓰이고,
+                  그 루프는 <code class="inl">if it.grade.is_some() { continue; }</code> 로 <b>보류 문서만</b> 돈다.
+                  보류가 0건이면 만들어 놓고 <b>아무도 안 쓴다</b>.</td></tr>
+          <tr><td><b>출력물로</b><br><span class="src">(<code class="inl">--embed-needed</code>)</span></td>
+              <td class="ok">필요하다 — 조건에 넣어야 한다</td>
+              <td>그 벡터가 <b>결과 레코드에 실려 나간다</b>(§11 다안). seed_eligible 문서는 <b>seed 승격 후보</b>이고,
+                  이 인자의 존재 이유가 바로 "보류거나 seed_eligible 인 문서만 임베딩"(설계서 §185)이다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note bad">
+      <span class="badge">구현 중 정정</span>
+      <p>이 문서는 처음에 <b>"seed_eligible 은 언제나 <code class="inl">has_undecided</code> 에 흡수된다"</b>고 적었다.
+      §11 에서 <b>다안</b>(<code class="inl">--embed-needed</code> 일 때 벡터를 싣는다)을 채택하면서 그 전제가 깨졌다 —
+      벡터가 '아무도 안 쓰는 중간 계산'에서 <b>'산출물'</b>로 바뀌었기 때문이다.
+      실제로 구현 후 리눅스 배포본 검증에서 <b>규칙으로 확정된 seed 승격 후보 3건의 벡터가 통째로 안 나오는 것</b>을 잡아
+      조건을 추가했다. <b>게이트 조건은 "쓰는 곳이 있느냐"로 판단해야 하고, 그 답은 출력 규칙이 바뀌면 같이 바뀐다.</b></p>
+    </div>
+    <div class="note info">
+      <span class="badge">예외</span>
+      <p><code class="inl">--with-vector</code>(<code class="inl">embed_mode == "all"</code>)는 그대로 둔다.
+      class_seed.jsonl 승격용 벡터 추출이 이 경로로 나가므로 영향이 없다(§03 2·3행).</p>
+    </div>
+
+    <h3>문서 단위 <code class="inl">need</code> 는 그대로 둔다</h3>
+    <p>main.rs:1309 의 <code class="inl">need</code> 는 손대지 않는다. Python(cli.py:1583)과 <b>글자 그대로 같아야</b>
+    두 판의 벡터·전파 결과가 일치한다는 기존 계약이 유지된다.</p>
+  </section>
+
+  <!-- 5 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>설계 B — <code class="inl">--embed-needed</code> 살리기</h2></div>
+    <p>게이트를 넣으려면 어차피 모드 결정부를 건드린다. 죽어 있는 <code class="inl">embed_needed</code> 를 같은 자리에서 살린다.
+    <b>Python 의 우선순위 규칙</b>(cli.py:1239 — <i>"임베딩 정책 needed &gt; all &gt; none. embed_needed 가 우선"</i>)을 그대로 따른다.</p>
+
+<pre><span class="cm">// Rust/src/main.rs:1168 — 개정안</span>
+let m = if <span class="hi">opts.embed_needed</span> { "needed" }        <span class="cm">// ① 명시 지정이 최우선(Python 과 동일)</span>
+        else if opts.with_vector { "all" }
+        else if auto_prop { "needed" }
+        else { "none" };</pre>
+
+    <div class="twrap">
+      <table>
+        <thead><tr><th>인자 조합</th><th>Python</th><th>Rust 현재</th><th>Rust 개정안</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inl">--embed-needed</code> + seed 있음</td><td class="mono">needed</td><td class="mono">needed</td><td class="mono ok">needed</td></tr>
+          <tr><td><code class="inl">--embed-needed</code> + seed 없음</td><td class="mono">needed</td><td class="mono x">none</td><td class="mono ok">needed</td></tr>
+          <tr><td><code class="inl">--embed-needed --with-vector</code></td><td class="mono">needed</td><td class="mono">all</td><td class="mono ok">needed</td></tr>
+          <tr><td>무옵션 + seed 있음</td><td class="mono">needed</td><td class="mono">needed</td><td class="mono ok">needed</td></tr>
+          <tr><td><code class="inl">--rule-only</code> / <code class="inl">--vector-only</code></td><td class="mono">none / all</td><td class="mono">none / all</td><td class="mono ok">변경 없음</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn">
+      <span class="badge">확인 필요</span>
+      <p>3행(<code class="inl">--embed-needed --with-vector</code> 동시 지정)에서 <b>현재 Rust 는 all, Python 은 needed</b> 로 갈린다.
+      개정안은 Python 에 맞춘다 — 두 판의 동작을 맞추는 것이 이 프로젝트의 일관된 원칙이기 때문이다.
+      다만 이 조합을 쓰는 호출부는 확인된 바 없으므로(§03) 실질 영향은 없다.</p>
+    </div>
+
+    <div class="note info">
+      <span class="badge">부수효과</span>
+      <p><code class="inl">embed_needed</code> 를 읽게 되면 <b>"필드가 한 번도 읽히지 않는다"는 컴파일 경고도 함께 사라진다.</b>
+      지금은 인자를 받아 저장까지 하고 버리는 상태다.</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>동작 불변 — 결과가 바뀌지 않는 근거</h2></div>
+    <p><code class="inl">need_any == false</code> 로 로드를 건너뛰면 <code class="inl">if auto_prop</code> 블록(main.rs:1315~1381) 전체가 돌지 않는다.
+    그 안의 두 전파가 모두 <b>no-op</b> 임을 확인했다.</p>
+
+    <div class="twrap">
+      <table>
+        <thead><tr><th>전파</th><th>위치</th><th>need_any=false 일 때</th><th>판정</th></tr></thead>
+        <tbody>
+          <tr><td>security 전파</td><td class="mono">main.rs:1328-1336</td>
+              <td><code class="inl">grade.is_none()</code> 문서만 도는데 그런 문서가 없다</td><td class="ok">no-op</td></tr>
+          <tr><td>doctype 전파</td><td class="mono">main.rs:1360-1374</td>
+              <td>분류 여부를 안 가리지만 <code class="inl">let vec = match &amp;it.vector { None =&gt; continue }</code> —
+                  <code class="inl">needed</code> 모드에서 라벨 붙은 문서는 <code class="inl">dt_undecided == false</code> 라 <b>애초에 벡터가 없다</b></td>
+              <td class="ok">no-op<br><span class="src">지금도 이미 continue 중</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note bad">
+      <span class="badge">별건 발견</span>
+      <p>위 두 번째 줄에서 드러나는 사실 — main.rs:1357 주석이 밝힌
+      <i>"이미 후보가 있어도 embed 가 후보를 더할 수 있다(다중 라벨이라 상향 전용이 아니라 추가 전용)"</i> 는 설계 의도가
+      <b><code class="inl">needed</code> 모드에서는 현재 작동하지 않는다.</b>
+      <code class="inl">need</code> 조건이 <code class="inl">dt_undecided</code> 만 보기 때문에, 이미 라벨이 붙은 문서는 벡터가 없어
+      전파 루프에서 그대로 <code class="inl">continue</code> 된다. <code class="inl">--with-vector</code>/<code class="inl">--vector-only</code>(all)일 때만 살아난다.
+      <b>이 게이트와는 무관한 별개 이슈</b>지만, 의도한 동작인지 확인이 필요하다. → §09</p>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>잃는 것 — 모델 배포 이상의 조기 감지</h2></div>
+    <p>유일한 실질적 트레이드오프다. 그리고 <b>Rust 쪽이 Python 보다 위험하다.</b></p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>판</th><th>모델·런타임 누락을 알아채는 경로</th></tr></thead>
+        <tbody>
+          <tr><td>Python</td><td>데몬 기동 실패 → in-process 폴백 + <code class="inl">log.warning</code>(cli.py:1325) · <code class="inl">--status</code> 로 상태 확인 — <b>경로가 여럿</b></td></tr>
+          <tr><td class="x">Rust</td><td><code class="inl">--status</code> 를 <b>조용히 무시</b>(main.rs:231) → <code class="inl">Embedder::load()</code> <b>시도 그 자체가 유일한 신호</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>게이트를 걸면 규칙으로 다 끝난 배치에서는 조용히 성공하고, onnxruntime.dll·models/ 누락이
+    <b>나중에 미분류가 나오는 배치를 만나서야</b> 드러난다. 거버넌스 도구에서 <i>"그때는 되고 지금은 안 되네"</i> 는 곤란하다.</p>
+
+    <h3>보완 — 셋 다 넣는다</h3>
+    <ol class="plain">
+      <li><b>경량 프리체크</b> — 세션을 만들지 않고 <b>존재 여부만</b> 확인한다(<code class="inl">model_dir()</code> + dylib 경로 <code class="inl">is_file()</code>).
+          파이프라인 진입 시 1회. 비용은 stat 몇 번. 없으면 note 로 남긴다.
+          <b>구현: <code class="inl">embed::check_deployment()</code></b></li>
+      <li><b>스킵 사유를 남긴다</b> — <code class="inl">[csoclassify-rs] 임베딩 불필요(전 문서 규칙 확정) → 모델 로드 생략</code>.
+          로그만 봐도 <b>"안 돈 것"과 "안 필요했던 것"</b>이 구분돼야 한다.</li>
+      <li><b>전파 요약 로그 공백을 메운다</b> — main.rs:1477 <code class="inl">[전파] seed=… 전파결정=… 미분류잔여=…</code> 가
+          안 나가게 되므로, 이를 파싱하는 쪽이 있다면 위 note 로 대체한다.</li>
+    </ol>
+    <div class="note bad">
+      <span class="badge">구현 중 추가</span>
+      <p>프리체크를 넣고 실제로 모델을 뺀 배포로 돌려 보니, <b>알리고 나서 그대로 죽었다.</b>
+      onnxruntime 을 못 찾으면 <code class="inl">ort</code> 는 PATH 에 있는 아무 <code class="inl">onnxruntime.dll</code> 이나
+      집어 들고, 버전이 다르면 <code class="inl">Err</code> 가 아니라 <b>패닉</b>으로 끝난다
+      (실측: <i>expected 1.22.x, but got 1.17.1</i> · <b>종료코드 101 · 결과 파일 없음</b>).
+      <code class="inl">Embedder::load()</code> 가 실패하면 <code class="inl">None</code> 을 준다는 전제가 여기서 깨진다.
+      <b>이 판 이전부터 있던 문제</b>지만, "알리고 죽는다"는 프리체크의 취지와 정면으로 어긋나므로 함께 고쳤다 —
+      <b>점검이 실패하면 <code class="inl">load()</code> 를 아예 부르지 않는다.</b>
+      결과: <b>종료코드 101(결과 없음) → 0(규칙 등급이 담긴 결과 파일 + 사유 한 줄)</b>.</p>
+    </div>
+    <div class="note info">
+      <span class="badge">겸사겸사</span>
+      <p><code class="inl">--status</code> 를 Rust 에서 <b>"모델·런타임 배포 확인"</b> 으로 실제 구현하는 것도 고려할 만하다.
+      지금 조용히 무시하는 것 자체가 이미 문제다(README 도 함정으로 지적).</p>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2>기대 효과</h2></div>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>시나리오</th><th>지금</th><th>게이트 적용 후</th><th>배수</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inl">--file</code> 개별 호출, 규칙으로 확정된 문서 1건</td><td class="mono">1.60s</td><td class="mono ok">≈0.2s</td><td class="mono ok">~5–7배</td></tr>
+          <tr><td><code class="inl">--files-from</code> 200건, 전부 규칙 확정</td><td class="mono">44.0s</td><td class="mono">≈42.6s</td><td class="mono">미미</td></tr>
+          <tr><td>미분류·seed 후보가 섞인 배치</td><td class="mono">—</td><td class="mono">변화 없음(로드 필요)</td><td class="mono">1배</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>규칙 적중률이 높은 코퍼스에서 <code class="inl">--file</code> 개별 호출을 쓰면, README 가 "갭"이라 부른
+    <b>Python(데몬) 대비 열세(320.6s vs 265.5s)가 뒤집힌다.</b></p>
+    <div class="note warn">
+      <span class="badge">측정 주의</span>
+      <p>README 는 배치 3회 반복의 산포가 컸다고 밝히고 있다(Rust 32.6~57.0s). <b>배수와 대소 관계는 견고하지만
+      초 단위 절대값은 ±30% 로 본다.</b> 위 표도 같은 전제다.</p>
+    </div>
+    <div class="note bad">
+      <span class="badge">더 큰 레버</span>
+      <p>같은 문제를 푸는 수단 중 <b>①이 압도적이고 이미 구현돼 있다.</b> 호출부가 아직 파일마다 <code class="inl">--file</code> 을 부르고 있다면,
+      이 설계보다 그것을 먼저 고치는 것이 몇 배 남는다.</p>
+    </div>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>#</th><th>수단</th><th>효과</th><th>비용</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">①</td><td>호출부를 <code class="inl">--files-from</code> 배치로</td><td class="ok"><b>7.3배</b>(320.6→44.0s, 실측)</td><td>코드 변경 0 · 호출부만</td></tr>
+          <tr><td class="mono">②</td><td><b>본 설계</b>(규칙 확정 시 로드 생략)</td><td>개별 호출 건당 ~1.4초</td><td>작음 · 결과 불변</td></tr>
+          <tr><td class="mono">③</td><td>Rust 상주 데몬 구현</td><td>②와 겹침</td><td class="x">큼(IPC·싱글턴·레지스트리)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>②는 ①을 이미 한 뒤에도 의미가 있다 — 규칙만으로 끝나는 배치에서 로드가 통째로 사라지고,
+    <code class="inl">--file</code> 을 못 없애는 연동처에서는 건당으로 먹힌다. <b>③을 하지 않기로 했다면 ②가 그 자리를 부분적으로 메운다.</b>
+    다만 <b>데몬의 대체재가 아니라 보완재</b>다 — 미분류·seed 후보 문서의 콜드 로딩은 그대로 남는다.
+    <b>그 남는 부분을 겨냥하는 네 번째 수단이 §10(최적화 그래프 캐싱)</b> 이고, 후속 카드로 둔다.</p>
+  </section>
+
+  <!-- 9 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">09</span><h2>이 설계 밖 — 함께 발견한 것들</h2></div>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>#</th><th>내용</th><th>위치</th><th>성격</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">A</td><td><b>주석이 코드와 어긋난다</b> — <i>"모델 로딩 때문에 첫 파일이 오래 걸려"</i> 라고 적혀 있으나
+              로딩은 전 파일 스캔이 <b>끝난 뒤</b>다. "처음에 로딩한다"는 인식의 출처로 보인다</td>
+              <td class="mono">main.rs:1216</td><td>주석 수정</td></tr>
+          <tr><td class="mono">B</td><td><b>doctype embed "후보 추가" 의도가 needed 모드에서 미작동</b>(§06 참조) —
+              의도한 동작인지 확인 필요</td><td class="mono">main.rs:1309·1357</td><td class="wn">별건 검토</td></tr>
+          <tr><td class="mono">C</td><td><b>죽은 함수</b> <code class="inl">run_csoclassify_dir</code>(<code class="inl">with_vector=True</code> 기본) — 호출부 없음</td>
+              <td class="mono">gerunner.py:339</td><td>정리</td></tr>
+          <tr><td class="mono">D</td><td><b>문서가 구현과 어긋난다</b> — 실행가이드 예제가
+              <code class="inl">for %f in (D:\docs\*) do csoclassify.exe --file "%f" --with-vector</code> 로,
+              <b>파일마다 프로세스 + 전량 벡터</b>라는 최악의 조합을 권하고 있다. 구현은 이미
+              <code class="inl">--embed-needed</code> + <code class="inl">--dir</code> 로 개선됐다</td>
+              <td class="mono">실행가이드:166<br>UIUX설계:191,195</td><td class="wn">문서 갱신</td></tr>
+          <tr><td class="mono">E</td><td><code class="inl">items</code> 가 전 문서의 <code class="inl">text</code> 를 끝까지 들고 있다.
+              <code class="inl">need == false</code> 인 문서는 이후 쓰이지 않으므로 즉시 비워도 된다 — 대량 스캔의 메모리는 이쪽이다</td>
+              <td class="mono">main.rs:1212</td><td>별건 개선</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info">
+      <span class="badge">D 는 왜 중요한가</span>
+      <p>가이드를 그대로 따라 하는 연동처가 있다면 <b>지금도 7배 느린 채로 돌고 있다.</b>
+      이 설계를 넣어도 그쪽은 <code class="inl">--with-vector</code> 때문에 게이트가 안 걸려 여전히 느리다.
+      코드보다 문서를 먼저 고치는 것이 더 크게 먹히는 드문 경우다.</p>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">10</span><h2>후속 카드 — 최적화 그래프 캐싱 <span class="src" style="font-size:14px">(측정 완료 · 보류)</span></h2></div>
+    <div class="note bad">
+      <span class="badge">판정 · 보류</span>
+      <p><b>측정 결과 채택하지 않는다(2026-09-02).</b> 절감은 <b>145.5 ms · 12.5%</b> 인데
+      배포본이 <b>+112MB</b> 늘고 하드웨어 의존·무효화 리스크가 따라온다.
+      결정적으로, 고정비의 최대 항목은 그래프 최적화(153.8 ms)가 아니라
+      <b>tokenizer.json 파싱(817.6 ms)</b> 이라 <b>이 카드는 더 작은 쪽을 공격한다.</b>
+      아래는 그 판단의 근거 기록이다.</p>
+    </div>
+
+    <h3>왜 이 카드가 존재하나</h3>
+    <p>§01 에서 본 대로 "모델 로딩"은 사실 두 가지 일이다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>단계</th><th>하는 일</th><th>OS 페이지 캐시로 사라지나</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">①  읽기</td><td>model.onnx 118MB 를 파일에서 메모리로</td>
+              <td class="ok">사라진다 — 2회차부터 메모리에서 복사만</td></tr>
+          <tr><td class="mono">②  준비</td><td>ORT 세션 구성 + <b>Level3 그래프 최적화</b>(연산 융합·메모리 배치·실행 계획)</td>
+              <td class="x"><b>안 사라진다</b> — CPU 계산이고, 결과물은 그 프로세스 메모리에만 있다</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>OS 는 <b>"파일 내용"은 캐시해 주지만 "그 파일로 만들어낸 구조물"은 캐시해 주지 않는다.</b>
+    프로세스가 끝나면 ②의 결과는 같이 사라지고, 다음 실행은 캐시에서 118MB 를 공짜로 받아놓고 <b>②를 처음부터 다시</b> 한다.
+    건당 고정비 1.4초가 200회 내내 줄지 않는 이유이자, Python 데몬이 <code class="inl">model_load = 0</code> 을 만드는 이유다
+    — 데몬은 프로세스를 안 죽여서 <b>②의 결과물을 그대로 재사용</b>한다.</p>
+    <p>이 카드는 <b>②의 결과를 파일로 저장해 두고 다음 실행에서 다시 쓰자</b>는 것이다.
+    ONNX Runtime 이 부르는 이름은 <b>offline graph optimization</b> 이다.</p>
+
+    <h3>API 확인 — 지금 이 빌드에서 쓸 수 있다</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>확인 항목</th><th>결과</th></tr></thead>
+        <tbody>
+          <tr><td>메서드 존재</td><td class="ok"><code class="inl">SessionBuilder::with_optimized_model_path(path)</code> —
+              <span class="src">ort-2.0.0-rc.10 / src/session/builder/impl_options.rs:96</span></td></tr>
+          <tr><td>feature 게이트</td><td class="ok"><code class="inl">#[cfg(feature = "std")]</code> 인데,
+              이 프로젝트가 쓰는 <code class="inl">load-dynamic</code> 이 <code class="inl">std</code> 를 끌어온다
+              <span class="src">(ort Cargo.toml: <code class="inl">load-dynamic = ["std", …]</code>)</span> → <b>사용 가능</b></td></tr>
+          <tr><td>동작</td><td>커밋 시점에 최적화된 모델을 그 경로로 <b>직렬화</b>한다
+              <span class="src">(원문 주석: "serializes the newly optimized model to the given path (for 'offline' graph optimization)")</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>구조 — 두 단계</h3>
+<pre><span class="cm">// ① 생성(최초 1회) — Level3 로 최적화하면서 결과를 파일로 떨군다</span>
+Session::builder()?
+    .with_optimization_level(GraphOptimizationLevel::Level3)?
+    .<span class="hi">with_optimized_model_path</span>(&amp;cache_path)?
+    .commit_from_file(&amp;model_path)?;
+
+<span class="cm">// ② 이후 실행 — 이미 최적화된 그래프를 '최적화 없이' 그대로 읽는다</span>
+Session::builder()?
+    .with_optimization_level(<span class="hi">GraphOptimizationLevel::Disable</span>)?   <span class="cm">// ②를 건너뛴다</span>
+    .commit_from_file(&amp;cache_path)?;</pre>
+
+    <h3>실측 결과 <span class="src">2026-09-02</span></h3>
+    <div class="note bad">
+      <span class="badge">결론</span>
+      <p><b>절감 145.5 ms (12.5%) — 이 카드는 덮는다(구현하지 않음).</b>
+      배포본이 <b>+112MB(158MB→271MB)</b> 늘고 하드웨어 의존·무효화 리스크를 떠안는 대가로 얻는 것이
+      <b>이미 게이트가 통째로 없앤 구간 밖에서의 12.5%</b> 뿐이다. 채산이 맞지 않는다.</p>
+    </div>
+
+    <p><b>측정 방법</b> — Rust 로 <code class="inl">Embedder::load()</code> 의 각 부분만 부르는 도구를 따로 만들어
+    (프로젝트 소스는 건드리지 않음, 같은 <code class="inl">ort 2.0.0-rc.10</code>·<code class="inl">tokenizers 0.21</code>·
+    같은 <code class="inl">onnxruntime.dll 1.26.0</code>), <b>매번 새 프로세스</b>에서 한 번씩 쟀다 —
+    이 판은 데몬이 없어 실행마다 콜드 스타트이고, 한 프로세스 안에서 반복하면 2회차부터 비현실적으로 빨라진다.</p>
+
+    <h4 style="font-size:15px;margin:22px 0 10px;font-weight:700">부분별 고정비 (중앙값, n=7)</h4>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>항목</th><th>시간</th><th>캐싱으로 줄이나</th></tr></thead>
+        <tbody>
+          <tr><td><b>tokenizer.json 읽기</b> <span class="src">16.3MB</span></td><td class="mono x">817.6 ms</td>
+              <td class="x"><b>못 줄인다</b> — ORT 와 무관한 JSON 파싱</td></tr>
+          <tr><td>ORT 세션: model.onnx + Level3 <span class="src">[지금]</span></td><td class="mono">837.3 ms</td><td>일부</td></tr>
+          <tr><td>ORT 세션: model.onnx + 최적화 끔 <span class="src">[대조군]</span></td><td class="mono">683.5 ms</td>
+              <td><span class="src">→ 순수 '최적화' 몫 = 153.8 ms</span></td></tr>
+          <tr><td>ORT 세션: model.opt.onnx + 최적화 끔 <span class="src">[제안]</span></td><td class="mono ok">490.4 ms</td>
+              <td><span class="src">노드가 융합돼 그래프 구성·메모리 계획도 싸진다</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 style="font-size:15px;margin:22px 0 10px;font-weight:700">전체 고정비 — 두 조건을 번갈아 실행 (중앙값, n=15)</h4>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>조건</th><th>중앙값</th><th>하위 25%</th><th>상위 25%</th></tr></thead>
+        <tbody>
+          <tr><td>지금 (tokenizer + model.onnx Level3)</td><td class="mono">1,168.6 ms</td><td class="mono">1,132.6</td><td class="mono">1,222.1</td></tr>
+          <tr><td>캐싱 적용 (tokenizer + model.opt.onnx 최적화끔)</td><td class="mono ok">1,023.1 ms</td><td class="mono">979.9</td><td class="mono">1,071.2</td></tr>
+          <tr><td colspan="4"><b>절감 = 145.5 ms (12.5%)</b> · <code class="inl">--file</code> 1건 환산 <b>1,187 ms → 1,041 ms</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info">
+      <span class="badge">왜 부분 합과 다른가</span>
+      <p>부분별로 재면 세션 절감이 346.9 ms 로 보이지만, 둘을 이어서 돌리면 145.5 ms 다.
+      앞선 작업이 페이지 캐시·할당자를 덥혀 뒤 작업이 빨라지기 때문이다.
+      <b>실제 코드는 둘을 이어서 하므로 145.5 ms 가 정직한 값이다.</b></p>
+    </div>
+
+    <h3>핵심 발견 — 병목은 그래프 최적화가 아니라 <u>토크나이저</u>다</h3>
+    <p>고정비를 부분으로 쪼개 보니 <b>tokenizer.json 파싱 817.6 ms 가 단일 최대 항목</b>이었다.
+    이 카드가 겨냥하는 그래프 최적화는 <b>153.8 ms</b> 뿐이다.
+    <b>이 카드는 더 작은 쪽을 공격하고 있었다.</b> 그리고 토크나이저 쪽은
+    <code class="inl">tokenizers</code> 크레이트에 "미리 만들어 둔 것을 읽는" 경로가 없어 같은 수법을 쓸 수도 없다.</p>
+
+    <h3>채택 조건 판정 <span class="src">(아래 4개를 모두 만족해야 착수)</span></h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>#</th><th>조건</th><th>판정</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">1</td><td>게이트 후에도 모델 로딩이 체감될 만큼 자주 일어나는가</td>
+              <td class="wn">미지 — 코퍼스에 달렸다. 다만 <code class="inl">--files-from</code> 200건(44초) 배치에서는
+              145 ms 가 <b>0.3%</b> 라 의미가 없다</td></tr>
+          <tr><td class="mono">2</td><td>의미 있는 절감이 확인되는가</td>
+              <td class="x"><b>아니오 — 12.5%</b>. 배포본 +71%(158→271MB)의 대가로는 작다</td></tr>
+          <tr><td class="mono">3</td><td>R3(무효화)를 해시+버전으로 막는 설계가 함께 들어가는가</td>
+              <td class="wn">미구현 — 2번이 아니므로 진행하지 않음</td></tr>
+          <tr><td class="mono">4</td><td>벡터가 캐시 전/후 동일한가</td>
+              <td class="ok"><b>예 — 384차원 바이트 동일</b>(최대 절대오차 0.000e+00).
+              <code class="inl">--emb-test</code> 로 원본/최적화 모델 대조</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>4번은 통과했지만 <b>2번에서 걸린다.</b> 정확성은 문제가 없되 <b>이득이 값을 못 한다.</b></p>
+
+    <div class="note warn">
+      <span class="badge">ORT 의 경고</span>
+      <p>최적화 모델을 만들 때 ORT 가 직접 경고를 냈다 — R1(하드웨어 의존)이 문서상 우려가 아니라 실제였다:
+      <i>"Serializing optimized model with Graph Optimization level greater than ORT_ENABLE_EXTENDED and the NchwcTransformer enabled.
+      The generated model may contain hardware specific optimizations, and should only be used in the same environment the model was optimized in."</i></p>
+    </div>
+
+    <div class="note safe">
+      <span class="badge">다시 꺼낼 조건</span>
+      <p>이 카드를 다시 볼 만한 경우는 하나다 — <b>토크나이저 로딩까지 함께 없앨 방법이 생겼을 때.</b>
+      817 ms 를 그대로 둔 채 153 ms 를 깎아 봐야 체감이 안 된다.
+      그때가 오면 이 카드가 아니라 <b>Rust 상주 데몬(§08 ③)</b> 이 두 비용을 한 번에 없애는 정답이다.</p>
+    </div>
+
+    <h3>리스크 — 다섯 가지, 전부 해결책이 필요하다</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>#</th><th>리스크</th><th>대응</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">R1</td><td><b>하드웨어 의존</b> — Level3 는 레이아웃 최적화를 포함해 결과가 실행 환경에 매인다.
+              빌드 PC 에서 만든 파일을 배포에 동봉하면 다른 PC 에서 틀리거나 못 읽을 수 있다</td>
+              <td>배포에 넣지 않는다. <b>설치처 PC 에서 최초 1회 생성</b>하는 방식만 쓴다</td></tr>
+          <tr><td class="mono">R2</td><td><b>쓸 수 있는 위치가 아닐 수 있다</b> — exe 옆(Program Files 등)은 쓰기 권한이 없을 수 있다</td>
+              <td>쓰기 가능한 사용자 경로(<code class="inl">%LOCALAPPDATA%</code> 등)에 두고, 실패하면 <b>조용히 캐시 없이 진행</b></td></tr>
+          <tr><td class="mono">R3</td><td class="x"><b>무효화(가장 위험)</b> — 모델을 교체했는데 낡은 캐시를 그대로 쓰면
+              <b>다른 벡터가 나오고, 전파 판정이 조용히 흔들린다</b></td>
+              <td>캐시 파일명에 <b>model.onnx 의 SHA-256 + ORT 버전</b>을 박는다. 하나라도 다르면 캐시를 안 쓰고 새로 만든다</td></tr>
+          <tr><td class="mono">R4</td><td><b>디스크 발자국</b> — 최적화 모델이 118MB 한 벌 더 생긴다</td>
+              <td>설치 안내에 명시. 용량이 문제인 배포에서는 이 기능을 끌 수 있게 한다</td></tr>
+          <tr><td class="mono">R5</td><td><b>경합</b> — 여러 프로세스가 동시에 첫 실행이면 같은 파일에 함께 쓴다</td>
+              <td>임시 파일에 쓰고 <b>원자적 rename</b>. 실패하면 캐시 없이 진행(치명적이지 않다)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>정확성 — 두 판 벡터 일치 계약</h3>
+    <p>이 프로젝트의 핵심 계약 중 하나는 <b>"두 판의 벡터와 전파 결과가 일치한다"</b>(실행가이드 4장)이다.
+    다행히 전제는 유리하다 — <b>Python 도 같은 최적화 수준을 쓴다.</b></p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>판</th><th>최적화 수준</th><th>위치</th></tr></thead>
+        <tbody>
+          <tr><td>Python</td><td class="mono">ORT_ENABLE_ALL</td><td class="mono">onnx_embedder.py:114</td></tr>
+          <tr><td>Rust</td><td class="mono">Level3 <span class="src">(= ENABLE_ALL)</span></td><td class="mono">embed.rs:70</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>즉 캐시를 쓰더라도 <b>실행되는 그래프는 지금과 같은 그래프</b>다(최적화를 미리 해 두었을 뿐).
+    그래도 <b>가정으로 넘기지 않는다</b> — 채택 시 <code class="inl">--emb-test</code> 로 뽑은 384 벡터가
+    캐시 전/후, 그리고 Python 판과 <b>완전히 같은지</b> 확인하는 것을 착수 조건으로 둔다.</p>
+
+    <div class="note bad">
+      <span class="badge">채택 조건</span>
+      <p>아래를 <b>모두</b> 만족할 때만 착수한다. 하나라도 아니면 카드를 덮어 둔다.</p>
+    </div>
+    <ol class="plain">
+      <li>§04·§05 게이트가 들어간 뒤에도 <b>모델 로딩이 체감될 만큼 자주 일어난다</b>(미분류·seed 후보 비중이 높은 코퍼스)</li>
+      <li><code class="inl">--emb-test</code> 실측에서 <b>의미 있는 절감</b>이 확인된다(최소 기준을 미리 정할 것)</li>
+      <li>R3(무효화)를 <b>모델 해시 + ORT 버전</b>으로 막는 설계가 함께 들어간다</li>
+      <li>벡터가 캐시 전/후 및 Python 판과 <b>바이트 동일</b>하다</li>
+    </ol>
+    <div class="note info">
+      <span class="badge">우선순위</span>
+      <p>이 카드는 <b>"②를 빨리 하기"</b> 이고, §04 게이트는 <b>"②를 아예 안 하기"</b> 다.
+      <b>안 하는 것이 언제나 빨리 하는 것보다 낫다.</b> 순서를 바꾸지 않는다.</p>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">11</span><h2>작업 항목</h2></div>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>#</th><th>내용</th><th>대상</th><th>상태</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">1</td><td><code class="inl">need_any</code> 게이트 — <code class="inl">Embedder::load()</code> 를 조건부로(§04)</td><td class="mono">main.rs:1305</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">2</td><td><code class="inl">--embed-needed</code> 를 모드 결정에서 읽는다(§05)</td><td class="mono">main.rs:1174</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">3</td><td>모델·런타임 <b>경량 프리체크</b> + 실패 시 <b>load() 자체를 건너뛴다</b>(§07-1) — 패닉 종료 101 → 정상 종료 0</td><td class="mono">embed.rs <code class="inl">check_deployment()</code></td><td class="ok">완료</td></tr>
+          <tr><td class="mono">4</td><td><b>스킵 사유 note</b> — "임베딩 불필요 → 모델 로드 생략"(§07-2,3)</td><td class="mono">main.rs</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">5</td><td>main.rs:1216 <b>주석 수정</b>(§09-A)</td><td class="mono">main.rs:1239</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">6</td><td><b>검증</b> — <code class="inl">--embed-needed</code> 로 재측정 → <b>1,133ms → 18ms</b>(5회 중앙값, 규칙 확정 txt 1건)</td><td class="mono">실측</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">7</td><td><b>회귀 확인</b> — 게이트 전/후 결과 JSONL <b>바이트 동일</b> 확인(3케이스, §06)</td><td class="mono">실측</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">8</td><td>실행가이드·UIUX설계 예제 갱신(§09-D)</td><td class="mono">문서</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">9</td><td>죽은 함수 <code class="inl">run_csoclassify_dir</code> 정리(§09-C)</td><td class="mono">gerunner.py</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">10</td><td><b>벡터 출력 규칙</b> — <code class="inl">--embed-needed</code> 일 때도 레코드에 싣는다(다안 채택)</td><td class="mono">main.rs (3차 조립)</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">11</td><td><b>게이트 조건 정정</b> — <code class="inl">--embed-needed</code> 면 <code class="inl">seed_eligible</code> 도 need_any 에 포함(§04 정정)</td><td class="mono">main.rs</td><td class="ok">완료</td></tr>
+          <tr><td class="mono">12</td><td><b>배포본 재빌드</b> — Windows zip · Linux tgz(CentOS7 원격 빌드), 풀어서 실행 검증</td><td class="mono">dist-onedir</td><td class="ok">완료</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note safe">
+      <span class="badge">검증 기준</span>
+      <p>이 설계의 성공 조건은 <b>"빨라졌다"가 아니라 "결과가 그대로다"</b> 이다.
+      7번 — 같은 코퍼스·같은 인자로 게이트 전/후의 결과 파일이 <b>완전히 같아야</b> 한다.
+      다르면 §06 의 no-op 논증 중 어딘가가 틀린 것이므로, 게이트가 아니라 그 전제를 다시 봐야 한다.</p>
+    </div>
+    <h3>구현 중 드러난 것 — 결정이 필요하다</h3>
+    <div class="note safe">
+      <span class="badge">결정 · 다안</span>
+      <p><b>채택: 다(절충) — <code class="inl">--embed-needed</code> 를 명시했을 때만 벡터를 싣는다.</b>
+      기존 기본 출력(UI 경로)은 한 글자도 안 바뀌고, 인자는 제 뜻을 갖는다.
+      구현·확인 완료 — <code class="inl">--embed-needed</code> 실행에서 미분류 문서에 384차원 벡터가 실리고,
+      인자 없는 기본 실행은 <code class="inl">vector</code> 필드 0건으로 baseline 과 바이트 동일하다.</p>
+    </div>
+    <div class="note bad">
+      <span class="badge">배경</span>
+      <p><code class="inl">--embed-needed</code> 를 살려 놓고 보니, <b>seed 파일이 없는 상태에서 이 인자를 주면
+      벡터를 만들어 놓고 아무 데도 쓰지 않는다.</b> 실측(문서 2건)에서 19ms → 1,144ms 로 느려지는데
+      <b>결과 레코드는 바이트 단위로 똑같았다.</b> 순수한 낭비다.</p>
+    </div>
+    <p>원인은 두 판의 <b>벡터 출력 규칙이 다르다</b>는 데 있다. 이 설계의 범위(모드 결정) 밖이라 손대지 않았다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>판</th><th>레코드에 <code class="inl">vector</code> 를 싣는 조건</th><th>위치</th></tr></thead>
+        <tbody>
+          <tr><td>Python</td><td><b>벡터를 만들었으면 언제나</b> 싣는다</td><td class="mono">cli.py:1591</td></tr>
+          <tr><td>Rust</td><td><code class="inl">--with-vector</code> 를 줬을 때만 싣는다</td><td class="mono">main.rs (3차 조립)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>즉 <code class="inl">--embed-needed</code> 는 파이썬에서 <b>"못 정한 문서의 벡터를 결과에 실어 달라"</b>는 뜻인데,
+    Rust 에서는 그 벡터가 나갈 구멍이 없다. 세 갈래가 있고 <b>출력 계약을 바꾸는 문제라 임의로 정하지 않는다.</b></p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>안</th><th>내용</th><th>영향</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">가</td><td><b>현행 유지</b> — 모드만 맞추고 벡터는 <code class="inl">--with-vector</code> 로만</td>
+              <td>기존 출력 그대로. 대신 <code class="inl">--embed-needed</code> 단독 사용은 낭비로 남는다</td></tr>
+          <tr><td class="mono">나</td><td><b>파이썬과 완전 일치</b> — 벡터가 있으면 항상 싣는다</td>
+              <td>두 판 일치. 대신 <b>기본 경로 출력 파일이 커진다</b>(미분류 문서당 384개 실수)</td></tr>
+          <tr><td class="mono ok">다 ✔</td><td><b>절충(채택)</b> — <code class="inl">--embed-needed</code> 를 명시했을 때만 싣는다</td>
+              <td>기존 기본 출력은 그대로, 인자는 제 뜻을 가진다. 대신 Rust 안에서 규칙이 하나 늘어난다</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note bad">
+      <span class="badge">범위 밖</span>
+      <p>Rust 상주 데몬(③)은 이 설계에 포함하지 않는다. <b>최적화 그래프 캐싱(§10)</b>도 후속 카드이고,
+      §09-B(doctype 후보 추가 미작동)도 별건이다 —
+      <b>같이 손대면 "결과 불변"이라는 이 설계의 검증 기준이 무너진다.</b></p>
+    </div>
+  </section>
+
+  <footer>
+    <span>Rust 임베딩 모델 지연 로딩 — 규칙으로 끝나면 모델을 읽지 않는다</span>
+    <span>CSOClassify · 2026-09-02 설계 · 2026-09-02 구현</span>
+  </footer>
+
+</div>
+</body>
+</html>

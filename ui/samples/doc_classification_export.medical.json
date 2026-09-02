@@ -1,0 +1,285 @@
+{
+  "source": "HealthOrg.DOC_CLASSIFICATION",
+  "export_server": "sample://doc-classification-example (가짜 예시 데이터)",
+  "node_count": 18,
+  "nodes": [
+    {
+      "dc_id": "DC_001",
+      "parent_dc_id": null,
+      "order_num": 1,
+      "title": "진료지침",
+      "status": 1,
+      "path_ids": [
+        "DC_001"
+      ],
+      "path_titles": [
+        "진료지침"
+      ],
+      "path": "진료지침"
+    },
+    {
+      "dc_id": "DC_001_001",
+      "parent_dc_id": "DC_001",
+      "order_num": 1,
+      "title": "임상진료지침",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001"
+      ],
+      "path_titles": [
+        "진료지침",
+        "임상진료지침"
+      ],
+      "path": "진료지침 > 임상진료지침"
+    },
+    {
+      "dc_id": "DC_001_002",
+      "parent_dc_id": "DC_001",
+      "order_num": 2,
+      "title": "검진권고안",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_002"
+      ],
+      "path_titles": [
+        "진료지침",
+        "검진권고안"
+      ],
+      "path": "진료지침 > 검진권고안"
+    },
+    {
+      "dc_id": "DC_001_003",
+      "parent_dc_id": "DC_001",
+      "order_num": 3,
+      "title": "표준진료지침",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_003"
+      ],
+      "path_titles": [
+        "진료지침",
+        "표준진료지침"
+      ],
+      "path": "진료지침 > 표준진료지침"
+    },
+    {
+      "dc_id": "DC_002",
+      "parent_dc_id": null,
+      "order_num": 2,
+      "title": "환자안내",
+      "status": 1,
+      "path_ids": [
+        "DC_002"
+      ],
+      "path_titles": [
+        "환자안내"
+      ],
+      "path": "환자안내"
+    },
+    {
+      "dc_id": "DC_002_001",
+      "parent_dc_id": "DC_002",
+      "order_num": 1,
+      "title": "질환안내서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001"
+      ],
+      "path_titles": [
+        "환자안내",
+        "질환안내서"
+      ],
+      "path": "환자안내 > 질환안내서"
+    },
+    {
+      "dc_id": "DC_002_002",
+      "parent_dc_id": "DC_002",
+      "order_num": 2,
+      "title": "약제정보",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_002"
+      ],
+      "path_titles": [
+        "환자안내",
+        "약제정보"
+      ],
+      "path": "환자안내 > 약제정보"
+    },
+    {
+      "dc_id": "DC_002_003",
+      "parent_dc_id": "DC_002",
+      "order_num": 3,
+      "title": "수술동의서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_003"
+      ],
+      "path_titles": [
+        "환자안내",
+        "수술동의서"
+      ],
+      "path": "환자안내 > 수술동의서"
+    },
+    {
+      "dc_id": "DC_003",
+      "parent_dc_id": null,
+      "order_num": 3,
+      "title": "학술",
+      "status": 1,
+      "path_ids": [
+        "DC_003"
+      ],
+      "path_titles": [
+        "학술"
+      ],
+      "path": "학술"
+    },
+    {
+      "dc_id": "DC_003_001",
+      "parent_dc_id": "DC_003",
+      "order_num": 1,
+      "title": "학술논문",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_001"
+      ],
+      "path_titles": [
+        "학술",
+        "학술논문"
+      ],
+      "path": "학술 > 학술논문"
+    },
+    {
+      "dc_id": "DC_003_002",
+      "parent_dc_id": "DC_003",
+      "order_num": 2,
+      "title": "학회지",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_002"
+      ],
+      "path_titles": [
+        "학술",
+        "학회지"
+      ],
+      "path": "학술 > 학회지"
+    },
+    {
+      "dc_id": "DC_003_003",
+      "parent_dc_id": "DC_003",
+      "order_num": 3,
+      "title": "증례보고",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_003"
+      ],
+      "path_titles": [
+        "학술",
+        "증례보고"
+      ],
+      "path": "학술 > 증례보고"
+    },
+    {
+      "dc_id": "DC_004",
+      "parent_dc_id": null,
+      "order_num": 4,
+      "title": "검사/판독",
+      "status": 1,
+      "path_ids": [
+        "DC_004"
+      ],
+      "path_titles": [
+        "검사/판독"
+      ],
+      "path": "검사/판독"
+    },
+    {
+      "dc_id": "DC_004_001",
+      "parent_dc_id": "DC_004",
+      "order_num": 1,
+      "title": "검사결과지",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_001"
+      ],
+      "path_titles": [
+        "검사/판독",
+        "검사결과지"
+      ],
+      "path": "검사/판독 > 검사결과지"
+    },
+    {
+      "dc_id": "DC_004_002",
+      "parent_dc_id": "DC_004",
+      "order_num": 2,
+      "title": "영상판독지",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_002"
+      ],
+      "path_titles": [
+        "검사/판독",
+        "영상판독지"
+      ],
+      "path": "검사/판독 > 영상판독지"
+    },
+    {
+      "dc_id": "DC_005",
+      "parent_dc_id": null,
+      "order_num": 5,
+      "title": "병원행정",
+      "status": 1,
+      "path_ids": [
+        "DC_005"
+      ],
+      "path_titles": [
+        "병원행정"
+      ],
+      "path": "병원행정"
+    },
+    {
+      "dc_id": "DC_005_001",
+      "parent_dc_id": "DC_005",
+      "order_num": 1,
+      "title": "진료비계산서",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_001"
+      ],
+      "path_titles": [
+        "병원행정",
+        "진료비계산서"
+      ],
+      "path": "병원행정 > 진료비계산서"
+    },
+    {
+      "dc_id": "DC_005_002",
+      "parent_dc_id": "DC_005",
+      "order_num": 2,
+      "title": "의무기록사본신청서",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_002"
+      ],
+      "path_titles": [
+        "병원행정",
+        "의무기록사본신청서"
+      ],
+      "path": "병원행정 > 의무기록사본신청서"
+    }
+  ]
+}

@@ -20,7 +20,7 @@ _ROOT_NAME = "csoclassify"
 #------------------------------------------------------------------
 # 기본 로그 파일 경로
 #=> --log 를 안 줬을 때 쓰는 경로. "실행된 csoclassify.exe 가 있는 폴더" 아래 log/
-#   폴더에 날짜별 파일로 남긴다(<exe폴더>/log/csoclassify-YYYYMMDD.log). 소스 실행 때는
+#   폴더에 날짜별 파일로 남긴다(<exe폴더>/log/class_YYYYMMDD.log). 소스 실행 때는
 #   프로젝트 루트 아래 log/ 가 된다. 날짜별로 나눠 파일이 무한정 커지지 않게 한다.
 #
 # -in: 없음
@@ -31,18 +31,39 @@ _ROOT_NAME = "csoclassify"
 def default_log_path():
     # 로컬시각 기준 날짜 태그(클라이언트/데몬이 같은 날이면 같은 파일을 공유).
     day = time.strftime("%Y%m%d")
-    return os.path.join(resources.exe_dir(), "log", f"csoclassify-{day}.log")
+    return os.path.join(log_dir(), f"class_{day}.log")
+
+
+#------------------------------------------------------------------
+# 로그를 모아 둘 폴더
+#=> 일반 로그와 오류 로그를 '같은 곳'에 둔다. 예전에는 오류 로그만 실행 파일
+#   바로 옆에 흩어져 있어서, 여러 폴더에서 exe 를 돌리면 로그가 폴더마다
+#   따로 생기고 어디를 봐야 하는지 알 수 없었다.
+#    1) 환경변수 CSOCLASSIFY_LOGDIR 이 있으면 그 폴더(여러 대를 한곳에 모을 때)
+#    2) 없으면 <실행 파일이 있는 폴더>/log
+#   소스 실행이면 exe_dir() 이 프로젝트 루트라 <루트>/log 가 된다.
+#
+# -in: 없음
+#
+# -out: dir = 로그 폴더 절대경로(만들지는 않는다 — 쓰는 쪽이 만든다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def log_dir():
+    env = os.environ.get("CSOCLASSIFY_LOGDIR")
+    if env:
+        return os.path.abspath(env)
+    return os.path.join(resources.exe_dir(), "log")
 
 
 #------------------------------------------------------------------
 # 오류 전용 로그 파일 경로
-#=> 위의 일반 로그(log/csoclassify-YYYYMMDD.log)에는 정상 처리 기록까지 전부
-#   들어가 수천 줄이 된다. 문제가 생겼을 때 "무엇이 잘못됐나"만 빨리 보려면
-#   오류만 따로 모은 파일이 필요하다. 그래서 실행 파일 바로 옆에
-#   csoclassify_err_YYYYMMDD.log 로 오류(ERROR 이상)만 따로 남긴다.
-#    1) 환경변수 CSOCLASSIFY_ERRLOG 가 있으면 그 경로를 그대로 쓴다
-#       (읽기전용 폴더에 설치했거나 여러 대의 로그를 한곳에 모을 때)
-#    2) 없으면 exe 옆 csoclassify_err_YYYYMMDD.log
+#=> 위의 일반 로그(log/class_YYYYMMDD.log)에는 정상 처리 기록까지 전부 들어가
+#   수천 줄이 된다. 문제가 생겼을 때 "무엇이 잘못됐나"만 빨리 보려면 오류만
+#   따로 모은 파일이 필요하다. 그래서 같은 log/ 폴더에
+#   class_err_YYYYMMDD.log 로 오류(ERROR 이상)만 따로 남긴다.
+#    1) 환경변수 CSOCLASSIFY_ERRLOG 가 있으면 그 '파일 경로'를 그대로 쓴다
+#       (읽기전용 폴더에 설치했거나 여러 대의 로그를 한 파일로 모을 때)
+#    2) 없으면 log_dir()/class_err_YYYYMMDD.log — 일반 로그와 같은 폴더
 #   Rust 판(csoclassify-rs)도 같은 이름·같은 환경변수를 쓴다.
 #
 # -in: 없음
@@ -55,7 +76,7 @@ def default_err_log_path():
     if env:
         return os.path.abspath(env)
     day = time.strftime("%Y%m%d")
-    return os.path.join(resources.exe_dir(), f"csoclassify_err_{day}.log")
+    return os.path.join(log_dir(), f"class_err_{day}.log")
 
 
 #------------------------------------------------------------------
@@ -122,7 +143,8 @@ def setup_logging(log_path=None, verbose=False, err_log_path=None):
 
     # PID 를 넣어 클라이언트/데몬 로그를 한 파일에서도 구분할 수 있게 한다.
     fmt = logging.Formatter(
-        "%(asctime)s [PID %(process)d] %(levelname)s %(name)s: %(message)s",
+        "%(asctime)s [PID %(process)d] %(levelname)s "
+        "%(name)s.%(funcName)s:%(lineno)d: %(message)s",
         "%Y-%m-%d %H:%M:%S",
     )
 
@@ -149,7 +171,7 @@ def setup_logging(log_path=None, verbose=False, err_log_path=None):
             # 로그 파일을 못 열어도 본 기능은 계속되어야 하므로 조용히 넘어간다.
             pass
 
-    # (2-2) 오류 전용 로그: ERROR 이상만 exe 옆 csoclassify_err_YYYYMMDD.log 로.
+    # (2-2) 오류 전용 로그: ERROR 이상만 log/class_err_YYYYMMDD.log 로.
     #   delay=True 가 핵심이다 — 이렇게 해야 '실제로 오류가 났을 때' 비로소 파일이
     #   만들어진다. 안 그러면 정상 실행마다 빈 파일이 쌓여, 파일이 있다는 것만으로는
     #   오류가 있었는지 알 수 없게 된다(있으면 = 오류가 있었다, 가 되어야 유용하다).

@@ -81,7 +81,7 @@ cargo build --release           REM → target\release\csoclassify-rs.exe (2.3MB
 csoclassify-rs --dir "D:\분류함" --rules cso_rules.yaml --simple --nosummary --format jsonl
 csoclassify-rs --file a.docx    --rules cso_rules.yaml
 ```
-옵션: `--file/--dir · --rules · --format json|jsonl · --out · --simple · --hash · --with-pii · --rule-only · --vector-only · --with-vector · --auto-propagate · --seeds · --summary · --nosummary · --failsafe`
+옵션: `--file/--dir · --rules · --format json|jsonl · --out · --simple · --hash · --with-pii · --rule-only · --vector-only · --with-vector · --embed-needed · --auto-propagate · --seeds · --summary · --nosummary · --failsafe`
 - `--format json|jsonl` : **안 주면 `--out` 확장자를 따른다**(`.jsonl`/`.ndjson`→jsonl, `.json`→json,
   모르는 확장자·`--out` 없음→json). 추론되면 stderr 에 한 줄 알린다. `--format` 을 직접 주면 확장자와 달라도 그 값이 이긴다.
   파이썬 판 `resolve_format()` 과 같은 표를 쓴다.
@@ -101,6 +101,10 @@ csoclassify-rs --file a.docx    --rules cso_rules.yaml
   (최대 절대오차 1.5e-08 = float32 반올림 수준). 모델 로드 실패·본문 없음이면 필드를 아예 넣지 않는다.
   <br>※ 2026-08-26 이전 판은 추출 원문을 그대로 임베딩해 파이썬과 코사인 0.94~0.98 로 어긋났다
   (파이썬은 `clean_text()` 로 정제한 텍스트를 넣는다). 지금은 `embed::clean_for_embed()` 로 같은 모양을 만든 뒤 넣는다.
+- `--embed-needed` : **아직 못 정한 문서만** 임베딩한다(규칙으로 등급이 확정된 문서는 건너뛴다).
+  그 문서들의 `vector`(384차원)도 결과 레코드에 함께 실린다 — 파이썬 판과 같은 뜻이다.
+  <br>※ 2026-09-02 이전 판은 이 인자를 **받아만 두고 읽지 않았다**. seed 파일이 없으면 임베딩이
+  통째로 생략돼, 부르는 쪽은 임베딩을 시켰다고 믿는데 아무 일도 일어나지 않았다.
 - `--propagate <결과파일>` : 1차 결과(jsonl/json 배열/객체 1개 모두 가능)를 읽어 **전파만** 다시 도는 2차 패스.
   `--file/--dir` 대신 쓰며 **문서·모델·규칙셋이 전부 불필요**하다(저장된 신호를 되살려 재융합).
   파이썬 `--propagate` 와 인자·출력·통계 줄이 같다 — 같은 1차 파일로 실측 시 통계
@@ -110,6 +114,9 @@ csoclassify-rs --file a.docx    --rules cso_rules.yaml
   <br>※ 유사도가 동점인 이웃의 나열 순서는 두 판이 다를 수 있다(파이썬 `np.argsort` 가 불안정 정렬). 판정에는 영향 없음.
 - `--auto-propagate` : 보류 문서 전파(seed 있으면 기본 on이라 명시 불필요).
 - `--seeds <class_seed.jsonl>` : 전파 기준 seed(미지정 시 exe 옆 class_seed.jsonl).
+- `--sync-doc-rule` : 분류 체계를 훑어 `--doc-rules` 파일에 규칙을 채운다(유의어 사전 `synonyms/` 적용, 이미 있는 파일에도 덧붙임).
+  화면 [분류 불러오기] 버튼이 부르는 명령이며, 어휘 생성은 Python 판과 골든 테스트(`tests/docvocab_golden.json`)로 묶여 있다.
+- `--doctype-vector-only` : 업무분류(doctype) 1차 규칙 스캔을 건너뛰고 기준 문서 비교로만 분류. 규칙 파일의 `embed`·`conflict`·`defaults` 는 그대로 쓴다. security 축은 영향 없음.
 - `--check-rules` : 규칙셋의 등급 값만 검사하고 종료(문서를 읽지 않음). 정상 0, 검증 실패 4.
 
 **규칙셋 검증(fail-closed)** — 로드 시점에 등급 값을 검사한다. 정의되지 않은 등급(`base_grade: c` 오타 등)이나
@@ -151,7 +158,57 @@ copy dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll  target\release\
 - **ko-pii 미포팅 라벨(0 반환)**: NAME/PERSON·BIRTH·HEALTH 등 — CSOClassify 의 cso_rules.yaml
   이 등급판정에 쓰지 않는 라벨이라 포팅 대상 아님(현 20라벨로 등급 parity 충족).
 - **PERSON 사전(surnames/hanja/romanization) 미포팅**: 위와 같은 이유로 스코프 밖.
-- **압축 확장 · 상주 데몬**: 후속(현재 압축파일은 추출 스킵, 임베딩은 매 실행 모델 로드).
+- ~~문자 정규화(NFKC·대시류·안 보이는 문자) 미포팅~~ → **2026-09-02 해소.** `src/pii_fold.rs`
+  (자동 생성, 항목 5,595개 + 표시범위 195)로 전면 포팅했다. 회피 시도(전각·호모글리프
+  `95lOO6`·결합표시 `951́006`·소프트하이픈·아랍숫자·수학볼드)를 ko-pii 와 같이 검출한다.
+  <br>※ 다만 **NFKC 를 표로 근사**한 것이라, 두 글자 이상이 합쳐지는 정규화(`e`+´→`é`)는
+  하지 않는다. PII 는 숫자·ASCII 패턴이라 검출에 영향이 없다고 보고 넘긴 부분이다.
+  <br>※ 비용: 1MB 문서에서 +4.7%, 실무 크기 문서에서는 차이 없음(오차 범위), exe +70KB.
+- **상주 데몬(웜 모델) 없음 — 파일을 하나씩 따로 실행하면 느리다**:
+  이 판은 실행할 때마다 ONNX 모델을 새로 로드하고 프로세스가 끝나면 버린다. Python 판은
+  **기본 on 인 상주 데몬**이 모델을 메모리에 물고 있어 2회차부터 모델 로딩이 0 이다.
+  → **`--files-from <목록>`(2026-09-02 추가, 양쪽 판 모두)으로 경로 목록을 한 번에 넘기면**
+  모델 로드가 1회로 끝나 이 벌점이 사실상 사라진다. 여러 폴더에 흩어진 파일도 묶을 수 있어
+  `--dir`(한 폴더만) 로는 못 하던 배치가 된다.
+
+  실측 — `D:\분류함` 에서 **양쪽이 모두 추출 지원하는 포맷 200건**(pdf 69·txt 64·pptx 28·
+  docx 18·md 11·xlsx 6·hwpx 3·html 1), `--with-vector`, 동일 PC:
+
+  | 호출 방식 | Rust | Python(데몬 on) | Python(`--no-daemon`) |
+  |---|---|---|---|
+  | `--files-from` 1회 (200건 한 프로세스) | **44.0s** | 84.0s | 62.8s |
+  | `--file` 200회 (파일마다 프로세스) | 320.6s | **265.5s** | 471.6s |
+  | 건당 고정비(개별 호출) | 1.60s | **1.33s** | 2.36s |
+
+  읽는 법:
+  1. **`--files-from` 의 효과가 가장 크다** — Rust 320.6s → 44.0s(**7.3배**),
+     Python(데몬off) 471.6s → 62.8s(**7.5배**). 호출 구조를 바꾸는 것이 엔진을 바꾸는 것보다
+     훨씬 크게 먹힌다.
+  2. **배치에서는 Rust 가 빠르다**(44.0s vs 62.8~84.0s). 모델 로드 고정비가 200건에
+     희석되면서 추출·규칙 처리 속도가 그대로 드러난다.
+  3. **개별 호출에서는 Python(데몬 on)이 빠르다**(265.5s vs 320.6s) — 데몬이 모델 로드를
+     0 으로 만들기 때문. 이것이 이 항목이 '갭'인 이유다.
+  4. **`--files-from` 을 쓰면 데몬이 할 일이 없어진다** — 한 프로세스면 모델 로드가 어차피
+     1회라, Python 도 데몬을 끈 쪽(62.8s)이 켠 쪽(84.0s)보다 느리지 않았다.
+  ※ 프로세스 기동 자체는 Rust 가 더 빠르다(데몬 끈 Python 2.36s/건 > Rust 1.60s/건). 즉 이
+  격차는 코드가 느려서가 아니라 **웜 모델 재사용의 유무**에서 온다.
+  ※ `--rule-only` 는 모델을 아예 읽지 않으므로 이 문제가 없다 — 규칙만 필요하면 개별 호출도 빠르다.
+  <br>※ **[2026-09-02] 지연 로딩** — 1차 규칙 스캔을 마친 뒤 "임베딩할 문서가 하나라도 있는지"를 먼저 보고,
+  없으면 모델을 아예 올리지 않는다(`[csoclassify-rs] 임베딩 불필요(전 문서 규칙 확정) → 모델 로드 생략`).
+  위 표는 **`--with-vector`(전량 임베딩)로 잰 것이라 이 효과가 안 나타난다** — `--with-vector` 는
+  확정 문서까지 전부 임베딩하므로 게이트가 걸리지 않는다. 평소 호출(`--embed-needed`)에서 규칙으로
+  확정된 문서 1건을 `--file` 로 부르면 **1,133ms → 18ms**(5회 중앙값, txt). 규칙 적중률이 높은
+  코퍼스에서는 개별 호출 열세(320.6s vs Python 265.5s)가 뒤집힌다.
+  <br>※ **[2026-09-02] `--embed-needed` 가 실제로 동작한다** — 예전에는 인자를 받아만 두고 읽지 않아,
+  seed 파일이 없으면 임베딩이 통째로 생략됐다(파이썬 판은 언제나 동작). 이제 파이썬과 같은 우선순위이고,
+  이 인자를 주면 **못 정한 문서의 `vector` 도 결과 레코드에 실린다**. 인자 없는 기본 실행의 출력은 예전 그대로다.
+  ※ **주의**: `--daemon`/`--serve`/`--status`/`--stop` 은 호출부 호환을 위해 **인자만 받고 조용히
+  무시**한다([main.rs](src/main.rs) 의 "파이썬 판에만 있는 옵션들"). 오류도 안 나고 데몬도 안 뜨니,
+  스크립트가 `--serve` 로 상주시킨 줄 알고 있으면 계속 느린 채로 돈다.
+  ※ 측정 주의: 배치 3회 반복의 산포가 컸다(Rust 32.6~57.0s, Python 데몬 66.6~143.0s — 디스크
+  캐시 워밍 영향). 200회 개별 호출은 1회만 쟀다. **배수(7배)와 대소 관계는 견고하지만 초 단위
+  절대값은 ±30% 로 보라.**
+- **압축 확장**: 후속(현재 압축파일은 추출 스킵).
   ※ **임베딩 전파(Signal B)·--vector-only 는 포팅 완료**(외부 ONNX 로딩).
 
 ## parity 검증 방법
@@ -160,5 +217,35 @@ copy dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll  target\release\
 Rust:   csoclassify-rs --dir <t> --rules <r> --simple --nosummary --format jsonl
 Python: csoclassify.exe --dir <t> --hybridparse --rule-only --simple --nosummary --format jsonl
 ```
-두 결과를 파일명 기준으로 등급 비교. **라벨별 건수 검증**은 ko-pii `detect_all(text, include=<20라벨>)`
-결과와 Rust 검출 건수를 직접 대조(probe 문서로 20라벨 모두 건수 일치 확인).
+두 결과를 파일명 기준으로 등급 비교. 다만 **등급 비교만으로는 PII 검증이 안 된다** — 등급은
+라벨별 건수를 임계값으로 뭉갠 결과라, 라벨 하나를 통째로 놓쳐도 등급이 같으면 통과한다.
+그래서 PII 는 아래 골든 픽스처로 따로 검증한다.
+
+### PII 골든 픽스처 (라벨별 건수·검출값 대조)
+
+`pii.rs` 는 ko-pii 를 **쓰는** 게 아니라 **옮겨 적은** 것이라, ko-pii 를 올리면 소리 없이
+어긋난다. 그래서 진짜 ko-pii 가 낸 답을 `tests/pii_golden.json` 에 굳혀 두고 대조한다.
+
+- `tests/pii_corpus.yaml` — **검사 문장 목록(사람이 고치는 파일)**. 사례를 넣고 빼는 곳.
+- `tests/pii_golden.json` — 그 문장을 ko-pii 에 넣어 나온 **정답(자동 생성, 손대지 말 것)**.
+- `src/pii_fold.rs` — 문자 정규화표(**자동 생성**). `scripts/gen_pii_fold.py` 가 ko-pii 에
+  글자를 하나씩 넣어 '실제로 무엇이 되는지' 물어 뽑는다. ko-pii 표(`_CHAR_FOLD`)를 베끼지
+  않는 이유는 그 표가 NFKC 뒤에 적용돼 실제 효과가 표와 다른 항목이 있기 때문이다.
+  ko-pii 를 올리면 `python scripts/gen_pii_fold.py` 로 다시 뽑는다(`--check` 로 확인).
+
+```
+python scripts/gen_pii_golden.py            # 정답표 생성/갱신 (ko-pii 필요)
+python scripts/gen_pii_golden.py --check    # 정답표가 최신인지 확인만 (다르면 exit 1)
+cargo test pii                              # 정답표와 대조 (ko-pii·exe·문서추출 불필요)
+```
+
+- 정답표 기준은 `detect_all(text, include=<20라벨>)` — 운영 코드(`rules.py`)의 부분검출·
+  청킹 최적화가 아니라 **원본 엔진**이 정답이다.
+- 테스트 3종: 라벨별 **건수** 일치 / 검출 **값** 일치(span 경계) / 정답표가 **20라벨을 모두 덮는지**
+  (마지막 것이 없으면 "0건이라 검증된 줄 알았는데 안 한" 라벨이 생긴다).
+- 값 비교는 `values_comparable=false` 인 사례(전각·제로폭으로 정규화가 글자를 바꾼 문서)만
+  건너뛴다 — ko-pii 는 값을 원본 좌표로 되돌려 주고 Rust `pii_records` 는 정규화 좌표를 주므로
+  다른 게 정상이다.
+- 실문서를 코퍼스에 넣으려면 `--corpus-dir <폴더>` (추출기 차이가 끼면 안 되므로 `.txt/.md` 만).
+- **ko-pii 를 올릴 때**: 정답표를 다시 뽑고 `cargo test` 를 돌린다. 거기서 깨지는 차이가 곧
+  포팅이 따라가야 할 변경분 목록이다.

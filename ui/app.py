@@ -23,9 +23,10 @@
 
 import json
 import os
+import shutil
 import sys
-import glob as globmod
 import tempfile
+import glob as globmod
 import time
 import datetime
 from collections import Counter, defaultdict
@@ -38,7 +39,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import seedstore
 import gerunner
 import rulesedit
-import report
 import doctype_review
 import docruleedit
 import taxonomy as taxlib
@@ -51,7 +51,11 @@ import uiwords as W
 MENU_HOME = "현황"
 MENU_BOX = "문서함"
 MENU_INBOX = "검토함"
-MENU_SET = "설정"
+# 설정 화면에는 '④ 분류 실행'도 함께 있다. 이름이 '설정'뿐이면 분류를 어디서
+# 시작하는지 못 찾으므로, 두 가지 일을 다 한다는 것을 이름으로 알린다.
+MENU_SET = "설정/분류"
+# 기준 문서는 '설정 안의 한 칸'이 아니라 계속 손대는 자산이라 메뉴로 따로 뺐다.
+MENU_SEED = "기준문서"
 
 # 화면 이동 예약을 담아 두는 세션 키. 위젯 key("menu")와 '반드시 달라야' 한다 —
 # 위젯 key 에 직접 값을 넣는 것이 바로 아래에서 설명하는 금지 동작이다.
@@ -248,6 +252,66 @@ def fmt_duration(sec):
 #------------------------------------------------------------------
 def run_meta_path(grades_path):
     return grades_path + ".meta.json"
+
+
+#------------------------------------------------------------------
+# --simple 형식 파일 경로
+#=> 분류 결과 옆에 나란히 둔다(cso_result.jsonl → cso_result.simple.jsonl).
+#
+# -in: grades_path = 분류 결과 jsonl 경로
+#
+# -out: str = 옆에 둘 --simple 파일 경로
+# -out: error = 없음
+#------------------------------------------------------------------
+def simple_path(grades_path):
+    base, ext = os.path.splitext(grades_path or "cso_result.jsonl")
+    return f"{base}.simple{ext or '.jsonl'}"
+
+
+#------------------------------------------------------------------
+# 레코드 하나 → --simple 한 줄
+#=> 엔진의 --simple 이 내는 것과 '같은 내용'을 전체 결과에서 그대로 뽑는다.
+#   엔진 쪽 구현(cli.py _simple_record · main.rs)과 고르는 칸이 같아야 한다:
+#     file · grade · hash (+ 업무분류 축이 돌았으면 doctype = dc_id 배열)
+#   업무분류 키는 축이 돌았을 때만 붙인다 — 빈 배열로 내보내면 "분류를 못 했다"와
+#   "축을 안 썼다"가 구분되지 않는다.
+#
+# -in: rec = 분류 레코드(전체)
+#
+# -out: dict = --simple 한 줄
+# -out: error = 없음
+#------------------------------------------------------------------
+def simple_record(rec):
+    # 칸 차례도 엔진의 --simple 과 맞춘다(file·hash → grade·doctype → why).
+    out = {"file": rec.get("file"), "hash": rec.get("hash"), "grade": rec.get("grade")}
+    dt = (rec.get("labels") or {}).get("doctype")
+    if isinstance(dt, dict):
+        out["doctype"] = [v.get("dc_id") for v in (dt.get("values") or []) if v.get("dc_id")]
+    # 못 읽은 문서에는 그 사실을 함께 싣는다 — 엔진의 --simple 과 같은 모양이다.
+    err = rec.get("error")
+    if isinstance(err, dict):
+        out["error"] = err.get("reason") or "extract_failed"
+    return out
+
+
+#------------------------------------------------------------------
+# --simple 형식 파일 쓰기
+#=> 분류를 다시 돌리지 않는다. 방금 만든 전체 결과에서 필요한 칸만 뽑아 쓴다 —
+#   --simple 은 애초에 전체 레코드의 '골라 담기'라서 결과가 같고, 다시 돌리면
+#   문서를 통째로 한 번 더 읽어 시간이 두 배가 된다.
+#
+# -in: grades_path = 분류 결과 jsonl 경로
+# -in: records     = 그 결과에서 읽은 레코드 리스트
+#
+# -out: (path, n) = 쓴 파일 경로와 줄 수
+# -out: error = 쓰기 실패 시 예외 전파(호출부가 화면에 표시)
+#------------------------------------------------------------------
+def write_simple_file(grades_path, records):
+    path = simple_path(grades_path)
+    with open(path, "w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(simple_record(rec), ensure_ascii=False) + "\n")
+    return path, len(records)
 
 
 #------------------------------------------------------------------
@@ -1133,10 +1197,23 @@ def render_bulk_seed_promote(files, rec_by_file, latest, latest_dt, tax=None):
             txt += f" · {os.path.basename(path)}"
         prog.progress(done / total if total else 1.0, text=txt)
 
+    # 벡터가 없는 문서는 '한 번의 실행'으로 몰아서 임베딩한다. 문서마다 따로 돌리면
+    # 임베딩 모델을 문서 수만큼 다시 읽는다 — 실측에서 6건에 6.5초 vs 1.1초(5.7배)였다.
+    need = [x["file"] for x in todo if not x["rec"].get("vector")]
+    ready = {}
+    if need:
+        prog.progress(0.0, text=f"벡터가 없는 {len(need)}건을 한 번에 임베딩 중…")
+        try:
+            ready = gerunner.embed_files(
+                gerunner.parse_base_cmd(cfg.get("csoclassify_cmd")), need,
+                pythonpath=cfg.get("pythonpath"),
+                on_progress=lambda d, t, p: _on_prog(d, t, p))
+        except Exception as e:
+            uierrlog.show_error(f"임베딩 실패: {e}", exc=e, where="기준 문서 임베딩")
+
     cur, stats = apply_bulk_seed(
         plan, seeds, cfg["reviewer"].strip(), audit_path=cfg.get("audit_path"),
-        force=force, embed=lambda f: _embed_file_ondemand(cfg, f),
-        on_progress=_on_prog)
+        force=force, embed=ready.get, on_progress=_on_prog)
     prog.progress(1.0, text="등록 완료")
 
     parts = [f"새로 등록 {stats['new']}건", f"갱신 {stats['update']}건"]
@@ -1461,7 +1538,6 @@ def render_doctype_panel(rec, latest_dt, history_dt, ov_path, reviewer, tax, sco
                            f"· {e.get('reason','')}")
 
 
-
 #------------------------------------------------------------------
 # 내보내기 버튼 렌더 (문서함 오른쪽 위)
 #=> 확정 결과를 CSV/JSONL 로 내려받아 문서중앙화 시스템이 접근권한 적용에 쓰게 한다.
@@ -1532,7 +1608,7 @@ def seed_doc_meta(rec):
 def _embed_file_ondemand(cfg, file):
     base = gerunner.parse_base_cmd(cfg.get("csoclassify_cmd"))
     if not base:
-        st.error("분류 실행 명령이 비어 있습니다 — 설정 ▸ 고급 ▸ 실행 명령을 먼저 채워 주세요.")
+        st.error("분류 실행 명령이 비어 있습니다 — 설정/분류 ▸ 고급 ▸ 실행 명령을 먼저 채워 주세요.")
         return None
     if not os.path.isfile(file):
         st.error(f"원본 파일을 찾을 수 없어 임베딩을 계산하지 못했습니다: {file}")
@@ -1553,7 +1629,7 @@ def _embed_file_ondemand(cfg, file):
         if "with-vector" in err:
             st.error("실행 명령이 `--with-vector` 를 모릅니다 — 기준 문서로 쓸 벡터를 "
                      "받을 수 없습니다. 실행 파일이 옛 빌드일 수 있으니 다시 빌드하거나, "
-                     "설정 ▸ 고급 ▸ 실행 명령을 벡터를 내는 버전으로 바꿔 주세요.")
+                     "설정/분류 ▸ 고급 ▸ 실행 명령을 벡터를 내는 버전으로 바꿔 주세요.")
         else:
             st.error("임베딩 벡터를 얻지 못했습니다 — 이 문서에서 텍스트를 뽑지 "
                      "못했을 수 있습니다(추출 실패). 문서를 열어 내용이 있는지 "
@@ -1688,21 +1764,21 @@ def render_seed_promote(rec, final_grade, confirmed_dc_ids, tax=None, scope="lis
 
 #------------------------------------------------------------------
 # seed 관리 화면 렌더 (Phase 4)
-#=> 기준 문서 구성 확인 + 이번 분류에서 고신뢰 C/S 일괄 등록 + 신규 파일 직접
-#   업로드 등록 + 등록된 기준 문서를 축별로 고치기 + 저장소 점검.
+#=> 지금 기준 문서가 몇 건이고 등급이 고르게 있는지만 보여준다(읽기 전용).
+#   [왜 관리 기능이 여기 없나] 등록은 문서함에서 문서를 골라 하는 것이 자연스럽고
+#   (여러 건 한꺼번에 등록도 거기 있다), 이 화면에 등록·수정·점검까지 모아 두니
+#   설정 화면이 길어져 정작 '파일 위치'를 찾기 어려웠다.
 #
-# -in: records = 이번 분류 레코드 리스트(등록 후보 추출용, 벡터 포함)
-# -in: latest  = 파일별 최신 오버라이드 맵(등록 시 사람이 고친 최종등급 반영)
-# -in: tax     = 회사 분류 체계(없는 분류코드 점검에 쓴다. None 이면 그 점검만 생략)
+# -in: records = (쓰지 않음 — 호출부 모양을 유지하려고 남겨 둔 인자)
+# -in: latest  = (쓰지 않음)
+# -in: tax     = (쓰지 않음)
 #
 # -out: 없음(Streamlit 출력)
-# -out: error = 없음(개별 실패는 화면에 표시)
+# -out: error = 없음
 #------------------------------------------------------------------
-def render_seed_manager(records, latest, tax=None):
+def render_seed_manager(records=None, latest=None, tax=None):
     cfg = st.session_state.get("seedcfg", {})
     seed_path = cfg.get("seed_path")
-    audit_path = cfg.get("audit_path")
-    reviewer = cfg.get("reviewer", "")
 
     seeds = seedstore.load_seeds(seed_path)
     counts = seedstore.grade_counts(seeds)
@@ -1724,506 +1800,33 @@ def render_seed_manager(records, latest, tax=None):
             st.warning(f"등급이 한쪽으로 쏠려 있습니다 — {weak} 기준 문서가 부족합니다. "
                        "비슷한 문서 비교가 그 등급을 잘 못 맞출 수 있어요(보강 권장).")
 
-    st.divider()
-    st.markdown("**① 이번 분류에서 골라 등록**")
-    st.caption("규칙으로 확실하게 등급이 정해진 문서와 관리자가 직접 확정한 문서를 "
-               "본보기로 등록합니다. 등록할 등급을 고르고 [한꺼번에 등록]을 누르세요. "
-               "사본은 자동으로 건너뜁니다.")
-    # 후보: 최종등급 C/S/O + 고신뢰(규칙 seed_eligible 또는 사람이 오버라이드로 확정).
-    # 벡터 있는 건 바로, 없는 건(빠른 분류로 생략) 승격 시 온디맨드로 임베딩한다.
-    cands_by_grade = {"C": [], "S": [], "O": []}   # 등급별 벡터 보유 후보 {file,grade,vector}
-    novec_by_grade = {"C": [], "S": [], "O": []}   # 등급별 벡터 없는 후보 {file,grade}
-    for rec in records:
-        g, overridden = effective_grade(rec, latest)
-        if g in ("C", "S", "O") and (rec.get("seed_eligible") or overridden):
-            if rec.get("vector"):
-                cands_by_grade[g].append({"file": rec.get("file"), "grade": g, "vector": rec.get("vector")})
-            else:
-                novec_by_grade[g].append({"file": rec.get("file"), "grade": g})
-
-    # 등급별 체크박스 — 각 등급 후보 수를 라벨에 표시(후보 0건이면 비활성).
-    grade_emoji = {"C": "🔴", "S": "🟠", "O": "🟢"}
-    cc = st.columns(3)
-    picked = {}
-    for i, g in enumerate(("C", "S", "O")):
-        n_g = len(cands_by_grade[g]) + len(novec_by_grade[g])
-        picked[g] = cc[i].checkbox(f"{grade_emoji[g]} {g} ({n_g}건)",
-                                   value=(g in ("C", "S")),   # 기본: C/S 선택, O 미선택
-                                   disabled=not n_g, key=f"seedpromo_pick_{g}")
-
-    # 선택된 등급의 후보만 모은다.
-    chosen = [g for g in ("C", "S", "O") if picked.get(g)]
-    cands = [c for g in chosen for c in cands_by_grade[g]]
-    novec_cands = [c for g in chosen for c in novec_by_grade[g]]
-    total_cand = len(cands) + len(novec_cands)
-    st.caption(f"고른 등급 **{'/'.join(chosen) if chosen else '없음'}** · 등록 후보 **{total_cand}건** "
-               "(중복·이미 등록된 것은 자동 제외)"
-               + (f" · 그중 {len(novec_cands)}건은 벡터가 없어 승격 시 임베딩을 계산합니다(지연)"
-                  if novec_cands else ""))
-    if st.button("🌱 한꺼번에 등록(중복 제외)", type="primary", disabled=not total_cand):
-        if not reviewer.strip():
-            st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요(기록에 남깁니다).")
-        else:
-            allcands = list(cands)
-            # 벡터 없는 후보는 그 문서만 임베딩해 벡터를 채운다(실패분은 조용히 제외).
-            if novec_cands:
-                prog = st.progress(0.0, text=f"벡터 없는 후보 {len(novec_cands)}건 임베딩 중…")
-                base = gerunner.parse_base_cmd(cfg.get("csoclassify_cmd"))
-                for j, c in enumerate(novec_cands):
-                    try:
-                        r = gerunner.run_csoclassify_file(base, c["file"],
-                                                          pythonpath=cfg.get("pythonpath"))
-                        v = r.get("vector")
-                        if v:
-                            allcands.append({"file": c["file"], "grade": c["grade"], "vector": v})
-                    except Exception:
-                        pass
-                    prog.progress((j + 1) / len(novec_cands))
-            new_seeds, added, stats = seedstore.bulk_add_confident(
-                seeds, allcands, reviewer.strip(), source="phase2", note="일괄 승격")
-            if added:
-                seedstore.save_seeds(seed_path, new_seeds)
-                for a in added:
-                    seedstore.append_seed_audit(audit_path, "add", a["file"],
-                                                axis="security", before=None,
-                                                after=a["grade"], reviewer=reviewer.strip(),
-                                                reason="한꺼번에 등록")
-                st.success(f"{stats['added']}건 등록 · 건너뜀: 중복 {stats['dup']} · "
-                           f"기존 {stats['exist']} · 벡터없음 {stats['novec']}")
-                st.rerun()
-            else:
-                st.info(f"새로 등록된 기준 문서가 없습니다(중복 {stats['dup']} · "
-                        f"기존 {stats['exist']} · 벡터없음 {stats['novec']}).")
-
-    st.divider()
-    st.markdown("**② 파일을 직접 올려 등록**")
-    st.caption("분류를 돌리지 않고, 관리자가 대표 문서를 직접 본보기로 등록합니다.")
-    # 완료 후 업로드/등급/메모 위젯을 비우려고 버전 카운터로 key 를 갈아끼운다(초기화 트릭).
-    ver = st.session_state.get("up_ver", 0)
-    flash = st.session_state.pop("up_flash", None)   # 초기화 직후에도 결과 메시지는 보이게
-    if flash:
-        st.success(flash)
-    up = st.file_uploader("파일 업로드(여러 개 가능)", accept_multiple_files=True,
-                          key=f"up_file_{ver}")
-    ug = st.radio("부여할 등급", ["C", "S", "O"], horizontal=True, key=f"up_grade_{ver}",
-                  format_func=lambda g: W.GRADE_LABEL[g])
-    unote = st.text_input("메모(선택)", key=f"up_note_{ver}")
-    if st.button("올린 파일을 기준 문서로 등록", type="primary"):
-        if not reviewer.strip():
-            st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요.")
-        elif not up:
-            st.warning("파일을 올리세요.")
-        else:
-            base = gerunner.parse_base_cmd(cfg.get("csoclassify_cmd"))
-            cur = seeds
-            added = 0
-            n_up = len(up)
-            prog = st.progress(0.0, text=f"업로드 처리 중… (0/{n_up})")
-            for i, uf in enumerate(up):
-                # 처리 시작 시 현재 파일명을 진행바에 표시(임베딩이 느릴 수 있어).
-                prog.progress(i / n_up, text=f"임베딩·등록 중… {i}/{n_up} · {uf.name}")
-                tmpd = tempfile.mkdtemp()
-                tp = os.path.join(tmpd, uf.name)
-                with open(tp, "wb") as f:
-                    f.write(uf.getbuffer())
-                try:
-                    rec = gerunner.run_csoclassify_file(base, tp, pythonpath=cfg.get("pythonpath"))
-                    vec = rec.get("vector")
-                    if not vec:
-                        st.error(f"{uf.name}: 벡터를 얻지 못했습니다.")
-                    else:
-                        cur = seedstore.add_seed(cur, uf.name, ug, vec, reviewer.strip(),
-                                                 source="upload", note=unote.strip())
-                        seedstore.append_seed_audit(audit_path, "add", uf.name,
-                                                    axis="security", before=None,
-                                                    after=ug, reviewer=reviewer.strip(),
-                                                    reason="파일 업로드 등록")
-                        added += 1
-                except Exception as e:
-                    uierrlog.show_error(f"{uf.name}: {e}", exc=e, where="기준 문서 업로드")
-                prog.progress((i + 1) / n_up, text=f"완료 {i + 1}/{n_up} · {uf.name}")
-            if added:
-                seedstore.save_seeds(seed_path, cur)
-                # 완료 → 다음 실행에서 업로드/등급/메모 초기화(ver+1) + 결과 메시지 표시(flash)
-                st.session_state["up_flash"] = f"{added}건을 기준 문서로 등록했습니다"
-                st.session_state["up_ver"] = ver + 1
-                st.rerun()
-            else:
-                st.warning("등록된 기준 문서가 없습니다(위 오류 메시지를 확인하세요).")
-
-    st.divider()
-    st.markdown("**③ 등록된 기준 문서 고치기(축별 해제 · 등급 · 메모 · 삭제)**")
-    if not seeds:
-        st.info("아직 등록된 기준 문서가 없습니다. 위에서 파일을 올리거나, 문서함에서 등록하세요.")
-        return
-    st.caption("한 문서가 두 축(보안등급 · 업무분류)을 함께 떠받칩니다. "
-               "한 축만 빼려면 **그 축의 해제**를 체크하세요 — 다른 축은 그대로 남습니다. "
-               "**삭제**는 두 축을 함께 지웁니다.")
-    st.caption(f"{W.GRADE_LABEL['C']} {counts['C']} · {W.GRADE_LABEL['S']} {counts['S']} · "
-               f"{W.GRADE_LABEL['O']} {counts['O']}")
-
-    sdf = pd.DataFrame([_seed_row(s, tax) for s in seeds])
-    edited = st.data_editor(
-        sdf, hide_index=True, width="stretch", key="seed_editor",
-        column_config={
-            "file": st.column_config.TextColumn("문서", disabled=True, width="large"),
-            "grade": st.column_config.SelectboxColumn("등급", options=["C", "S", "O"], width="small"),
-            "doctype": st.column_config.TextColumn("업무분류", disabled=True),
-            "state": st.column_config.TextColumn("상태", disabled=True),
-            "note": st.column_config.TextColumn("메모"),
-            "다시 사용": st.column_config.CheckboxColumn("다시 사용", width="small",
-                                                     help="‘확인 필요’로 빠져 있는 축을 다시 잣대로 씁니다"),
-            "보안 해제": st.column_config.CheckboxColumn("보안 해제", width="small"),
-            "분류 해제": st.column_config.CheckboxColumn("분류 해제", width="small"),
-            "삭제": st.column_config.CheckboxColumn("삭제", width="small"),
-        },
-    )
-    if st.button("변경 저장"):
-        if not reviewer.strip():
-            st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요.")
-            return
-        who = reviewer.strip()
-        cur, changes, dropped = list(seeds), 0, 0
-        for _, row in edited.iterrows():
-            f = row["file"]
-            o = seedstore.find_seed(seeds, f) or {}
-
-            # 삭제가 가장 강하다 — 두 축을 함께 지운다(되돌릴 이력은 감사 로그에).
-            if row["삭제"]:
-                cur = seedstore.remove_seed(cur, f)
-                seedstore.append_seed_audit(audit_path, "delete", f, axis="-",
-                                            before=_axis_summary(o), after=None,
-                                            reviewer=who, reason="표에서 삭제")
-                changes += 1
+#------------------------------------------------------------------
+# 업무분류가 확정된 기준 문서가 몇 건인가(가볍게 세기)
+#=> '규칙 없이 기준 문서만으로' 옵션을 고를 수 있는지 판단하는 데만 쓴다.
+#   load_seeds 는 문서마다 384차원 벡터까지 통째로 읽어 무겁다 — 여기서는
+#   labels.doctype 이 있는 줄만 세면 되므로 벡터는 버린다.
+#
+# -in: path = class_seed.jsonl 경로
+#
+# -out: int = 업무분류 라벨을 가진 기준 문서 수(파일이 없으면 0)
+# -out: error = 없음(깨진 줄은 건너뛴다)
+#------------------------------------------------------------------
+def count_doctype_seeds(path):
+    if not path or not os.path.isfile(path):
+        return 0
+    n = 0
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
                 continue
-
-            # 축별 해제 — 값은 남기고 상태만 바꾼다(무엇을 뺐는지 남아야 한다).
-            for axis, col in (("security", "보안 해제"), ("doctype", "분류 해제")):
-                if row[col] and seedstore.axis_state(o, axis) not in ("", "retired"):
-                    cur, gone = seedstore.retire_axis(cur, f, axis)
-                    seedstore.append_seed_audit(audit_path, "retire", f, axis=axis,
-                                                before=seedstore.axis_value(o, axis),
-                                                after=None, reviewer=who,
-                                                reason="표에서 해제")
-                    changes += 1
-                    if gone:
-                        dropped += 1
-
-            # '다시 사용' — 시스템이 잠시 빼 둔(확인 필요) 축을 사람이 되살린다.
-            if row["다시 사용"]:
-                for axis in seedstore.AXES:
-                    if seedstore.axis_state(o, axis) == seedstore.STATE_SUSPECT:
-                        cur = seedstore.restore_axis(cur, f, axis)
-                        seedstore.append_seed_audit(audit_path, "restore", f, axis=axis,
-                                                    before=None,
-                                                    after=seedstore.axis_value(o, axis),
-                                                    reviewer=who, reason="관리자 확인")
-                        changes += 1
-
-            # 등급 변경 — 보안축을 해제하는 중이 아닐 때만 의미가 있다.
-            before_g = seedstore.axis_value(o, "security")
-            if row["grade"] and row["grade"] != before_g and not row["보안 해제"]:
-                cur = seedstore.set_axis(cur, f, "security", row["grade"], who)
-                seedstore.append_seed_audit(audit_path, "update", f, axis="security",
-                                            before=before_g, after=row["grade"],
-                                            reviewer=who, reason="표에서 수정")
-                changes += 1
-
-            # 메모는 줄 전체에 붙는 값이라 축과 무관하게 그대로 적는다.
-            if (row["note"] or "") != (o.get("note") or ""):
-                cur = [({**x, "note": row["note"] or ""}
-                        if seedstore.norm_file(x.get("file")) == seedstore.norm_file(f) else x)
-                       for x in cur]
-                changes += 1
-
-        if changes:
             try:
-                left = seedstore.save_seeds(seed_path, cur)
-            except OSError as e:
-                uierrlog.show_error(f"기준 문서 저장 실패: {e}", exc=e, where="기준 문서 저장")
-                return
-            msg = f"{changes}건 변경 저장됨 · 남은 기준 문서 {left}건"
-            if dropped:
-                msg += f" (두 축이 모두 해제돼 {dropped}건은 목록에서 빠졌습니다)"
-            st.success(msg)
-            st.rerun()
-        else:
-            st.info("변경 사항이 없습니다.")
-
-    st.divider()
-    render_seed_check(seeds, records, tax, seed_path, audit_path, reviewer)
-
-
-#------------------------------------------------------------------
-# 기준 문서 표의 한 줄 만들기
-#=> 두 축의 값과 상태를 한 줄에 사람이 읽을 수 있게 눌러 담는다.
-#
-# -in: s   = 기준 문서 항목
-# -in: tax = 회사 분류 체계(분류 이름을 보여주는 데만 쓴다)
-#
-# -out: dict = data_editor 한 줄
-# -out: error = 없음
-#------------------------------------------------------------------
-def _seed_row(s, tax=None):
-    dc_ids = list(seedstore.axis_value(s, "doctype") or [])
-    names = " · ".join(taxlib.path_of(tax, d) for d in dc_ids) if dc_ids else ""
-    # 상태는 축마다 다를 수 있으므로 '축: 상태' 를 이어 붙인다(사유가 있으면 함께).
-    bits = []
-    for a in seedstore.AXES:
-        stt = seedstore.axis_state(s, a)
-        if not stt:
-            continue
-        txt = f"{seedstore.AXIS_LABEL[a]} {W.SEED_STATE.get(stt, stt)}"
-        reason = ((s.get("axes") or {}).get(a) or {}).get("reason")
-        if reason:
-            txt += f"({W.SEED_REASON.get(reason, reason)})"
-        bits.append(txt)
-    return {
-        "file": s.get("file"),
-        "grade": seedstore.axis_value(s, "security") or "",
-        "doctype": names,
-        "state": " · ".join(bits),
-        "note": s.get("note", "") or "",
-        "다시 사용": False, "보안 해제": False, "분류 해제": False, "삭제": False,
-    }
-
-
-#------------------------------------------------------------------
-# 감사 로그에 남길 '줄 전체' 요약
-#=> 줄을 통째로 지울 때 무엇이 사라졌는지 한 줄로 남긴다.
-#
-# -in: s = 기준 문서 항목
-#
-# -out: dict = {"security":..., "doctype":[...]}
-# -out: error = 없음
-#------------------------------------------------------------------
-def _axis_summary(s):
-    return {a: seedstore.axis_value(s, a) for a in seedstore.AXES
-            if seedstore.axis_state(s, a)}
-
-
-#------------------------------------------------------------------
-# 파일 내용 해시(SHA-256)
-#=> 기준 문서를 다시 읽어 갱신할 때 '새 지문'을 구한다. 엔진의 --hash 와 같은
-#   방식(내용 전체 SHA-256, 소문자 16진수)이어야 다음 분류에서 값이 맞는다.
-#
-# -in: path = 파일 경로
-#
-# -out: str|None = 16진수 해시(읽기 실패면 None)
-# -out: error = 없음(실패를 None 으로 환원)
-#------------------------------------------------------------------
-def _file_sha256(path):
-    import hashlib
-    h = hashlib.sha256()
-    try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
-    except OSError:
-        return None
-    return h.hexdigest()
-
-
-#------------------------------------------------------------------
-# ④ 기준 문서 점검 화면
-#=> 기준 문서는 원본의 사본(벡터)을 들고 있어서 원본과 조용히 어긋난다.
-#   무엇이 썩었는지 한 화면에서 세어 보여 주고, 고칠 수단을 바로 옆에 둔다.
-#   [원칙] 시스템은 표시만 한다 — 지우는 것은 언제나 사람이 누른다.
-#    1) seedstore.check_seeds 가 판정을 다 하고, 여기서는 세어 보여 주기만 한다
-#    2) '다시 읽어 갱신' 은 그 문서만 다시 임베딩하고 새 지문을 적은 뒤 되살린다
-#    3) '코드 정리' 는 분류 체계에서 사라진 dc_id 만 빼낸다
-#
-# -in: seeds      = 기준 문서 리스트
-# -in: records    = 이번 분류 레코드(원본 지문 대조에 쓴다)
-# -in: tax        = 회사 분류 체계(없으면 분류코드 점검 생략)
-# -in: seed_path  = 저장소 경로
-# -in: audit_path = 감사 로그 경로
-# -in: reviewer   = 검토자 이름
-#
-# -out: 없음(Streamlit 출력)
-# -out: error = 없음(개별 실패는 화면에 표시)
-#------------------------------------------------------------------
-def render_seed_check(seeds, records, tax, seed_path, audit_path, reviewer):
-    cfg = st.session_state.get("seedcfg", {})
-    st.markdown("**④ 기준 문서 점검**")
-    rep = seedstore.check_seeds(seeds, records=records, tax=tax)
-    c = rep["counts"]
-    st.caption(f"기준 문서 {c['total']}건 — {W.AXIS_SEC} {c['security']} · "
-               f"{W.AXIS_DOC} {c['doctype']} (둘 다 {c['both']})")
-
-    rows = [
-        ("stale", "원본이 바뀜", len(rep["stale"])),
-        ("missing", "원본을 못 찾음", len(rep["missing"])),
-        ("orphan", "없는 업무분류 코드", len(rep["orphan"])),
-        ("novec", "벡터 없음", len(rep["novec"])),
-        ("dim", "다른 모델로 만든 벡터", len(rep["dim"])),
-        ("conflict", "거의 같은 문서인데 등급이 다름", len(rep["conflict"])),
-        ("suspect", "확인 필요로 빠져 있음", len(rep["suspect"])),
-    ]
-    if not any(n for _, _, n in rows):
-        st.success("이상 없음 — 모든 기준 문서가 원본과 맞고, 겹치거나 충돌하는 것도 "
-                   "없으며, 확인이 필요한 것도 없습니다.")
-        return
-
-    for key, label, n in rows:
-        if not n:
-            continue
-        with st.expander(f"⚠ {label} — {n}{'쌍' if key == 'conflict' else '건'}"):
-            if key == "stale":
-                st.caption("등록할 때 적어 둔 원본 지문과 지금 원본이 다릅니다. 등급까지 "
-                           "바뀌었는지는 사람만 알 수 있어 자동으로 고치지 않았습니다.")
-                st.dataframe(pd.DataFrame([{"문서": os.path.basename(x["file"]),
-                                            "위치": x["file"]} for x in rep["stale"]]),
-                             hide_index=True, width="stretch")
-                if st.button("🔄 다시 읽어 갱신", key="seedfix_stale"):
-                    _refresh_seeds(cfg, seeds, [x["file"] for x in rep["stale"]],
-                                   seed_path, audit_path, reviewer)
-            elif key == "missing":
-                st.caption("그 경로에 파일이 없습니다. 잠깐 드라이브가 안 붙은 것일 수도 있어 "
-                           "자동으로 지우지 않았습니다 — 확실할 때 위 ③ 표에서 지우세요.")
-                st.dataframe(pd.DataFrame([{"문서": os.path.basename(f or ""), "위치": f}
-                                           for f in rep["missing"]]),
-                             hide_index=True, width="stretch")
-            elif key == "orphan":
-                st.caption("분류 체계에서 사라진 분류를 가리키고 있습니다. 그 코드만 빼냅니다"
-                           "(남은 분류가 없으면 그 축은 ‘확인 필요’로 빠집니다).")
-                st.dataframe(pd.DataFrame([{"문서": os.path.basename(x["file"]),
-                                            "사라진 코드": ", ".join(x["dc_ids"])}
-                                           for x in rep["orphan"]]),
-                             hide_index=True, width="stretch")
-                if st.button("🧹 코드 정리", key="seedfix_orphan"):
-                    _clean_orphans(seeds, rep["orphan"], tax, seed_path, audit_path, reviewer)
-            elif key == "novec":
-                st.caption("벡터가 없어 ‘비슷한 문서 참고’에 쓰이지 못합니다.")
-                st.dataframe(pd.DataFrame([{"문서": os.path.basename(f or ""), "위치": f}
-                                           for f in rep["novec"]]),
-                             hide_index=True, width="stretch")
-                if st.button("🧮 벡터 만들기", key="seedfix_novec"):
-                    _refresh_seeds(cfg, seeds, rep["novec"], seed_path, audit_path, reviewer)
-            elif key == "dim":
-                st.caption("다른 임베딩 모델로 만든 벡터가 섞여 있습니다 — 유사도 비교가 "
-                           "의미를 잃습니다. 위 ‘다시 읽어 갱신’으로 다시 만드세요.")
-                st.dataframe(pd.DataFrame([{"문서": os.path.basename(x["file"]),
-                                            "이 문서": x["dim"], "대다수": x["common"]}
-                                           for x in rep["dim"]]),
-                             hide_index=True, width="stretch")
-            elif key == "suspect":
-                st.caption("시스템이 이상을 발견해 잠시 잣대에서 빼 둔 축입니다. 확인한 뒤 "
-                           "위 ③ 표에서 **다시 사용**을 체크하거나, 더 쓰지 않을 것이면 "
-                           "**해제**·**삭제**를 체크하세요.")
-                st.dataframe(pd.DataFrame([{"문서": os.path.basename(x["file"] or ""),
-                                            "축": seedstore.AXIS_LABEL[x["axis"]],
-                                            "이유": W.SEED_REASON.get(x["reason"], x["reason"])}
-                                           for x in rep["suspect"]]),
-                             hide_index=True, width="stretch")
-            else:
-                st.caption("사실상 같은 문서가 서로 다른 등급으로 등록돼 있습니다. 이 근처 "
-                           "문서는 ‘등급이 갈려서’ 전파가 되지 않습니다 — 한쪽을 지우거나 "
-                           "등급을 맞추세요.")
-                st.dataframe(pd.DataFrame([{"닮은 정도": W.pct(x["sim"]),
-                                            "문서 A": os.path.basename(x["a"] or ""),
-                                            "등급 A": x["ga"],
-                                            "문서 B": os.path.basename(x["b"] or ""),
-                                            "등급 B": x["gb"]} for x in rep["conflict"]]),
-                             hide_index=True, width="stretch")
-
-
-#------------------------------------------------------------------
-# 기준 문서 다시 읽어 갱신(재임베딩 + 새 지문)
-#=> 원본이 바뀌었거나 벡터가 없는 기준 문서를 지금 원본으로 다시 만든다.
-#    1) 그 문서만 임베딩해 새 벡터를 얻는다
-#    2) 새 내용 해시·크기·수정시각을 적는다
-#    3) 시스템이 잠시 빼 두었던(확인 필요) 축을 다시 잣대로 되살린다
-#
-# -in: cfg        = seedcfg(실행 명령 등)
-# -in: seeds      = 기준 문서 리스트
-# -in: files      = 갱신할 문서 경로들
-# -in: seed_path  = 저장소 경로
-# -in: audit_path = 감사 로그 경로
-# -in: reviewer   = 검토자 이름
-#
-# -out: 없음(저장 후 rerun)
-# -out: error = 없음(개별 실패는 화면에 표시하고 나머지는 계속 진행)
-#------------------------------------------------------------------
-def _refresh_seeds(cfg, seeds, files, seed_path, audit_path, reviewer):
-    if not reviewer.strip():
-        st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요.")
-        return
-    cur, done, failed = list(seeds), 0, []
-    prog = st.progress(0.0, text=f"다시 읽는 중… 0/{len(files)}")
-    for i, f in enumerate(files):
-        prog.progress(i / max(len(files), 1), text=f"다시 읽는 중… {i}/{len(files)} · "
-                                                   f"{os.path.basename(f or '')}")
-        v = _embed_file_ondemand(cfg, f)
-        if v is None:
-            failed.append(f)
-            continue
-        doc = {"hash": _file_sha256(f)}
-        try:
-            stt = os.stat(f)
-            doc.update({"size": stt.st_size,
-                        "mtime": datetime.datetime.fromtimestamp(
-                            stt.st_mtime).astimezone().isoformat(timespec="seconds")})
-        except OSError:
-            pass
-        cur = seedstore.set_meta(cur, f, vector=v, doc=doc)
-        # 원본이 바뀌어 빼 두었던 축을 되살린다(사람이 갱신을 눌렀다 = 확인했다).
-        for axis in seedstore.AXES:
-            if seedstore.axis_state(seedstore.find_seed(cur, f) or {}, axis) == seedstore.STATE_SUSPECT:
-                cur = seedstore.restore_axis(cur, f, axis)
-                seedstore.append_seed_audit(audit_path, "restore", f, axis=axis,
-                                            before=None, after=None,
-                                            reviewer=reviewer.strip(),
-                                            reason="다시 읽어 갱신")
-        done += 1
-    prog.progress(1.0, text=f"완료 {done}/{len(files)}")
-    if done:
-        seedstore.save_seeds(seed_path, cur)
-        st.success(f"{done}건을 다시 읽어 갱신했습니다"
-                   + (f" · 실패 {len(failed)}건" if failed else ""))
-        st.rerun()
-    else:
-        st.warning("갱신된 기준 문서가 없습니다(위 오류 메시지를 확인하세요).")
-
-
-#------------------------------------------------------------------
-# 사라진 분류코드 정리
-#=> 분류 체계에 더 이상 없는 dc_id 만 업무분류축에서 빼낸다. 남은 코드가 없으면
-#   그 축은 '확인 필요'로 빠진다 — 값을 통째로 지우지 않는 이유는, 무엇을 가리키던
-#   기준이었는지가 사라지면 사람이 판단할 근거도 사라지기 때문이다.
-#
-# -in: seeds      = 기준 문서 리스트
-# -in: orphans    = check_seeds 의 orphan 목록 [{file, dc_ids}]
-# -in: tax        = 회사 분류 체계
-# -in: seed_path  = 저장소 경로
-# -in: audit_path = 감사 로그 경로
-# -in: reviewer   = 검토자 이름
-#
-# -out: 없음(저장 후 rerun)
-# -out: error = 없음
-#------------------------------------------------------------------
-def _clean_orphans(seeds, orphans, tax, seed_path, audit_path, reviewer):
-    if not reviewer.strip():
-        st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요.")
-        return
-    cur, n = list(seeds), 0
-    for o in orphans:
-        f = o["file"]
-        before = list(seedstore.axis_value(seedstore.find_seed(cur, f) or {}, "doctype") or [])
-        keep = [d for d in before if d not in o["dc_ids"]]
-        if keep:
-            cur = seedstore.set_axis(cur, f, "doctype", keep, reviewer.strip())
-        else:
-            cur = seedstore.suspect_axis(cur, f, "doctype", "orphan")
-        seedstore.append_seed_audit(audit_path, "update", f, axis="doctype",
-                                    before=before, after=keep,
-                                    reviewer=reviewer.strip(),
-                                    reason="사라진 분류코드 정리")
-        n += 1
-    if n:
-        seedstore.save_seeds(seed_path, cur)
-        st.success(f"{n}건에서 사라진 분류코드를 정리했습니다.")
-        st.rerun()
+                dc = (json.loads(line).get("labels") or {}).get("doctype")
+            except json.JSONDecodeError:
+                continue
+            if dc:
+                n += 1
+    return n
 
 
 #------------------------------------------------------------------
@@ -2265,10 +1868,87 @@ def _sync_seeds_after_run(cfg, grades_path):
     n_res = len({e["file"] for e in events if e["action"] == "restore"})
     if n_sus:
         st.warning(f"기준 문서 {n_sus}건의 원본이 바뀌었거나 사라졌습니다 — "
-                   "‘설정 ▸ 기준 문서 ▸ ④ 점검’에서 확인해 주세요"
-                   "(그때까지 그 문서는 잣대로 쓰지 않습니다).")
+                   "그 문서들은 잣대로 쓰지 않습니다. 원본을 확인한 뒤 문서함에서 "
+                   "다시 등록하면 됩니다.")
     if n_res:
         st.info(f"기준 문서 {n_res}건이 원본과 다시 맞아 잣대로 되살아났습니다.")
+
+
+# 처음부터 채워 두는 파일 종류 — 엔진이 실제로 글을 뽑을 수 있는 것들이다.
+#   txt·md → text, html → html, 나머지는 전용 파서(pdf·hwp·hwpx·doc·docx·
+#   xls·xlsx·ppt·pptx). 여기에 없는 확장자를 넣어도 막지는 않지만, 글을 못 뽑아
+#   '본문 없음'으로 남는다.
+#   [별표를 꼭 붙인다] 패턴은 파일 '이름 전체'와 맞춰 보므로 `.hwp` 라고만 적으면
+#   이름이 정확히 ".hwp" 인 파일만 찾는다 — 한 건도 안 걸린다.
+DEFAULT_GLOB = ("*.txt,*.html,*.md,*.doc,*.docx,*.ppt,*.pptx,"
+                "*.xls,*.xlsx,*.hwp,*.hwpx,*.pdf")
+
+
+#------------------------------------------------------------------
+# 파일 종류 패턴에서 '별표 빠뜨린 조각' 찾기
+#=> 패턴은 파일 '이름 전체'와 맞춰 본다. 그래서 `.hwp` 라고만 적으면 이름이
+#   정확히 ".hwp" 인 파일만 찾아 **한 건도 안 걸린다**. 그런데 화면에는 아무
+#   말도 안 나와, 관리자는 "왜 0건이지" 하고 폴더부터 의심하게 된다.
+#   실제로 `.hwp,.doc,` 라고 적힌 화면을 봤다(18건짜리 폴더에서 0건).
+#
+# -in: pattern = 사용자가 적은 파일 종류 문자열(쉼표로 나열)
+#
+# -out: list = 별표가 빠진 조각들(예: [".hwp", ".doc"]) · 없으면 빈 목록
+# -out: error = 없음(빈 문자열·None 도 빈 목록)
+#------------------------------------------------------------------
+def glob_missing_star(pattern):
+    out = []
+    for part in (pattern or "").split(","):
+        part = part.strip()
+        # 점으로 시작하는데 별표가 없으면 확장자만 적은 것이다.
+        if part.startswith(".") and "*" not in part:
+            out.append(part)
+    return out
+
+
+#------------------------------------------------------------------
+# 탐색기 창을 띄워 폴더 고르기
+#=> 경로를 손으로 치면 오타가 나고, 탐색기 주소창에서 복사하면 따옴표가 딸려
+#   오기도 한다. 이 화면은 관리자 PC 에서 도니까(localhost) 그 PC 의 탐색기
+#   창을 띄워 고르게 한다.
+#    1) tkinter 로 빈 창을 하나 만들고 숨긴다(폴더 대화상자만 필요하다)
+#    2) 항상 위(topmost)로 올린다 — 안 그러면 브라우저 뒤에 숨어서
+#       "버튼을 눌렀는데 아무 일도 안 난다"처럼 보인다
+#    3) 고르면 그 경로를, 취소하면 None 을 돌려준다
+#
+#   [화면이 다른 PC 에서 돌면] 대화상자는 '화면이 도는 PC' 에 뜬다 — 보는 사람
+#   눈앞이 아니다. 그래서 창을 못 만들면(화면 없는 서버) 조용히 실패로 돌리고,
+#   호출부가 "직접 입력하세요"라고 안내한다.
+#
+# -in: initial = 처음 열 폴더(없거나 잘못된 경로면 무시)
+#
+# -out: (path, err) = 고른 폴더 경로(취소·실패면 None) 와 실패 사유(없으면 None)
+# -out: error = 예외를 올리지 않는다 — 모든 실패를 err 문자열로 돌려준다
+#------------------------------------------------------------------
+def pick_folder(initial=""):
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as e:                      # noqa: BLE001
+        return None, f"이 PC 에서 폴더 창을 띄울 수 없습니다({e})"
+    root = None
+    try:
+        root = tk.Tk()
+        root.withdraw()                          # 빈 창은 보이지 않게
+        # 브라우저 뒤에 숨으면 누른 줄도 모른다 — 항상 맨 앞으로.
+        root.wm_attributes("-topmost", 1)
+        start = initial if initial and os.path.isdir(initial) else None
+        got = filedialog.askdirectory(title="분류할 폴더 고르기", initialdir=start,
+                                      mustexist=True)
+        return (os.path.normpath(got) if got else None), None
+    except Exception as e:                       # noqa: BLE001
+        return None, f"폴더 창을 열지 못했습니다({e})"
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:                    # noqa: BLE001
+                pass                             # 창 정리 실패는 화면과 무관하다
 
 
 #------------------------------------------------------------------
@@ -2282,16 +1962,54 @@ def _sync_seeds_after_run(cfg, grades_path):
 #    3) 끝나면 결과를 곧바로 읽어 현황 화면으로 보낸다
 #
 # -in: grades_path = 결과를 저장(=다른 화면이 읽을) 경로
-# -in: folder      = 분류할 폴더(설정 ①에서 고른 값)
+# -in: paths       = 화면 경로 묶음(폴더 값을 여기에 되돌려 준다)
 # -in: tax         = 회사 분류 체계(None 이면 업무분류 체크박스를 끈 채 보여준다)
+# -in: records     = 지난 분류 결과(폴더 칸 아래 '지난 결과 건수' 표시에만 쓴다)
 #
 # -out: 없음(실행 시 결과 파일 생성 + rerun)
 # -out: error = 실패는 화면에 표시(예외를 올리지 않는다)
 #------------------------------------------------------------------
-def render_run_panel(grades_path, folder=None, tax=None):
+def render_run_panel(grades_path, paths=None, tax=None, records=None):
     cfg = st.session_state.get("seedcfg", {})
-    paths = st.session_state.get("paths", {})
-    folder = folder or paths.get("folder") or ""
+    paths = paths if paths is not None else st.session_state.get("paths", {})
+
+    # 분류할 폴더 — 예전에는 맨 위 ① 에 따로 있었다. 실행 직전에 "어느 폴더를"
+    # 다시 확인하려면 화면을 위로 한참 올라가야 했고, 아래 명령줄의 --dir 이
+    # 가리키는 폴더와 눈으로 잇기도 어려웠다. 실행 칸 안으로 들여왔다.
+    # 지난 실행에서 탐색기로 고른 폴더가 있으면, 칸을 만들기 '전에' 넣어 준다.
+    # 위젯이 만들어진 뒤에 그 key 를 건드리면 Streamlit 이 예외를 낸다.
+    # value= 와 session_state 를 함께 주면 Streamlit 이 "둘 다 설정됐다"고 경고한다.
+    # 처음 한 번만 심어 두고, 그 뒤로는 위젯이 자기 값을 들고 있게 한다.
+    if "set_folder" not in st.session_state:
+        st.session_state["set_folder"] = paths.get("folder", "") or ""
+    _picked = st.session_state.pop("_picked_folder", None)
+    if _picked:
+        st.session_state["set_folder"] = _picked
+    fc1, fc2 = st.columns([1, 0.2])
+    folder = fc1.text_input("분류할 폴더",
+                            placeholder="예: D:\\collected", key="set_folder")
+    # 입력칸의 이름표 높이만큼 내려 버튼을 칸과 같은 줄에 맞춘다.
+    fc2.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+    if fc2.button("📂 폴더 선택", key="set_folder_pick",
+                  help="이 화면이 도는 PC 의 탐색기 창이 열립니다"):
+        got, err = pick_folder(folder)
+        if err:
+            st.warning(f"{err} — 경로를 직접 입력해 주세요.")
+        elif got:
+            # 고른 값은 다음 실행에서 칸에 넣는다(위 주석의 이유).
+            st.session_state["_picked_folder"] = got
+            st.rerun()
+    paths["folder"] = folder
+    if folder and not os.path.isdir(folder):
+        st.warning("그런 폴더가 없습니다. 경로를 확인해 주세요.")
+    elif folder:
+        # '이 폴더에 몇 개가 있나'를 직접 센다(지난 결과 건수와 헷갈리지 않게).
+        n_files, capped = gerunner.count_files(folder, recursive=True)
+        st.caption(f"이 폴더에 **{n_files:,}개{' 이상' if capped else ''}**의 파일이 "
+                   "있습니다 · 하위 폴더까지 모두 검사합니다.")
+        if records:
+            st.caption(f"↳ 지난 분류 결과 파일에는 {len(records):,}개 문서가 담겨 있습니다"
+                       " — 다시 분류하면 이 폴더 기준으로 새로 만들어집니다.")
 
     c1, c2, c3 = st.columns(3)
     do_sec = c1.checkbox(f"{W.AXIS_SEC} 판정", value=True, key="run_sec",
@@ -2307,22 +2025,33 @@ def render_run_panel(grades_path, folder=None, tax=None):
                                "구제합니다(분류하면서 함께 처리됩니다). 끄면 규칙만으로 "
                                "판정해 가장 빠릅니다")
 
-    pattern = st.text_input("파일 종류", value="*", key="run_pattern",
-                            help="예: *  ·  *.hwp,*.docx  (비워 두면 전체)") or "*"
-    # 예전에는 '하위 폴더까지 모두' 체크박스가 있었다. 그런데 두 엔진 모두 --dir
-    # 이면 언제나 재귀라, 체크를 꺼도 하위 폴더가 그대로 분류됐다 — 끌 수 없는
-    # 것을 끌 수 있는 것처럼 보여 주는 화면이었다. 사실만 한 줄로 알린다.
-    st.caption("하위 폴더까지 모두 검사합니다.")
+    # 업무분류를 '규칙 없이 기준 문서만으로' 돌리는 선택. 규칙을 아직 안 만들었거나
+    # 규칙이 못 잡는 문서가 많을 때, 사람이 확정해 둔 기준 문서만 잣대로 쓴다.
+    # 세 조건이 모두 맞아야 뜻이 있으므로, 하나라도 어긋나면 끄고 이유를 말한다.
+    n_dt_seed = count_doctype_seeds(cfg.get("seed_path"))
+    dt_ready = bool(do_doc and do_prop and n_dt_seed)
+    # 이 체크는 업무분류에 딸린 선택이므로 반드시 '업무분류 제안' 바로 밑(c2)에
+    # 그린다. 화면 전체 폭에 그리면 왼쪽 끝에 붙어 보안등급 칸의 하위 항목처럼
+    # 보인다 — 어느 축에 딸린 선택인지 화면이 거짓말을 하게 된다.
+    dt_vec_only = c2.checkbox(
+        "└ 규칙 없이 **기준 문서만으로** 분류",
+        value=False, key="run_dtvec", disabled=not dt_ready,
+        help="업무분류 1차(규칙 검사)를 건너뛰고, 관리자가 등록한 기준 문서와 "
+             "비슷한 정도만으로 분류합니다. 보안등급 판정은 영향을 받지 않습니다")
+    # 설명은 폭이 좁은 칸에서 여러 줄로 접히므로 아래 전체 폭에 한 줄로 둔다.
+    if not dt_ready:
+        why = ("업무분류를 켜야 고를 수 있습니다" if not do_doc else
+               "‘비슷한 문서 참고’를 켜야 고를 수 있습니다" if not do_prop else
+               "업무분류가 확정된 기준 문서가 아직 없습니다 — 문서함에서 먼저 등록하세요")
+        c2.caption(f"　↳ {why}")
+    elif dt_vec_only:
+        st.caption(f"　↳ {W.AXIS_DOC}: 기준 문서 **{n_dt_seed}건**만 잣대로 씁니다 · "
+                   "규칙에 없는 문서도 잡히지만, 기준 문서와 안 닮은 문서는 "
+                   "분류되지 않습니다")
 
-    if not folder or not os.path.isdir(folder):
-        st.warning("먼저 위 **① 분류할 폴더**에서 폴더를 지정하세요.")
-        return
-    if not (do_sec or do_doc):
-        st.warning("보안등급과 업무분류 중 적어도 하나는 켜야 합니다.")
-        return
-
-    # 체크박스 → CLI 인자. 한쪽만 켜면 --axis 로 그 축만 돌린다(업무분류만 돌리면
-    # 가장 무거운 개인정보 검출을 통째로 건너뛰어 크게 빨라진다, 상위 설계 6-4).
+    # ── 체크박스 → CLI 인자 ────────────────────────────────────────────
+    # 한쪽 축만 켜면 --axis 로 그 축만 돌린다(업무분류만 돌리면 가장 무거운
+    # 개인정보 검출을 통째로 건너뛰어 크게 빨라진다, 상위 설계 6-4).
     extra = []
     # 문서 내용의 지문(SHA-256). 기준 문서가 "등록할 때의 그 원본"인지 확인하는
     # 유일한 근거다 — 어차피 전 문서를 여는 김에 함께 구하므로 값이 싸다.
@@ -2334,6 +2063,11 @@ def render_run_panel(grades_path, folder=None, tax=None):
         extra += ["--axis", "security"]
     elif do_doc and not do_sec:
         extra += ["--axis", "doctype"]
+
+    if dt_vec_only and dt_ready:
+        # 업무분류 1차(규칙)를 건너뛴다. 엔진은 규칙 목록만 비우고 embed 임계값·
+        # conflict 전략은 doc_rule.yaml 에 적힌 그대로 쓴다.
+        extra += ["--doctype-vector-only"]
 
     if not do_prop:
         # 전파를 끄는 유일한 스위치. 이걸 주면 엔진이 임베딩·전파를 아예 하지
@@ -2361,6 +2095,78 @@ def render_run_panel(grades_path, folder=None, tax=None):
         st.caption(f"기준 문서 **{n_seed}건**을 잣대로 씁니다 · `{sp}`"
                    + ("" if n_seed else " — 아직 등록된 기준 문서가 없어 "
                                         "이번에는 규칙만으로 분류합니다"))
+
+    # 연동용 축약 파일. 분류 결과 자체를 --simple 로 바꾸면 이 화면이 못 읽는다
+    # (문서함·검토함은 signals·labels·confidence 를 본다). 그래서 전체 결과는 그대로
+    # 두고, 옆에 축약본을 한 벌 더 만든다.
+    want_simple = st.checkbox("연동용 **--simple 형식 파일**도 만들기",
+                              value=False, key="run_simple",
+                              help="문서명·등급·해시(+업무분류 dc_id)만 담은 파일을 "
+                                   "분류 결과 옆에 나란히 만듭니다. 다른 시스템에 넘길 때 씁니다")
+
+    # ── 실행할 명령 ────────────────────────────────────────────────────
+    # 체크박스 바로 아래에 둔다 — 체크를 켜고 끌 때 명령이 그 자리에서 같이
+    # 바뀌는 것이 보여야, 어느 체크가 어느 인자인지 눈으로 배울 수 있다.
+    # 손으로 다시 적지 않고 gerunner.build_classify_args 를 부르는 것이 핵심이다:
+    # 실행하는 쪽과 같은 함수라 화면과 실제가 어긋날 수 없다.
+    ok_axis = bool(do_sec or do_doc)
+    ok_folder = bool(folder) and os.path.isdir(folder)
+    # 파일 종류 칸은 아래에 있지만 명령에는 지금 값이 들어가야 한다. 위젯이
+    # 자기 값을 key 로 들고 있으므로 그것을 읽는다(처음에는 아직 없어 "*").
+    _pat = (st.session_state.get("run_pattern") or DEFAULT_GLOB)
+    if not ok_axis:
+        st.warning("보안등급과 업무분류 중 적어도 하나는 켜야 합니다 — "
+                   "둘 다 끄면 실행할 것이 없습니다.")
+    elif not folder:
+        st.info("위 **분류할 폴더** 에 경로를 넣으면 실행할 명령이 여기에 나옵니다.")
+    elif not ok_folder:
+        # 폴더가 잘못됐다는 말은 바로 위 칸에서 이미 했다 — 같은 말을 두 번 하지 않는다.
+        st.caption("폴더 경로를 고치면 실행할 명령이 여기에 나옵니다.")
+    else:
+        _base = gerunner.parse_base_cmd(cfg.get("csoclassify_cmd"))
+        st.caption("이 버튼이 실행하는 명령 — 명령창에서 그대로 쳐도 결과는 같습니다")
+        st.code(" ".join(gerunner.build_classify_args(
+            _base or ["csoclassify"], folder, grades_path, glob=_pat,
+            extra_args=extra)), language="text")
+        st.caption("↳ 위 체크 상자들이 그대로 인자가 됩니다 — `--axis`(한 축만 켤 때) · "
+                   "`--taxonomy`·`--doc-rules`(업무분류) · `--doctype-vector-only` · "
+                   "`--rule-only`(비슷한 문서 참고 끔) · `--seeds`(기준 문서). "
+                   "`--embed-needed` 는 판단 못 한 문서만 임베딩해 빠르게 도는 기본값입니다.")
+        if want_simple:
+            st.caption(f"↳ 축약본은 분류가 끝난 뒤 `{simple_path(grades_path)}` 에 "
+                       "만듭니다. 방금 만든 결과에서 필요한 칸만 뽑아 쓰므로 **문서를 "
+                       "다시 읽지 않습니다**(엔진의 `--simple` 과 같은 내용). "
+                       "명령창에서 직접 만들려면 위 명령에 `--simple` 을 붙이고 "
+                       "`--out` 을 다른 파일로 주세요 — 그 파일은 이 화면이 읽지 못합니다.")
+
+        # 이 명령을 복사해 자동화에 쓰는 사람을 위한 경고. 이 화면은 이미 폴더를
+        # 한 번에 돌리지만(--dir), 남이 옮겨 쓸 때 파일마다 부르는 실수를 자주 한다.
+        # 실행할 때마다 임베딩 모델을 다시 읽으므로 문서 수만큼 그 값을 문다.
+        st.warning("**여러 문서는 반드시 한 번에 묶어서 부르세요.** 위 명령처럼 "
+                   "`--dir` 로 폴더를 통째로 주면 임베딩 모델을 **한 번만** 읽습니다. "
+                   "파일마다 따로 부르면(`--file` 반복) 문서 수만큼 모델을 다시 읽어 "
+                   "**5.7배** 느려집니다 — 실측 6건 기준 1.1초 → 6.6초, 20건이면 4초 → 22초. "
+                   "이 화면은 이미 묶어서 실행합니다(자동화·연동할 때 지켜 주세요).")
+
+    # (하위 폴더를 항상 훑는다는 사실은 폴더 칸 바로 아래에서 이미 말했다.
+    #  두 엔진 모두 --dir 이면 언제나 재귀라 끌 수 있는 값이 아니다.)
+    # 기본값을 '전체(*)' 가 아니라 실제로 다룰 수 있는 확장자 목록으로 채워 둔다.
+    # 관리자가 직접 적다가 별표를 빼먹으면(`.hwp,.doc`) 한 건도 안 걸리는데,
+    # 화면에는 아무 말도 안 나와 원인을 찾기 어렵다.
+    pattern = st.text_input("파일 종류", value=DEFAULT_GLOB, key="run_pattern",
+                            help="쉼표로 나열합니다. 확장자 앞에 `*` 를 꼭 붙이세요 — "
+                                 "`*.hwp` 는 되지만 `.hwp` 는 한 건도 안 걸립니다. "
+                                 "전체를 보려면 `*` 하나만 두세요.") or "*"
+    # 별표를 빠뜨린 조각이 있으면 알려 준다 — 조용히 0건이 되는 것을 막는다.
+    _bad = glob_missing_star(pattern)
+    if _bad:
+        st.warning("확장자 앞에 `*` 가 빠졌습니다: " + ", ".join(f"`{b}`" for b in _bad) +
+                   " → `" + ", ".join("*" + b for b in _bad) + "` 처럼 적어야 "
+                   "파일이 걸립니다(지금 그대로면 한 건도 안 잡힙니다).")
+
+    # 위에서 이미 이유를 말했으므로 여기서는 조용히 멈춘다(같은 경고를 두 번 내지 않는다).
+    if not (ok_axis and ok_folder):
+        return
 
     if st.button("▶ 분류 시작", type="primary", key="run_go"):
         # 진행 규모 안내용으로 대상 파일 수를 미리 센다(CLI 와 동일하게 콤마·중괄호
@@ -2414,15 +2220,29 @@ def render_run_panel(grades_path, folder=None, tax=None):
             uierrlog.show_error(f"실행 오류: {e}", exc=e, where="분류 실행")
             return
         if not os.path.isfile(grades_path):
-            # 엔진이 남긴 stderr 를 통째로 로그에 실어 둔다 — 화면에는 뒤 600자만
-            # 보여 주지만, 진짜 원인은 그 앞쪽에 있는 경우가 많다.
+            # 엔진이 계약대로 낸 오류가 있으면 그것이 가장 정확한 원인이다.
+            # 없을 때만 예전처럼 stderr 뒤쪽을 보여 준다(진짜 원인이 앞쪽에 있는
+            # 경우가 많아, 로그에는 언제나 전문을 남긴다).
+            why = gerunner.error_line(getattr(r, "error", None))
             uierrlog.log_error("분류 결과 파일이 생성되지 않았습니다.\n"
+                               f"오류: {why or '(계약 오류 없음)'}\n"
                                f"명령 stderr 전문:\n{r.stderr}", where="분류 실행")
-            st.error(f"분류 결과 파일이 생성되지 않았습니다.\n{r.stderr[-600:]}")
+            st.error("분류 결과 파일이 생성되지 않았습니다.\n"
+                     + (why or r.stderr[-600:]))
             return
         total_elapsed = time.perf_counter() - start
         prog.progress(1.0, text=f"분류 완료 · {n}/{n} · 총 {_fmt(total_elapsed)}")
         st.success(f"분류 완료 · {r.summary or 'OK'} · 소요 {_fmt(total_elapsed)}")
+
+        # 연동용 축약본(--simple 형식). 방금 만든 결과에서 뽑으므로 값이 싸다.
+        if want_simple:
+            try:
+                _recs = load_records(grades_path, os.path.getmtime(grades_path))
+                _sp, _n = write_simple_file(grades_path, _recs)
+                st.success(f"연동용 축약 파일 {_n}건 · `{_sp}`")
+            except (OSError, ValueError, json.JSONDecodeError) as e:
+                uierrlog.show_error(f"축약 파일 저장 실패: {e}", exc=e,
+                                    where="--simple 파일 저장")
 
         # 분류 결과와 기준 문서를 대조해, 원본이 바뀌었거나 사라진 기준 문서에
         # '확인 필요' 표시를 붙인다(지우지는 않는다 — 사람이 판단할 일이다).
@@ -2442,76 +2262,6 @@ def render_run_panel(grades_path, folder=None, tax=None):
 
         # 끝나면 곧바로 현황으로 보낸다 — "다 됐는데 이제 뭘 누르지"를 없앤다.
         goto(menu=MENU_HOME)
-
-
-#------------------------------------------------------------------
-# 진단 리포트 화면 렌더 (STEP 5)
-#=> seed 저장소 균형·중복과 분류 결과의 신호분포·신뢰도·중복문서를 한 화면에서
-#   진단해, 어디를 보강하고 무엇을 정리할지 알려준다.
-#
-# -in: df       = 문서 표(final/confidence)
-# -in: records  = 원본 레코드(decided_by/vector)
-# -in: low_conf = 저신뢰 기준
-#
-# -out: 없음(Streamlit 출력)
-# -out: error = 없음
-#------------------------------------------------------------------
-def render_report(df, records, low_conf):
-    cfg = st.session_state.get("seedcfg", {})
-    thr = st.slider("중복 판정 임계값(코사인)", 0.90, 1.0, 0.97, 0.01,
-                    help="이 값 이상이면 '사실상 같은 문서'로 봅니다.")
-
-    st.markdown("### 🌱 기준 문서 진단")
-    seeds = seedstore.load_seeds(cfg.get("seed_path"))
-    counts, total, weak, msg = report.seed_balance(seeds)
-    c = st.columns(4)
-    c[0].metric("기준 문서", total)
-    c[1].metric(W.GRADE_LABEL["C"], counts["C"])
-    c[2].metric(W.GRADE_LABEL["S"], counts["S"])
-    c[3].metric(W.GRADE_LABEL["O"], counts["O"])
-    (st.warning if weak else st.success)(msg)
-
-    dpairs, _ = report.near_dups(
-        [{"file": s.get("file"), "vector": s.get("vector")} for s in seeds], thr)
-    if dpairs:
-        st.markdown(f"**거의 같은 기준 문서 {len(dpairs)}쌍** — 하나만 남기고 위 ③에서 지우기를 권합니다")
-        st.dataframe(pd.DataFrame([{"유사도": round(s, 3),
-                                    "문서 A": os.path.basename(a or ""),
-                                    "문서 B": os.path.basename(b or "")}
-                                   for a, b, s in dpairs[:50]]),
-                     hide_index=True, width="stretch")
-    else:
-        st.caption("겹치는 기준 문서 없음.")
-
-    st.divider()
-    st.markdown("### 📊 분류 결과 진단")
-    review = int(((df["final"] == "보류") | (df["confidence"] < low_conf)).sum())
-    cc = st.columns(3)
-    cc[0].metric("전체 문서", len(df))
-    cc[1].metric("검토 필요", review, help=f"보류 + 신뢰도<{low_conf}")
-    cc[2].metric("보류", int((df["final"] == "보류").sum()))
-
-    db = report.decided_by_counts(records)
-    if db:
-        st.markdown("**판정 신호 분포** — 어떤 신호가 분류를 이끌었나(임베딩 의존도 확인)")
-        st.bar_chart(pd.DataFrame({"건수": db}), horizontal=True)
-
-    cb = report.confidence_bins(records)
-    st.markdown("**확신 분포**")
-    st.bar_chart(pd.DataFrame({"건수": cb}))
-
-    st.markdown("**중복 문서(코퍼스 near-dup)** — 같은 문서가 여러 위치에 복사됨")
-    cpairs, ctr = report.near_dups(
-        [{"file": r.get("file"), "vector": r.get("vector")} for r in records], thr)
-    if ctr:
-        st.caption("문서가 많아 앞부분만 비교했습니다(상한 도달).")
-    if cpairs:
-        st.caption(f"중복 후보 {len(cpairs)}쌍")
-        st.dataframe(pd.DataFrame([{"유사도": round(s, 3), "문서 A": a, "문서 B": b}
-                                   for a, b, s in cpairs[:100]]),
-                     hide_index=True, width="stretch")
-    else:
-        st.caption("중복 문서 없음(또는 결과에 벡터 없음 — `--with-vector` 로 분류해야 감지).")
 
 
 #------------------------------------------------------------------
@@ -2537,7 +2287,7 @@ def render_rules_editor():
         uierrlog.show_error(f"보안등급 기준을 읽지 못했습니다: {e}", exc=e, where="규칙셋 읽기")
         return
 
-    st.caption(f"기준 파일 `{os.path.basename(path)}` · 버전 `{doc.get('version')}`")
+    st.caption(f"기준 파일 `{os.path.abspath(path)}` · 버전 `{doc.get('version')}`")
     bulk = st.number_input("bulk 임계값 (PII 가 이 건수 이상이면 등급 상향)",
                            min_value=1, value=int(doc.get("defaults", {}).get("bulk_threshold", 5)))
 
@@ -2680,8 +2430,6 @@ def render_rules_editor():
             uierrlog.show_error(f"저장 실패: {e}", exc=e, where="규칙셋 저장")
 
 
-
-
 #------------------------------------------------------------------
 # 기본 파일 경로 묶음 만들기
 #=> 화면이 쓰는 파일 경로(결과·수정기록·기준문서·규칙·분류체계)의 기본값을 한 번에
@@ -2731,6 +2479,67 @@ def default_paths():
         "cmd": cmd,
         "pythonpath": pythonpath,
     }
+
+
+#------------------------------------------------------------------
+# [분류 불러오기] — CLI 를 불러 규칙을 채운다
+#=> 예전에는 화면이 doc_rule.yaml 을 직접 고쳤다. 그러면 같은 일을 화면과 CLI 가
+#   따로 구현하게 되고, 실제로 두 결과가 갈라져 있었다(화면은 유의어까지 채우고
+#   CLI 는 빈 칸만 만들었다). 이제 어휘를 만드는 층은 엔진이 한 벌만 갖고
+#   (classify/docvocab.py · Rust docvocab.rs, 골든 테스트로 묶임), 화면은 그
+#   명령을 부른다 — 화면에 보이는 명령과 실제로 도는 것이 같아진다.
+#
+# -in: path       = doc_rule.yaml 경로
+# -in: tax        = 회사 분류 체계(경로만 쓴다)
+# -in: fill_blank = 단어가 없는 기존 규칙도 채울지
+# -in: enrich     = 이미 말이 있는 규칙에도 빠진 유의어를 더할지
+#
+# -out: 없음(성공하면 화면을 새로 그린다)
+# -out: error = 없음(실패는 실행한 명령과 함께 화면에 표시)
+#------------------------------------------------------------------
+def run_sync_doc_rule(path, tax, fill_blank, enrich):
+    paths = st.session_state.get("paths", {})
+    base = gerunner.parse_base_cmd(paths.get("cmd"))
+    if not base:
+        st.error("분류 실행 명령이 비어 있습니다 — 설정/분류 ▸ 고급 ▸ 실행 명령을 "
+                 "먼저 채워 주세요.")
+        return
+    tax_path = (tax or {}).get("path") or paths.get("taxonomy") or ""
+    if not os.path.isfile(tax_path):
+        st.error(f"회사 분류 체계를 찾을 수 없습니다: {tax_path or '(경로 미설정)'} — "
+                 "②에서 먼저 연결하세요.")
+        return
+    try:
+        with st.spinner("분류 체계에서 규칙을 불러오는 중…"):
+            r = gerunner.run_sync_doc_rule(base, tax_path, path,
+                                           fill_blank=fill_blank, enrich=enrich,
+                                           pythonpath=paths.get("pythonpath") or None)
+    except Exception as e:
+        uierrlog.show_error(f"분류 불러오기 실패: {e}", exc=e, where="업무분류 규칙 채우기")
+        return
+
+    if r.returncode != 0:
+        # 엔진이 계약대로 낸 오류(kind·code)를 그대로 보여 준다 — 문구가 아니라
+        # 번호가 남아야 나중에 같은 사고를 찾아낼 수 있다.
+        why = gerunner.error_line(getattr(r, "error", None))
+        st.error(f"규칙을 불러오지 못했습니다.{(' ' + why) if why else ''}")
+        st.caption("실행한 명령 — 명령창에서 그대로 쳐 보면 자세한 원인을 볼 수 있습니다")
+        st.code(" ".join(r.args), language="text")
+        if r.stderr.strip():
+            st.caption(f"실행 로그: {r.stderr.strip()[-400:]}")
+        uierrlog.log_error("업무분류 규칙 채우기 실패\n"
+                           f"오류: {why or '(계약 오류 없음)'}\n"
+                           f"명령: {' '.join(r.args)}\nstderr:\n{r.stderr}",
+                           where="업무분류 규칙 채우기")
+        return
+
+    # 엔진이 남긴 요약 한 줄을 그대로 보여 준다 — 화면이 따로 세지 않는다(어긋날 여지를 없앤다).
+    msg = (r.summary or "").split("] ", 1)[-1] if r.summary else ""
+    st.session_state["docrule_flash"] = (
+        (msg or "규칙을 불러왔습니다.")
+        + " · 표에서 필요 없는 말은 지우고, 회사에서 쓰는 다른 표현을 더해 주세요.")
+    st.cache_data.clear()
+    st.rerun()
 
 
 #------------------------------------------------------------------
@@ -2799,6 +2608,11 @@ def render_doc_rules_editor(path, tax):
                     if n.get("dc_id") not in exist)
     n_blank = sum(1 for r in rows if not (r["이 말이 나오면"] or r["파일 이름에"]))
 
+    # 불러오기 결과는 rerun 을 지나 살아남아야 한다(다시 그려야 표가 갱신되므로).
+    _flash = st.session_state.pop("docrule_flash", None)
+    if _flash:
+        st.success(_flash)
+
     with st.container(border=True):
         st.markdown("**분류 체계에서 규칙 불러오기**")
         st.caption("회사 분류 체계에 있는 분류를 한 번에 가져와 규칙 줄을 만듭니다. "
@@ -2833,17 +2647,23 @@ def render_doc_rules_editor(path, tax):
         if b2.button("🔄 분류 불러오기", key="docrule_sync", type="primary",
                      disabled=not (n_missing or (n_blank and fill_blank)
                                    or (n_done and enrich))):
-            added, filled, enriched = docruleedit.sync_from_taxonomy(
-                doc, tax, fill_existing=bool(fill_blank),
-                enrich_existing=bool(enrich), syn=syn, new_rule=new_rule)
-            try:
-                docruleedit.save_doc(path, doc)
-                st.success(f"새 분류 {added}개 · 빈 규칙 채움 {filled}개 · "
-                           f"유의어 더함 {enriched}개. 표에서 필요 없는 말은 지우고, "
-                           "회사에서 쓰는 다른 표현을 더해 주세요.")
-                st.rerun()
-            except Exception as e:
-                uierrlog.show_error(f"저장 실패: {e}", exc=e, where="업무분류 규칙 저장")
+            run_sync_doc_rule(path, tax, bool(fill_blank), bool(enrich))
+
+        # ②(회사 분류 체계)와 같은 규약 — 버튼이 실제로 실행하는 명령을 그대로 밝힌다.
+        # 예전에는 화면이 파일을 직접 고쳐서 여기에 적을 명령이 없었고, 비슷한 일을
+        # 하는 CLI(--scaffold-doc-rule)는 유의어를 못 채워 결과가 달랐다. 지금은
+        # 어휘를 만드는 층이 엔진에 한 벌만 있어(골든 테스트로 묶임) 화면이 부르든
+        # 명령창에서 치든 같은 파일이 나온다.
+        _paths = st.session_state.get("paths", {})
+        _base = gerunner.parse_base_cmd(_paths.get("cmd"))
+        _opt = ("" if fill_blank else " --no-fill-blank") + (" --sync-enrich" if enrich else "")
+        st.caption("이 버튼이 실행하는 명령 — 명령창에서 그대로 쳐도 결과는 같습니다")
+        st.code(" ".join(_base or ["csoclassify"]) + " --sync-doc-rule"
+                + f" --taxonomy {(tax or {}).get('path') or 'doc_taxonomy.yaml'}"
+                + f" --doc-rules {path}{_opt}", language="text")
+        st.caption("↳ 위 체크 두 개가 그대로 인자가 됩니다(`--no-fill-blank` · "
+                   "`--sync-enrich`). 규칙 파일이 이미 있어도 **빠진 분류만 더합니다** — "
+                   "사람이 적어 둔 말은 지우지 않습니다.")
 
         # 대분류처럼 자동으로 가져오지 않는 분류에도 규칙을 걸고 싶을 때가 있다.
         # 흔한 일이 아니므로 접어 둔다 — 평소 화면은 버튼 하나로 끝나야 한다.
@@ -2893,47 +2713,21 @@ def render_doc_rules_editor(path, tax):
 # ④ 설정 화면 렌더 (설계서 10장)
 #=> 처음 1회 잡고 잘 안 건드리는 것들을 한 화면에 모았다. 예전에는 사이드바 7칸 +
 #   탭 4개(규칙 설정·실행·seed 관리·내보내기)에 흩어져 있던 것들이다.
-#   번호를 붙인 블록 4개로, 위에서 아래로 따라가면 첫 실행이 끝나게 했다.
-#    ① 분류할 폴더  ② 회사 분류 체계  ③ 판단 기준  ④ 분류 실행  (+ 고급)
+#   번호를 붙인 블록 3개로, 위에서 아래로 따라가면 첫 실행이 끝나게 했다.
+#    ① 회사 분류 체계  ② 판단 기준  ③ 분류 실행(분류할 폴더 포함)  (+ 고급)
 #
 # -in: paths   = 파일 경로 묶음(session_state["paths"])
 # -in: tax     = 회사 분류 체계(None 이면 '연결 안 됨')
-# -in: records = 지금 로드된 레코드(고급의 기준 문서·리포트에서 쓴다. 없으면 [])
-# -in: df      = 문서 표(없으면 None)
-# -in: latest  = 보안등급 수정 맵(없으면 {})
+# -in: records = 지금 로드된 레코드(① 폴더 칸의 '지난 결과 건수' 표시에만 쓴다. 없으면 [])
 #
 # -out: 없음(Streamlit 출력)
 # -out: error = 없음(각 블록이 자기 오류를 표시)
 #------------------------------------------------------------------
-def render_settings(paths, tax, records, df, latest):
-    # ── ① 분류할 폴더 ──
-    with st.container(border=True):
-        st.markdown("##### 1️⃣ 분류할 폴더")
-        folder = st.text_input("폴더 경로", value=paths.get("folder", ""),
-                               placeholder="예: D:\\collected", key="set_folder",
-                               label_visibility="collapsed")
-        paths["folder"] = folder
-        if folder and not os.path.isdir(folder):
-            st.warning("그런 폴더가 없습니다. 경로를 확인해 주세요.")
-        else:
-            # '이 폴더에 몇 개가 있나'를 직접 센다. 예전에는 여기에 '지금 결과'
-            # 건수를 붙였는데, 그건 지난번 분류 결과(다른 폴더일 수 있다) 수라서
-            # 폴더 경로 바로 밑에 있으면 이 폴더의 개수처럼 읽혔다.
-            msg = "하위 폴더까지 모두 검사합니다."
-            if folder:
-                n_files, capped = gerunner.count_files(folder, recursive=True)
-                msg += (f" · 이 폴더에 **{n_files:,}개 이상**의 파일이 있습니다."
-                        if capped else f" · 이 폴더에 **{n_files:,}개**의 파일이 있습니다.")
-            st.caption(msg)
-            # 지난 결과 건수는 '지난 결과'라고 분명히 못박아 따로 보여 준다.
-            if records:
-                st.caption(f"↳ 지난 분류 결과 파일에는 {len(records):,}개 문서가 담겨 있습니다"
-                           " — 다시 분류하면 이 폴더 기준으로 새로 만들어집니다.")
-
-    # ── ② 회사 분류 체계 ──
+def render_settings(paths, tax, records):
+    # ── ① 회사 분류 체계 ──
     with st.container(border=True):
         c1, c2 = st.columns([4, 1])
-        c1.markdown(f"##### 2️⃣ 회사 분류 체계 {'✅ 연결됨' if tax else '⛔ 연결 안 됨'}")
+        c1.markdown(f"##### 1️⃣ 회사 분류 체계 {'✅ 연결됨' if tax else '⛔ 연결 안 됨'}")
         if tax:
             c1.caption(f"**{tax['node_count']}개 분류** · " + " · ".join(taxlib.roots(tax)))
             c1.caption(f"가져온 날짜 **{taxlib.exported_at_kr(tax)}** · "
@@ -2968,9 +2762,9 @@ def render_settings(paths, tax, records, df, latest):
                   f" --taxonomy {paths.get('taxonomy') or 'doc_taxonomy.yaml'}",
                 language="text")
 
-    # ── ③ 판단 기준 ──
+    # ── ② 판단 기준 ──
     with st.container(border=True):
-        st.markdown("##### 3️⃣ 판단 기준")
+        st.markdown("##### 2️⃣ 판단 기준")
         which = st.segmented_control("어느 기준", [W.AXIS_SEC, W.AXIS_DOC],
                                      default=W.AXIS_SEC, key="set_rules_axis",
                                      label_visibility="collapsed")
@@ -2983,13 +2777,13 @@ def render_settings(paths, tax, records, df, latest):
                        "**더 엄격한 등급**이 적용됩니다.")
             render_rules_editor()
 
-    # ── ④ 분류 실행 ──
+    # ── ③ 분류 실행 ──
     with st.container(border=True):
-        st.markdown("##### 4️⃣ 분류 실행")
-        render_run_panel(paths["result"], paths.get("folder"), tax)
+        st.markdown("##### 3️⃣ 분류 실행")
+        render_run_panel(paths["result"], paths, tax, records)
 
     # ── 고급 ── (파일 경로·기준 문서·리포트 — 평소에는 열 일이 없다)
-    with st.expander("고급 — 파일 위치 · 기준 문서 · 진단 리포트"):
+    with st.expander("고급 — 파일 위치"):
         st.markdown("**파일 위치**")
         g1, g2 = st.columns(2)
         paths["result"] = g1.text_input("분류 결과", value=paths["result"], key="p_result")
@@ -3039,13 +2833,365 @@ def render_settings(paths, tax, records, df, latest):
             st.session_state["paths_saved"] = {k: (d.get(k) or "") for k in uisettings.KEYS}
             st.rerun()
 
-        if records:
-            st.divider()
-            st.markdown("**기준 문서(‘이런 문서는 이 등급’ 본보기)**")
-            render_seed_manager(records, latest, tax)
-            st.divider()
-            st.markdown("**진단 리포트**")
-            render_report(df, records, LOW_CONF)
+
+#------------------------------------------------------------------
+# ⑤ 기준 문서 화면 — 축별 등록 · 수정 · 삭제
+#=> "이런 문서는 이 등급 · 이 분류" 본보기를 사람이 직접 관리하는 화면.
+#   문서함에서 하는 등록은 '이번에 분류한 문서' 중에서 고르는 것이라, 아직 분류하지
+#   않은 대표 문서를 올리거나 이미 등록한 것을 고치려면 갈 곳이 없었다.
+#    1) 위: 지금 구성(건수·등급 균형)을 먼저 보여준다
+#    2) 가운데: 파일을 올려 새로 등록 — 두 축을 각각 정할 수 있다
+#    3) 아래: 등록된 것을 골라 고치거나 지운다(축 하나만 해제도 여기서)
+#
+# -in: tax = 회사 분류 체계(업무분류를 고르는 목록에 쓴다. None 이면 그 칸만 잠근다)
+#
+# -out: 없음(Streamlit 출력)
+# -out: error = 없음(개별 실패는 화면에 이유와 함께 표시)
+#------------------------------------------------------------------
+def render_seed_screen(tax=None):
+    cfg = st.session_state.get("seedcfg", {})
+    seed_path = cfg.get("seed_path")
+    audit_path = cfg.get("audit_path")
+    reviewer = (cfg.get("reviewer") or "").strip()
+
+    st.markdown("### 🌱 기준 문서")
+    st.caption("다음 분류 때 “비슷한 문서 참고”의 잣대가 되는 본보기 문서입니다 — "
+               "확실한 문서만 두세요.")
+
+    flash = st.session_state.pop("seedscr_flash", None)
+    if flash:
+        st.success(flash)
+
+    seeds = seedstore.load_seeds(seed_path)
+    render_seed_manager()          # 현황 요약(건수·등급 균형)
+
+    st.divider()
+    render_seed_add(seeds, tax, cfg, seed_path, audit_path, reviewer)
+
+    st.divider()
+    render_seed_edit(seeds, tax, seed_path, audit_path, reviewer)
+
+
+#------------------------------------------------------------------
+# 기준 문서 새로 등록(파일 올리기)
+#=> 아직 분류하지 않은 대표 문서를 관리자가 직접 본보기로 올린다.
+#    1) 어떤 축을 정할지 먼저 고른다 — 보안등급만/업무분류만/둘 다 모두 유효하다
+#    2) 올린 파일을 그 자리에서 분류기에 넣어 벡터를 얻는다(벡터 없는 기준 문서는
+#       비교 대상이 못 되므로 저장할 이유가 없다)
+#    3) 축마다 따로 얹고, 축마다 따로 감사 기록을 남긴다
+#
+# -in: seeds      = 지금 기준 문서 목록
+# -in: tax        = 회사 분류 체계(업무분류 목록용)
+# -in: cfg        = seedcfg(실행 명령 등)
+# -in: seed_path  = 저장소 경로
+# -in: audit_path = 감사 로그 경로
+# -in: reviewer   = 검토자 이름
+#
+# -out: 없음(등록 시 저장 + rerun)
+# -out: error = 없음(실패는 화면에 표시)
+#------------------------------------------------------------------
+def render_seed_add(seeds, tax, cfg, seed_path, audit_path, reviewer):
+    st.markdown("**새로 등록 — 파일을 올려 본보기로 삼기**")
+    st.caption("이미 분류한 문서를 등록하려면 **문서함**에서 고르는 편이 빠릅니다"
+               "(여러 건 한꺼번에도 됩니다). 여기서는 아직 분류하지 않은 문서를 올립니다.")
+
+    ver = st.session_state.get("seedadd_ver", 0)
+    up = st.file_uploader("문서 올리기(여러 개 가능)", accept_multiple_files=True,
+                          key=f"seedadd_file_{ver}")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        use_sec = st.checkbox(f"{W.AXIS_SEC} 정하기", value=True,
+                              key=f"seedadd_usesec_{ver}")
+        grade = st.radio("등급", W.GRADE_CHOICES, horizontal=True,
+                         format_func=lambda g: W.GRADE_LABEL[g],
+                         key=f"seedadd_grade_{ver}", disabled=not use_sec)
+    with c2:
+        opts = taxlib.selectable(tax)
+        label_by_id = dict(opts)
+        use_doc = st.checkbox(f"{W.AXIS_DOC} 정하기", value=False,
+                              key=f"seedadd_usedoc_{ver}", disabled=not opts,
+                              help=None if opts else "회사 분류 체계를 먼저 연결하세요")
+        dc_ids = st.multiselect("분류(여러 개 가능)", [dc for dc, _ in opts],
+                                format_func=lambda dc: label_by_id.get(dc, dc),
+                                key=f"seedadd_dc_{ver}", disabled=not use_doc)
+    note = st.text_input("메모(선택)", key=f"seedadd_note_{ver}")
+
+    if st.button("🌱 기준 문서로 등록", type="primary", key="seedadd_go"):
+        if not reviewer:
+            st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요.")
+            return
+        if not up:
+            st.warning("파일을 올리세요.")
+            return
+        if not (use_sec or (use_doc and dc_ids)):
+            st.warning("보안등급이나 업무분류 중 적어도 하나는 정해야 합니다.")
+            return
+
+        base = gerunner.parse_base_cmd(cfg.get("csoclassify_cmd"))
+        if not base:
+            st.error("분류 실행 명령이 비어 있습니다 — 설정/분류 ▸ 고급 ▸ 실행 명령을 "
+                     "먼저 채워 주세요.")
+            return
+
+        cur, added, failed = list(seeds), 0, []
+        prog = st.progress(0.0, text=f"임베딩 중… 0/{len(up)}")
+
+        # 올린 파일을 임시 폴더 '한 곳'에 모아 한 번에 임베딩한다. 파일마다 따로
+        # 돌리면 임베딩 모델을 올린 수만큼 다시 읽어, 스무 건이면 20초를 그냥 버린다.
+        tmpd = tempfile.mkdtemp()
+        staged = []
+        for uf in up:
+            tp = os.path.join(tmpd, uf.name)
+            with open(tp, "wb") as f:
+                f.write(uf.getbuffer())
+            staged.append((uf.name, tp))
+        try:
+            vecs = gerunner.embed_files(
+                base, [tp for _, tp in staged], pythonpath=cfg.get("pythonpath"),
+                on_progress=lambda d, t, p: prog.progress(
+                    d / t if t else 1.0, text=f"임베딩 중… {d}/{t}"))
+        except Exception as e:
+            uierrlog.show_error(f"임베딩 실패: {e}", exc=e, where="기준 문서 등록")
+            vecs = {}
+
+        for i, (name, tp) in enumerate(staged):
+            prog.progress(i / len(staged), text=f"등록 중… {i}/{len(staged)} · {name}")
+            vec = vecs.get(tp)
+            if not vec:
+                failed.append(name)
+                st.error(f"{name}: 벡터를 얻지 못했습니다(문서에서 글자를 못 뽑았을 수 "
+                         "있습니다).")
+                continue
+            # 파일 이름만 남긴다 — 임시 폴더 경로를 적으면 다음 실행 때 '원본 없음'이 된다.
+            if use_sec:
+                cur = seedstore.set_axis(cur, name, "security", grade, reviewer,
+                                         source="upload", note=note.strip(), vector=vec)
+                seedstore.append_seed_audit(audit_path, "add", name, axis="security",
+                                            before=None, after=grade, reviewer=reviewer,
+                                            reason="기준문서 화면에서 직접 등록")
+            if use_doc and dc_ids:
+                cur = seedstore.set_axis(cur, name, "doctype", list(dc_ids), reviewer,
+                                         source="upload", note=note.strip(), vector=vec)
+                seedstore.append_seed_audit(audit_path, "add", name, axis="doctype",
+                                            before=None, after=list(dc_ids),
+                                            reviewer=reviewer,
+                                            reason="기준문서 화면에서 직접 등록")
+            added += 1
+        prog.progress(1.0, text="완료")
+        # 올린 파일 사본은 등록이 끝나면 지운다(예전에는 파일마다 임시 폴더를 만들고
+        # 아무도 치우지 않아, 등록할 때마다 temp 에 사본이 쌓였다).
+        shutil.rmtree(tmpd, ignore_errors=True)
+
+        if added:
+            try:
+                seedstore.save_seeds(seed_path, cur)
+            except OSError as e:
+                uierrlog.show_error(f"기준 문서 저장 실패: {e}", exc=e, where="기준 문서 저장")
+                return
+            st.session_state["seedscr_flash"] = (
+                f"{added}건을 기준 문서로 등록했습니다"
+                + (f" · 실패 {len(failed)}건" if failed else ""))
+            st.session_state["seedadd_ver"] = ver + 1   # 입력칸 비우기
+            st.rerun()
+        else:
+            st.warning("등록된 기준 문서가 없습니다(위 오류를 확인하세요).")
+
+
+#------------------------------------------------------------------
+# 편집 화면에서 무엇이 바뀌는지 판단(화면 없는 순수 계산)
+#=> 사람이 고른 값과 지금 저장된 값을 견주어 '할 일 목록'을 만든다. 화면은 이
+#   목록을 그대로 적용하기만 하므로, 보여 준 것과 저장되는 것이 어긋날 수 없다.
+#   [까다로운 지점] '해제'와 '값 변경'은 전혀 다른 일이다. 해제는 값을 지우지 않고
+#   잣대에서만 빼야 한다(되살릴 수 있어야 하고, 무엇을 뺐는지도 남아야 한다).
+#
+# -in: entry     = 지금 저장된 기준 문서 한 줄
+# -in: new_grade = 고른 보안등급("C"/"S"/"O") 또는 "해제"
+# -in: new_dc    = 고른 업무분류 dc_id 목록(비어 있으면 해제)
+# -in: new_note  = 고친 메모
+#
+# -out: list = [{"axis","action","before","after"}] · action 은
+#        "set"(값 지정) · "retire"(축 해제) · "note"(메모만)
+# -out: error = 없음
+#------------------------------------------------------------------
+def seed_edit_ops(entry, new_grade, new_dc, new_note):
+    ops = []
+    act = seedstore.active_axes(entry)
+
+    was_g = seedstore.axis_value(entry, "security") if "security" in act else None
+    if new_grade == "해제":
+        if "security" in act:
+            ops.append({"axis": "security", "action": "retire",
+                        "before": was_g, "after": None})
+    elif new_grade and new_grade != was_g:
+        ops.append({"axis": "security", "action": "set",
+                    "before": was_g, "after": new_grade})
+
+    was_dc = list(seedstore.axis_value(entry, "doctype") or []) if "doctype" in act else []
+    new_dc = list(new_dc or [])
+    if new_dc != was_dc:
+        if new_dc:
+            ops.append({"axis": "doctype", "action": "set",
+                        "before": was_dc or None, "after": new_dc})
+        elif was_dc:
+            ops.append({"axis": "doctype", "action": "retire",
+                        "before": was_dc, "after": None})
+
+    if (new_note or "") != (entry.get("note", "") or ""):
+        ops.append({"axis": "-", "action": "note",
+                    "before": entry.get("note", "") or "", "after": new_note or ""})
+    return ops
+
+
+#------------------------------------------------------------------
+# 판단한 대로 적용한다(화면 없는 순수 적용)
+#=> seed_edit_ops 가 만든 목록만 적용한다. 여기서 새로 판단하지 않는 것이 핵심이다.
+#
+# -in: seeds      = 기준 문서 목록(변형하지 않고 새 목록 반환)
+# -in: file       = 대상 문서
+# -in: ops        = seed_edit_ops 결과
+# -in: reviewer   = 승인자
+# -in: audit_path = 감사 로그 경로(None 이면 기록하지 않는다)
+#
+# -out: list = 갱신된 기준 문서 목록
+# -out: error = 없음
+#------------------------------------------------------------------
+def apply_seed_edit(seeds, file, ops, reviewer, audit_path=None):
+    cur = list(seeds)
+    for op in ops:
+        axis, action = op["axis"], op["action"]
+        if action == "set":
+            cur = seedstore.set_axis(cur, file, axis, op["after"], reviewer)
+            act = "update" if op["before"] else "add"
+        elif action == "retire":
+            cur, _ = seedstore.retire_axis(cur, file, axis)
+            act = "retire"
+        else:                       # 메모는 줄 전체에 붙는 값이라 축과 무관하다
+            key = seedstore.norm_file(file)
+            cur = [({**x, "note": op["after"]}
+                    if seedstore.norm_file(x.get("file")) == key else x) for x in cur]
+            act = "update"
+        if audit_path:
+            seedstore.append_seed_audit(audit_path, act, file, axis=axis,
+                                        before=op["before"], after=op["after"],
+                                        reviewer=reviewer,
+                                        reason="기준문서 화면에서 수정")
+    return cur
+
+
+#------------------------------------------------------------------
+# 등록된 기준 문서 고치기 · 지우기
+#=> 한 건을 골라 두 축을 각각 손본다. 표에서 여러 줄을 한 번에 고치는 방식은
+#   업무분류가 '여러 개'라 표 칸에 담기지 않는다 — 골라서 아래에서 고치는 쪽이
+#   두 축 모두를 제대로 다룰 수 있다.
+#
+# -in: seeds      = 지금 기준 문서 목록
+# -in: tax        = 회사 분류 체계
+# -in: seed_path  = 저장소 경로
+# -in: audit_path = 감사 로그 경로
+# -in: reviewer   = 검토자 이름
+#
+# -out: 없음(저장 시 rerun)
+# -out: error = 없음
+#------------------------------------------------------------------
+def render_seed_edit(seeds, tax, seed_path, audit_path, reviewer):
+    st.markdown("**고치기 · 지우기**")
+    if not seeds:
+        st.info("아직 등록된 기준 문서가 없습니다. 위에서 올리거나 문서함에서 등록하세요.")
+        return
+
+    rows = []
+    for e in seeds:
+        dc = list(seedstore.axis_value(e, "doctype") or [])
+        state = []
+        for a in seedstore.AXES:
+            stt = seedstore.axis_state(e, a)
+            if stt and stt != seedstore.STATE_ACTIVE:
+                reason = ((e.get("axes") or {}).get(a) or {}).get("reason")
+                state.append(f"{seedstore.AXIS_LABEL[a]} {W.SEED_STATE.get(stt, stt)}"
+                             + (f"({W.SEED_REASON.get(reason, reason)})" if reason else ""))
+        rows.append({
+            "문서": os.path.basename(e.get("file") or ""),
+            W.AXIS_SEC: (seedstore.axis_value(e, "security") or "—")
+                        if "security" in seedstore.active_axes(e) else "—",
+            W.AXIS_DOC: " · ".join(taxlib.path_of(tax, d) for d in dc) if dc else "—",
+            "상태": " · ".join(state) or "쓰는 중",
+            "메모": e.get("note", "") or "",
+            # 기준 문서는 사람이 책임지고 고른 본보기다. 결과가 이상할 때
+            # 물어볼 사람이 누구인지가 메모만큼 중요하다.
+            "검토자": " · ".join(seedstore.approvers(e)) or "—",
+            "위치": e.get("file") or "",
+        })
+    ev = st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=300,
+                      on_select="rerun", selection_mode="single-row",
+                      column_config={"문서": st.column_config.TextColumn(width="large"),
+                                     W.AXIS_SEC: st.column_config.TextColumn(width=90),
+                                     "상태": st.column_config.TextColumn(width="small"),
+                                     "검토자": st.column_config.TextColumn(width="small")})
+    picked = ev.selection.rows if ev and ev.selection else []
+    if not picked:
+        st.caption("고치거나 지울 문서를 표에서 한 건 고르세요.")
+        return
+
+    e = seeds[picked[0]]
+    file = e.get("file") or ""
+    st.markdown(f"##### {os.path.basename(file)}")
+    st.caption(f"위치 `{file}`")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        cur_g = seedstore.axis_value(e, "security")
+        sec_on = "security" in seedstore.active_axes(e)
+        choices = W.GRADE_CHOICES + ["해제"]
+        idx = choices.index(cur_g) if (sec_on and cur_g in W.GRADE_CHOICES) else len(choices) - 1
+        new_g = st.radio(f"{W.AXIS_SEC}", choices, index=idx, horizontal=True,
+                         format_func=lambda g: W.GRADE_LABEL.get(g, "쓰지 않음"),
+                         key=f"seededit_g_{file}")
+    with c2:
+        opts = taxlib.selectable(tax)
+        label_by_id = dict(opts)
+        cur_dc = [d for d in (seedstore.axis_value(e, "doctype") or [])
+                  if d in label_by_id]
+        new_dc = st.multiselect(f"{W.AXIS_DOC}", [dc for dc, _ in opts],
+                                default=cur_dc if "doctype" in seedstore.active_axes(e) else [],
+                                format_func=lambda dc: label_by_id.get(dc, dc),
+                                key=f"seededit_dc_{file}", disabled=not opts,
+                                help="비우면 이 문서는 업무분류 잣대에서 빠집니다")
+    new_note = st.text_input("메모", value=e.get("note", "") or "", key=f"seededit_n_{file}")
+
+    b1, b2 = st.columns([1, 1])
+    if b1.button("💾 저장", type="primary", key=f"seededit_save_{file}"):
+        if not reviewer:
+            st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요.")
+            return
+        ops = seed_edit_ops(e, new_g, new_dc, new_note)
+        if not ops:
+            st.info("바뀐 것이 없습니다.")
+            return
+        cur = apply_seed_edit(seeds, file, ops, reviewer, audit_path)
+        changed = len(ops)
+        left = seedstore.save_seeds(seed_path, cur)
+        gone = seedstore.find_seed(seedstore.load_seeds(seed_path), file) is None
+        st.session_state["seedscr_flash"] = (
+            f"{os.path.basename(file)} — {changed}곳을 고쳤습니다 · 남은 기준 문서 {left}건"
+            + ("(두 축이 모두 해제돼 목록에서 빠졌습니다)" if gone else ""))
+        st.rerun()
+
+    with b2:
+        sure = st.checkbox("정말 지웁니다", key=f"seededit_sure_{file}")
+        if st.button("🗑 지우기", disabled=not sure, key=f"seededit_del_{file}"):
+            if not reviewer:
+                st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요.")
+                return
+            cur = seedstore.remove_seed(seeds, file)
+            seedstore.append_seed_audit(
+                audit_path, "delete", file, axis="-",
+                before={a: seedstore.axis_value(e, a) for a in seedstore.AXES
+                        if seedstore.axis_state(e, a)},
+                after=None, reviewer=reviewer, reason="기준문서 화면에서 삭제")
+            seedstore.save_seeds(seed_path, cur)
+            st.session_state["seedscr_flash"] = f"{os.path.basename(file)} 을 지웠습니다."
+            st.rerun()
 
 
 #------------------------------------------------------------------
@@ -3090,12 +3236,14 @@ def import_taxonomy(paths):
         return
 
     if r.returncode != 0 or not os.path.isfile(out):
-        st.error("분류 체계를 만들지 못했습니다.")
+        why = gerunner.error_line(getattr(r, "error", None))
+        st.error(f"분류 체계를 만들지 못했습니다.{(' ' + why) if why else ''}")
         st.caption("실행한 명령 — 명령창에서 그대로 쳐 보면 자세한 원인을 볼 수 있습니다")
         st.code(" ".join(r.args), language="text")
         if r.stderr.strip():
             st.caption(f"실행 로그: {r.stderr.strip()[-400:]}")
         uierrlog.log_error("분류 체계 가져오기 실패\n"
+                           f"오류: {why or '(계약 오류 없음)'}\n"
                            f"명령: {' '.join(r.args)}\nstderr:\n{r.stderr}",
                            where="분류 체계 연결")
         return
@@ -3131,7 +3279,17 @@ def reset_dialog():
         value=True,
         help="회사 분류 체계 원본(doc_classification_export.json)과 "
              "doc_rule_template.yaml 로 다시 만들 수 있습니다")
-    targets, kept = uireset.plan_reset(ui_dir, drop_generated=drop_gen)
+    # 기준 문서만 따로 뺄 수 있게 한다 — "결과는 갈아엎되 그동안 확정한 기준
+    # 문서는 살려 두고 다시 분류"가 실무에서 자주 필요하다. 기본은 지움
+    # ('처음 상태로 되돌리기'라는 이 기능의 뜻을 기본값으로 유지).
+    drop_seed = st.checkbox(
+        "기준 문서(class_seed.jsonl)도 지우기",
+        value=True, key="reset_drop_seed",
+        help="끄면 그동안 확정해 둔 기준 문서를 그대로 남깁니다. "
+             "다시 분류할 때 이 기준으로 비슷한 문서를 계속 분류합니다. "
+             "변경 이력(class_seed_audit.jsonl)은 이 선택과 무관하게 지웁니다")
+    targets, kept = uireset.plan_reset(ui_dir, drop_generated=drop_gen,
+                                       drop_seed=drop_seed)
 
     if not targets:
         st.success("지울 것이 없습니다 — 이미 처음 상태입니다.")
@@ -3141,15 +3299,25 @@ def reset_dialog():
     st.markdown(f"**지울 파일 {len(targets)}건 · {total}**")
     st.dataframe(
         pd.DataFrame([{"파일": os.path.relpath(t["path"], ui_dir),
-                       "크기": uireset.human_size(t["size"]),
-                       "무엇": t["why"]} for t in targets]),
+                       "무엇을 담고 있나": t["why"],
+                       "다시 만들려면": uireset.recover_text(t),
+                       "크기": uireset.human_size(t["size"])} for t in targets]),
         hide_index=True, width="stretch")
 
     st.caption("남는 것 — 소스 코드 · " + " · ".join(k["name"] for k in kept)
                + " · cso_rules.yaml · doc_rule_template.yaml · synonyms 폴더 · "
                  "화면 설정(settings.yaml)")
-    st.warning("되돌릴 수 없습니다. 분류 결과와 기준 문서가 모두 사라지고, "
-               "폴더를 다시 분류해야 합니다.")
+
+    # 되돌릴 수 있는 것과 없는 것은 무게가 전혀 다르다. 그 둘을 뭉뚱그려
+    # "되돌릴 수 없습니다" 라고만 하면, 정말 위험한 쪽이 묻힌다.
+    lost = [t for t in targets if t.get("recoverable") is False]
+    if lost:
+        st.warning("**사람이 쌓은 판단 " + str(len(lost)) + "건이 영영 사라집니다** — "
+                   + " · ".join(t["name"] for t in lost) + ". "
+                   "다시 분류해도 돌아오지 않습니다(관리자가 고친 등급, 확정한 "
+                   "업무분류, 등록해 둔 기준 문서와 그 이력).")
+    if len(lost) < len(targets):
+        st.info("나머지는 표의 ‘다시 만들려면’ 대로 하면 그대로 되돌아옵니다.")
 
     ok = st.checkbox("위 파일들을 지웁니다", key="reset_ok")
     if st.button("🗑 초기화", type="primary", disabled=not ok, key="reset_go"):
@@ -3264,8 +3432,8 @@ def main():
 
     # ── 결과가 아직 없으면: 설정만 ──
     if not have_result:
-        st.info("아직 분류한 문서가 없습니다. 아래에서 폴더를 고르고 **분류 시작**을 누르세요.")
-        render_settings(paths, tax, [], None, {})
+        st.info("아직 분류한 문서가 없습니다. 아래 **③ 분류 실행**에서 폴더를 고르고 **분류 시작**을 누르세요.")
+        render_settings(paths, tax, [])
         return
 
     try:
@@ -3285,7 +3453,7 @@ def main():
     todo_n = int((df["need_sec"] | df["need_doc"]).sum())
     labels = {MENU_HOME: MENU_HOME, MENU_BOX: MENU_BOX,
               MENU_INBOX: f"{MENU_INBOX} · {todo_n}" if todo_n else MENU_INBOX,
-              MENU_SET: MENU_SET}
+              MENU_SET: MENU_SET, MENU_SEED: MENU_SEED}
     # 위에서 잡아 둔 제목 옆자리에 그린다. st.empty() 는 한 요소만 담으므로
     # container() 로 감싼다 — 나중에 안내 문구를 덧붙일 여지도 남는다.
     with menu_slot.container():
@@ -3298,7 +3466,7 @@ def main():
         b1, b2 = st.columns([5, 1])
         b1.warning(f"{W.AXIS_DOC}는 아직 사용하지 않습니다 — 회사 분류 체계를 연결하면 "
                    "“이 문서가 무엇에 관한 것인지”도 함께 정리됩니다.")
-        if b2.button("설정에서 연결 →", key="go_set"):
+        if b2.button("설정/분류에서 연결 →", key="go_set"):
             goto(menu=MENU_SET)
 
     if menu == MENU_HOME:
@@ -3309,14 +3477,16 @@ def main():
     elif menu == MENU_INBOX:
         render_inbox(df, records, latest, history, latest_dt, history_dt,
                      paths["override"], reviewer or "", tax)
+    elif menu == MENU_SEED:
+        render_seed_screen(tax)
     else:
-        render_settings(paths, tax, records, df, latest)
+        render_settings(paths, tax, records)
 
 
 # Streamlit 은 이 파일을 __main__ 으로 실행한다. 가드를 두어 테스트 시 import 로
 # 함수만 가져다 쓸 수 있게 한다(그때는 main 이 안 돈다).
 if __name__ == "__main__":
-    # 화면 어디서 예외가 터지든 파일(csoclassify_err_YYYYMMDD.log)에 스택까지 남긴다.
+    # 화면 어디서 예외가 터지든 파일(log/class_err_YYYYMMDD.log)에 스택까지 남긴다.
     # Streamlit 은 예외를 자기가 잡아 브라우저에만 그리기 때문에, 감싸 두지 않으면
     # 원격에 띄운 화면에서는 무슨 일이 있었는지 볼 방법이 없다.
     uierrlog.install_hooks()

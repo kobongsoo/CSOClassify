@@ -1,0 +1,499 @@
+{
+  "source": "SampleCorp.DOC_CLASSIFICATION",
+  "export_server": "sample://doc-classification-example (가짜 예시 데이터)",
+  "node_count": 31,
+  "nodes": [
+    {
+      "dc_id": "DC_001",
+      "parent_dc_id": null,
+      "order_num": 1,
+      "title": "영업/제안",
+      "status": 1,
+      "path_ids": [
+        "DC_001"
+      ],
+      "path_titles": [
+        "영업/제안"
+      ],
+      "path": "영업/제안"
+    },
+    {
+      "dc_id": "DC_001_001",
+      "parent_dc_id": "DC_001",
+      "order_num": 1,
+      "title": "제안서",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001"
+      ],
+      "path_titles": [
+        "영업/제안",
+        "제안서"
+      ],
+      "path": "영업/제안 > 제안서"
+    },
+    {
+      "dc_id": "DC_001_002",
+      "parent_dc_id": "DC_001",
+      "order_num": 2,
+      "title": "견적서",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_002"
+      ],
+      "path_titles": [
+        "영업/제안",
+        "견적서"
+      ],
+      "path": "영업/제안 > 견적서"
+    },
+    {
+      "dc_id": "DC_001_003",
+      "parent_dc_id": "DC_001",
+      "order_num": 3,
+      "title": "경쟁사분석",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_003"
+      ],
+      "path_titles": [
+        "영업/제안",
+        "경쟁사분석"
+      ],
+      "path": "영업/제안 > 경쟁사분석"
+    },
+    {
+      "dc_id": "DC_001_004",
+      "parent_dc_id": "DC_001",
+      "order_num": 4,
+      "title": "고객사자료",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_004"
+      ],
+      "path_titles": [
+        "영업/제안",
+        "고객사자료"
+      ],
+      "path": "영업/제안 > 고객사자료"
+    },
+    {
+      "dc_id": "DC_001_005",
+      "parent_dc_id": "DC_001",
+      "order_num": 5,
+      "title": "사업계획서",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_005"
+      ],
+      "path_titles": [
+        "영업/제안",
+        "사업계획서"
+      ],
+      "path": "영업/제안 > 사업계획서"
+    },
+    {
+      "dc_id": "DC_002",
+      "parent_dc_id": null,
+      "order_num": 2,
+      "title": "제품/기술",
+      "status": 1,
+      "path_ids": [
+        "DC_002"
+      ],
+      "path_titles": [
+        "제품/기술"
+      ],
+      "path": "제품/기술"
+    },
+    {
+      "dc_id": "DC_002_001",
+      "parent_dc_id": "DC_002",
+      "order_num": 1,
+      "title": "매뉴얼",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001"
+      ],
+      "path_titles": [
+        "제품/기술",
+        "매뉴얼"
+      ],
+      "path": "제품/기술 > 매뉴얼"
+    },
+    {
+      "dc_id": "DC_002_001_001",
+      "parent_dc_id": "DC_002_001",
+      "order_num": 1,
+      "title": "사용자매뉴얼",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001",
+        "DC_002_001_001"
+      ],
+      "path_titles": [
+        "제품/기술",
+        "매뉴얼",
+        "사용자매뉴얼"
+      ],
+      "path": "제품/기술 > 매뉴얼 > 사용자매뉴얼"
+    },
+    {
+      "dc_id": "DC_002_001_002",
+      "parent_dc_id": "DC_002_001",
+      "order_num": 2,
+      "title": "관리자매뉴얼",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001",
+        "DC_002_001_002"
+      ],
+      "path_titles": [
+        "제품/기술",
+        "매뉴얼",
+        "관리자매뉴얼"
+      ],
+      "path": "제품/기술 > 매뉴얼 > 관리자매뉴얼"
+    },
+    {
+      "dc_id": "DC_002_001_003",
+      "parent_dc_id": "DC_002_001",
+      "order_num": 3,
+      "title": "API매뉴얼",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001",
+        "DC_002_001_003"
+      ],
+      "path_titles": [
+        "제품/기술",
+        "매뉴얼",
+        "API매뉴얼"
+      ],
+      "path": "제품/기술 > 매뉴얼 > API매뉴얼"
+    },
+    {
+      "dc_id": "DC_002_002",
+      "parent_dc_id": "DC_002",
+      "order_num": 2,
+      "title": "설치가이드",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_002"
+      ],
+      "path_titles": [
+        "제품/기술",
+        "설치가이드"
+      ],
+      "path": "제품/기술 > 설치가이드"
+    },
+    {
+      "dc_id": "DC_002_003",
+      "parent_dc_id": "DC_002",
+      "order_num": 3,
+      "title": "기술검토서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_003"
+      ],
+      "path_titles": [
+        "제품/기술",
+        "기술검토서"
+      ],
+      "path": "제품/기술 > 기술검토서"
+    },
+    {
+      "dc_id": "DC_002_004",
+      "parent_dc_id": "DC_002",
+      "order_num": 4,
+      "title": "아키텍처설계서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_004"
+      ],
+      "path_titles": [
+        "제품/기술",
+        "아키텍처설계서"
+      ],
+      "path": "제품/기술 > 아키텍처설계서"
+    },
+    {
+      "dc_id": "DC_002_005",
+      "parent_dc_id": "DC_002",
+      "order_num": 5,
+      "title": "구버전매뉴얼",
+      "status": 0,
+      "path_ids": [
+        "DC_002",
+        "DC_002_005"
+      ],
+      "path_titles": [
+        "제품/기술",
+        "구버전매뉴얼"
+      ],
+      "path": "제품/기술 > 구버전매뉴얼"
+    },
+    {
+      "dc_id": "DC_003",
+      "parent_dc_id": null,
+      "order_num": 3,
+      "title": "고객지원",
+      "status": 1,
+      "path_ids": [
+        "DC_003"
+      ],
+      "path_titles": [
+        "고객지원"
+      ],
+      "path": "고객지원"
+    },
+    {
+      "dc_id": "DC_003_001",
+      "parent_dc_id": "DC_003",
+      "order_num": 1,
+      "title": "설치확인서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_001"
+      ],
+      "path_titles": [
+        "고객지원",
+        "설치확인서"
+      ],
+      "path": "고객지원 > 설치확인서"
+    },
+    {
+      "dc_id": "DC_003_002",
+      "parent_dc_id": "DC_003",
+      "order_num": 2,
+      "title": "정기점검확인서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_002"
+      ],
+      "path_titles": [
+        "고객지원",
+        "정기점검확인서"
+      ],
+      "path": "고객지원 > 정기점검확인서"
+    },
+    {
+      "dc_id": "DC_003_003",
+      "parent_dc_id": "DC_003",
+      "order_num": 3,
+      "title": "라이센스증서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_003"
+      ],
+      "path_titles": [
+        "고객지원",
+        "라이센스증서"
+      ],
+      "path": "고객지원 > 라이센스증서"
+    },
+    {
+      "dc_id": "DC_003_004",
+      "parent_dc_id": "DC_003",
+      "order_num": 4,
+      "title": "장애처리보고서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_004"
+      ],
+      "path_titles": [
+        "고객지원",
+        "장애처리보고서"
+      ],
+      "path": "고객지원 > 장애처리보고서"
+    },
+    {
+      "dc_id": "DC_004",
+      "parent_dc_id": null,
+      "order_num": 4,
+      "title": "사내행정",
+      "status": 1,
+      "path_ids": [
+        "DC_004"
+      ],
+      "path_titles": [
+        "사내행정"
+      ],
+      "path": "사내행정"
+    },
+    {
+      "dc_id": "DC_004_001",
+      "parent_dc_id": "DC_004",
+      "order_num": 1,
+      "title": "사내규정",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_001"
+      ],
+      "path_titles": [
+        "사내행정",
+        "사내규정"
+      ],
+      "path": "사내행정 > 사내규정"
+    },
+    {
+      "dc_id": "DC_004_002",
+      "parent_dc_id": "DC_004",
+      "order_num": 2,
+      "title": "구입의뢰서",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_002"
+      ],
+      "path_titles": [
+        "사내행정",
+        "구입의뢰서"
+      ],
+      "path": "사내행정 > 구입의뢰서"
+    },
+    {
+      "dc_id": "DC_004_003",
+      "parent_dc_id": "DC_004",
+      "order_num": 3,
+      "title": "보안관리규정",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_003"
+      ],
+      "path_titles": [
+        "사내행정",
+        "보안관리규정"
+      ],
+      "path": "사내행정 > 보안관리규정"
+    },
+    {
+      "dc_id": "DC_004_004",
+      "parent_dc_id": "DC_004",
+      "order_num": 4,
+      "title": "교육자료",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_004"
+      ],
+      "path_titles": [
+        "사내행정",
+        "교육자료"
+      ],
+      "path": "사내행정 > 교육자료"
+    },
+    {
+      "dc_id": "DC_004_005",
+      "parent_dc_id": "DC_004",
+      "order_num": 5,
+      "title": "회의록",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_005"
+      ],
+      "path_titles": [
+        "사내행정",
+        "회의록"
+      ],
+      "path": "사내행정 > 회의록"
+    },
+    {
+      "dc_id": "DC_005",
+      "parent_dc_id": null,
+      "order_num": 5,
+      "title": "대외/마케팅",
+      "status": 1,
+      "path_ids": [
+        "DC_005"
+      ],
+      "path_titles": [
+        "대외/마케팅"
+      ],
+      "path": "대외/마케팅"
+    },
+    {
+      "dc_id": "DC_005_001",
+      "parent_dc_id": "DC_005",
+      "order_num": 1,
+      "title": "발표자료",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_001"
+      ],
+      "path_titles": [
+        "대외/마케팅",
+        "발표자료"
+      ],
+      "path": "대외/마케팅 > 발표자료"
+    },
+    {
+      "dc_id": "DC_005_002",
+      "parent_dc_id": "DC_005",
+      "order_num": 2,
+      "title": "보도자료",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_002"
+      ],
+      "path_titles": [
+        "대외/마케팅",
+        "보도자료"
+      ],
+      "path": "대외/마케팅 > 보도자료"
+    },
+    {
+      "dc_id": "DC_005_003",
+      "parent_dc_id": "DC_005",
+      "order_num": 3,
+      "title": "시장조사보고서",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_003"
+      ],
+      "path_titles": [
+        "대외/마케팅",
+        "시장조사보고서"
+      ],
+      "path": "대외/마케팅 > 시장조사보고서"
+    },
+    {
+      "dc_id": "DC_005_004",
+      "parent_dc_id": "DC_005",
+      "order_num": 4,
+      "title": "제품소개서",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_004"
+      ],
+      "path_titles": [
+        "대외/마케팅",
+        "제품소개서"
+      ],
+      "path": "대외/마케팅 > 제품소개서"
+    }
+  ]
+}

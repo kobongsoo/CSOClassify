@@ -16,7 +16,7 @@ SETTINGS_FILENAME = "settings.yaml"
 # 설정 파일에 담을 키. default_paths() 가 만드는 키와 같아야 한다. 화이트리스트로
 # 두는 이유: 파일에 엉뚱한 키가 섞여 들어와도 화면 상태를 오염시키지 않게 하려고.
 KEYS = (
-    "folder",        # ① 분류할 폴더
+    "folder",        # 분류할 폴더(③ 분류 실행 칸에서 고른다)
     "result",        # 분류 결과 jsonl
     "override",      # 내가 고친 기록
     "seed",          # 기준 문서(seed)

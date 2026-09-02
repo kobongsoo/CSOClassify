@@ -318,21 +318,33 @@ def test_미사용_노드_참조는_T6_경고와_active_False(tmp_path):
 
 
 #------------------------------------------------------------------
-# 어떤 규칙도 참조하지 않는 사용 노드는 T12 경고(로드는 막지 않는다)
+# 참조 안 된 '잎'만 T12 경고 — 대분류(자식 있는 노드)는 경고하지 않는다
+#=> 규칙은 가장 아래 분류에만 거는 것이 설계다("경영/관리" 같은 서랍 이름을 규칙에
+#   넣으면 아무 문서나 걸린다). 그래서 대분류에 규칙이 없는 것은 정상이고, 여기에
+#   경고를 내면 실행할 때마다 고칠 수 없는 경고가 쌓여 진짜 경고를 묻는다.
 #
-# -in: 없음
+# -in: tmp_path = pytest 임시 폴더
 # -out: 없음(단언)
 # -out: error = 없음
 #------------------------------------------------------------------
-def test_참조되지_않는_사용_노드는_T12_경고(tmp_path):
+def test_참조되지_않는_잎만_T12_경고(tmp_path):
     import yaml as _yaml
+    # 루트 A 아래 잎이 둘(A1·A3). 규칙은 A1 만 참조한다.
+    taxonomy = A.Taxonomy("test", "20260824000000", 3, [
+        A.TaxonomyNode(dc_id="A", parent=None, order=1, title="루트A", status=1),
+        A.TaxonomyNode(dc_id="A1", parent="A", order=1, title="자식A1", status=1),
+        A.TaxonomyNode(dc_id="A3", parent="A", order=3, title="자식A3", status=1),
+    ])
     p = tmp_path / "doc_rule.yaml"
-    # A1 만 참조하고 A(루트, status=1)는 아무 규칙도 참조하지 않는다.
     data = mk([{"id": "dt_a1", "node": "A1", "terms": ["x"]}])
     p.write_text(_yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
-    taxonomy = mk_taxonomy()
     drs = D.load_doc_rules(str(p), taxonomy=taxonomy)
-    assert any(w.startswith("[T12]") and "A(" in w for w in drs.warnings)
+
+    t12 = [w for w in drs.warnings if w.startswith("[T12]")]
+    # 규칙이 없는 잎(A3)은 알려 준다.
+    assert any("A3(" in w for w in t12), t12
+    # 대분류 A 는 자식이 있으므로 경고하지 않는다.
+    assert not any(w.startswith("[T12] A(") for w in t12), t12
 
 
 #------------------------------------------------------------------

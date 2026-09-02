@@ -109,8 +109,8 @@ def _detect_zip(path):
 def detect_format(path):
     try:
         with open(path, "rb") as f:
-            # 앞부분을 넉넉히 읽는다: 매직(8B)뿐 아니라 HTML 마커(<html 등)도 보려면 필요.
-            head = f.read(2048)
+            # 앞부분을 읽는다: 매직(8B)뿐 아니라 HTML 마커(<html 등)를 보기 위해 512B 충분.
+            head = f.read(512)
     except OSError:
         return "unknown"
     if not head:
@@ -124,7 +124,7 @@ def detect_format(path):
             or head[:6] in (b"GIF87a", b"GIF89a") or head[:2] == b"BM"):
         return "image"
     # OLE 복합문서: 내부 스트림으로 세부 구분(olefile 없으면 'ole' 로 두고 snf 폴백).
-    #   head 는 2048바이트라 8바이트 매직과 통째로 비교하면 절대 참이 되지 않는다.
+    #   head 는 512바이트라 8바이트 매직과 통째로 비교하면 절대 참이 되지 않는다.
     #   반드시 앞 8바이트만 잘라 비교한다(바로 아래 ZIP 판정과 같은 방식).
     if head[:8] == _OLE_MAGIC:
         return _detect_ole(path) if olefile is not None else "ole"

@@ -1,17 +1,16 @@
 #------------------------------------------------------------------
-# 분류 레코드 조립 (Signal A → 문서 등급 레코드)
-#=> 규칙 스캔 결과(GradeSignal)를 감사·인덱싱에 쓰기 좋은 "분류 레코드 dict"로
-#   조립한다. 지금은 규칙 신호 하나뿐이므로 최종 등급 = 규칙 등급이며, 규칙이
-#   아무것도 못 잡으면 (옵션에 따라) fail-safe 기본등급을 준다.
+# CSO 보안등급 분류 레코드 조립 (Signal A → 1차 분류 결과)
+#=> CSO 보안등급(C/S/O)의 다섯 신호를 스캔·융합·조립하여 1차 분류 레코드를 완성한다.
+#    1) 다섯 스캔 실행: 규칙(내용) + 민감정보 + 스탬프 + 경로 + 파일명
+#    2) 스캔 결과를 fuse_signals 로 융합 → 보수적 최댓값 + fail-safe 적용
+#    3) 감사·인덱싱에 쓰기 좋은 분류 레코드 dict 로 조립
 #   [경계] 경로/ACL(Signal C)·임베딩 전파(Signal B)는 아직 없다 → 이 레코드는
 #   그 신호들이 붙으면 fuse 단계에서 상향될 수 있는 "1차 등급"이다.
 #
-#   [축 확장, 설계서 §7·로드맵 D5] 레코드에 labels.security 를 항상 담고,
-#   doc_rules/taxonomy 를 함께 주면 labels.doctype 도 더한다(둘 다 없으면
-#   labels.doctype 키 자체를 생략 — 설계서 4-6: "빈 목록이 아니라 키 자체가
-#   없다"). 기존 최상위 grade/confidence/method/decided_by/seed_eligible 필드는
-#   labels.security 의 값을 그대로 복사해 유지한다(7-2 하위호환) — 옛 소비자는
-#   이 함수 시그니처가 바뀐 줄도 몰라도 된다.
+#   [업무분류 동시 계산] doc_rules/taxonomy 를 함께 주면 labels.doctype 도 더한다
+#   (둘 다 없으면 labels.doctype 키 자체를 생략 — 설계서 4-6: "빈 목록이 아니라
+#   키 자체가 없다"). 기존 최상위 grade/confidence/method/decided_by/seed_eligible
+#   필드는 labels.security 의 값을 그대로 복사해 유지한다(7-2 하위호환).
 #------------------------------------------------------------------
 
 import datetime
@@ -86,6 +85,8 @@ def _security_label(fused, signals):
 def _attach_doctype(rec, text, file, doc_rules, taxonomy):
     if doc_rules is None or taxonomy is None:
         return
+
+    # doc_rule.yaml 파일에 설정값을 읽어와서 스캔함.
     sig = scan_doctype(text, file, doc_rules, taxonomy)
     rec["labels"]["doctype"] = sig.as_dict()
     rec["doctype_rule_version"] = doc_rules.version
@@ -143,6 +144,7 @@ def build_record(file, text, ruleset, ts=None, failsafe=None, vector=None, embed
         _attach_doctype(rec, text, file, doc_rules, taxonomy)
         return rec
 
+    # cso_rules.yaml 기반으로 문서text를 스캔한다.
     rule_sig = scan_text(text, ruleset)       # Signal A (내용)
     sens_sig = scan_sensitive(text, ruleset)  # Signal F (법상 민감정보군)
     stamp_sig = scan_stamp(text, ruleset)     # Signal E (보안분류 스탬프)
@@ -179,7 +181,12 @@ def build_record(file, text, ruleset, ts=None, failsafe=None, vector=None, embed
         rec["signals"]["embed"] = embed_sig.as_dict()
     # embed 까지 반영된 signals 로 candidates 를 만들어야 하므로 여기서 조립한다.
     rec["labels"] = {"security": _security_label(fused, rec["signals"])}
+
+    # 업무분류 룰 분류 수행
+    #=>doc_rules.yaml 이용해 어무 1차분류 수행
     _attach_doctype(rec, text, file, doc_rules, taxonomy)
+
+
     # 벡터는 전파(2차)와 RAG 인덱싱에 재사용하도록 레코드에 그대로 싣는다.
     if vector is not None:
         rec["vector"] = list(vector)
@@ -238,6 +245,7 @@ def _ns_from_signal(d):
 def propagate_records(records, seed_index=None, failsafe=None, **kw):
     # 비교 기준 seed = 코퍼스 내부 seed(seed_eligible 문서) + (있으면) 외부 큐레이션 seed.
     # 외부 seed 를 주면 '외부 + 내부' 양쪽과 비교하고(사용자 정책), 없으면 내부만 쓴다.
+    # => cso_rule.yaml에서 고신뢰(seed_eligible) 설정된 경우에 대해 class_seed.jsonl 만듬 
     internal = SeedIndex.from_records(records)
     if seed_index is not None and seed_index.size:
         seeds = SeedIndex.merge(seed_index, internal)

@@ -1,4 +1,4 @@
-"""화면(Streamlit) 쪽 오류 로그 — csoclassify_err_YYYYMMDD.log 에 남긴다.
+"""화면(Streamlit) 쪽 오류 로그 — log/class_err_YYYYMMDD.log 에 남긴다.
 
 왜 필요한가: 화면에서 문제가 생기면 st.error 로 빨간 상자만 뜬다. 사용자는 그걸
 읽고 창을 닫아 버리고, 나중에 "아까 뭐라고 떴어요?" 라고 물으면 아무도 답을 못 한다.
@@ -21,15 +21,20 @@ import threading
 import traceback
 
 # 파일 이름 규칙 — exe 판(logsetup.default_err_log_path · Rust errlog.rs)과 같다.
-_PREFIX = "csoclassify_err_"
+_PREFIX = "class_err_"
 
 
 #------------------------------------------------------------------
 # 오류 로그 파일 경로
-#=> 어디에 남길지 정한다.
-#    1) 환경변수 CSOCLASSIFY_ERRLOG 가 있으면 그 경로 그대로(exe 판과 같은 변수라,
-#       한 대에서 화면과 exe 로그를 한 파일로 모을 수 있다)
-#    2) 없으면 이 화면 코드가 있는 폴더(ui/)의 csoclassify_err_YYYYMMDD.log
+#=> 어디에 남길지 정한다. exe 판(logsetup.log_dir)과 같은 규칙을 쓴다 —
+#   화면과 분류기의 로그가 서로 다른 폴더로 흩어지면, 한 사건을 좇는 데
+#   두 곳을 뒤져야 한다.
+#    1) 환경변수 CSOCLASSIFY_ERRLOG 가 있으면 그 '파일 경로' 그대로
+#       (한 대에서 화면과 exe 로그를 한 파일로 모을 때)
+#    2) 환경변수 CSOCLASSIFY_LOGDIR 이 있으면 그 폴더의 class_err_YYYYMMDD.log
+#    3) 없으면 <프로젝트 루트>/log/class_err_YYYYMMDD.log
+#       — 이 파일은 ui/uierrlog.py 이므로 루트는 한 단계 위다.
+#         화면은 언제나 소스로 돌아서 exe_dir() 과 같은 값이 된다.
 #
 # -in: 없음
 #
@@ -41,7 +46,26 @@ def log_path():
     if env:
         return os.path.abspath(env)
     day = datetime.datetime.now().strftime("%Y%m%d")
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), f"{_PREFIX}{day}.log")
+    return os.path.join(log_dir(), f"{_PREFIX}{day}.log")
+
+
+#------------------------------------------------------------------
+# 화면 로그를 모아 둘 폴더
+#=> 분류기(logsetup.log_dir)와 같은 자리를 가리키게 한다. 화면은 exe 로 굳지
+#   않고 언제나 소스로 돌기 때문에, 분류기의 '소스 실행' 기준(프로젝트 루트)과
+#   맞추면 두 로그가 한 폴더에 모인다.
+#
+# -in: 없음
+#
+# -out: dir = 로그 폴더 절대경로(만들지 않는다 — 쓰는 쪽이 만든다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def log_dir():
+    env = os.environ.get("CSOCLASSIFY_LOGDIR")
+    if env:
+        return os.path.abspath(env)
+    here = os.path.dirname(os.path.abspath(__file__))       # <루트>/ui
+    return os.path.join(os.path.dirname(here), "log")
 
 
 #------------------------------------------------------------------

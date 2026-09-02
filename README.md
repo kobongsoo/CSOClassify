@@ -67,6 +67,7 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 |---|---|---|
 | `--file` / `--dir` | 단일 파일 / 폴더 배치 (구 `-file`/`-dir` 호환) | — |
 | `-r`, `--recursive` | **무시됨** — `--dir` 은 항상 하위 폴더까지 재귀(하위호환용) | 항상 재귀 |
+| `--files-from` | 처리할 파일 경로를 **한 줄에 하나씩** 적은 목록 파일(`-` 이면 표준입력). 여러 폴더에 흩어진 파일을 **한 프로세스**로 처리한다 — `--file`/`--dir` 과 배타 | — |
 | `--glob` | 배치 필터(예: `"*.hwp,*.pdf"`) | `*` |
 | (모드 없음) | **C/S/O 분류**(기본). 예전 `--classify` 는 생략 가능 | 분류 |
 | `--rule-only` / `--vector-only` | 규칙만 / 벡터-seed 비교만 (배타) | — |
@@ -84,10 +85,12 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 | `--auto-propagate` | 분류 직후 보류 문서를 seed로 **전파까지** | — |
 | `--propagate <jsonl>` | 1차 레코드에 임베딩 전파 적용(모델 불필요) | — |
 | `--seeds <경로>` | 전파 비교 기준 seed(`class_seed.jsonl`) | 내부 seed |
+| `--doctype-vector-only` | **업무분류**를 규칙 없이 기준 문서 비교로만 분류(보안등급 축은 그대로) | 규칙 + 전파 |
+| `--sync-doc-rule` | 분류 체계를 훑어 `doc_rule.yaml` 에 규칙을 채운다(유의어 사전 적용). `--no-fill-blank`·`--sync-enrich` 로 범위 조절 | — |
 | `--with-text` | 결과에 추출 텍스트(`text`) 포함 | off(프라이버시) |
 | `--with-pii` | **[주의]** 검출 원문 PII 값을 `pii` 필드로 저장 | off |
 | `--hash` | 각 문서의 **해시(SHA-256)** 를 `hash` 필드로 포함 | off |
-| `--simple` | 파일별 **문서명·등급·해시 3가지만** 출력(JSON) | off |
+| `--simple` | 파일별 결과를 **문서명·등급·해시(+업무분류 `doctype`)** 로 줄여서 출력(JSON). `doctype` 은 업무분류 축이 돌았을 때만 붙는 dc_id 배열 | off |
 | `--summary` | 파일별 레코드 없이 **맨 끝 요약(summary)만** 출력(JSON) | off |
 | `--nosummary` | 맨 끝 **요약(summary)을 출력에서 제거**(파일별 레코드만) · `--summary`와 배타 | off |
 | `--format` | `text` / `json` / `jsonl` | **`json`** |
@@ -196,7 +199,8 @@ dist-onedir/windows/                    dist-onedir/linux/
 | `CSOCLASSIFY_HYBRID=1` | 하이브리드 추출(`--hybridparse`) 전역 기본 on |
 | `CSOCLASSIFY_STAMP_HEAD_CHARS` / `_REPEAT_MIN` | 스탬프 머리범위(400) / 반복횟수(2) |
 
-- 기본 로그: `<exe폴더>/log/csoclassify-YYYYMMDD.log`(실행 커맨드·파일별 결과 JSON, 벡터는 축약).
+- 기본 로그: `<exe폴더>/log/class_YYYYMMDD.log`(실행 커맨드·파일별 결과 JSON, 벡터는 축약).
+  오류만 모은 `<exe폴더>/log/class_err_YYYYMMDD.log` 도 같은 폴더에 남는다.
   경로는 `--log`, 화면 출력·DEBUG는 `-v`. 데몬도 같은 파일에 `[PID …]` 로 구분해 기록.
 
 ## 문서자동분류 UI (Streamlit)

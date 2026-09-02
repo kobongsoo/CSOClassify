@@ -311,7 +311,7 @@ pub struct StampRule { pub id: String, pub name: String, pub terms: Vec<String>,
 /// 경로 규칙. grade 는 acl_restricted=true 인 규칙에 한해 None 일 수 있다
 /// (= "이 폴더인 건 분명하지만 등급은 내용을 보고 정하라". 아무 신호도 없을 때만
 ///    fuse 가 fail-safe 로 최고 등급을 만든다). 검증 V12 가 둘 중 하나를 강제한다.
-pub struct PathRule { pub id: String, pub name: String, pub matches: Vec<String>, pub grade: Option<String>, pub acl_restricted: bool, pub weight: String, pub seed_eligible: bool }
+pub struct PathRule { pub id: String, #[allow(dead_code)] pub name: String, pub matches: Vec<String>, pub grade: Option<String>, pub acl_restricted: bool, pub weight: String, pub seed_eligible: bool }
 
 pub struct RuleSet {
     pub version: String,
@@ -372,7 +372,7 @@ pub fn load_rules(path: &std::path::Path) -> Result<RuleSet, RulesError> {
 
     let mut conf = Conf::default();
     if let Some(c) = data.get("confidence") {
-        let mut apply = |group: &str, t: &mut (f64, f64, f64)| {
+        let apply = |group: &str, t: &mut (f64, f64, f64)| {
             if let Some(g) = c.get(group) {
                 if let Some(h) = g.get("high").and_then(|x| x.as_f64()) { t.0 = h; }
                 if let Some(m) = g.get("medium").and_then(|x| x.as_f64()) { t.1 = m; }

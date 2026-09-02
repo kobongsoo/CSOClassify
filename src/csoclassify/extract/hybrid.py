@@ -49,7 +49,9 @@ class HybridExtractor(TextExtractor):
     # -out: error = 없음
     #------------------------------------------------------------------
     def _route(self, input_path):
-        ftype = self.detect(input_path)
+        # detext_format(input_path) 호출
+        # => 2048만큼 읽어서 파일 포멧 확인함
+        ftype = self.detect(input_path) 
         chain = []
         eng = self.engines.get(ftype)
         if eng is not None:
@@ -74,6 +76,8 @@ class HybridExtractor(TextExtractor):
     # -out: error = 전 엔진 실패/사슬 없음 시 ExtractError
     #------------------------------------------------------------------
     def extract(self, input_path, save_dir=None):
+        # _route 호출
+        # => 내부적으로 detect_format() 호출해서 문서포멧 얻어옴.
         ftype, chain = self._route(input_path)
         # 시도할 엔진이 하나도 없으면(전용 엔진도 snf 도 없음) 그 파일은 미분류.
         if not chain:

@@ -1,0 +1,191 @@
+{
+  "source": "ShopCorp.DOC_CLASSIFICATION",
+  "export_server": "sample://doc-classification-example (가짜 예시 데이터)",
+  "node_count": 12,
+  "nodes": [
+    {
+      "dc_id": "DC_001",
+      "parent_dc_id": null,
+      "order_num": 1,
+      "title": "시장조사",
+      "status": 1,
+      "path_ids": [
+        "DC_001"
+      ],
+      "path_titles": [
+        "시장조사"
+      ],
+      "path": "시장조사"
+    },
+    {
+      "dc_id": "DC_001_001",
+      "parent_dc_id": "DC_001",
+      "order_num": 1,
+      "title": "산업보고서",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001"
+      ],
+      "path_titles": [
+        "시장조사",
+        "산업보고서"
+      ],
+      "path": "시장조사 > 산업보고서"
+    },
+    {
+      "dc_id": "DC_001_002",
+      "parent_dc_id": "DC_001",
+      "order_num": 2,
+      "title": "트렌드리포트",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_002"
+      ],
+      "path_titles": [
+        "시장조사",
+        "트렌드리포트"
+      ],
+      "path": "시장조사 > 트렌드리포트"
+    },
+    {
+      "dc_id": "DC_001_003",
+      "parent_dc_id": "DC_001",
+      "order_num": 3,
+      "title": "소비자조사",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_003"
+      ],
+      "path_titles": [
+        "시장조사",
+        "소비자조사"
+      ],
+      "path": "시장조사 > 소비자조사"
+    },
+    {
+      "dc_id": "DC_002",
+      "parent_dc_id": null,
+      "order_num": 2,
+      "title": "영업자료",
+      "status": 1,
+      "path_ids": [
+        "DC_002"
+      ],
+      "path_titles": [
+        "영업자료"
+      ],
+      "path": "영업자료"
+    },
+    {
+      "dc_id": "DC_002_001",
+      "parent_dc_id": "DC_002",
+      "order_num": 1,
+      "title": "솔루션소개자료",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001"
+      ],
+      "path_titles": [
+        "영업자료",
+        "솔루션소개자료"
+      ],
+      "path": "영업자료 > 솔루션소개자료"
+    },
+    {
+      "dc_id": "DC_002_002",
+      "parent_dc_id": "DC_002",
+      "order_num": 2,
+      "title": "제안서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_002"
+      ],
+      "path_titles": [
+        "영업자료",
+        "제안서"
+      ],
+      "path": "영업자료 > 제안서"
+    },
+    {
+      "dc_id": "DC_002_003",
+      "parent_dc_id": "DC_002",
+      "order_num": 3,
+      "title": "단가표",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_003"
+      ],
+      "path_titles": [
+        "영업자료",
+        "단가표"
+      ],
+      "path": "영업자료 > 단가표"
+    },
+    {
+      "dc_id": "DC_003",
+      "parent_dc_id": null,
+      "order_num": 3,
+      "title": "광고/홍보",
+      "status": 1,
+      "path_ids": [
+        "DC_003"
+      ],
+      "path_titles": [
+        "광고/홍보"
+      ],
+      "path": "광고/홍보"
+    },
+    {
+      "dc_id": "DC_003_001",
+      "parent_dc_id": "DC_003",
+      "order_num": 1,
+      "title": "광고기획서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_001"
+      ],
+      "path_titles": [
+        "광고/홍보",
+        "광고기획서"
+      ],
+      "path": "광고/홍보 > 광고기획서"
+    },
+    {
+      "dc_id": "DC_003_002",
+      "parent_dc_id": "DC_003",
+      "order_num": 2,
+      "title": "매체계획서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_002"
+      ],
+      "path_titles": [
+        "광고/홍보",
+        "매체계획서"
+      ],
+      "path": "광고/홍보 > 매체계획서"
+    },
+    {
+      "dc_id": "DC_004",
+      "parent_dc_id": null,
+      "order_num": 4,
+      "title": "정산자료",
+      "status": 1,
+      "path_ids": [
+        "DC_004"
+      ],
+      "path_titles": [
+        "정산자료"
+      ],
+      "path": "정산자료"
+    }
+  ]
+}

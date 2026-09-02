@@ -30,8 +30,12 @@ impl TaxonomyNode {
 
 /// 분류체계 트리(스냅샷 전체). dc_id 색인·부모→자식 색인·전체경로 계산을 제공한다.
 pub struct Taxonomy {
+    /// 스냅샷 출처(메타 보존용). 현재 분류 로직에서는 읽지 않는다.
+    #[allow(dead_code)]
     pub source: String,
     pub exported_at: String,
+    /// 스냅샷 노드 수(메타 보존용). 현재 분류 로직에서는 읽지 않는다.
+    #[allow(dead_code)]
     pub node_count: i64,
     pub nodes: Vec<TaxonomyNode>,
     by_id: HashMap<String, usize>,
@@ -70,6 +74,7 @@ impl Taxonomy {
         self.nodes.len()
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }

@@ -98,6 +98,8 @@ impl Default for EmbedSpec {
 /// (terms·exclude·weight), grade 대신 node(dc_id)를 갖는다.
 #[derive(Clone)]
 pub struct DoctypeRule {
+    /// 규칙 식별자(진단·추적용). 매칭 로직에서는 읽지 않는다.
+    #[allow(dead_code)]
     pub id: String,
     pub node: String,
     pub weight: String,
@@ -572,14 +574,14 @@ pub const TEMPLATE_NAME: &str = "doc_rule_template.yaml";
 
 /// 본보기에는 있지만 만들어진 doc_rule.yaml 에는 넣지 않는 섹션 —
 /// 규칙을 "만들 때" 쓰는 값이라 결과물에 남길 이유가 없다.
-const UI_ONLY_KEYS: [&str; 1] = ["new_rule"];
+pub const UI_ONLY_KEYS: [&str; 1] = ["new_rule"];
 
 /// 본보기(doc_rule_template.yaml)를 읽는다. 찾는 순서는 '가까운 곳부터'다.
 ///   1) 만들려는 doc_rule.yaml 과 같은 폴더
 ///   2) exe 옆
 ///   3) CSOCLASSIFY_POLICY_DIR
 /// 하나도 없으면 빈 매핑 — 본보기가 없다고 골격 생성이 실패하면 안 된다.
-fn load_scaffold_template(near: Option<&std::path::Path>) -> serde_yaml::Mapping {
+pub fn load_scaffold_template(near: Option<&std::path::Path>) -> serde_yaml::Mapping {
     let mut cands: Vec<std::path::PathBuf> = vec![];
     if let Some(n) = near {
         if let Some(dir) = n.parent() {
@@ -788,11 +790,15 @@ pub fn load_doc_rules(path: &std::path::Path, taxonomy: Option<&Taxonomy>) -> Re
 
     if let Some(t) = taxonomy {
         for node in t.active_nodes() {
-            if !referenced.contains(&node.dc_id) {
-                warnings.push(format!(
-                    "[T12] {}({}) 를 참조하는 규칙이 없습니다 — 이 분류로는 자동분류되는 문서가 없습니다",
-                    node.dc_id, t.path(&node.dc_id).unwrap_or_default()));
-            }
+            if referenced.contains(&node.dc_id) { continue; }
+            // '서랍'(최상위이면서 자식이 있는 노드)에는 규칙을 걸지 않는 것이 설계다.
+            // 규칙을 만드는 쪽(docvocab)과 반드시 같은 기준이어야 한다 — 어긋나면
+            // "규칙을 만들어 주지도 않으면서 경고만 하는" 상태가 된다(Python 판과 동일).
+            let has_kids = t.children_of(Some(&node.dc_id)).iter().any(|c| c.active());
+            if crate::docvocab::is_drawer(node.parent.is_some(), has_kids) { continue; }
+            warnings.push(format!(
+                "[T12] {}({}) 를 참조하는 규칙이 없습니다 — 이 분류로는 자동분류되는 문서가 없습니다",
+                node.dc_id, t.path(&node.dc_id).unwrap_or_default()));
         }
     }
     if rules.is_empty() {
@@ -998,14 +1004,24 @@ mod tests {
         assert!(drs.warnings.iter().any(|w| w.starts_with("[T6]")));
     }
 
+    /// 참조 안 된 '잎'만 T12 경고 — 대분류(자식 있는 노드)는 경고하지 않는다.
+    /// 규칙은 가장 아래 분류에만 거는 것이 설계라, 대분류에 규칙이 없는 것은 정상이다.
+    /// 여기에 경고를 내면 실행마다 고칠 수 없는 경고가 쌓여 진짜 경고를 묻는다.
     #[test]
-    fn 참조되지_않는_사용_노드는_t12_경고() {
-        let taxonomy = mk_taxonomy();
+    fn 참조되지_않는_잎만_t12_경고() {
+        // 루트 A 아래 잎이 둘(A1·A3). 규칙은 A1 만 참조한다.
+        let taxonomy = build_test_taxonomy(vec![
+            TaxonomyNode { dc_id: "A".into(), parent: None, order: 1, title: "루트A".into(), status: 1 },
+            TaxonomyNode { dc_id: "A1".into(), parent: Some("A".into()), order: 1, title: "자식A1".into(), status: 1 },
+            TaxonomyNode { dc_id: "A3".into(), parent: Some("A".into()), order: 3, title: "자식A3".into(), status: 1 },
+        ]);
         let tmp = unique_tmp("cso_test_docrule4");
         std::fs::write(&tmp, "doctype_rules:\n- id: dt_a1\n  node: A1\n  terms: [x]\n").unwrap();
         let drs = load_doc_rules(&tmp, Some(&taxonomy)).unwrap();
         let _ = std::fs::remove_file(&tmp);
-        assert!(drs.warnings.iter().any(|w| w.starts_with("[T12]") && w.contains("A(")));
+        let t12: Vec<&String> = drs.warnings.iter().filter(|w| w.starts_with("[T12]")).collect();
+        assert!(t12.iter().any(|w| w.contains("A3(")), "{:?}", t12);
+        assert!(!t12.iter().any(|w| w.starts_with("[T12] A(")), "{:?}", t12);
     }
 
     #[test]

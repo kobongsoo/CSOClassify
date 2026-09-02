@@ -141,33 +141,35 @@ def test_원본없으면_EXIT_ARG_ERROR(tmp_path, capsys):
 
 
 #------------------------------------------------------------------
-# 원본 JSON 구조가 틀리면(nodes 없음) EXIT_ARG_ERROR(3)
+# 원본 JSON 구조가 틀리면(nodes 없음) EXIT_RULES_INVALID(4)
+#=> [2026-09-01 계약 변경] '파일 없음(3)'과 '내용이 틀림(4)'을 갈랐다. 부르는 쪽이
+#   "경로를 다시 묻는다"와 "원본 데이터를 고친다"를 구분할 수 있어야 한다.
 #
 # -in: tmp_path
 # -out: 없음(단언)
 # -out: error = 없음
 #------------------------------------------------------------------
-def test_구조오류_원본은_EXIT_ARG_ERROR(tmp_path):
+def test_구조오류_원본은_EXIT_RULES_INVALID(tmp_path):
     p = tmp_path / "doc_classification_export.json"
     p.write_text(json.dumps({"source": "x"}), encoding="utf-8")
     args = mk_args(export_input=str(p), taxonomy=str(tmp_path / "out.yaml"))
     code = cli.run_export_taxonomy(args)
-    assert code == config.EXIT_ARG_ERROR
+    assert code == config.EXIT_RULES_INVALID
 
 
 #------------------------------------------------------------------
-# 원본 JSON 문법 자체가 깨졌으면(JSONDecodeError) EXIT_ARG_ERROR(3)
+# 원본 JSON 문법 자체가 깨졌으면(JSONDecodeError) EXIT_RULES_INVALID(4)
 #
 # -in: tmp_path
 # -out: 없음(단언)
 # -out: error = 없음
 #------------------------------------------------------------------
-def test_JSON_문법오류는_EXIT_ARG_ERROR(tmp_path):
+def test_JSON_문법오류는_EXIT_RULES_INVALID(tmp_path):
     p = tmp_path / "doc_classification_export.json"
     p.write_text("{이건 json이 아님", encoding="utf-8")
     args = mk_args(export_input=str(p), taxonomy=str(tmp_path / "out.yaml"))
     code = cli.run_export_taxonomy(args)
-    assert code == config.EXIT_ARG_ERROR
+    assert code == config.EXIT_RULES_INVALID
 
 
 #------------------------------------------------------------------

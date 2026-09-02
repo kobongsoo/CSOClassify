@@ -139,9 +139,10 @@ def select_doctype_seeds(records, taxonomy, t_seed=0.85,
             reasons["업무분류축꺼짐"] += 1
             continue
 
+        # class_seed.jsonl 파일에 vector 항목이 있는 경우에만 추가
         vec = rec.get("vector")
         if not vec:
-            # 벡터가 없으면 씨앗이 될 수 없다. 씨앗 만들기는 전량 임베딩이 필요하다.
+            # 벡터가 없으면 seed 될 수 없다. 
             reasons["벡터없음"] += 1
             continue
 
@@ -213,15 +214,15 @@ def write_seed_file(seeds, path):
 
 
 #------------------------------------------------------------------
-# 기존 seed 파일에 업무분류 씨앗을 얹기
-#=> security 씨앗이 이미 들어 있는 class_seed.jsonl 을 그대로 살리면서 doctype
+# 기존 seed 파일에 업무분류 seed 얹기
+#=> security seed가 이미 들어 있는 class_seed.jsonl 을 그대로 살리면서 doctype
 #   씨앗만 갈아 끼운다. 같은 파일을 두 축이 나눠 쓰는 규약(설계서 5-4)이라,
 #   통째로 덮어쓰면 보안등급 전파가 조용히 죽는다.
 #    1) 기존 줄을 읽어 doctype 씨앗(labels.doctype 이 있는 줄)만 걷어낸다
-#    2) 나머지(security 씨앗)는 순서 그대로 남긴다
-#    3) 새 doctype 씨앗을 뒤에 붙인다
+#    2) 나머지(security seed)는 순서 그대로 남긴다
+#    3) 새 doctype seed를 뒤에 붙인다
 #
-# -in: seeds = 새로 넣을 doctype 씨앗 리스트
+# -in: seeds = 새로 넣을 doctype seed 리스트
 # -in: path  = class_seed.jsonl 경로(없으면 새로 만든다)
 #
 # -out: dict = {"기존유지": n, "이전doctype제거": n, "신규": n}
@@ -252,4 +253,5 @@ def merge_into(seeds, path):
             f.write(json.dumps(e, ensure_ascii=False) + "\n")
         for s in seeds:
             f.write(json.dumps(s, ensure_ascii=False) + "\n")
+            
     return {"기존유지": len(keep), "이전doctype제거": dropped, "신규": len(seeds)}

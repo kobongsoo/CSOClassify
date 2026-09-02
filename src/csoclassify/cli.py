@@ -7,6 +7,7 @@
 #------------------------------------------------------------------
 
 import argparse
+import dataclasses
 import glob
 import os
 import re
@@ -14,9 +15,104 @@ import sys
 
 from . import __version__
 from . import config
+from . import errcodes
 from . import logsetup
 from . import output
 from .timing import Timing
+
+
+#------------------------------------------------------------------
+# 인자 해석 실패도 오류 계약으로 내보내는 파서
+#=> argparse 는 인자가 틀리면 제 손으로 usage 를 찍고 종료코드 2 로 죽는다.
+#   그 2 는 우리 종료코드 표(2=임베딩 실패)와 뜻이 겹쳐, 받는 쪽이 "모델이
+#   없구나" 하고 엉뚱한 안내를 하게 된다. 그래서 error() 를 가로채
+#   '인자 오류(3)'로 바꾸고, --json-errors 면 JSON 도 함께 낸다.
+#   메시지를 보고 갈래를 나누는 이유: argparse 는 어떤 규칙에 걸렸는지를
+#   예외 종류가 아니라 문장으로만 알려 준다.
+#
+# -필드: 없음(argparse.ArgumentParser 를 그대로 쓰고 error() 만 바꾼다)
+#------------------------------------------------------------------
+class _ContractParser(argparse.ArgumentParser):
+    #--------------------------------------------------------------
+    # 인자 오류 처리 — usage 는 그대로, 종료코드만 계약대로
+    #=> argparse 기본 동작(usage 출력)은 사람에게 유용하므로 남기고,
+    #   종료코드와 JSON 만 계약에 맞춘다.
+    #
+    # -in: message = argparse 가 만든 영어 오류 문장
+    #
+    # -out: 없음(프로세스 종료)
+    # -out: error = 언제나 SystemExit(3)
+    #--------------------------------------------------------------
+    def error(self, message):
+        # --axis 오타는 '축 전체 무시'로 조용히 이어질 수 있어 따로 구분한다.
+        if "--axis" in message and "invalid choice" in message:
+            kind = "bad_axis"
+        # 배타 옵션(--rule-only 와 --vector-only)을 함께 준 경우.
+        elif "not allowed with argument" in message:
+            kind = "mode_conflict"
+        else:
+            kind = "bad_args"
+        errcodes.emit(kind, message)
+        # --json-errors 면 usage 도 내지 않는다 — 그것도 stderr 로 나가는 사람용 글이다.
+        if not errcodes.is_json():
+            self.print_usage(sys.stderr)
+            print(f"[csoclassify] {message}", file=sys.stderr)
+        sys.exit(errcodes.exit_of(kind))
+
+
+#------------------------------------------------------------------
+# 버전 문자열 만들기 (앱 버전 + 번들된 ko-pii 버전)
+#=> ko-pii 는 PyInstaller 가 '빌드 시점에' exe 안으로 복사해 넣는다. 그래서
+#   개발 PC 에서 pip 로 ko-pii 를 올려도 이미 만들어진 exe 는 옛 버전을 계속
+#   쓴다. 그런데 그 '박혀 있는 버전'을 밖에서 알아낼 방법이 없어서, 배포본이
+#   실제로 어떤 검출기를 쓰는지 확인할 수가 없었다(번들에는 dist-info 가
+#   남지 않는다). 그래서 --version 이 직접 물어보고 찍어 준다.
+#    1) ko_pii 를 그 자리에서 import 해 __version__ 을 읽는다
+#    2) 못 읽어도 --version 은 성공해야 하므로, 사유만 괄호 안에 적는다
+#
+# -in: 없음
+#
+# -out: text = "csoclassify <앱버전> (ko-pii <버전>)" 형태의 한 줄
+# -out: error = 예외 없음 — ko-pii 가 없거나 버전이 없으면 "없음"/"버전미상"으로 적는다
+#------------------------------------------------------------------
+def version_text():
+    try:
+        import ko_pii
+        # 아주 옛 버전은 __version__ 이 없을 수 있어 기본값을 둔다.
+        kopii = getattr(ko_pii, "__version__", None) or "버전미상"
+    except Exception:
+        # PII 검출은 ko-pii 없이는 못 하지만, 그 진단은 실제 스캔 때 하면 된다.
+        # 여기서 죽으면 "왜 안 되는지" 물어보려던 사람이 답을 못 얻는다.
+        kopii = "없음"
+    return f"csoclassify {__version__} (ko-pii {kopii})"
+
+
+#------------------------------------------------------------------
+# --version 전용 동작 — 쓸 때만 ko-pii 를 읽는다
+#=> argparse 의 기본 version 액션은 문자열을 '파서를 만드는 시점'에 받는다.
+#   거기에 ko-pii 버전을 끼워 넣으면 --version 을 안 쓰는 평범한 실행에서도
+#   매번 ko_pii 를 import 하게 된다(실측 약 0.28초). 실시간 UI 경로라 그
+#   비용을 늘 물 수는 없어서, 실제로 --version 이 들어왔을 때만 읽도록
+#   액션을 따로 만든다.
+#
+# -필드: 없음(argparse.Action 을 그대로 쓰고 __call__ 만 바꾼다)
+#------------------------------------------------------------------
+class _VersionAction(argparse.Action):
+    #--------------------------------------------------------------
+    # --version 이 실제로 주어졌을 때 호출된다
+    #=> 버전 한 줄을 찍고 정상 종료(0)한다. argparse 의 version 액션과
+    #   같은 동작이라, 쓰는 쪽에서는 달라진 게 없다.
+    #
+    # -in: parser = 이 액션을 가진 파서(종료 처리에 쓴다)
+    # -in: namespace = 파싱 중인 결과(쓰지 않음)
+    # -in: values = 이 옵션의 값(nargs=0 이라 항상 None)
+    # -in: option_string = 실제로 쓰인 옵션 이름(쓰지 않음)
+    #
+    # -out: 없음(프로세스 종료)
+    # -out: error = 언제나 SystemExit(0)
+    #--------------------------------------------------------------
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.exit(message=version_text() + "\n")
 
 
 #------------------------------------------------------------------
@@ -30,7 +126,7 @@ from .timing import Timing
 # -out: error = 없음
 #------------------------------------------------------------------
 def build_parser():
-    p = argparse.ArgumentParser(
+    p = _ContractParser(
         prog="csoclassify",
         description="한국어 문서 → C/S/O 자동 분류(기본) · 임베딩 벡터(--embed) · 텍스트 추출(--text-only)",
     )
@@ -39,6 +135,9 @@ def build_parser():
     # UI 가 쓰던 단일대시 '-file'/'-dir' 도 하위호환 별칭으로 계속 받는다.
     p.add_argument("--file", "-file", dest="file", help="대상 문서 1개 경로")
     p.add_argument("--dir", "-dir", dest="dir", help="대상 폴더(배치)")
+    p.add_argument("--files-from", dest="files_from", default=None,
+                   help="처리할 파일 경로 목록(한 줄에 하나, '-' 면 표준입력). "
+                        "여러 폴더에 흩어진 파일을 한 프로세스로 처리 — --file/--dir 과 배타")
     p.add_argument("--glob", dest="glob", default="*",
                    help="배치 필터 패턴(기본 *). 여러 개는 콤마로 나열: "
                         "예) \"*.hwp,*.docx,*.pdf\" (중괄호 \"*.{hwp,docx,pdf}\" 도 가능)")
@@ -88,6 +187,17 @@ def build_parser():
     p.add_argument("--embed", dest="embed", action="store_true",
                    help="임베딩 벡터만 출력(분류 없이). 미지정 시 기본은 C/S/O 분류")
     # (하위호환) 예전의 --classify 는 이제 '기본 동작'이라 붙일 필요가 없다. 기존
+    # 실패를 기계가 읽을 수 있게 낸다(설계: plan/CLI-오류출력-설계.html).
+    # 옵션을 안 주면 오늘과 똑같이 동작한다 — 지금 이 CLI 를 쓰는 쪽의 stdout 파싱이
+    # 깨지지 않도록 '선택'으로 둔다.
+    # 축약본만 받으면 "이 문서가 왜 C 인가"에 답할 수 없다. 판정에 쓰인 신호와
+    # 규칙 id·건수만 요약해 얹는다(원문 값은 애초에 저장하지 않으므로 새는 것이 없다).
+    p.add_argument("--simple-why", dest="simple_why", action="store_true",
+                   help="--simple 에 판정 근거 요약(why)을 더한다"
+                        "(어느 신호가 정했는지 · 어느 규칙이 몇 건). --simple 을 포함한다")
+    p.add_argument("--json-errors", dest="json_errors", action="store_true",
+                   help="실패할 때 stdout 에 오류 JSON 한 줄을 낸다"
+                        "({\"error\":{code,kind,message,path}})")
     # 스크립트·UI 가 계속 넘겨도 오류 없이 받아들이되(무시), 도움말/문서에는 노출하지 않는다.
     p.add_argument("--classify", dest="classify", action="store_true",
                    help=argparse.SUPPRESS)
@@ -123,6 +233,18 @@ def build_parser():
     p.add_argument("--scaffold-doc-rule", dest="scaffold_doc_rule", action="store_true",
                    help="--export-taxonomy 와 함께 쓰면 --doc-rules 경로에 doc_rule.yaml "
                         "골격(빈 terms, filename 만 title 로 채움)도 생성. 이미 있으면 건너뜀")
+    p.add_argument("--sync-doc-rule", dest="sync_doc_rule", action="store_true",
+                   help="분류 체계(doc_taxonomy.yaml)를 훑어 --doc-rules 파일에 규칙을 "
+                        "채운다. 빠진 분류는 새로 만들고, 이름·띄어쓰기 변형·유의어 "
+                        "사전(synonyms/)의 같은 뜻 다른 말까지 넣는다. 이미 있는 파일에도 "
+                        "덧붙이므로 --scaffold-doc-rule 과 달리 건너뛰지 않는다")
+    p.add_argument("--no-fill-blank", dest="sync_fill_blank", action="store_false",
+                   default=True,
+                   help="--sync-doc-rule 에서 '단어가 하나도 없는 기존 규칙'을 "
+                        "채우지 않는다(기본은 채운다)")
+    p.add_argument("--sync-enrich", dest="sync_enrich", action="store_true",
+                   help="--sync-doc-rule 에서 '이미 단어가 있는 규칙'에도 빠진 유의어만 "
+                        "덧붙인다(사람이 적어 둔 말은 지우지 않는다). 기본은 하지 않음")
     p.add_argument("--with-vector", dest="with_vector", action="store_true",
                    help="분류 시 모든 문서에 임베딩 벡터 산출(구 동작, 모델 필요)")
     p.add_argument("--embed-needed", dest="embed_needed", action="store_true",
@@ -158,6 +280,11 @@ def build_parser():
                    help="규칙(cso_rules.yaml)만으로 분류 — 임베딩·전파를 하지 않음(가장 빠름). --vector-only 와 배타")
     _clsmode.add_argument("--vector-only", dest="vector_only", action="store_true",
                    help="규칙 검사 없이 임베딩 벡터를 seed 와 비교해서만 분류(--seeds 필수). --rule-only 와 배타")
+    p.add_argument("--doctype-vector-only", dest="doctype_vector_only",
+                   action="store_true",
+                   help="업무분류(doctype)를 규칙 없이 기준 문서(class_seed.jsonl) 비교로만 "
+                        "분류한다. 규칙 파일의 embed·conflict 설정은 그대로 쓴다. "
+                        "security 축은 영향을 받지 않는다")
     p.add_argument("--progress", action="store_true",
                    help="파일별 진행 상황을 stderr 로 출력(형식: '[progress] 처리수/총수 경로'). UI 진행바용")
 
@@ -171,7 +298,7 @@ def build_parser():
     _sumgrp.add_argument("--nosummary", dest="no_summary", action="store_true",
                    help="맨 끝 요약(summary) 레코드를 결과 출력에서 제거(파일별 레코드만)")
     p.add_argument("--simple", dest="simple", action="store_true",
-                   help="파일별로 문서명·등급(C/S/O)·해시 3가지만 JSON 으로 출력")
+                   help="파일별 결과를 문서명·등급·해시(+업무분류 dc_id)로 줄여서 출력")
 
     # 데몬 제어
     p.add_argument("--daemon", dest="daemon", action="store_true", default=config.DEFAULT_DAEMON)
@@ -185,8 +312,11 @@ def build_parser():
 
     p.add_argument("-v", "--verbose", action="store_true", help="상세 로그(화면 출력 + DEBUG)")
     p.add_argument("--log", dest="log", default=None,
-                   help="로그 파일 경로(미지정 시 <exe폴더>/log/csoclassify-날짜.log)")
-    p.add_argument("--version", action="version", version=f"csoclassify {__version__}")
+                   help="로그 파일 경로(미지정 시 <exe폴더>/log/class_날짜.log)")
+    # 번들된 ko-pii 버전까지 찍는다. 문자열을 미리 만들지 않고 액션으로 미루는
+    # 이유는 _VersionAction 헤더 참고(평상시 실행에 ko_pii import 비용을 안 물린다).
+    p.add_argument("--version", action=_VersionAction, nargs=0,
+                   help="버전 출력(앱 버전 + 번들된 ko-pii 버전)")
     return p
 
 
@@ -291,6 +421,52 @@ def expand_glob_patterns(spec):
 
 
 #------------------------------------------------------------------
+# 파일 경로 목록 읽기 (--files-from)
+#=> 여러 폴더에 흩어진 문서를 "한 프로세스"로 처리하려고 만든 입력 방식이다.
+#   --dir 은 폴더 하나 아래만 훑을 수 있어서, 경로가 흩어져 있으면 파일마다
+#   프로세스를 새로 띄우게 되고 그때마다 임베딩 모델을 다시 읽어 느려진다.
+#   목록을 통째로 받으면 모델을 한 번만 읽고 전부 처리한다.
+#    1) "-" 이면 표준입력, 아니면 그 파일을 UTF-8(BOM 허용)로 읽는다
+#    2) 줄 앞뒤 공백을 떼고, 빈 줄과 "#" 으로 시작하는 주석 줄은 버린다
+#    3) 실제 "파일"인 것만 남긴다(없는 경로·폴더는 건너뛰고 건수를 알린다)
+#    4) 같은 경로가 여러 번 나오면 처음 것만 남긴다(입력 순서는 그대로 보존)
+#
+# -in: src = 목록 파일 경로. "-" 이면 표준입력에서 읽는다
+#
+# -out: files = 처리할 파일 경로 리스트(입력 순서 유지, 중복 제거)
+# -out: error = 목록 파일 자체를 못 열면 OSError 를 그대로 올린다(상위에서 처리).
+#               목록 "안"의 잘못된 경로는 예외 없이 건너뛰고 stderr 로 건수만 알린다
+#------------------------------------------------------------------
+def read_files_from(src):
+    if src == "-":
+        raw = sys.stdin.read()
+    else:
+        # 윈도우 메모장으로 저장한 목록에는 BOM 이 붙는다 — utf-8-sig 로 흡수한다.
+        with open(src, "r", encoding="utf-8-sig", errors="replace") as fh:
+            raw = fh.read()
+    files, seen, skipped = [], set(), 0
+    for line in raw.splitlines():
+        # 경로에 공백이 있어 따옴표로 감싼 목록(dir /b 결과 등)도 받아 준다.
+        path = line.strip().strip('"')
+        if not path or path.startswith("#"):
+            continue
+        # 같은 문서를 두 번 임베딩하지 않도록 여기서 미리 중복을 접는다.
+        key = os.path.normcase(os.path.abspath(path))
+        if key in seen:
+            continue
+        seen.add(key)
+        if os.path.isfile(path):
+            files.append(path)
+        else:
+            skipped += 1
+    # 조용히 버리면 "왜 결과 건수가 모자라지?" 로 이어진다 — 건수만이라도 남긴다.
+    if skipped:
+        print(f"[csoclassify] --files-from: 파일이 아니어서 건너뜀 {skipped}건",
+              file=sys.stderr)
+    return files
+
+
+#------------------------------------------------------------------
 # 처리 대상 파일 목록 수집
 #=> --file 이면 그 파일 하나, --dir 이면 폴더에서 glob 패턴에 맞는 "파일"들을 모은다.
 #   --dir 은 '항상 하위 폴더까지 재귀'가 기본이다(-r/--recursive 는 무시됨).
@@ -303,11 +479,18 @@ def expand_glob_patterns(spec):
 # -out: error = --file/--dir 둘 다 없거나 대상이 없으면 빈 리스트(상위에서 처리)
 #------------------------------------------------------------------
 def collect_files(args):
+    # 목록 입력이 있으면 그것이 대상이다(--file/--dir 과의 동시 사용은 호출부에서 막는다).
+    if getattr(args, "files_from", None):
+        return read_files_from(args.files_from)
     if args.file:
-        return [args.file]
+        # 실제 파일일 때만 대상으로 삼는다. 없는 경로·폴더를 그대로 넘기면
+        # '추출 실패' 레코드가 만들어져 결과처럼 나간다 — 아래 no_input 으로
+        # 걸러 부른 쪽에 "대상이 없다"고 알린다.
+        return [args.file] if os.path.isfile(args.file) else []
     if args.dir:
         found = []
         # 콤마/중괄호로 패턴 여러 개를 준 경우 패턴별로 각각 매칭해 합친다.
+        # *.hwp,*.pdf 식으로 추가.
         for gp in expand_glob_patterns(args.glob):
             # --dir 은 항상 '**' 로 하위 폴더까지 재귀 탐색한다(-r 여부와 무관).
             found.extend(glob.glob(os.path.join(args.dir, "**", gp), recursive=True))
@@ -468,6 +651,153 @@ def _extract_failed_record(path, err, ruleset, doc_rules=None, taxonomy=None):
 
 
 #------------------------------------------------------------------
+# 본문에 쓸 만한 글자가 있었나
+#=> 스캔본(이미지) PDF 는 추출기가 예외를 던지지 않는다. 장식기호 몇 개를
+#   돌려주고 성공한 척한다. 길이로 가려내지 않으면 '미분류'와 섞여 버린다.
+#    1) 공백류를 모두 지운 뒤 글자 수를 센다(줄바꿈만 잔뜩인 파일을 거르려고)
+#    2) 임계값(config.MIN_TEXT_LEN)보다 적으면 '읽을 글자가 없었다'로 본다
+#
+# -in: text = 정제된 추출 본문
+#
+# -out: (부족한가, 글자수) = (True/False, 공백 제외 글자 수)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _body_too_short(text):
+    n = len(re.sub(r"\s", "", text or ""))
+    return n < config.MIN_TEXT_LEN, n
+
+
+#------------------------------------------------------------------
+# '본문을 못 읽었다' 표식 달기
+#=> 분류 결과는 그대로 두고 표식만 더한다 — 파일명·경로 신호는 본문과
+#   무관하고, 몇 글자라도 규칙에 걸렸으면 그 등급이 맞다. 다만 아무것도
+#   못 정했다면 method 를 'unclassified' 로 두지 않는다. 그 말은 "봤는데
+#   없더라"라는 뜻이라 사실과 다르다.
+#
+# -in: rec = 완성된 레코드(제자리에서 고친다)
+# -in: n   = 실제로 얻은 글자 수(공백 제외)
+#
+# -out: 없음(rec 을 제자리에서 고친다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _mark_no_body(rec, n):
+    rec["error"] = {"stage": "extract", "text_len": n,
+                    "reason": "본문 텍스트가 거의 없습니다 — 스캔본(이미지)이거나 "
+                              "빈 문서일 수 있습니다. OCR 이나 사람 확인이 필요합니다."}
+    if not rec.get("grade") and rec.get("method") in (None, "", "unclassified"):
+        rec["method"] = "extract_failed"
+        sec = (rec.get("labels") or {}).get("security")
+        if isinstance(sec, dict):
+            sec["method"] = "extract_failed"
+
+
+#------------------------------------------------------------------
+# 전체 레코드를 '읽는 차례'로 다시 담기
+#=> 만들어진 순서 그대로 내보내면 눈에 안 들어온다 — 가장 궁금한 업무분류가
+#   labels 안에 묻혀 열 번째에 있고, 판정 근거(signals)가 결과보다 먼저 나오며,
+#   버전 칸이 여기저기 흩어져 있었다.
+#    ① 무엇을      file · hash
+#    ② 어떻게 됐나  grade · doctype · confidence · method · decided_by · error
+#    ③ 왜          labels(축별 상세) · signals(근거)
+#    ④ 부속        seed_eligible · 버전 3개 · ts · elapsed_ms
+#   앞 네 칸이 --simple 과 같아, 축약본이 전체의 '앞부분만 떼어낸 것'이 된다.
+#
+#   [doctype 을 최상위로] labels.doctype.values 에서 뽑은 같은 값이라 새로 만드는
+#   정보가 아니다. 축이 돌았을 때만 넣는다 — 빈 배열이 나가면 "분류 못 함"과
+#   "축 안 씀"이 구분되지 않는다(--simple 과 같은 규약).
+#
+#   [모르는 칸도 잃지 않는다] 표에 없는 칸은 뒤에 그대로 붙인다. 나중에 새 칸이
+#   생겼을 때 이 함수가 조용히 지워 버리면 가장 찾기 어려운 사고가 된다.
+#
+# -in: rec = 결과 레코드
+#
+# -out: dict = 같은 내용, 차례만 바뀐 새 dict
+# -out: error = 없음
+#------------------------------------------------------------------
+_REC_ORDER = ("file", "hash", "grade", "doctype", "confidence", "method",
+              "decided_by", "error", "labels", "signals", "pii", "vector",
+              "seed_eligible", "rule_version", "taxonomy_version",
+              "doctype_rule_version", "ts", "elapsed_ms")
+
+
+def _order_record(rec):
+    if not isinstance(rec, dict):
+        return rec
+    out = {}
+    dt = (rec.get("labels") or {}).get("doctype")
+    for key in _REC_ORDER:
+        if key == "doctype":
+            # 축이 돌았을 때만 — labels.doctype 이 있을 때가 그때다.
+            if isinstance(dt, dict):
+                out["doctype"] = [v.get("dc_id") for v in (dt.get("values") or [])
+                                  if v.get("dc_id")]
+            continue
+        if key in rec:
+            out[key] = rec[key]
+    # 표에 없는 칸은 잃지 않고 뒤에 붙인다.
+    for key, val in rec.items():
+        if key not in out:
+            out[key] = val
+    return out
+
+
+#------------------------------------------------------------------
+# 판정 근거 요약 만들기 (--simple-why)
+#=> 축약본 4칸으로는 "왜 이 등급인가"를 댈 수 없다. 그렇다고 전체 레코드를
+#   주면 26배로 커진다. 판정에 실제로 쓰인 것만 추린다 — 전체의 15% 쯤이다.
+#
+#   [축별로 묶는다] 레코드 자신의 labels.security / labels.doctype 갈래를 그대로
+#   따른다. 평평하게 늘어놓으면 보안등급의 conf 를 업무분류의 값으로 오해한다
+#   (Rust 는 키를 사전순으로 내보내 dt 가 conf 와 hits 사이에 끼기까지 했다).
+#    1) security.by   : 어느 신호가 등급을 정했는가(rule·stamp·path·name·sensitive)
+#    2) security.conf : 그 판정의 확신(= labels.security.confidence)
+#    3) security.hits : 걸린 규칙의 id 와 건수만 (이름·용어·원문은 넣지 않는다)
+#    4) doctype       : 업무분류 후보의 dc_id·확신과 **판정 경로(by)**
+#
+#   [doctype 의 by 가 왜 중요한가] 같은 0.91 이라도 뜻이 다르다.
+#     rule  = 우리가 정한 낱말이 제목·머리·파일명 여러 군데서 나왔다
+#     embed = 이미 분류해 둔 기준 문서와 닮았다
+#   검토자가 다르게 봐야 하는 값이라 갈라 준다.
+#
+#   [원문을 넣지 않는 이유] 이 도구의 불변식이다 — 매칭된 원문 값은 결과에
+#   저장하지 않는다(주민번호 12건 검출, 이 아니라 그 번호 자체는 안 남긴다).
+#   근거 요약도 그 규칙을 그대로 따른다.
+#
+# -in: rec = 완성된 결과 레코드
+#
+# -out: dict = {"security": {"by","conf","hits"}, ["doctype": [{"dc","c","by"}…]]}
+# -out: error = 없음(신호가 없으면 hits 가 빈 목록)
+#------------------------------------------------------------------
+def _why_record(rec):
+    sec = {"by": rec.get("decided_by") or [], "conf": rec.get("confidence")}
+    hits = []
+    for sig, val in (rec.get("signals") or {}).items():
+        if not isinstance(val, dict) or not val.get("grade"):
+            continue
+        got = val.get("hits") or []
+        if got:
+            for h in got:
+                if isinstance(h, dict):
+                    hits.append({"sig": sig, "id": h.get("id"), "n": h.get("count")})
+        else:
+            # path·embed 처럼 '걸린 규칙 목록'이 없는 신호는 출처만 남긴다.
+            hits.append({"sig": sig, "src": val.get("source") or val.get("seed")})
+    sec["hits"] = hits
+    why = {"security": sec}
+    dt = (rec.get("labels") or {}).get("doctype")
+    if isinstance(dt, dict):
+        # stage 는 이 후보가 규칙 스캔에서 나왔는지(rule) 기준 문서 비교에서
+        # 나왔는지(embed) 말해 준다 — 같은 숫자라도 뜻이 달라 반드시 함께 낸다.
+        vals = [{"dc": v.get("dc_id"), "c": round(v.get("confidence") or 0, 2),
+                 "by": v.get("stage") or ("embed" if "embed" in (v.get("from") or [])
+                                          else "rule")}
+                for v in (dt.get("values") or []) if v.get("dc_id")]
+        if vals:
+            why["doctype"] = vals
+    return why
+
+
+#------------------------------------------------------------------
 # 파일 해시(SHA-256) 계산
 #=> 문서 '내용'의 지문을 만든다. 같은 문서인지·변조됐는지 판별, 중복 제거 등에 쓴다.
 #   큰 파일도 메모리 폭발 없이 1MB 씩 나눠 읽어 갱신한다.
@@ -492,17 +822,36 @@ def _file_hash(path, algo="sha256"):
 
 
 #------------------------------------------------------------------
-# --simple 용 레코드 축약(문서명·등급·해시 3필드)
+# --simple 용 레코드 축약(문서명·등급·해시 + 업무분류)
 #=> 결과 레코드에서 사용자가 요청한 3가지(file·grade·hash)만 남긴 새 dict 를 만든다.
 #   원본 레코드는 건드리지 않는다.
 #
 # -in: rec = 전체 결과 레코드(hash 필드가 이미 채워져 있어야 함)
+# -in: why = True 면 판정 근거 요약(why)을 함께 담는다(--simple-why)
 #
-# -out: dict = {"file":..., "grade":..., "hash":...}
+# -out: dict = {"file":..., "grade":..., "hash":..., ["why":...]}
 # -out: error = 없음
 #------------------------------------------------------------------
-def _simple_record(rec):
-    return {"file": rec.get("file"), "grade": rec.get("grade"), "hash": rec.get("hash")}
+def _simple_record(rec, why=False):
+    # 읽는 차례로 넣는다 — 무엇을(file·hash) → 어떻게 됐나(grade·doctype) → 왜(why).
+    # file 과 hash 는 둘 다 '이 문서가 무엇인가'라서 붙여 두고, 판정 결과와 섞지 않는다.
+    out = {"file": rec.get("file"), "hash": rec.get("hash"), "grade": rec.get("grade")}
+    # 업무분류 축이 돌았을 때만 doctype 키를 붙인다. 축을 안 쓰는 배포에서 빈 배열이
+    # 나가면 "분류를 못 했다"와 "축을 안 썼다"가 구분되지 않는다(설계서 4-6과 같은 규약).
+    dt = (rec.get("labels") or {}).get("doctype")
+    if isinstance(dt, dict):
+        # 확신 내림차순은 엔진이 이미 맞춰 놓았다. 여기서는 dc_id 만 뽑아 담는다 —
+        # 받는 쪽(문서중앙화)은 분류체계를 이미 갖고 있으므로 이름은 필요 없다.
+        out["doctype"] = [v.get("dc_id") for v in (dt.get("values") or []) if v.get("dc_id")]
+    # 못 읽은 문서에는 그 사실을 함께 싣는다. 없으면 '읽었는데 미분류'와 글자 그대로
+    # 같은 모습이라, --simple 만 받는 쪽은 스캔본을 영영 못 가려낸다.
+    # 성공한 문서에는 이 칸이 아예 없다(기존 모양 그대로).
+    err = rec.get("error")
+    if isinstance(err, dict):
+        out["error"] = err.get("reason") or "extract_failed"
+    if why:
+        out["why"] = _why_record(rec)
+    return out
 
 
 #------------------------------------------------------------------
@@ -609,26 +958,31 @@ def _load_doctype_axis(args, log):
 
     taxonomy_path = args.taxonomy or AX.default_taxonomy_path()
     try:
+        # doc_taxonomy.yaml 불러오기
+        # => doc_taxonomy.yaml 파일을 읽어옴.(엠파워 분류체게 설정한 dc_id 적용을 위해..)
         taxonomy = AX.load_taxonomy(taxonomy_path)
     except FileNotFoundError as e:
         if axis == "doctype":
-            print(f"[csoclassify] {e}", file=sys.stderr)
-            return None, None, config.EXIT_RULES_INVALID
+            # '파일 없음'은 내용 오류(4)가 아니라 부른 쪽이 고칠 문제(3)다.
+            return None, None, fail_err("taxonomy_missing", f"[csoclassify] {e}",
+                                        taxonomy_path)
         print(f"[csoclassify] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.\n"
               f"              보안등급(security)만 판정합니다. 분류체계를 쓰려면\n"
               f"              scripts/export_taxonomy.py 로 내보낸 뒤 exe 옆에 두세요.",
               file=sys.stderr)
         return None, None, None
     except AX.TaxonomyValidationError as e:
-        print(f"[csoclassify] {e}", file=sys.stderr)
         log.error("분류체계 스냅샷 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return None, None, config.EXIT_RULES_INVALID
+        return None, None, fail_err("taxonomy_invalid", f"[csoclassify] {e}", e.path)
 
+    # doc_taxonomy.yaml 파일 점검
+    # => exported_at 날짜가 현재기준 90일 이전꺼면 노후화된 분류체계 로그 남김.
     stale = _check_stale_taxonomy(taxonomy)
     if stale:
         print(stale, file=sys.stderr)
         log.warning("분류체계 스냅샷 노후 :: exported_at=%s", taxonomy.exported_at)
 
+    # doc_rules.yaml 불러오기
     doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
     try:
         doc_rules_set = DR.load_doc_rules(doc_rules_path, taxonomy=taxonomy)
@@ -646,14 +1000,25 @@ def _load_doctype_axis(args, log):
         log.warning("doc_rule.yaml 없음 — seed 전파 전용 모드 :: path=%s", doc_rules_path)
         return taxonomy, doc_rules_set, None
     except DR.DocRuleValidationError as e:
-        print(f"[csoclassify] {e}", file=sys.stderr)
         log.error("업무분류 규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return None, None, config.EXIT_RULES_INVALID
+        return None, None, fail_err("doc_rules_invalid", f"[csoclassify] {e}", e.path)
 
     for w in doc_rules_set.warnings:
         print(f"[csoclassify] {w}", file=sys.stderr)
         log.warning("doctype 규칙 경고 :: %s", w)
 
+    # --doctype-vector-only : 규칙 목록만 비우고 나머지(embed 임계값·conflict 전략·
+    # defaults)는 파일에 적힌 그대로 쓴다. 규칙셋을 통째로 seed_only_ruleset() 으로
+    # 갈아치우면 그 설정까지 기본값으로 되돌아가, 관리자가 정해 둔 임계값이 조용히
+    # 무시된다. 1차 스캔이 빈손이 되므로 그 뒤 단계는 '규칙 파일이 없는 배포'와
+    # 똑같이 흘러간다 — 엔진에 새 분기를 만들지 않아도 되는 이유다.
+    if getattr(args, "doctype_vector_only", False):
+        doc_rules_set = dataclasses.replace(doc_rules_set, rules=())
+        print("[csoclassify] 업무분류: 규칙을 쓰지 않고 기준 문서(class_seed) 비교로만 "
+              "분류합니다(--doctype-vector-only).", file=sys.stderr)
+        log.info("doctype 벡터 전용 모드 :: path=%s", doc_rules_path)
+
+    # doc_taxonomy.yaml, doc_rules.yaml 파일 class 리턴.
     return taxonomy, doc_rules_set, None
 
 
@@ -713,33 +1078,38 @@ def _doctype_breakdown(doctype_label):
 
 
 #------------------------------------------------------------------
-# C/S/O 분류 처리(기본 모드 · 예전 --classify)
-#=> 임베딩 없이, 추출→정제한 텍스트에 규칙 스캔(Signal A)을 걸어 문서마다 등급
-#   레코드를 출력한다. 모델이 필요 없어 항상 in-process 로 돈다.
-#    1) 규칙셋 1회 로드(--rules 로 교체 가능)
-#    2) 파일마다: 추출→정제→build_record(규칙/경로/파일명으로 등급 산출) → jsonl/json
-#    3) 마지막에 등급 분포 요약을 stderr 로(오탐률 실측용)
+# C/S/O 보안등급 & 업무분류 분류 처리 (기본 모드 · 예전 --classify)
+#=> 추출→정제한 텍스트에 규칙 스캔(Signal A)을 걸어 보안등급(C/S/O)과 업무분류(doctype)
+#   를 동시에 수행하여 문서마다 분류 결과 레코드를 출력한다.
+#    1) 규칙셋 1회 로드: CSO 보안등급(cso_rules.yaml) + 업무분류(doc_rule.yaml, 선택)
+#    2) 파일마다: 추출→정제→build_record(규칙/경로/파일명/임베딩으로 등급·분류 산출) → jsonl/json
+#    3) 마지막에 CSO 등급 분포 + 업무분류 롤업 요약을 stderr 로 출력(오탐률/분류현황 실측용)
 #   [프라이버시] 추출 텍스트는 기본적으로 디스크에 남기지 않는다(save_dir=None → 자동삭제).
 #     단 --with-text 를 주면 결과 레코드에 정제 텍스트를 rec["text"] 로 함께 저장한다.
 #   [진행표시] args.progress 면 파일마다 "[progress] 처리수/총수 경로" 를 stderr 로
 #     흘려 보낸다(성공/실패 무관). UI 가 이 줄을 읽어 진행바·경과시간을 그린다.
-#   [임베딩 정책] 임베딩은 등급 결정엔 안 쓰이고(1차 분류는 규칙/경로/파일명만),
+#   [보안등급(security)] 임베딩은 등급 결정엔 안 쓰이고(1차 분류는 규칙/경로/파일명만),
 #     전파(2차)의 '보류 구제 대상'과 '내부 seed 기준'에만 필요하다. 그래서:
 #       · --with-vector : 모든 문서 임베딩(구 동작, RAG 등 전량 벡터가 필요할 때)
 #       · --embed-needed: 보류(grade=None)이거나 seed_eligible 인 문서만 임베딩
 #                         → 규칙으로 확정된 대다수 문서의 임베딩을 건너뛰어 대폭 빨라짐
 #       · 둘 다 없음     : 임베딩 안 함(가장 빠른 규칙-only 분류)
-#   [전파(자동)] 기본 분류는 보류(none) 문서를 seed 와 임베딩 비교해 자동 전파한다:
+#   [업무분류(doctype)] doc_rule.yaml 이 있으면 활성화. 규칙(내용 기반) + 임베딩(벡터 비교)
+#     으로 업무분류 후보를 산출하고, seed 전파로 미분류를 구제한다. 없으면 미활성화(축 자체 생략).
+#   [전파(자동)] 기본 분류는 보류 문서를 seed 와 임베딩 비교해 자동 전파한다:
 #     seed 파일(--seeds 또는 exe 옆 class_seed.jsonl)이 '있으면' auto_prop 을 자동으로 켜고,
 #     보류 문서 벡터가 필요하므로 임베딩(needed)도 자동 활성화한다. seed 파일이 없으면
 #     전파 없이 규칙만으로 끝낸다(레코드 스트리밍). --auto-propagate 로 명시할 수도 있다.
 #     전파는 '외부 seed(class_seed.jsonl) + 내부 seed_eligible'을 함께 기준으로 쓴다.
 #   [분류방식 배타옵션]
-#       · --rule-only  : 규칙(cso_rules.yaml)만으로 분류. seed 가 옆에 있어도 임베딩·전파를
-#                        아예 안 한다(순수 규칙 분류를 보장하는 명시적 차단, 가장 빠름).
+#       · --rule-only  : 규칙(cso_rules.yaml + doc_rule.yaml)만으로 분류. seed 가 옆에 있어도
+#                        임베딩·전파를 아예 안 한다(순수 규칙 분류를 보장하는 명시적 차단, 가장 빠름).
 #       · --vector-only: 규칙 검사를 하지 않고(rules_enabled=False → 전부 보류 레코드),
 #                        전량 임베딩 후 seed 와 벡터 비교(전파)로만 등급을 정한다.
 #                        비교 기준 seed 파일(--seeds)이 반드시 있어야 한다(없으면 인자 오류).
+#   [--axis 축 선택]
+#       · (기본)        : CSO 보안등급만 분류(업무분류 축 제외, 가장 빠름)
+#       · --axis doctype: 업무분류만 수행(CSO 보안등급 계산 생략, PII 검출 포함)
 #
 # -in: files  = 대상 파일 리스트
 # -in: args   = argparse 결과(fmt/rules/failsafe 등)
@@ -760,64 +1130,100 @@ def run_classify(files, args, out_fp):
                            RuleSetValidationError)
 
     log = logsetup.get_logger("csoclassify.cli")
+
+    #-----------------------------------------------------------
+    # C/S/O 분류 규칙파일 로딩.
+    #-----------------------------------------------------------
     # 규칙셋은 파일마다 다시 읽지 않도록 한 번만 로드해 재사용한다.
     # 규칙셋은 외장 파일(exe 옆)이라 누락이 흔하다 → 원시 스택 대신 안내 후 정상 종료.
     try:
+        # => C/S/O 분류 cso_rules.yaml 파일을 불러온다.
         ruleset = load_rules(args.rules)
     except FileNotFoundError as e:
-        print(f"[csoclassify] {e}", file=sys.stderr)
         log.error("규칙셋 로드 실패 :: %s", e)
-        return config.EXIT_ARG_ERROR
+        # 예외가 실제로 뒤진 경로를 알고 있으면 그것을 쓴다(--rules 를 안 준 경우 기본 경로).
+        return fail_err("rules_missing", f"[csoclassify] {e}",
+                        getattr(e, "filename", None) or args.rules)
     except RuleSetValidationError as e:
         # 파일은 있지만 내용이 틀림 → 스캔을 시작하지 않고 위반 전체를 보여 준다.
         # "파일 없음(3)"과 구분되는 코드 4 로 나가 배치가 대응을 나눌 수 있게 한다.
-        print(f"[csoclassify] {e}", file=sys.stderr)
         log.error("규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return config.EXIT_RULES_INVALID
+        return fail_err("rules_invalid", f"[csoclassify] {e}", e.path)
 
+    #-----------------------------------------------------------
+    # 업무분류 규칙파일 로딩.
+    #-----------------------------------------------------------
     # 업무분류(doctype) 축 — 있으면 켜고 없으면 security 만(4-6). --axis doctype 이면 필수.
+    # => doc_taxomomy.yaml 과 doc_rules.yaml 파일을 불러온다.
     taxonomy, doc_rules_set, dt_code = _load_doctype_axis(args, log)
+
     # not None => 규칙파일이 잘못된 경우임. 이때는 에러띄우고 종료.
     if dt_code is not None: 
         return dt_code
 
+    #-----------------------------------------------------------
+    # --conflict 옵션 : 업무분류시 분류체계를 몇개남길꺼나(기본=all)
+    #-----------------------------------------------------------
     # --conflict 로 doctype 전략을 실행 시 덮어쓰기(6-5). security 는 서열 축이라 금지(T11).
+    # => --conflit 는 한문서에 업무분류체계가 여러개일때 몇개를 남길껀지 설정값(기본=all)
     doctype_strategy_override = None   # 있으면 rec["labels"]["doctype"]["strategy"] 에 각인
+    # --conflict 설정되어 있으면 설정한 숫자(1,2,3,..)를 설정한다.
     if getattr(args, "conflict", None):
         from .classify import AxisNotOverridableError, ensure_overridable_axis
         try:
             override_axis, override_spec = _parse_conflict_override(args.conflict)
             ensure_overridable_axis(override_axis)
         except (ValueError, AxisNotOverridableError) as e:
-            return fail(f"[csoclassify] {e}", config.EXIT_RULES_INVALID)
+            return fail_err("bad_conflict_axis", f"[csoclassify] {e}")
         if doc_rules_set is not None:
             import dataclasses
             doc_rules_set = dataclasses.replace(doc_rules_set, conflict=override_spec)
         # 재현성을 위해 실제 적용된 문자열을 그대로 결과에 남긴다(설계서 6-5 warn).
         doctype_strategy_override = args.conflict.split("=", 1)[1]
 
+    #-----------------------------------------------------------
+    # --axis 옵션 : 등급분류만 할꺼냐, 업무분류만 할꺼냐, 아님 둘다(기본=둘다)
+    #-----------------------------------------------------------
+    # => --axis security|doctype   이번 실행에 쓸 축만 지정(doctype 이면 보안등급 계산 생략) 
     axis = getattr(args, "axis", None)
+
+    #-----------------------------------------------------------
+    # -- hybridparse 옵션 : 하이브리드 추출기 만듬.
     # --hybridparse 여부에 따라 사이냅 단독 또는 하이브리드 추출기를 만든다(분류는 추출이 클라이언트측).
+    #-----------------------------------------------------------
     extractor = build_extractor(hybrid=getattr(args, "hybridparse", False))
 
+    #-----------------------------------------------------------
+    # 부가적인 옵션값 설정.
+    #-----------------------------------------------------------
     with_text = getattr(args, "with_text", False)         # 결과 레코드에 추출 텍스트 포함
     auto_prop = getattr(args, "auto_propagate", False)    # 분류 직후 보류 문서를 seed 로 전파
     rule_only = getattr(args, "rule_only", False)         # 규칙만(임베딩·전파 없음)
     vector_only = getattr(args, "vector_only", False)     # 규칙 없이 벡터-seed 비교만
+
+    #-----------------------------------------------------------
+    # rules_enabled 설정.
     # --axis doctype 이면 security 신호 자체를 계산하지 않는다(6-4 — PII 검출까지 포함해
     # 통째로 생략, 가장 비싼 단계를 건너뛰어 대량 업무분류 스캔이 크게 빨라진다).
+    #-----------------------------------------------------------
     rules_enabled = not vector_only and axis != "doctype"
 
-    # 전파 비교 기준 seed 경로: --seeds 우선, 없으면 exe 옆 class_seed.jsonl(기본 규약).
+    #-----------------------------------------------------------
+    # 전파 비교 기준 seed 경로
+    #  --seeds 우선, 없으면 exe 옆 class_seed.jsonl(기본 규약).
+    #-----------------------------------------------------------
     seeds_path = args.seeds or default_seed_path()
 
+    #-----------------------------------------------------------
     # 분류 방식 결정 — 배타 3분기: 벡터만 / 규칙만 / 기본(규칙+자동전파).
+    #-----------------------------------------------------------
     if vector_only:
         # 규칙 미사용: 전량 임베딩 후 seed 와 비교해 등급을 정한다 → 비교 기준 seed 파일 필수.
         if not seeds_path or not os.path.isfile(seeds_path):
-            return fail("[csoclassify] --vector-only 는 비교 기준 seed 파일이 필요합니다: "
-                        "--seeds <class_seed.jsonl>(또는 exe 옆 class_seed.jsonl)",
-                        config.EXIT_ARG_ERROR)
+            return fail_err("seeds_missing",
+                            "[csoclassify] --vector-only 는 비교 기준 seed 파일이 필요합니다: "
+                            "--seeds <class_seed.jsonl>(또는 exe 옆 class_seed.jsonl)",
+                            seeds_path)
         embed_mode = "all"      # 모든 문서를 임베딩해야 seed 와 비교 가능
         auto_prop = True        # 전파(=벡터 비교)로 등급을 정하므로 항상 켠다
     elif rule_only:
@@ -845,11 +1251,14 @@ def run_classify(files, args, out_fp):
         if auto_prop and embed_mode == "none":
             embed_mode = "needed"
 
+    #-----------------------------------------------------------
+    # seed 전파 가능한지 판단
     # 'seed 전파 전용'(doc_rule.yaml 없음)인데 전파까지 못 하는 상황이면 미리 알린다.
     #   조용히 빈 결과를 내면 "분류할 게 없었다"로 오해되는데, 실제로는 "분류할 수단이
     #   없었다"라서 대응이 완전히 다르다(규칙을 쓰거나 seed 를 채워야 한다).
     #   전파를 못 하는 경우는 두 가지 — 임베딩을 아예 안 하거나(--rule-only 등),
     #   임베딩은 하는데 비교할 doctype seed 가 없거나.
+    #-----------------------------------------------------------
     if doc_rules_set is not None and doc_rules_set.version == "none":
         from .classify.propagate import DoctypeSeedIndex
         # seed 유무를 먼저 본다 — seed 가 없으면 embed_mode 도 덩달아 none 이 되므로
@@ -867,8 +1276,10 @@ def run_classify(files, args, out_fp):
             log.warning("업무분류 분류수단 없음 :: embed_mode=%s dt_seed=%d seeds=%s",
                         embed_mode, n_dt_seed, seeds_path)
 
+    #-----------------------------------------------------------
     # 임베딩 수단 준비(임베딩이 필요한 정책일 때만). 데몬(웜 모델 재사용) 우선, 실패 시
     # in-process 폴백. 데몬을 쓰면 '따로따로 반복 실행'해도 model_load=0 으로 빨라진다.
+    #-----------------------------------------------------------
     daemon_client = None
     ip_embedder = {"v": None}    # in-process 임베더(폴백/‘--no-daemon’). 처음 필요할 때 지연 생성.
     if embed_mode != "none" and args.daemon:
@@ -914,7 +1325,12 @@ def run_classify(files, args, out_fp):
                 if args.verbose:
                     print(f"[csoclassify] 데몬 폴백(in-process): {e}", file=sys.stderr)
                 log.warning("분류 임베딩 데몬 불가 → in-process 폴백 :: %s", e)
+
+        #--------------------------------------------------------------
+        # 임베딩모델 로딩
+        #--------------------------------------------------------------
         emb = _get_ip_embedder()
+        
         timing.set("model_load", emb.ensure_loaded())
         with timing.measure("embed"):
             result, _ = emb.embed_document(text, args.max_tokens, args.overlap,
@@ -924,6 +1340,9 @@ def run_classify(files, args, out_fp):
     # 등급 분포 집계(요약용). none = 규칙 미검출(+failsafe 미사용).
     counts = {"C": 0, "S": 0, "O": 0, "none": 0}
     embedded = 0            # 실제 임베딩한 문서 수(요약·검증용)
+    # 본문을 못 읽은 문서 수 — 추출기가 예외를 던진 것과 '글자가 사실상 없던 것'을
+    # 함께 센다. 부르는 쪽이 "이번 실행에 손봐야 할 문서가 몇 건인가"를 알아야 한다.
+    n_extract_failed = 0
     code = config.EXIT_OK
 
     # 업무분류(doctype) 축 집계(요약용, 설계서 7-3 — 뿌리 카테고리 롤업). doctype 축이
@@ -937,7 +1356,8 @@ def run_classify(files, args, out_fp):
     # 출력 축약 옵션 — 모두 C/S/O 분류 모드에서만 의미가 있다.
     summary_only = getattr(args, "summary_only", False)   # 요약만 출력(파일별 레코드 생략)
     no_summary = getattr(args, "no_summary", False)       # 맨 끝 요약 레코드를 출력에서 제거
-    simple = getattr(args, "simple", False)               # 파일별 문서명·등급·해시 3필드만
+    simple_why = getattr(args, "simple_why", False)       # 축약본에 판정 근거 요약까지
+    simple = getattr(args, "simple", False) or simple_why  # 파일별 문서명·등급·해시 3필드만
     need_hash = getattr(args, "hash", False) or simple    # --hash 또는 --simple 이면 해시 계산
 
     #--------------------------------------------------------------
@@ -955,13 +1375,34 @@ def run_classify(files, args, out_fp):
     # 단, --summary 는 요약 객체 하나만 내므로 배열로 감싸지 않는다(단일 JSON 객체).
     writer = output.RecordWriter(out_fp or sys.stdout, args.fmt, multi=not summary_only)
 
+    # --simple + --out 이면 전체 레코드를 '<out>.full.<확장자>' 에 함께 남긴다(감사용).
+    #   · --out 이 없으면(화면 출력) 두 갈래를 한 곳에 흘릴 수 없으므로 만들지 않는다
+    #   · --out 이 가리키는 파일은 지금까지처럼 축약본이다 — 이미 그 파일을 읽고
+    #     있는 쪽의 계약을 바꾸지 않는다
+    #   · 분류를 다시 하는 것이 아니라 손에 든 레코드를 한 번 더 적을 뿐이다
+    #     (실측 — 분류 2,320ms 대 축약본 쓰기 0.27ms = 0.011%)
+    full_path = full_fp = full_writer = None
+    if simple and args.out and not summary_only:
+        _b, _e = os.path.splitext(args.out)
+        full_path = f"{_b}.full{_e or '.jsonl'}"
+        try:
+            full_fp = open(full_path, "w", encoding="utf-8")
+        except OSError as e:
+            return fail_err("output_write_failed",
+                            f"[csoclassify] 감사용 전체 결과 파일을 쓰지 못했습니다: "
+                            f"{full_path} :: {e}", full_path)
+        full_writer = output.RecordWriter(full_fp, args.fmt, multi=True)
+
     def _emit(rec):
         # --summary 면 파일별/집계 레코드는 아예 출력하지 않는다(맨 끝 요약만 낸다).
         if summary_only:
             return
         # --simple 이면 문서명·등급·해시 3가지만 남긴다.
-        out = _simple_record(rec) if simple else rec
+        out = _simple_record(rec, why=simple_why) if simple else _order_record(rec)
         writer.write_record(out)
+        # 축약본만으로는 "왜 이 등급인가"를 나중에 댈 수 없다 — 전체를 옆에 남긴다.
+        if full_writer is not None:
+            full_writer.write_record(_order_record(rec))
         log.info("결과 %s", output.dumps_safe(_loggable_record(rec), separators=(",", ":")))
 
     #--------------------------------------------------------------
@@ -1009,6 +1450,10 @@ def run_classify(files, args, out_fp):
     # 본문 전체가 아니라 길이만 담는다(문서 하나가 수 MB 인 경우가 있다).
     seed_pool = []
 
+    #---------------------------------------------------------------------
+    # 실제 문서 분류 시작
+    # => 1.문서추출->2.1차 룰분류->3.벡터생성->4.업무분류 seed 생성->5.전파
+    #---------------------------------------------------------------------
     # startup: 프로세스(파이썬 진입) 시작 → 여기(첫 추출 직전)까지의 일회성 준비 비용.
     #   무거운 import(ko-pii·numpy·onnxruntime)·규칙셋 로드·데몬 준비 등이 포함된다.
     #   (exe 부트로더의 _internal 로딩 등 파이썬 진입 이전은 측정 불가.) 로그로 남기고,
@@ -1021,6 +1466,7 @@ def run_classify(files, args, out_fp):
     arch_members = {}
     rec_origins = []   # auto_prop 경로에서 records 와 나란히 origin 을 보관
 
+    # for문을 돌면서 문서처리..
     for i, item in enumerate(files, 1):
         # src=실제 읽을 경로(압축 내부면 임시파일), path(label)=표시·규칙신호용(압축경로/내부경로),
         # origin=이 파일이 나온 최상위 압축경로(일반 파일이면 None).
@@ -1028,11 +1474,20 @@ def run_classify(files, args, out_fp):
         # 파일별 스톱워치 — 추출/정제/규칙/(임베딩) 단계별 소요시간을 잰다(--embed 와 동일 형식).
         timing = Timing()
         try:
-            # 분류에서는 원문 텍스트를 (기본은) 디스크에 남기지 않는다(민감정보 잔존 방지).
+            #----------------------------------------------------------------------------
+            # **(1) 문서text 추출**
+            #----------------------------------------------------------------------------
+            #=> 문서포멧감지(detected_format)->포멧문서파서로 text 추출
+            #=> 분류에서는 원문 텍스트를 (기본은) 디스크에 남기지 않는다(민감정보 잔존 방지).
             with timing.measure("extract"):
                 raw = extractor.extract(src, save_dir=None)
+
+            #----------------------------------------------------------------------------
+            # 추출된 text 정제
+            #----------------------------------------------------------------------------
             with timing.measure("clean"):
                 text = clean_text(raw)
+
         except ExtractError as e:
             print(f"[csoclassify] 추출 실패: {path} :: {e}", file=sys.stderr)
             log.error("분류 추출 실패 file=%s :: %s", path, e)
@@ -1043,6 +1498,7 @@ def run_classify(files, args, out_fp):
             # 등급 없이(=보류) 실패 사유를 실어 내보내 사람이 처리하게 한다.
             rec = _extract_failed_record(path, e, ruleset, doc_rules_set, taxonomy)
             counts["none"] = counts.get("none", 0) + 1
+            n_extract_failed += 1
             if auto_prop:
                 records.append(rec)
                 rec_origins.append(origin)
@@ -1056,44 +1512,86 @@ def run_classify(files, args, out_fp):
                 print(f"[progress] {i}/{total} {path}", file=sys.stderr, flush=True)
             continue
 
-        # 1) 규칙(내용·민감정보·스탬프·경로·파일명)으로 먼저 등급을 낸다(임베딩은 관여 안 함).
-        #    단 --vector-only(rules_enabled=False)면 규칙을 건너뛰고 '보류' 레코드만 만든다
-        #    → 등급은 아래 전파 단계가 seed 비교로 정한다.
-        #    --with-pii 면 검출된 원문 PII 값도 레코드에 싣는다(기본 off=미저장).
+        #----------------------------------------------------------------------------
+        # **(2) CSO 보안등급 & 업무분류 1차 분류**
+        #----------------------------------------------------------------------------
+        # => build_record() 함수가 다섯 신호(규칙·민감정보·스탬프·경로·파일명)를 스캔·융합하여
+        #    CSO 보안등급 1차 분류를 완성한다(cso_rules.yaml 기반).
+        #    동시에 doc_rules 와 taxonomy 가 '둘 다' 있으면 _attach_doctype() 함수 내에서
+        #    scan_doctype() 을 통해 업무분류 1차 분류도 수행한다(doc_rule.yaml 기반).
+        #
+        #   [CSO 보안등급 규칙 스캔]
+        #    - 규칙(내용·민감정보·스탬프·경로·파일명)으로 등급을 낸다(임베딩은 관여 안 함)
+        #    - --vector-only(rules_enabled=False)면 규칙을 건너뛰고 '보류' 레코드만 만든다
+        #      → 등급은 아래 전파 단계가 seed 비교로 정한다
+        #    - --with-pii 면 검출된 원문 PII 값도 레코드에 싣는다(기본 off=미저장)
+        #
+        #   [업무분류]
+        #    - doc_rule.yaml 규칙으로 스캔하여 다중 라벨 후보를 산출
+        #    - doc_rules_set 또는 taxonomy 중 하나라도 없으면 labels.doctype 키 자체를 생략
         with timing.measure("rule"):
             rec = build_record(path, text, ruleset, ts=now_iso(),
                                failsafe=args.failsafe, vector=None,
                                with_pii=getattr(args, "with_pii", False),
                                rules_enabled=rules_enabled,
                                doc_rules=doc_rules_set, taxonomy=taxonomy)
+            
+        # 본문을 사실상 못 읽었으면 표식을 단다(분류 결과 자체는 건드리지 않는다).
+        # 종료코드도 추출 실패(1)로 올린다 — 배치가 "이 실행에 손봐야 할 문서가
+        # 있다"를 종료코드만으로 알 수 있어야 한다.
+        short, n_chars = _body_too_short(text)
+        if short:
+            _mark_no_body(rec, n_chars)
+            n_extract_failed += 1
+            code = config.EXIT_EXTRACT_FAIL
+            print(f"[csoclassify] 본문 텍스트 없음({n_chars}자): {path}"
+                  f" — 스캔본(이미지)일 수 있습니다", file=sys.stderr)
+
         # 업무분류 집계는 여기서 하지 않는다 — 전파(auto_prop)가 라벨을 더 붙일 수
         # 있어서, 지금 세면 전파 전 숫자가 요약에 박힌다. 레코드가 '최종'이 되는
         # 출력 직전에 _finalize_doctype() 으로 센다.
 
-        # --hash/--simple 이면 문서 '내용'의 해시를 레코드에 싣는다(읽기 실경로 src 기준).
+        #----------------------------------------------------------------------------
+        # 문서해쉬값
+        # =>인자가 --hash/--simple 인 경우에만 문서 '내용'의 해시를 레코드에 싣는다(읽기 실경로 src 기준).
+        #----------------------------------------------------------------------------
         if need_hash:
             rec["hash"] = _file_hash(src)
 
-        # 2) 이 문서에 벡터가 필요한지 판단 → 필요할 때만 임베딩(느린 단계 절약).
-        #    all=무조건 / needed=아직 못 정한 축이 하나라도 있을 때.
-        #    'needed' 의 뜻은 축별로 이렇다:
-        #      · security — 보류(grade=None)이거나 seed_eligible(내부 seed 후보)
-        #      · doctype  — 축은 켜졌는데 라벨이 하나도 안 붙음(values 가 빔)
-        #    doctype 조건이 꼭 필요한 이유: doc_rule.yaml 이 없어 'seed 전파 전용'으로
-        #    도는 배포에서는 1차 스캔이 언제나 빈손이다. 그런데 security 등급은
-        #    멀쩡히 나올 수 있어서, security 기준만 보면 벡터를 안 만들고 → 전파도
-        #    못 하고 → 업무분류가 영영 미분류로 남는다.
+        #----------------------------------------------------------------------------
+        # ** (3) 벡터 생성 **        
+        #----------------------------------------------------------------------------
+        #  => 벡터 임베딩이 필요한지 판단 (비싼 작업이므로 필요할 때만 수행)
+        #    기본 모드: --auto-propagate 켜짐 && 규칙 분류 사용 → "needed" 모드가 기본
+        #
+        #    · "all" 모드: 항상 임베딩 (--with-vector 또는 seed 생성 시)
+        #    · "needed" 모드(**기본): 다음 중 하나 만족 시만 임베딩 (선택적 = 비용 절감)
+        #      - 보안등급 미정(grade=None): 규칙이 등급을 못 정한 경우
+        #      - seed 전파 후보(seed_eligible=True): cso_rule.yaml에서 marked
+        #      - 문서타입 미정: doc_rule.yaml에서 라벨은 있지만 선택지가 비어있음
+        #        예: "labels": {"doctype": {"values": []}} ← 규칙이 후보를 찾지 못함
+        #
+        #    · "none" 모드: 임베딩 안 함 (--rule-only 또는 규칙 분류만 사용할 때)
+        #
+        #  ⚠️ 중요: 벡터가 없으면 업무분류 seed도 생성 안 됨!
+        #    · 업무분류 seed는 '벡터가 있는 문서'에만 들어간다
+        #    · 세 조건을 모두 만족 못하면 → need_vec=False → 벡터 생성 안 함
+        #    · 벡터 없음 → seed_pool에 추가 안 됨 → 업무분류 seed 최종 미포함
+        #
         dt_label = rec.get("labels", {}).get("doctype")
+
         dt_undecided = dt_label is not None and not dt_label.get("values")
         need_vec = embed_mode == "all" or (
             embed_mode == "needed"
             and (rec["grade"] is None or rec.get("seed_eligible") or dt_undecided))
+
         if need_vec and embed_mode != "none":
             try:
-                # 데몬(웜) 우선, 실패 시 in-process 폴백. build_record(vector=...) 과 동일 형식.
+                # 벡터 생성 (데몬 서버 우선, 실패 시 로컬 폴백)
                 rec["vector"] = _embed_text(text, timing)
                 embedded += 1
-            except Exception as e:  # 모델 없음 등 → 벡터 없이 진행
+            except Exception as e:
+                # 모델 없음 등의 오류: 벡터 없이 계속 진행
                 log.warning("분류 임베딩 실패 file=%s :: %s", path, e)
 
         # 옵션: 추출(정제) 텍스트를 결과 레코드에 함께 저장(기본 off — 프라이버시).
@@ -1136,6 +1634,12 @@ def run_classify(files, args, out_fp):
         if show_progress:
             print(f"[progress] {i}/{total} {path}", file=sys.stderr, flush=True)
 
+    #----------------------------------------------------------------------------
+    # **(옵션) 업부분류를 seed에 추가 한다. **
+    # --make_doctype_seeds 옵션된 경우에만 
+    #  ⚠️ 중요: 벡터가 없으면 업무분류 seed도 생성 안 됨!
+    #    · 업무분류 seed는 '벡터가 있는 문서'에만 들어간다
+    #----------------------------------------------------------------------------
     # 옵션: 업무분류 seed 만들기(재설계 10장). 전파보다 '먼저' 한다 —
     # 전파가 라벨을 더하고 나면 어느 라벨이 규칙에서 온 것인지 흐려진다.
     if getattr(args, "make_doctype_seeds", None):
@@ -1145,44 +1649,66 @@ def run_classify(files, args, out_fp):
             print("[csoclassify] 업무분류 축이 꺼져 있어 seed 를 만들 수 없습니다 "
                   "(--taxonomy·--doc-rules 확인)", file=sys.stderr)
         else:
+            # 업무분류측 class_seed.jsonl 씨드파일을 만든다.
             seeds, sstats = seedgen.select_doctype_seeds(
                 seed_pool, taxonomy,
                 t_seed=doc_rules_set.defaults.t_seed,
                 per_dir=getattr(args, "seed_per_dir", 3),
                 per_node=getattr(args, "seed_per_node", 50))
+
+            # class_seed.jsonl 파일 생성.
             merged = seedgen.merge_into(seeds, out_path)
+
             print(f"[seed][업무분류] 후보 {sstats['입력']} → 채택 {sstats['채택']} "
                   f"(분류 {len(sstats['노드별'])}종) · {out_path}", file=sys.stderr)
             print(f"[seed][업무분류] 기존 보안등급 seed {merged['기존유지']}건 유지 · "
                   f"이전 업무분류 seed {merged['이전doctype제거']}건 교체", file=sys.stderr)
+
             # 왜 안 뽑혔는지를 남긴다 — 씨앗이 0건일 때 이 줄이 없으면 원인을 못 찾는다.
             if sstats["탈락사유"]:
                 why = " ".join(f"{k}={v}" for k, v in
                                sorted(sstats["탈락사유"].items(), key=lambda x: -x[1]))
                 print(f"[seed][업무분류] 탈락 사유: {why}", file=sys.stderr)
 
+    #----------------------------------------------------------------------------
+    # **(4) 보류문서들 전파(seed 비교)
+     #----------------------------------------------------------------------------
+    # => 외부용 class_seed.json 파일과, cse_rule.yaml에 seed 문서들이 벡터값을 읽어와서 비교함.
     # 옵션: 분류 직후 보류 문서를 seed 로 전파해 구제(단일 문서 확인에도 유용).
     if auto_prop:
         from .classify.propagate import SeedIndex
         from .classify.engine import propagate_records
         seed_index = None
+
+        # 외부 class_seed.jsonl 파일 읽어오기
         if seeds_path and os.path.isfile(seeds_path):
             seed_index = SeedIndex.from_seed_file(seeds_path)
             print(f"[csoclassify] 외부 seed {seed_index.size}건 로드: {seeds_path}", file=sys.stderr)
         elif args.seeds:
             # 사용자가 --seeds 로 명시했는데 파일이 없을 때만 알린다(내부 seed 로 진행).
             print(f"[csoclassify] seed 파일 없음(내부 seed 만 사용): {args.seeds}", file=sys.stderr)
+
+        # 내부 seed 읽기(cso_rule.yaml)
+        # => cso_rule.yaml에서 고신뢰(seed_eligible) 설정된 경우에 대해 읽어옴
         records, pstats = propagate_records(records, seed_index=seed_index, failsafe=args.failsafe)
 
+        #-------------------------------------------------------------
+        # **업무분류 전파**
+        # => doc_rule.yaml, doc_taxonomy.yaml 설정된 경우에만 실행.
+        #   · 필요성 — doc_rule.yaml 이 없는 배포에서는 이 단계가 유일한 분류 수단이다.
         # 업무분류 축도 같은 seed 저장소로 전파한다. security 전파와 두 가지가 다르다:
         #   · 대상 — security 는 '보류 문서만' 구제하지만, doctype 은 이미 라벨이
         #     있는 문서에도 후보를 '더한다'(한 문서가 여러 분류에 동시에 맞을 수 있다).
-        #   · 필요성 — doc_rule.yaml 이 없는 배포에서는 이 단계가 유일한 분류 수단이다.
+        #-------------------------------------------------------------
         if doc_rules_set is not None and taxonomy is not None:
+
             from .classify.propagate import DoctypeSeedIndex
             from .classify.engine import propagate_doctype_records
+
+            # 외부 class_seed.jsonl 파일 읽어오기
             dt_seeds = DoctypeSeedIndex.from_seed_file(seeds_path)
             emb = doc_rules_set.embed
+
             if dt_seeds.size and not emb.enabled:
                 # seed 는 있는데 스위치가 꺼져 있는 상태. 조용히 넘어가면
                 # "왜 벡터가 안 도는지" 를 아무도 못 찾는다.
@@ -1241,9 +1767,20 @@ def run_classify(files, args, out_fp):
     total_files = len(files)
     detected = c_cnt + s_cnt + o_cnt                      # 등급이 매겨진(=검출된) 문서 수
     total_ms = round((time.perf_counter() - PROCESS_START_PERF) * 1000.0, 1)
+    # 상태 줄에 실을 건수를 남겨 둔다 — '16건 중 1건 실패'를 숫자로 알려 준다.
+    errcodes.set_counts(total_files, n_extract_failed)
+    # 정책 버전도 함께 — 결과만 있고 '어떤 규칙으로 판정했는지'가 없으면 나중에
+    # 재현할 수 없다(--simple --nosummary 면 지금까지 어디에도 안 남았다).
+    errcodes.set_versions(
+        rule_version=ruleset.version,
+        taxonomy_version=taxonomy.exported_at if taxonomy else None,
+        doctype_rule_version=doc_rules_set.version if doc_rules_set else None)
     summary = {
         "total": total_files, "detected": detected,
         "C": c_cnt, "S": s_cnt, "O": o_cnt, "unclassified": none_cnt,
+        # 본문을 못 읽은 문서 수. Rust 판 요약에는 있었는데 파이썬 판에는 빠져 있어,
+        # 같은 실행인데 두 판의 요약 칸이 달랐다(2026-09-01 맞춤).
+        "extract_failed": n_extract_failed,
         "elapsed_total_ms": total_ms, "rule_version": ruleset.version, "embedded": embedded,
     }
     # 압축파일 집계 레코드가 있으면 개수도 요약에 표기(내부 파일 total 과는 별개).
@@ -1264,8 +1801,25 @@ def run_classify(files, args, out_fp):
     #     단 --nosummary 면 이 요약 레코드를 출력에서 뺀다(파일별 레코드만 남긴다).
     if args.fmt in ("json", "jsonl") and not no_summary:
         writer.write_record({"summary": summary})
+    # 감사용 전체 파일에는 --nosummary 와 무관하게 요약을 남긴다 — 이 파일은
+    # 연동용이 아니라 '나중에 되짚어 보는' 파일이라 정책 버전이 반드시 있어야 한다.
+    if full_writer is not None and args.fmt in ("json", "jsonl"):
+        full_writer.write_record({"summary": summary})
+    # (1-2) --out 으로 저장할 때는 상태도 파일 안에 남긴다. 파일만 받아 나중에 읽는
+    #     쪽은 stdout 을 이미 흘려보낸 뒤라, 파일 자체가 "이 결과가 온전한가"를
+    #     말해 줘야 한다. summary 와 같은 자리(json 은 배열 마지막 원소, jsonl 은
+    #     마지막 줄)라 새 규약이 아니다. --out 이 없으면 결과가 stdout 으로 나가고
+    #     상태 줄도 거기 붙으므로 여기서 또 넣지 않는다(같은 줄이 두 번 나간다).
+    if errcodes.is_json() and args.out and args.fmt in ("json", "jsonl"):
+        writer.write_record(errcodes.status_object(code, args.file or args.dir))
     # json 배열 모드면 마지막에 ']' 로 닫아 유효한 JSON 파일을 완성한다.
     writer.close()
+    if full_writer is not None:
+        if errcodes.is_json():
+            full_writer.write_record(errcodes.status_object(code, args.file or args.dir))
+        full_writer.close()
+        full_fp.close()
+        print(f"[csoclassify] 감사용 전체 결과: {full_path}", file=sys.stderr)
 
     # (2) 화면(stderr) 최종 요약 — 사용자가 요청한 형식(총수/검출/등급별/미분류/총시간).
     #     --nosummary 면 이 화면 요약 줄도 내지 않는다(summary 를 마지막 출력에서 완전 제거).
@@ -1273,7 +1827,8 @@ def run_classify(files, args, out_fp):
         arch_note = f", 압축 {len(arch_recs)}건" if arch_recs else ""
         print(
             f"[summary] 총 {total_files}개 / 검출 {detected}, "
-            f"C={c_cnt} S={s_cnt} O={o_cnt} 미분류={none_cnt}{arch_note}, "
+            f"C={c_cnt} S={s_cnt} O={o_cnt} 미분류={none_cnt} "
+            f"추출실패={n_extract_failed}{arch_note}, "
             f"총시간={total_ms}ms",
             file=sys.stderr,
         )
@@ -1331,8 +1886,9 @@ def run_propagate(args):
 
     # 1차 레코드(jsonl) 로드.
     if not os.path.isfile(args.propagate):
-        return fail(f"[csoclassify] 전파 입력 파일이 없습니다: {args.propagate}",
-                    config.EXIT_ARG_ERROR)
+        return fail_err("propagate_input_missing",
+                        f"[csoclassify] 전파 입력 파일이 없습니다: {args.propagate}",
+                        args.propagate)
 
     # 입력 레코드 로드 — classify 가 형식에 따라 'JSON 배열'(--dir 기본), '객체 1개'
     # (--file 기본), 'jsonl'(--format jsonl) 중 무엇이든 낼 수 있으므로 모두 받아들인다.
@@ -1358,8 +1914,9 @@ def run_propagate(args):
     seed_index = None
     if args.seeds:
         if not os.path.isfile(args.seeds):
-            return fail(f"[csoclassify] seed 파일이 없습니다: {args.seeds}",
-                        config.EXIT_ARG_ERROR)
+            return fail_err("seeds_missing",
+                            f"[csoclassify] seed 파일이 없습니다: {args.seeds}",
+                            args.seeds)
         seed_index = SeedIndex.from_seed_file(args.seeds)
         print(f"[csoclassify] 외부 seed {seed_index.size}건 로드: {args.seeds}", file=sys.stderr)
 
@@ -1370,10 +1927,10 @@ def run_propagate(args):
     try:
         records, stats = propagate_records(recs, seed_index=seed_index, failsafe=args.failsafe)
     except UnknownGradeError as e:
-        print(f"[csoclassify] 전파 입력의 등급 값이 올바르지 않습니다: {args.propagate}\n"
-              f"  {e}", file=sys.stderr)
         log.error("전파 입력 등급 오류 :: %s", e)
-        return config.EXIT_RULES_INVALID
+        return fail_err("rules_invalid",
+                        f"[csoclassify] 전파 입력의 등급 값이 올바르지 않습니다: "
+                        f"{args.propagate}\n  {e}", args.propagate)
 
     # doctype 축 전파(D7) — security 와 별개 축이라 별도 seed 저장소(같은 class_seed.jsonl
     # 파일의 labels.doctype 필드, 설계서 5-4 "한 파일에 두 축")와 별도 통계로 처리한다.
@@ -1403,11 +1960,16 @@ def run_propagate(args):
 
     # 결과 출력(--out 있으면 파일). 전파 입력은 '레코드 묶음'이라 json 은 항상 배열로
     # 감싸 유효한 JSON 파일이 되게 한다(다건 concatenation 무효화 방지).
-    out_fp = open(args.out, "w", encoding="utf-8") if args.out else None
+    try:
+        out_fp = open(args.out, "w", encoding="utf-8") if args.out else None
+    except OSError as e:
+        return fail_err("output_write_failed",
+                        f"[csoclassify] 출력 파일을 쓰지 못했습니다: {args.out}\n  {e}",
+                        args.out)
     writer = output.RecordWriter(out_fp or sys.stdout, args.fmt, multi=len(records) > 1)
     try:
         for rec in records:
-            writer.write_record(rec)
+            writer.write_record(_order_record(rec))
             # 전파 후 최종 결과 JSON 도 로그로 남긴다(벡터 축약).
             # 이 레코드의 등급이 임베딩 전파로 정해졌는지, 1차에서 이미 확정돼 그냥
             # 통과했는지를 태그로 구분해 로그만 봐도 바로 알 수 있게 한다.
@@ -1660,6 +2222,87 @@ def _loggable_record(rec):
 
 
 #------------------------------------------------------------------
+# 업무분류 규칙 채우기(--sync-doc-rule)
+#=> 화면의 [분류 불러오기] 버튼과 **같은 코드**로 doc_rule.yaml 을 채운다.
+#   예전에는 이 일이 화면에만 있어서, CLI 의 --scaffold-doc-rule 은 분류 이름
+#   하나만 넣은 빈 뼈대를 만들었다(유의어 없음, 파일이 있으면 건너뜀). 같은 일을
+#   두 곳이 다르게 하던 셈이라, 어휘를 만드는 층을 classify/docvocab.py 로 모으고
+#   양쪽이 그것을 부르게 했다.
+#    1) 분류 체계를 읽어 '규칙을 만들 분류'를 고른다(꺼 둔 분류·대분류는 뺀다)
+#    2) 유의어 사전(synonyms/)을 규칙 파일 옆에서 찾아 얹는다
+#    3) 빠진 분류는 새로 만들고, 옵션에 따라 빈 규칙을 채우거나 유의어를 덧붙인다
+#    4) 화면과 같은 방식으로 저장한다(머리 주석 · 키 순서 · .bak 백업)
+#
+# -in: args = 파싱된 인자(taxonomy · doc_rules · sync_fill_blank · sync_enrich)
+#
+# -out: code = 0(정상) · 3(분류 체계 없음) · 4(규칙 파일을 읽거나 쓸 수 없음)
+# -out: error = 없음(예외를 종료코드로 환원)
+#------------------------------------------------------------------
+def run_sync_doc_rule(args):
+    from .classify import axes as AX
+    from .classify import doc_rules as DR
+    from .classify import docvocab as DV
+
+    log = logsetup.get_logger("csoclassify.cli")
+    tax_path = args.taxonomy or AX.default_taxonomy_path()
+    rules_path = args.doc_rules or DR.default_doc_rules_path()
+
+    if not os.path.isfile(tax_path):
+        return fail_err("taxonomy_missing",
+                        f"[csoclassify] 회사 분류 체계를 찾을 수 없습니다: {tax_path}\n"
+                        f"  · --taxonomy <파일경로> 로 지정하거나,\n"
+                        f"  · --export-taxonomy 로 먼저 만드세요.", tax_path)
+    try:
+        taxonomy = AX.load_taxonomy(tax_path)
+    except Exception as e:
+        # 파일은 있는데 못 읽는다 = 내용 문제다(없음과 구분해 코드 4 로 나간다).
+        return fail_err("taxonomy_invalid",
+                        f"[csoclassify] 분류 체계를 읽지 못했습니다: {e}", tax_path)
+
+    nodes = DV.nodes_from_taxonomy(taxonomy)
+    if not nodes:
+        print("[csoclassify] 규칙을 만들 분류가 없습니다(꺼 둔 분류와 대분류는 "
+              "가져오지 않습니다).", file=sys.stderr)
+        return 0
+
+    try:
+        doc = DV.load_doc(rules_path)
+    except Exception as e:
+        return fail_err("doc_rules_invalid",
+                        f"[csoclassify] 규칙 파일을 읽지 못했습니다: {rules_path}\n  {e}",
+                        rules_path)
+
+    syn = DV.load_synonyms(rules_path)
+    # 새 규칙에 얹을 값(weight 등)은 본보기가 정한다 — 코드에 박아 두지 않는다.
+    new_rule = (DR.load_scaffold_template(rules_path) or {}).get("new_rule")
+
+    added, filled, enriched = DV.sync_nodes(
+        doc, nodes, fill_existing=bool(args.sync_fill_blank),
+        enrich_existing=bool(args.sync_enrich), syn=syn, new_rule=new_rule)
+
+    if not (added or filled or enriched):
+        print(f"[csoclassify] 바뀐 것이 없습니다 — 규칙 파일은 그대로 둡니다: {rules_path}",
+              file=sys.stderr)
+        return 0
+
+    try:
+        DV.save_doc(rules_path, doc)
+    except OSError as e:
+        return fail_err("doc_rules_write_failed",
+                        f"[csoclassify] 규칙 파일을 쓰지 못했습니다: {rules_path}\n  {e}",
+                        rules_path)
+
+    layers = [os.path.basename(p) for p in (syn or {}).get("layers") or []]
+    print(f"[csoclassify] {rules_path} 갱신 — 새 분류 {added}개 · 빈 규칙 채움 "
+          f"{filled}개 · 유의어 더함 {enriched}개"
+          + (f" (유의어 사전: {' → '.join(layers)})" if layers else " (유의어 사전 없음)"),
+          file=sys.stderr)
+    log.info("업무분류 규칙 동기화 :: added=%d filled=%d enriched=%d path=%s",
+             added, filled, enriched, rules_path)
+    return 0
+
+
+#------------------------------------------------------------------
 # 분류체계 스냅샷 내보내기 전용 모드 (--export-taxonomy)
 #=> DOC_CLASSIFICATION JSON(MpowerV11 관리 화면/배치가 뽑은 원본)을 CSOClassify
 #   가 읽는 doc_taxonomy.yaml 로 바꾼다. scripts/export_taxonomy.py(개발용
@@ -1686,24 +2329,26 @@ def run_export_taxonomy(args):
     output_path = args.taxonomy or AX.default_taxonomy_path()
 
     if not os.path.isfile(input_path):
-        print(f"[csoclassify] 원본 JSON을 찾을 수 없습니다: {input_path}\n"
-              f"  · --export-input <파일경로> 로 지정하거나,\n"
-              f"  · resources/policy/doc_classification_export.json 에 두세요.",
-              file=sys.stderr)
-        return config.EXIT_ARG_ERROR
+        return fail_err("export_input_missing",
+                        f"[csoclassify] 원본 JSON을 찾을 수 없습니다: {input_path}\n"
+                        f"  · --export-input <파일경로> 로 지정하거나,\n"
+                        f"  · resources/policy/doc_classification_export.json 에 두세요.",
+                        input_path)
 
     try:
         taxonomy, warnings = AX.export_from_mpower_json(input_path, output_path)
     except (ValueError, _json.JSONDecodeError) as e:
-        # 원본 JSON 이 매핑이 아니거나 nodes 가 없거나 문법이 틀림 — 입력 문제.
-        print(f"[csoclassify] {e}", file=sys.stderr)
+        # 원본 JSON 이 매핑이 아니거나 nodes 가 없거나 문법이 틀림 — 입력 '내용' 문제다.
+        # 파일이 없는 경우(2007)와 갈라 두면 부르는 쪽이 "경로를 다시 묻는다 / 원본
+        # 데이터를 고친다"를 구분할 수 있다.
         log.error("분류체계 내보내기 실패(원본 문제) :: %s", e)
-        return config.EXIT_ARG_ERROR
+        return fail_err("export_input_invalid", f"[csoclassify] {e}", input_path)
     except AX.TaxonomyValidationError as e:
         # 변환은 됐지만 결과 트리가 깨짐(순환·고아 등) — 원본 데이터 자체의 문제.
-        print(f"[csoclassify] 변환 결과가 검증을 통과하지 못했습니다:\n{e}", file=sys.stderr)
         log.error("분류체계 내보내기 검증 실패 count=%d", len(e.violations))
-        return config.EXIT_RULES_INVALID
+        return fail_err("export_input_invalid",
+                        f"[csoclassify] 변환 결과가 검증을 통과하지 못했습니다:\n{e}",
+                        input_path)
 
     for w in warnings:
         print(f"[csoclassify] 경고: {w}", file=sys.stderr)
@@ -1753,12 +2398,10 @@ def run_check_rules(args):
     try:
         rs = load_rules(args.rules)
     except FileNotFoundError as e:
-        print(f"[csoclassify] {e}", file=sys.stderr)
-        return config.EXIT_ARG_ERROR
+        return fail_err("rules_missing", f"[csoclassify] {e}", path)
     except RuleSetValidationError as e:
-        print(f"[csoclassify] {e}", file=sys.stderr)
         log.error("규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return config.EXIT_RULES_INVALID
+        return fail_err("rules_invalid", f"[csoclassify] {e}", e.path)
 
     # 통과했으면 "무엇을 검사했는지"를 건수로 보여 준다. 규칙이 0건이면 파일을
     # 잘못 지정했을 가능성이 크므로 눈에 띄게 알려 주는 편이 낫다.
@@ -1781,9 +2424,8 @@ def run_check_rules(args):
     try:
         taxonomy = AX.load_taxonomy(taxonomy_path)
     except AX.TaxonomyValidationError as e:
-        print(f"[csoclassify] {e}", file=sys.stderr)
         log.error("분류체계 스냅샷 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return config.EXIT_RULES_INVALID
+        return fail_err("taxonomy_invalid", f"[csoclassify] {e}", e.path)
     stale = _check_stale_taxonomy(taxonomy)
     if stale:
         print(stale, file=sys.stderr)
@@ -1809,9 +2451,8 @@ def run_check_rules(args):
     try:
         drs = DR.load_doc_rules(doc_rules_path, taxonomy=taxonomy)
     except DR.DocRuleValidationError as e:
-        print(f"[csoclassify] {e}", file=sys.stderr)
         log.error("업무분류 규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return config.EXIT_RULES_INVALID
+        return fail_err("doc_rules_invalid", f"[csoclassify] {e}", e.path)
     for w in drs.warnings:
         print(f"[csoclassify] {w}")
     print(f"[csoclassify] 업무분류 규칙셋 정상: {doc_rules_path}")
@@ -1834,22 +2475,65 @@ def run_check_rules(args):
 # -out: error = 없음(내부에서 예외를 코드로 환원)
 #------------------------------------------------------------------
 #------------------------------------------------------------------
+# 오류 이름 하나로: JSON + 화면 + 로그 + 종료코드
+#=> 실패 자리에서 종료코드를 손으로 고르지 않게 한다. 이름(kind)만 고르면
+#   번호(code)와 종료코드는 errcodes 표가 정한다 — 같은 상황에서 값이
+#   갈리던 원인을 없앤다.
+#    1) --json-errors 면 stdout 에 오류 JSON 한 줄
+#    2) 화면(stderr)과 오류 로그에는 지금까지와 똑같이
+#    3) 표가 정한 종료코드를 돌려준다
+#
+#   [이름 주의] fail_code 와 마찬가지로 프로세스를 끝내지 않는다.
+#   반드시 `return fail_err(...)` 로 써야 한다.
+#
+# -in: kind = 오류 이름(errcodes.ERRORS 의 키)
+# -in: msg  = 사용자에게 보일 안내(여러 줄 가능)
+# -in: path = 문제가 된 파일·폴더(없으면 JSON 에서 키 자체가 빠진다, 기본 None)
+#
+# -out: code = 표가 정한 종료코드
+# -out: error = 표에 없는 이름이면 KeyError(개발 중 오타)
+#------------------------------------------------------------------
+#------------------------------------------------------------------
 # 오류 안내 + 오류 로그 + 종료코드 (한 번에)
 #=> "화면에 안내하고 코드로 끝낸다"를 한 함수로 묶는다. 예전에는 print 만 하고
 #   끝내는 자리가 많아, exe 를 UI·배치로 돌리면 그 안내가 사라져 아무 흔적도
 #   남지 않았다. 이 함수를 쓰면 화면 동작은 그대로면서 오류 로그
-#   (csoclassify_err_YYYYMMDD.log)에도 같은 내용이 남는다.
+#   (log/class_err_YYYYMMDD.log)에도 같은 내용이 남는다.
+#    1) 화면(stderr)에는 받은 그대로 — 여러 줄이면 여러 줄로 보여 준다
+#    2) 로그에는 한 줄로 눌러 담는다(아래 이유 참고)
+#    3) 받은 종료코드를 그대로 돌려준다
+#
+#   [이름 주의] 이 함수는 프로세스를 끝내지 않는다. 종료코드를 '돌려주기만' 한다.
+#   그래서 이름이 fail 이 아니라 fail_code 다 — 반드시 `return fail_code(...)` 처럼
+#   return 과 함께 써야 한다. return 을 빠뜨리면 메시지·로그만 남고 실행이 그대로
+#   이어진다. (Rust 판 errlog::fail() 은 이름이 비슷하지만 정말로 exit 하고
+#   돌아오지 않는다 — 두 구현을 오가며 읽을 때 혼동하지 않도록 이름을 구분했다.)
 #
 # -in: msg  = 사용자에게 보일 안내(여러 줄 가능)
-# -in: code = 돌려줄 종료코드
+# -in: code = 돌려줄 종료코드(config.EXIT_* 중 하나)
 #
-# -out: code = 받은 종료코드 그대로 (호출부에서 return fail(...) 로 쓴다)
-# -out: error = 없음
+# -out: code = 받은 종료코드 그대로 (호출부에서 return fail_code(...) 로 쓴다)
+# -out: error = 없음(예외를 던지지 않는다)
 #------------------------------------------------------------------
-def fail(msg, code):
+def fail_err(kind, msg, path=None):
+    errcodes.emit(kind, msg, path)
+    if errcodes.is_json():
+        # 같은 내용이 이미 stdout 으로 나갔다. stderr 로 한 번 더 내면, 부르는 쪽이
+        # 두 갈래를 합쳐 받을 때(2>&1) JSON 뒤에 사람용 문장이 따라붙어 파싱이 깨진다.
+        # 로그 파일에는 그대로 남긴다 — 화면이 없는 배치에서 원인을 찾을 흔적이다.
+        logsetup.get_logger("csoclassify.cli").error(
+            "%s", " / ".join(msg.splitlines()), stacklevel=2)
+        return errcodes.exit_of(kind)
+    return fail_code(msg, errcodes.exit_of(kind))
+
+
+def fail_code(msg, code):
     print(msg, file=sys.stderr)
     # 로그는 한 줄로 눌러 담는다 — 여러 줄이면 로그 파일에서 한 사건이 여러 건처럼 보인다.
-    logsetup.get_logger("csoclassify.cli").error("%s", " / ".join(msg.splitlines()))
+    # stacklevel=2 로 '이 함수'가 아니라 '실제로 오류를 낸 호출부'의 위치가 기록되게 한다
+    # (포맷에 %(funcName)s/%(lineno)d 를 넣으면 6건 모두 fail_code 로 찍히는 것을 막는다).
+    logsetup.get_logger("csoclassify.cli").error(
+        "%s", " / ".join(msg.splitlines()), stacklevel=2)
     return code
 
 
@@ -1888,6 +2572,99 @@ def resolve_format(fmt, out, log=None):
 
 
 #------------------------------------------------------------------
+# 기계가 읽는 줄만 통과시키는 stderr 거름망
+#=> --json-errors 를 준 호출에서 사람용 알림([전파]·본문없음·경고 등)을 막는다.
+#   자리를 하나씩 고치지 않는 이유: 그런 자리가 60곳이 넘어 빠뜨리기 쉽고,
+#   나중에 새로 생기는 줄까지 자동으로 걸러야 하기 때문이다.
+#    1) 줄 단위로 모은다(print 는 본문과 줄바꿈을 따로 쓴다)
+#    2) [progress]·[summary] 로 시작하는 줄만 진짜 stderr 로 흘린다
+#       — 화면 진행바와 완료 메시지가 그 두 줄을 읽는다
+#
+# -필드: raw  = 진짜 stderr(여기로만 통과시킨다)
+# -필드: buf  = 아직 줄바꿈을 못 만난 조각
+#------------------------------------------------------------------
+class _QuietStderr:
+    KEEP = ("[progress]", "[summary]")
+
+    #--------------------------------------------------------------
+    # 거름망 만들기
+    #=> 원래 stderr 를 품고 있다가 통과시킬 줄만 넘긴다.
+    #
+    # -in: raw = 원래 sys.stderr
+    #
+    # -out: 없음
+    # -out: error = 없음
+    #--------------------------------------------------------------
+    def __init__(self, raw):
+        self.raw = raw
+        self.buf = ""
+
+    #--------------------------------------------------------------
+    # 글자 받기 — 줄이 완성될 때마다 판단한다
+    #=> print 는 "본문"과 "\n" 을 따로 쓴다. 조각만 보고 판단하면 같은 줄을
+    #   반쯤 흘려보내게 되므로, 줄바꿈을 만날 때까지 모았다가 검사한다.
+    #
+    # -in: s = 쓰려는 글자
+    #
+    # -out: int = 받은 글자 수(파일 객체 흉내)
+    # -out: error = 없음
+    #--------------------------------------------------------------
+    def write(self, s):
+        self.buf += s
+        while "\n" in self.buf:
+            line, self.buf = self.buf.split("\n", 1)
+            if line.startswith(self.KEEP):
+                self.raw.write(line + "\n")
+        return len(s)
+
+    #--------------------------------------------------------------
+    # 남은 조각 내보내기
+    #=> 줄바꿈 없이 끝난 마지막 조각도 규칙에 맞으면 흘려보낸다.
+    #
+    # -in: 없음
+    #
+    # -out: 없음
+    # -out: error = 없음
+    #--------------------------------------------------------------
+    def flush(self):
+        if self.buf.startswith(self.KEEP):
+            self.raw.write(self.buf)
+            self.buf = ""
+        self.raw.flush()
+
+    #--------------------------------------------------------------
+    # 그 밖의 파일 객체 흉내
+    #=> isatty() 처럼 라이브러리가 물어보는 것들을 원래 stderr 에 넘긴다.
+    #
+    # -in: name = 찾는 속성 이름
+    #
+    # -out: 원래 stderr 의 그 속성
+    # -out: error = 없으면 AttributeError
+    #--------------------------------------------------------------
+    def __getattr__(self, name):
+        return getattr(self.raw, name)
+
+
+#------------------------------------------------------------------
+# 상태 줄에 실을 '대상' 뽑기
+#=> 부르는 쪽이 여러 폴더를 돌릴 때, 어느 실행의 결과인지 알아야 한다.
+#   인자를 다시 해석하지 않고 날것의 argv 에서 --file/--dir 값만 집어 온다
+#   (여기는 argparse 가 실패한 뒤에도 불릴 수 있는 자리다).
+#
+# -in: argv = 인자 리스트(None 이면 sys.argv[1:])
+#
+# -out: str = --file 또는 --dir 값 · 없으면 None
+# -out: error = 없음
+#------------------------------------------------------------------
+def _target_of(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    for i, a in enumerate(argv):
+        if a in ("--file", "-file", "--dir", "-dir") and i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
+#------------------------------------------------------------------
 # 진입점 — 예상 못 한 오류까지 파일에 남기는 바깥 껍데기
 #=> 실제 처리는 _main() 이 한다. 여기서는 그 바깥을 try 로 감싸, 어디서든 잡히지
 #   않은 예외가 올라오면 오류 로그에 스택까지 남기고 종료코드로 환원한다.
@@ -1900,21 +2677,34 @@ def resolve_format(fmt, out, log=None):
 # -out: error = 없음(모든 예외를 코드로 환원 — 여기서 예외를 올리면 로그가 안 남는다)
 #------------------------------------------------------------------
 def main(argv=None):
+    # 인자 해석이 실패해도 JSON 으로 알려야 하므로, 파서를 만들기 전에 날것의
+    # argv 를 훑어 옵션을 먼저 켠다.
+    errcodes.enable_json(errcodes.wants_json(argv))
+    # 기계가 읽는 호출에서는 사람용 알림을 stderr 로 내지 않는다(로그 파일에는 남는다).
+    if errcodes.is_json():
+        sys.stderr = _QuietStderr(sys.stderr)
     try:
-        return _main(argv)
+        code = _main(argv)
+        # 성공이든 부분 실패든 마지막에 상태 한 줄을 낸다(이미 실패 줄을 냈으면
+        # emit_final 이 알아서 넘어간다).
+        errcodes.emit_final(code, _target_of(argv))
+        return code
     except SystemExit:
         raise                       # sys.exit() 는 정상 흐름이므로 그대로 통과
     except KeyboardInterrupt:
         # 사용자가 Ctrl+C 로 멈춘 것은 '오류'가 아니다 — 로그를 더럽히지 않는다.
-        print("\n[csoclassify] 사용자가 중단했습니다.", file=sys.stderr)
+        if not errcodes.is_json():
+            print("\n[csoclassify] 사용자가 중단했습니다.", file=sys.stderr)
         return 130
     except BaseException as e:      # noqa: BLE001  (여기서 놓치면 흔적이 안 남는다)
         log = logsetup.get_logger("csoclassify.cli")
         # exc_info=True 로 스택까지 남긴다 — 한 줄 메시지만으로는 원인을 못 찾는다.
         log.error("예상하지 못한 오류로 중단: %s: %s", type(e).__name__, e, exc_info=True)
-        print(f"[csoclassify] 예상하지 못한 오류: {type(e).__name__}: {e}", file=sys.stderr)
-        print(f"[csoclassify] 자세한 내용은 오류 로그를 보세요: {logsetup.default_err_log_path()}",
-              file=sys.stderr)
+        errcodes.emit("internal_error", f"{type(e).__name__}: {e}")
+        if not errcodes.is_json():
+            print(f"[csoclassify] 예상하지 못한 오류: {type(e).__name__}: {e}", file=sys.stderr)
+            print(f"[csoclassify] 자세한 내용은 오류 로그를 보세요: "
+                  f"{logsetup.default_err_log_path()}", file=sys.stderr)
         return 1
 
 
@@ -1935,11 +2725,12 @@ def _main(argv=None):
     # (0) 로깅 먼저 구성: --log 없으면 exe 옆 log/ 폴더 기본 경로를 쓴다.
     #     여기서 확정한 절대경로를 데몬에도 그대로 넘겨(같은 파일에 기록) 한다.
     args._log_path = os.path.abspath(args.log) if args.log else logsetup.default_log_path()
-    # 오류(ERROR 이상)는 exe 옆 csoclassify_err_YYYYMMDD.log 에도 따로 쌓는다.
+    # 오류(ERROR 이상)는 log/class_err_YYYYMMDD.log 에도 따로 쌓는다.
     # 일반 로그는 정상 처리 기록까지 수천 줄이라, 문제만 빨리 보려면 별도 파일이 필요하다.
     args._err_log_path = logsetup.default_err_log_path()
     logsetup.setup_logging(args._log_path, args.verbose, err_log_path=args._err_log_path)
     log = logsetup.get_logger("csoclassify.cli")
+
     # 어떤 실행이었는지 남겨 재현/추적을 돕는다: (1) 실제 커맨드라인 풀경로, (2) 파싱된 argv.
     log.info("실행 cmd=%s", _full_command_line())
     log.info("실행 argv=%s", argv if argv is not None else sys.argv[1:])
@@ -1950,6 +2741,7 @@ def _main(argv=None):
     # (1) 데몬 제어 명령 우선 처리.
     dc = handle_daemon_commands(args)
     if dc is not None:
+        log.info("데몬실행(--serve/--status/--stop)")
         return dc
 
     # (1.3) --failsafe 값 검증. 이 값은 규칙셋을 거치지 않고 곧바로 최종 등급이 되므로,
@@ -1960,56 +2752,109 @@ def _main(argv=None):
     if args.failsafe is not None:
         from .classify import GRADES
         if args.failsafe not in GRADES:
-            return fail(f"[csoclassify] --failsafe 값이 올바르지 않습니다: {args.failsafe!r}\n"
-                        f"  정의된 등급: {' < '.join(GRADES)}",
-                        config.EXIT_RULES_INVALID)
+            # 부른 쪽이 준 값이 틀린 것이므로 '인자 오류(3)'다. 예전에는 규칙셋
+            # 내용 오류와 같은 4 로 나가 배치가 원인을 구분할 수 없었다.
+            return fail_err("bad_failsafe",
+                            f"[csoclassify] --failsafe 값이 올바르지 않습니다: {args.failsafe!r}\n"
+                            f"  정의된 등급: {' < '.join(GRADES)}")
 
     # (1.35) 분류체계 스냅샷 내보내기 모드: 문서도 모델도 필요 없다 → 가장 먼저 처리.
     # => 엠파워에 문서분류체계 doc_classification_export.json -> doc_taxonomy.yaml 파일로 만듬
     # => doc_taxonomy.yaml 은 1차분류시 node 값(dc_id : 문서분류id) 만 필요.
     if getattr(args, "export_taxonomy", False):
+        log.info("문서분류체계파일 doc_taxonomy.yaml 생성(--export_taxonomy)")
         return run_export_taxonomy(args)
+
+    # (1.36) 업무분류 규칙 채우기 모드: 분류 체계와 규칙 파일만 있으면 된다.
+    # => 화면의 [분류 불러오기] 버튼과 같은 일. 문서도 모델도 필요 없다.
+    if getattr(args, "sync_doc_rule", False):
+        log.info("문서분류규칙파일 doc_rule.yaml 생성(--sync_doc_rule)")
+        return run_sync_doc_rule(args)
 
     # (1.4) 규칙셋 검사 모드: 문서도 모델도 필요 없다 → 파일 수집 전에 먼저 끝낸다.
     # => cso_rules.yaml, doc_rules.yaml, doc_taxonomy.yaml 파일 유효성 검사.
     if getattr(args, "check_rules", False):
+        log.info("규칙파일 유효성 검사(--check_rules)")
         return run_check_rules(args)
 
     # (1.5) 전파 모드: 입력이 레코드 파일이라 --file/--dir·모델이 필요 없다 → 먼저 처리.
+    # => cli.py --propagate / --auto-propagate 인자로 실행하면.
     if args.propagate:
+        log.info("전파모드실행(--propagate, --auto-propagate)")
         return run_propagate(args)
 
     # (2) 모델 별칭이 유효한지 먼저 확인(빠른 실패).
+    # => DEFAULT_MODEL = "e5-small-ko" 로 정의되어 있음.
     try:
         config.get_model_spec(args.model)
     except KeyError as e:
-        print(f"[csoclassify] {e}", file=sys.stderr)
-        return config.EXIT_ARG_ERROR
+        return fail_err("bad_args", f"[csoclassify] {e}")
 
     # (3) 대상 파일 수집.
     # => --file 혹은 --dir 처리
-    # => --dir 인 경우에는 --glob 로 확장자도 지정할수 있음.
+    # => --dir 인 경우에는 --glob 로 확장자도 지정(# *.hwp,*.pdf)할수 있음.
+    # 목록과 --file/--dir 을 같이 주면 어느 쪽이 진짜 대상인지 알 수 없다 —
+    # 조용히 하나를 고르면 '왜 저 파일이 빠졌지?' 로 이어지므로 그 자리에서 막는다.
+    if getattr(args, "files_from", None) and (args.file or args.dir):
+        return fail_err("bad_args",
+                        "[csoclassify] --files-from 은 --file/--dir 과 함께 쓸 수 없습니다.")
     files = collect_files(args)
     if not files:
-        return fail("[csoclassify] 처리할 파일이 없습니다. --file <경로> 또는 --dir <폴더> 를 지정하세요.",
-                    config.EXIT_ARG_ERROR)
+        # 두 상황을 갈라 준다 — 부르는 쪽의 대응이 다르다.
+        #   · 대상을 아예 안 줌(1002)      → 명령 자체를 고쳐야 한다
+        #   · 줬는데 0건(1001)             → 사용자에게 폴더를 다시 물으면 된다
+        target = args.file or args.dir or getattr(args, "files_from", None)
+        if not target:
+            return fail_err("no_target_arg",
+                            "[csoclassify] 처리할 파일이 없습니다. "
+                            "--file <경로> · --dir <폴더> · --files-from <목록> 중 "
+                            "하나를 지정하세요.")
+        # 왜 0건인지를 상황에 맞게 말해 준다 — "없다"만으로는 무엇을 고칠지 모른다.
+        if args.file:
+            why = ("폴더입니다 — 폴더는 --dir 로 지정하세요."
+                   if os.path.isdir(args.file) else "그런 파일이 없습니다.")
+        elif getattr(args, "files_from", None):
+            why = "목록이 비었거나, 목록의 경로가 모두 실제 파일이 아닙니다."
+        else:
+            why = f"폴더가 없거나, --glob 패턴({args.glob})에 맞는 파일이 없습니다."
+        return fail_err("no_input",
+                        f"[csoclassify] 처리할 파일이 없습니다: {target}\n  {why}",
+                        target)
 
     # (3-1) 압축파일(zip) 확장: zip 이 섞여 있으면 임시폴더에 풀어 내부 '파일별'로 나눈다.
     #   → 압축 1개가 여러 건으로 분류돼 어느 내부 파일이 C/S/O 인지 알 수 있다.
     #   임시폴더는 처리 후 반드시 지운다(민감정보 잔존 방지). 일반 파일만 있으면 그대로.
+    #
+    # => Windows 기준으로 이런 폴더를 만듬.(압축푸는건 아님. 폴더만 만듬)
+    # C:\Users\bong9\AppData\Local\Temp\cso_zip_a7f3k1qz\
+    #                              └────┬────┘└──┬──┘
+    #                                prefix    자동 생성된 무작위 문자
     import shutil
     import tempfile
     from .extract.archive import expand_paths
     arch_tmp = tempfile.mkdtemp(prefix="cso_zip_")
 
+    # 파싱된 args 에서 파이프라인/데몬이 쓰는 처리 옵션만 뽑아 dict 로 만든다
     opts = make_opts(args)
 
     # --out 이 있으면 결과 본문을 파일로 쓴다(시간요약은 여전히 stderr).
     out_fp = None
     if args.out:
-        out_fp = open(args.out, "w", encoding="utf-8")
+        try:
+            out_fp = open(args.out, "w", encoding="utf-8")
+        except OSError as e:
+            # 권한·디스크·다른 프로그램이 잡고 있음 — 결과를 만들어도 둘 데가 없다.
+            shutil.rmtree(arch_tmp, ignore_errors=True)
+            return fail_err("output_write_failed",
+                            f"[csoclassify] 출력 파일을 쓰지 못했습니다: {args.out}\n  {e}",
+                            args.out)
+        
+    #-----------------------------------------------------
+    # 분류 시작
+    #-----------------------------------------------------
     try:
         jobs = expand_paths(files, arch_tmp)
+
         # 명시 모드가 있으면 그쪽으로, 없으면 기본 = C/S/O 분류.
         # => --text-only 일때 문서에서 text만 추출(*python 모드 exe 일때만)
         if args.text_only: 
@@ -2018,7 +2863,11 @@ def _main(argv=None):
         if args.embed:
             return run_embed(jobs, args, opts, out_fp)
 
-        # => 그외는 분류진행
+        #--------------------------------------------------------------------------
+        # 실제 분류 처리.
+        # => --text-only, --embed 옵션 외는 분류진행.
+        # => text 추출/정제 -> 1단계 rule 분류 -> 벡터생성 -> 씨드생성 -> 2차 전파(분류)
+        #--------------------------------------------------------------------------
         return run_classify(jobs, args, out_fp)
     finally:
         if out_fp is not None:

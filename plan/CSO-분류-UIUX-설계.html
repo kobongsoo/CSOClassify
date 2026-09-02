@@ -192,7 +192,7 @@
       <div class="flowline">↓</div>
       <div class="stage p2"><span class="tag">Phase 2 — 큐레이션</span><div class="st">seed 확정</div><p class="sd">검토 UI로 근거 보고 C/S/O 확정 → 승인분을 seed로 승격 → <code class="inl">class_seed.jsonl</code> 생성/보강(등급+벡터+메타)</p></div>
       <div class="flowline">↓</div>
-      <div class="stage p3"><span class="tag">Phase 3 — 분류(반복)</span><div class="st">대상 문서 분류</div><p class="sd">파일/폴더 → <code class="inl">csoclassify --classify --with-vector --propagate --seeds class_seed.jsonl</code> → 보류분을 seed와 비교 → 검토 UI에서 확정</p></div>
+      <div class="stage p3"><span class="tag">Phase 3 — 분류(반복)</span><div class="st">대상 문서 분류</div><p class="sd">파일/폴더 → <code class="inl">csoclassify --classify --embed-needed --propagate --seeds class_seed.jsonl</code> → 보류분을 seed와 비교 → 검토 UI에서 확정<br><span style="opacity:.75">※ 2026-09-02 정정 — 여기는 <code class="inl">--with-vector</code>(전량)가 아니라 <code class="inl">--embed-needed</code>(못 정한 문서만)다. 전량 벡터는 Phase 1 처럼 <b>승격용 벡터가 필요한 자리</b>에서만 쓴다. 실제 화면 구현도 <code class="inl">--embed-needed</code> 로 돈다.</span></p></div>
       <div class="loop">⟳ Phase 3 ↔ 4 정상상태 루프 — seed가 늘수록 보류·오분류가 줄어든다</div>
       <div class="stage p4"><span class="tag">Phase 4 — 되먹임(반복)</span><div class="st">seed 갱신</div><p class="sd">① 확정분 중 대표 문서를 승격 ② <b>관리자가 신규 파일 직접 업로드</b> → csoclassify로 벡터 산출 → 추가 ③ 기존 seed <b>수정·삭제·등급변경</b>. near-dup 중복 경고, 감사 로그</p></div>
       <div class="flowline">↓</div>

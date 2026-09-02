@@ -1,0 +1,345 @@
+{
+  "source": "LawFirm.DOC_CLASSIFICATION",
+  "export_server": "sample://doc-classification-example (가짜 예시 데이터)",
+  "node_count": 21,
+  "nodes": [
+    {
+      "dc_id": "DC_001",
+      "parent_dc_id": null,
+      "order_num": 1,
+      "title": "판결/결정",
+      "status": 1,
+      "path_ids": [
+        "DC_001"
+      ],
+      "path_titles": [
+        "판결/결정"
+      ],
+      "path": "판결/결정"
+    },
+    {
+      "dc_id": "DC_001_001",
+      "parent_dc_id": "DC_001",
+      "order_num": 1,
+      "title": "판결문",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001"
+      ],
+      "path_titles": [
+        "판결/결정",
+        "판결문"
+      ],
+      "path": "판결/결정 > 판결문"
+    },
+    {
+      "dc_id": "DC_001_001_001",
+      "parent_dc_id": "DC_001_001",
+      "order_num": 1,
+      "title": "민사",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001",
+        "DC_001_001_001"
+      ],
+      "path_titles": [
+        "판결/결정",
+        "판결문",
+        "민사"
+      ],
+      "path": "판결/결정 > 판결문 > 민사"
+    },
+    {
+      "dc_id": "DC_001_001_002",
+      "parent_dc_id": "DC_001_001",
+      "order_num": 2,
+      "title": "형사",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001",
+        "DC_001_001_002"
+      ],
+      "path_titles": [
+        "판결/결정",
+        "판결문",
+        "형사"
+      ],
+      "path": "판결/결정 > 판결문 > 형사"
+    },
+    {
+      "dc_id": "DC_001_001_003",
+      "parent_dc_id": "DC_001_001",
+      "order_num": 3,
+      "title": "행정",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001",
+        "DC_001_001_003"
+      ],
+      "path_titles": [
+        "판결/결정",
+        "판결문",
+        "행정"
+      ],
+      "path": "판결/결정 > 판결문 > 행정"
+    },
+    {
+      "dc_id": "DC_001_001_004",
+      "parent_dc_id": "DC_001_001",
+      "order_num": 4,
+      "title": "특허",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001",
+        "DC_001_001_004"
+      ],
+      "path_titles": [
+        "판결/결정",
+        "판결문",
+        "특허"
+      ],
+      "path": "판결/결정 > 판결문 > 특허"
+    },
+    {
+      "dc_id": "DC_001_001_005",
+      "parent_dc_id": "DC_001_001",
+      "order_num": 5,
+      "title": "조세",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001",
+        "DC_001_001_005"
+      ],
+      "path_titles": [
+        "판결/결정",
+        "판결문",
+        "조세"
+      ],
+      "path": "판결/결정 > 판결문 > 조세"
+    },
+    {
+      "dc_id": "DC_001_002",
+      "parent_dc_id": "DC_001",
+      "order_num": 2,
+      "title": "결정문",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_002"
+      ],
+      "path_titles": [
+        "판결/결정",
+        "결정문"
+      ],
+      "path": "판결/결정 > 결정문"
+    },
+    {
+      "dc_id": "DC_001_003",
+      "parent_dc_id": "DC_001",
+      "order_num": 3,
+      "title": "심결문",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_003"
+      ],
+      "path_titles": [
+        "판결/결정",
+        "심결문"
+      ],
+      "path": "판결/결정 > 심결문"
+    },
+    {
+      "dc_id": "DC_002",
+      "parent_dc_id": null,
+      "order_num": 2,
+      "title": "계약",
+      "status": 1,
+      "path_ids": [
+        "DC_002"
+      ],
+      "path_titles": [
+        "계약"
+      ],
+      "path": "계약"
+    },
+    {
+      "dc_id": "DC_002_001",
+      "parent_dc_id": "DC_002",
+      "order_num": 1,
+      "title": "협력계약서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001"
+      ],
+      "path_titles": [
+        "계약",
+        "협력계약서"
+      ],
+      "path": "계약 > 협력계약서"
+    },
+    {
+      "dc_id": "DC_002_002",
+      "parent_dc_id": "DC_002",
+      "order_num": 2,
+      "title": "용역계약서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_002"
+      ],
+      "path_titles": [
+        "계약",
+        "용역계약서"
+      ],
+      "path": "계약 > 용역계약서"
+    },
+    {
+      "dc_id": "DC_002_003",
+      "parent_dc_id": "DC_002",
+      "order_num": 3,
+      "title": "비밀유지계약서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_003"
+      ],
+      "path_titles": [
+        "계약",
+        "비밀유지계약서"
+      ],
+      "path": "계약 > 비밀유지계약서"
+    },
+    {
+      "dc_id": "DC_002_004",
+      "parent_dc_id": "DC_002",
+      "order_num": 4,
+      "title": "라이선스계약서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_004"
+      ],
+      "path_titles": [
+        "계약",
+        "라이선스계약서"
+      ],
+      "path": "계약 > 라이선스계약서"
+    },
+    {
+      "dc_id": "DC_003",
+      "parent_dc_id": null,
+      "order_num": 3,
+      "title": "규정/준법",
+      "status": 1,
+      "path_ids": [
+        "DC_003"
+      ],
+      "path_titles": [
+        "규정/준법"
+      ],
+      "path": "규정/준법"
+    },
+    {
+      "dc_id": "DC_003_001",
+      "parent_dc_id": "DC_003",
+      "order_num": 1,
+      "title": "사내규정",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_001"
+      ],
+      "path_titles": [
+        "규정/준법",
+        "사내규정"
+      ],
+      "path": "규정/준법 > 사내규정"
+    },
+    {
+      "dc_id": "DC_003_002",
+      "parent_dc_id": "DC_003",
+      "order_num": 2,
+      "title": "컴플라이언스보고서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_002"
+      ],
+      "path_titles": [
+        "규정/준법",
+        "컴플라이언스보고서"
+      ],
+      "path": "규정/준법 > 컴플라이언스보고서"
+    },
+    {
+      "dc_id": "DC_003_003",
+      "parent_dc_id": "DC_003",
+      "order_num": 3,
+      "title": "개인정보처리방침",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_003"
+      ],
+      "path_titles": [
+        "규정/준법",
+        "개인정보처리방침"
+      ],
+      "path": "규정/준법 > 개인정보처리방침"
+    },
+    {
+      "dc_id": "DC_004",
+      "parent_dc_id": null,
+      "order_num": 4,
+      "title": "세무",
+      "status": 1,
+      "path_ids": [
+        "DC_004"
+      ],
+      "path_titles": [
+        "세무"
+      ],
+      "path": "세무"
+    },
+    {
+      "dc_id": "DC_004_001",
+      "parent_dc_id": "DC_004",
+      "order_num": 1,
+      "title": "세제자료",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_001"
+      ],
+      "path_titles": [
+        "세무",
+        "세제자료"
+      ],
+      "path": "세무 > 세제자료"
+    },
+    {
+      "dc_id": "DC_004_002",
+      "parent_dc_id": "DC_004",
+      "order_num": 2,
+      "title": "세금계산서",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_002"
+      ],
+      "path_titles": [
+        "세무",
+        "세금계산서"
+      ],
+      "path": "세무 > 세금계산서"
+    }
+  ]
+}

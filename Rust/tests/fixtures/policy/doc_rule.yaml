@@ -1,0 +1,11 @@
+version: doctype-2026.08.ui.4
+industry:
+- medical
+- legal
+- finance
+- construction
+- manufacturing
+- education
+- public
+conflict: all
+doctype_rules: []

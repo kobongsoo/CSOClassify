@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rust PII 포팅 검증 가이드 (골든 픽스처)</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:1px 6px;font-size:.9em}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  td:first-child{white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .def{color:var(--muted);font-size:.85em}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .step{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:0 10px 10px 0;padding:12px 16px 14px;margin:14px 0}
+  .step h4{margin:0 0 6px;font-size:15px}
+  .step h4 .num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:800;margin-right:8px}
+  .ok{border-left:3px solid var(--o);background:color-mix(in srgb,var(--o) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .bad{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  @media(max-width:820px){.two{grid-template-columns:1fr}ul.toc{columns:1}}
+  .os{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 8px;
+    border:1px solid var(--line);background:var(--chip);margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Rust PII 포팅 검증 가이드</h1>
+  <p>골든 픽스처(정답표)로 <code>csoclassify-rs</code> 의 PII 검출이 ko-pii 와 같은지 확인하는 방법 —
+     프로그래밍을 몰라도 순서대로 따라 할 수 있게 썼습니다.</p>
+</header>
+
+<section class="card">
+  <h3>이 문서는 무엇인가</h3>
+  <p>“Rust 판이 만든 PII 검출 결과가 <strong>진짜 정답과 같은지</strong> 어떻게 확인하느냐”를 다룹니다.
+     명령 두 줄이면 끝나지만, <strong>왜 그 두 줄인지</strong>와 <strong>빨간불이 떴을 때 무엇을 봐야 하는지</strong>까지
+     적었습니다.</p>
+  <p class="muted">읽는 사람: 이 프로젝트를 처음 만진 개발자 / 인수인계 받는 담당자 /
+     ko-pii 버전을 올려야 하는 사람.</p>
+  <ul class="toc">
+    <li><a href="#why">1. 왜 검증이 필요한가</a></li>
+    <li><a href="#layers">2. 검증 3층 — 언제 무엇을 하나</a></li>
+    <li><a href="#prep">3. 준비 (딱 한 번만)</a></li>
+    <li><a href="#a">4. 【절차 A】 평소 검증 — 명령 두 줄</a></li>
+    <li><a href="#read">5. 결과 읽는 법 (초록불 / 빨간불)</a></li>
+    <li><a href="#tests">6. cargo test 는 무엇을 시험하나</a></li>
+    <li><a href="#b">7. 【절차 B】 ko-pii 버전을 올렸을 때</a></li>
+    <li><a href="#c">8. 【절차 C】 릴리스 전 exe 대조</a></li>
+    <li><a href="#make">9. 정답표는 어떻게 만들어지나</a></li>
+    <li><a href="#corpus">10. 검사 사례(코퍼스) 추가하기</a></li>
+    <li><a href="#trouble">11. 문제 해결</a></li>
+    <li><a href="#appendix">12. 부록 — 파일·라벨·용어</a></li>
+  </ul>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="why"><span class="n">1</span>왜 검증이 필요한가</h2>
+<section class="card">
+  <p>이 프로젝트에는 <strong>실행파일이 두 개</strong> 있고, 둘은 PII(개인정보)를 <strong>서로 다른 방식으로</strong> 찾습니다.</p>
+
+  <table>
+    <tr><th>실행파일</th><th>PII 검출 방식</th></tr>
+    <tr>
+      <td><code>csoclassify.exe</code><br><span class="def">Python 판</span></td>
+      <td><strong>ko-pii 라이브러리를 그대로 가져다 씁니다.</strong>
+          외부에서 만든 검증된 부품을 끼워 넣은 셈입니다.<br>
+          단, <strong>빌드할 때 exe 안에 복사해 넣습니다</strong>(<code>_internal\ko_pii</code>).
+          그래서 exe 는 <strong>만들어진 날의 ko-pii 를 그대로 들고 다닙니다.</strong></td>
+    </tr>
+    <tr>
+      <td><code>csoclassify-rs.exe</code><br><span class="def">Rust 판</span></td>
+      <td><strong>ko-pii 를 쓰지 않고, 같은 알고리즘을 직접 옮겨 적었습니다</strong>(<code>Rust/src/pii.rs</code>, 약 1,000줄).
+          파이썬 없이 도는 단일 실행파일을 만들기 위해서입니다.</td>
+    </tr>
+  </table>
+
+  <p>여기서 문제가 생깁니다. Rust 판은 ko-pii 를 <em>쓰는</em> 게 아니라 <em>베껴 적은</em> 것이라,
+     <strong>ko-pii 가 바뀌어도 Rust 는 저절로 따라가지 않습니다.</strong>
+     아무 오류도 안 나고, 조용히 다른 답을 내기 시작합니다. 그래서 검증이 필요합니다.</p>
+
+  <h3>ko-pii 버전이 <em>네 곳</em>에 따로 존재합니다 <span class="pill">중요</span></h3>
+  <p>이 프로젝트에서 “ko-pii 버전”은 하나가 아닙니다. 아래 네 곳이 <strong>각자 따로</strong> 놉니다.</p>
+  <table>
+    <tr><th>#</th><th>어디에</th><th>언제 바뀌나</th></tr>
+    <tr><td>①</td><td><code>requirements.txt</code> 에 적힌 버전<br><span class="def">= 우리가 쓰기로 <strong>선언한</strong> 버전</span></td>
+        <td>사람이 파일을 고칠 때</td></tr>
+    <tr><td>②</td><td><code>csoclassify.exe</code> 안에 박힌 ko-pii<br><span class="def">= 배포본이 <strong>실제로 쓰는</strong> 버전</span></td>
+        <td><strong>Python exe 를 새로 빌드할 때만</strong></td></tr>
+    <tr><td>③</td><td>개발 PC 의 <code>pip</code> 환경<br><span class="def">= <strong>정답표를 만드는</strong> 버전</span></td>
+        <td><code>pip install</code> 할 때</td></tr>
+    <tr><td>④</td><td><code>Rust/src/pii.rs</code> 에 옮겨 적힌 로직<br><span class="def">= Rust 판이 쓰는 <strong>사본</strong></span></td>
+        <td>사람이 코드를 고칠 때만</td></tr>
+  </table>
+
+  <div class="bad">
+    <strong>가장 흔한 오해:</strong> <code>pip install --upgrade ko-pii</code> 를 하면 프로그램이 새 ko-pii 를 쓴다.
+    <br>→ <strong>틀렸습니다.</strong> 그건 ③만 바꿉니다.
+    <code>csoclassify.exe</code>(②)는 <strong>빌드할 때 복사해 넣은 옛 ko-pii 를 계속 씁니다.</strong>
+    <br><strong>ko-pii 를 진짜로 올리려면</strong> ① <code>requirements.txt</code> 의 버전을 고치고
+    <strong>② Python exe 를 새로 빌드</strong>해야 합니다. 자세한 순서는 <a href="#b">절차 B</a>.
+  </div>
+
+  <h3>버전이 맞는지 확인하는 법 — <code>--version</code> + <code>pip show</code></h3>
+  <p>두 exe 는 <strong>자기가 어느 ko-pii 기준인지 직접 찍어 줍니다.</strong>
+     여기에 <strong>개발 PC 에 실제로 깔린 버전(③)</strong> 까지 더해
+     <strong>세 줄의 버전 숫자가 모두 같아야</strong> 같은 기준으로 도는 것입니다.
+     <span class="def">②·④ 만 맞춰 보면 정답표를 만드는 ③ 이 어긋난 걸 놓칩니다.</span></p>
+  <pre><code>csoclassify.exe --version
+<span class="cmt">csoclassify 0.1.0 (ko-pii 1.15.2)          ← ② exe 안에 박힌 버전</span>
+
+csoclassify-rs.exe --version
+<span class="cmt">csoclassify-rs 0.1.0 (ko-pii 포팅 기준 1.15.2)   ← ④ 옮겨 적을 때 본 버전</span>
+
+pip show ko-pii
+<span class="cmt">Name: ko-pii</span>
+<span class="cmt">Version: 1.15.2                             ← ③ 이 PC 에 깔린 버전(정답표를 만드는 버전)</span>
+<span class="cmt">Summary: 한국어 PII 검출 + 가역 가명화 라이브러리 (ML 없이 룰 기반)</span>
+<span class="cmt">Home-page: https://github.com/Marker-Inc-Korea/ko-pii</span>
+<span class="cmt">License: MIT</span>
+<span class="cmt">Location: C:\Users\...\Python312\Lib\site-packages</span></code></pre>
+
+  <p>표기가 다른 이유가 있습니다. Python 판은 ko-pii 를 <strong>실제로 품고 있어서</strong> 그 버전을 읽어 찍고,
+     Rust 판은 품은 게 없어서 <strong>“어느 버전을 보고 옮겨 적었는지”</strong> 를 찍습니다.
+     역할은 같습니다 — <strong>기준이 같은지 맞춰 보는 용도</strong>입니다.</p>
+  <div class="note">
+    Rust 쪽 숫자는 사람이 손으로 적는 값이라 낡을 수 있습니다. 그래서
+    <code>cargo test</code> 에 <code>포팅기준_버전이_정답표와_같다</code> 테스트가 있어,
+    <strong>정답표를 새 ko-pii 로 다시 뽑으면 이 숫자가 먼저 깨집니다.</strong>
+    <code>--version</code> 이 거짓말을 하지 못하게 묶어 둔 것입니다.
+  </div>
+
+  <div class="note">
+    <strong><code>pip show</code> 를 꼭 같이 보세요.</strong> exe 두 개는 <em>빌드할 때</em> 정해진 값을 찍을 뿐이라,
+    지금 이 PC 에서 <code>pytest</code> · 정답표 생성이 어느 ko-pii 로 도는지는 알려 주지 못합니다.
+    그건 <code>pip show</code> 만 답할 수 있습니다.
+    <br><span class="def">가상환경을 쓴다면 <strong>테스트를 돌릴 바로 그 환경을 활성화한 뒤</strong> 찍어야 합니다.
+    conda/venv 마다 버전이 다를 수 있어, 엉뚱한 환경에서 찍은 <code>pip show</code> 는 아무것도 보증하지 않습니다.
+    확실히 하려면 <code>python -m pip show ko-pii</code> 로 인터프리터를 고정해 부르세요.
+    출력의 <code>Location:</code> 줄을 보면 어느 환경인지 드러납니다.</span>
+  </div>
+
+  <div class="note">
+    <strong>선언값(①)까지 한 번에 보려면</strong> — 아래 한 줄이면 네 곳 중 ①·③ 을 같이 확인합니다.
+    <br><span class="def">저장소 루트에서 실행:</span>
+    <br><code>findstr ko-pii requirements.txt ui\requirements.txt &amp;&amp; python -m pip show ko-pii</code>
+    <br><span class="def">핀은 <code>requirements.txt</code> 와 <code>ui/requirements.txt</code> <strong>두 곳</strong>에 있습니다.
+    한쪽만 고치면 CLI 와 검토 UI 가 서로 다른 ko-pii 로 돌게 됩니다.</span>
+  </div>
+  <div class="warn">
+    <strong>여기서 진짜 함정이 나옵니다.</strong> 정답표는 <strong>③(개발 PC 의 pip)</strong> 으로 만듭니다.
+    그런데 검증하고 싶은 대상은 <strong>②(배포 exe 가 실제로 쓰는 ko-pii)</strong> 입니다.
+    <strong>③과 ②가 다르면, <code>cargo test</code> 가 초록불이어도 배포된 두 exe 는 다른 답을 냅니다.</strong>
+    <br>예: 개발 PC 에 1.16 을 깔고 정답표를 다시 뽑으면 Rust 는 <em>1.16 기준</em>으로 검증되지만,
+    재빌드하지 않은 <code>csoclassify.exe</code> 는 여전히 <em>1.15.2</em> 로 동작합니다.
+    <br>그래서 <strong>① = ② = ③ 을 항상 같게 유지</strong>하는 것이 이 검증 체계의 전제입니다.
+  </div>
+
+  <div class="warn">
+    <strong>등급만 비교하면 안 되는 이유.</strong>
+    “두 exe 를 돌려 최종 등급(C/S/O)이 같으면 됐지”라고 생각하기 쉽지만 부족합니다.
+    등급은 라벨별 <em>건수</em>를 임계값으로 뭉갠 결과라서,
+    <strong>Rust 가 전화번호를 3건 놓쳐도 다른 라벨 덕에 등급이 같으면 그냥 통과</strong>합니다.
+    그래서 PII 는 <strong>라벨별 건수</strong>까지 내려가서 봐야 합니다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="layers"><span class="n">2</span>검증 3층 — 언제 무엇을 하나</h2>
+<section class="card">
+  <table>
+    <tr><th>층</th><th>무엇을 보나</th><th>언제 돌리나</th><th>걸리는 시간</th></tr>
+    <tr>
+      <td><span class="tag o">1층</span><br>유닛 테스트</td>
+      <td>예전에 터졌던 버그가 재발하지 않는가<br><span class="def">(체크섬·전화 7패턴 등 10건)</span></td>
+      <td rowspan="2"><strong>코드를 고칠 때마다</strong><br><span class="def">= 절차 A</span></td>
+      <td rowspan="2">약 20초<br><span class="def">(첫 빌드는 더 걸림)</span></td>
+    </tr>
+    <tr>
+      <td><span class="tag o">2층</span><br>골든 픽스처 <span class="pill">핵심</span></td>
+      <td><strong>ko-pii 와 라벨별 건수·검출값이 같은가</strong><br><span class="def">(31개 사례, 20라벨 전부)</span></td>
+    </tr>
+    <tr>
+      <td><span class="tag s">3층</span><br>exe 대조</td>
+      <td>문서 추출·정책까지 포함해 최종 등급이 같은가</td>
+      <td><strong>릴리스 직전</strong><br><span class="def">= 절차 C</span></td>
+      <td>수십 분<br><span class="def">(빌드·환경 구성 포함)</span></td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <strong>평소에는 1·2층만 돌리면 됩니다.</strong> 3층은 무겁습니다 —
+    pdfium·사이냅 필터·ONNX 모델·정책 yaml 을 전부 갖춰야 한 번 돌아갑니다.
+    반면 1·2층은 <strong>ko-pii 도, 파이썬도, 문서 파일도 필요 없이</strong> 명령 하나로 끝납니다.
+  </div>
+
+  <h3>2층(골든 픽스처)이 정확히 무슨 뜻인가</h3>
+  <p><strong>골든(golden) = 정답</strong>, <strong>픽스처(fixture) = 고정해 둔 검사용 데이터</strong>입니다.
+     합치면 <strong>“정답을 미리 뽑아 파일로 굳혀 둔 것”</strong>입니다. 이 문서에서는 <strong>정답표</strong>라고 부릅니다.</p>
+  <div class="tree"><span class="cmt">[한 번만] 진짜 ko-pii 에게 물어서 정답을 받아 파일로 저장</span>
+   ko-pii  ──▶  "이 문장에는 전화번호 1건, 주소 1건"  ──▶  pii_golden.json
+
+<span class="cmt">[매번] Rust 가 같은 문장을 풀고, 저장해 둔 정답과 맞춰 본다</span>
+   Rust    ──▶  "전화번호 1건, 주소 1건"  ──▶  정답표와 대조  ──▶  ✅ 또는 ❌</div>
+  <p>학원에서 <strong>답안지를 미리 받아 두고 채점하는 것</strong>과 같습니다.
+     채점할 때마다 선생님(ko-pii)을 부를 필요가 없으니 빠르고, 답안지가 파일로 남아 있으니
+     누가 언제 돌려도 같은 기준으로 채점됩니다.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="prep"><span class="n">3</span>준비 (딱 한 번만)</h2>
+<section class="card">
+
+  <div class="step">
+    <h4><span class="num">1</span>PowerShell 열기</h4>
+    <p>키보드에서 <span class="kbd">Windows</span> 키를 누르고 <code>powershell</code> 이라고 친 뒤
+       <strong>Windows PowerShell</strong> 을 엽니다. 검은(또는 파란) 글자 창이 뜨면 성공입니다.
+       여기에 명령을 한 줄씩 붙여넣고 <span class="kbd">Enter</span> 를 누르면 됩니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">2</span>프로젝트 폴더로 이동</h4>
+    <pre><code>cd D:\Project\CSOClassify</code></pre>
+    <p class="muted">앞으로 나오는 명령은 <strong>모두 이 폴더 기준</strong>입니다.
+       창을 새로 열 때마다 이 줄부터 다시 실행하세요.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">3</span>필요한 도구가 깔려 있는지 확인</h4>
+    <pre><code>python --version
+cargo --version</code></pre>
+    <p>아래처럼 버전이 나오면 준비된 것입니다. <span class="def">(숫자는 조금 달라도 괜찮습니다)</span></p>
+    <pre><code>Python 3.12.10
+cargo 1.98.0 (797e8a9bc 2026-08-05)</code></pre>
+    <p><code>'cargo' 은(는) ... 인식되지 않습니다</code> 라고 나오면 Rust 가 없는 것입니다 →
+       <a href="https://rustup.rs">rustup.rs</a> 에서 설치하고 PowerShell 을 <strong>새로 열어</strong> 다시 확인하세요.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">4</span>ko-pii 설치 <span class="def">— 정답표를 만들거나 확인할 때만 필요</span></h4>
+    <pre><code>pip install -r requirements.txt</code></pre>
+    <div class="note">
+      <strong>버전을 직접 타이핑하지 말고 <code>requirements.txt</code> 를 통해 까세요.</strong>
+      거기 적힌 버전(현재 <code>ko-pii==1.15.2</code>)이 이 프로젝트의 <strong>기준</strong>이고,
+      정답표도 그 버전이 만든 답입니다. 다른 버전을 깔면 “정답표가 낡았다”고 나옵니다.
+      일부러 올리는 경우라면 <a href="#b">절차 B</a> 를 보세요.
+    </div>
+    <p class="muted">참고: <strong>채점(<code>cargo test</code>)만 할 거라면 ko-pii 도 파이썬도 필요 없습니다.</strong>
+       정답이 이미 파일로 저장돼 있기 때문입니다.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="a"><span class="n">4</span>【절차 A】 평소 검증 — 명령 두 줄</h2>
+<section class="card">
+  <p><strong>PII 관련 코드를 고쳤다면 반드시 이 두 줄을 돌립니다.</strong></p>
+
+  <div class="step">
+    <h4><span class="num">1</span>정답표가 최신인지 확인</h4>
+    <pre><code>python scripts/gen_pii_golden.py --check</code></pre>
+    <p>지금 깔린 ko-pii 로 정답을 다시 뽑아서, 저장된 정답표와 <strong>같은지 비교만</strong> 합니다.
+       파일을 고치지는 않으므로 안심하고 돌려도 됩니다.</p>
+    <div class="ok"><strong>정상:</strong> <code>[확인] 정답표가 최신이다(31건).</code></div>
+    <div class="bad"><strong>다름:</strong> <code>[다름] 정답표가 현재 ko-pii(...) 결과와 다르다.</code>
+      → 개발 PC 의 ko-pii 버전이 정답표를 만든 버전과 다릅니다. <strong>둘 중 하나입니다.</strong>
+      <ul>
+        <li><strong>모르게 바뀐 것</strong>(대부분) → <code>pip install -r requirements.txt</code> 로
+            선언된 버전으로 되돌립니다.</li>
+        <li><strong>일부러 올리는 중</strong> → <a href="#b">절차 B</a> 를 <strong>끝까지</strong> 밟습니다(재빌드 포함).</li>
+      </ul></div>
+    <p class="muted">ko-pii 를 안 깔았다면 이 단계는 건너뛰고 2번만 해도 됩니다.
+       다만 “정답표가 낡았는지”는 확인되지 않습니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">2</span>Rust 채점하기</h4>
+    <pre><code>cd Rust
+cargo test</code></pre>
+    <p>Rust 코드 전체 테스트가 돕니다. <strong>PII 만</strong> 빨리 보고 싶으면 이렇게 하세요.</p>
+    <pre><code>cargo test pii</code></pre>
+    <p class="muted">처음 한 번은 컴파일하느라 1~2분 걸릴 수 있습니다. 두 번째부터는 몇 초입니다.</p>
+  </div>
+
+  <h3>돌려야 하는 세 가지 PII 테스트</h3>
+  <table>
+    <tr><th>테스트 이름</th><th>무엇을 보나</th><th>깨지면 의미</th></tr>
+    <tr>
+      <td><code>정답표와_라벨별_건수가_같다</code></td>
+      <td>사례마다 라벨별 <strong>건수</strong>가 ko-pii 와 같은가</td>
+      <td>못 잡았거나(미탐), 없는 걸 잡았다(오탐)</td>
+    </tr>
+    <tr>
+      <td><code>정답표와_검출값이_같다</code></td>
+      <td>잡은 <strong>글자 자체</strong>가 같은가</td>
+      <td>건수는 맞지만 <strong>범위가 틀렸다</strong><br>
+          <span class="def">예: <code>+82-10-...</code> 에서 <code>+82</code> 가 잘림</span></td>
+    </tr>
+    <tr>
+      <td><code>정답표가_20라벨을_모두_덮는다</code></td>
+      <td>정답표가 20라벨을 <strong>빠짐없이</strong> 검사하는가</td>
+      <td>어떤 라벨이 <strong>검사에서 빠졌다</strong><br>
+          <span class="def">= Rust 가 0건을 내도 통과해 버리는 상태</span></td>
+    </tr>
+  </table>
+  <div class="note">
+    세 번째가 왜 필요한지 헷갈릴 수 있습니다. 정답표에서 어떤 라벨이 <strong>한 번도 안 나오면</strong>,
+    Rust 가 그 라벨을 아예 못 잡아도 앞의 두 테스트는 <strong>초록불</strong>이 됩니다.
+    “검사한 줄 알았는데 안 한” 상태를 막는 그물입니다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="read"><span class="n">5</span>결과 읽는 법</h2>
+<section class="card">
+
+  <h3>✅ 통과했을 때</h3>
+  <pre><code>running 13 tests
+test pii::golden::정답표가_20라벨을_모두_덮는다 ... ok
+test pii::tests::유효한_사업자등록번호는_검출한다 ... ok
+<span class="cmt">... (중략) ...</span>
+test pii::golden::정답표와_검출값이_같다 ... ok
+test pii::golden::정답표와_라벨별_건수가_같다 ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out</code></pre>
+  <div class="ok">
+    맨 아랫줄 <strong><code>test result: ok</code></strong> 와 <strong><code>0 failed</code></strong> 만 보면 됩니다.
+    이 둘이면 통과입니다. <code>cargo test</code> 전체는 <code>140 passed; 0 failed</code> 가 나옵니다.
+  </div>
+  <p class="muted"><code>filtered out</code> 은 “이번엔 안 돌린 다른 테스트”라는 뜻이지 실패가 아닙니다.
+     <code>ignored</code>·<code>measured</code> 도 0이면 신경 쓸 것 없습니다.</p>
+
+  <h3>❌ 깨졌을 때</h3>
+  <p>실제 실패 화면입니다. 위에서 아래로 <strong>세 덩어리</strong>로 읽으면 됩니다.</p>
+  <pre><code>test pii::golden::정답표와_라벨별_건수가_같다 ... FAILED     <span class="cmt">① 어느 테스트가</span>
+
+failures:
+
+---- pii::golden::정답표와_라벨별_건수가_같다 stdout ----
+[다름] pos_phone                                             <span class="cmt">② 어느 사례에서</span>
+   PHONE              ko-pii=2 rust=1                        <span class="cmt">③ 무엇이 어떻게 다른가</span>
+
+thread '...' panicked at src\pii.rs:1154:9:
+assertion `left == right` failed: ko-pii 정답표와 다른 사례가 1건 있다
+→ ko-pii 를 올렸다면 python scripts/gen_pii_golden.py 로 정답표를 다시 뽑고,
+  그 차이만큼 src/pii.rs 를 따라가게 고쳐라.
+  left: 1
+ right: 0
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 139 filtered out</code></pre>
+
+  <p>가장 중요한 줄은 <strong>③</strong> 입니다. 이렇게 읽습니다.</p>
+  <table>
+    <tr><th>표시</th><th>뜻</th></tr>
+    <tr><td><code>pos_phone</code></td><td>정답표 안의 <strong>사례 이름</strong>. <code>Rust/tests/pii_corpus.yaml</code> 에서 이 이름을 찾으면 어떤 문장인지 바로 보입니다.</td></tr>
+    <tr><td><code>PHONE</code></td><td>어긋난 <strong>라벨</strong>(= PII 종류)</td></tr>
+    <tr><td><code>ko-pii=2</code></td><td><strong>정답</strong>은 2건</td></tr>
+    <tr><td><code>rust=1</code></td><td>Rust 는 1건만 찾음 → <strong>1건 놓쳤다(미탐)</strong></td></tr>
+  </table>
+
+  <div class="warn">
+    <strong>어느 쪽이 잘못인지 먼저 판단하세요.</strong> 두 가지 경우가 있고, 대응이 정반대입니다.
+    <ul>
+      <li><strong>Rust 코드를 고친 직후 깨졌다</strong> → 방금 고친 코드가 범인입니다. <code>Rust/src/pii.rs</code> 를 되돌리거나 고칩니다.</li>
+      <li><strong>ko-pii 버전을 바꾼 뒤 깨졌다</strong> → 정답이 바뀐 것입니다. <a href="#b">절차 B</a> 로 갑니다.</li>
+    </ul>
+    <strong>정답표(<code>pii_golden.json</code>)를 손으로 고쳐서 테스트를 통과시키면 절대 안 됩니다.</strong>
+    그건 답안지를 고쳐 100점을 만드는 것과 같아서, 진짜 버그가 그대로 배포됩니다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="tests"><span class="n">6</span>cargo test 는 무엇을 시험하나</h2>
+<section class="card">
+  <p><code>cargo test</code> 를 돌리면 <strong>141개</strong>가 지나가는데, 그중
+     <strong>PII 는 14개뿐</strong>입니다. 나머지는 무엇인지, 그리고 그 14개가 정확히
+     무엇을 보는지 정리했습니다.</p>
+
+  <h3>141개의 구성 — 이 프로그램이 하는 일이 PII 만이 아니라서</h3>
+  <p>문서를 <strong>열고 → 분류하고 → 정리하고 → 내보내는</strong> 단계마다 테스트가 붙어 있습니다.</p>
+  <table>
+    <tr><th>묶음</th><th>개수</th><th>무엇을 시험하나</th></tr>
+    <tr><td><code>doctype</code></td><td>29</td>
+        <td><strong>업무분류</strong>(계약서·보고서 같은 문서 종류 판정). 제목·본문·파일명 신호를
+            모아 점수를 매기고, 조상·자손 후보를 정리하는 규칙</td></tr>
+    <tr><td><code>doc_rules</code></td><td>17</td>
+        <td>업무분류 <strong>규칙 파일(yaml) 검증</strong>. <code>id</code> 중복이나 없는 노드 참조를
+            오류코드(t0·t5·t10…)로 잡아내는지</td></tr>
+    <tr><td><code>axes</code></td><td>15</td>
+        <td><strong>분류 체계 트리</strong>. 순환 참조(A→B→A), 고아 노드, 경로 계산</td></tr>
+    <tr><td><code>pii</code> <span class="pill">이 문서의 주제</span></td><td>14</td>
+        <td><strong>개인정보 검출</strong> — 아래에서 자세히</td></tr>
+    <tr><td><code>tests</code><span class="def"> (CLI)</span></td><td>13</td>
+        <td><strong>명령행 껍데기</strong>. <code>--out</code> 확장자로 출력 형식 추측,
+            <code>--conflict</code> 파싱, 전파 입력 파일 읽기</td></tr>
+    <tr><td><code>xls</code></td><td>7</td>
+        <td>구형 <code>.xls</code> 파서. 숫자 압축(RK) 해독, 문자열이 레코드 경계를 넘을 때</td></tr>
+    <tr><td><code>propagate</code></td><td>7</td>
+        <td><strong>벡터 전파</strong>(비슷한 문서에서 등급 물려받기). 너무 멀면 거절, 거의 같은
+            문서면 라벨 전체 상속</td></tr>
+    <tr><td><code>office_legacy</code></td><td>7</td>
+        <td>구형 <code>.doc</code>·<code>.ppt</code> 파서. cp949·UTF-16 한글 읽기</td></tr>
+    <tr><td><code>extract</code></td><td>5</td>
+        <td>XML 추출에서 <code>&lt;![CDATA[…]]&gt;</code> 안의 글자를 놓치지 않는지</td></tr>
+    <tr><td><code>errcodes</code></td><td>5</td>
+        <td>종료코드 규약(0~4 범위, 중복 없음)</td></tr>
+    <tr><td><code>embed</code></td><td>5</td>
+        <td>임베딩 전 텍스트 정리(페이지 표시 제거, 공백 접기)</td></tr>
+    <tr><td><code>conflict</code></td><td>5</td>
+        <td>후보가 여럿일 때 정리 전략(<code>top_n</code>·<code>all</code>)</td></tr>
+    <tr><td><code>hwp5</code></td><td>4</td><td>구형 한글(<code>.hwp</code>) 파서</td></tr>
+    <tr><td><code>docvocab</code></td><td>4</td>
+        <td>분류명 → 검색 어휘 생성. <strong>여기에도 골든 테스트가 있습니다</strong>
+            (<code>docvocab_golden.json</code>) — 이 문서의 방식과 같은 발상</td></tr>
+    <tr><td><code>ole</code></td><td>3</td><td>OLE 복합문서 컨테이너 파싱</td></tr>
+    <tr><td><code>errlog</code></td><td>1</td><td>오류 로그 파일 경로·기록 규칙</td></tr>
+  </table>
+  <div class="note">
+    정리하면 <strong>PII 는 전체의 10%</strong> 이고, 나머지 90%는 문서를 열고 분류하고
+    내보내는 단계들입니다. <strong>PII 만 볼 거면 <code>cargo test pii</code></strong> 를 쓰세요.
+  </div>
+
+  <h3><code>cargo test pii</code> 14개 — 성격이 다른 두 종류</h3>
+  <p>같은 <code>pii</code> 묶음이지만 <strong>만든 방식도 목적도 정반대</strong>입니다.</p>
+
+  <div class="two">
+    <div>
+      <h4>① 회귀 테스트 10개 <span class="def">(pii::tests::…)</span></h4>
+      <p class="muted"><strong>사람이 손으로 쓴</strong> 케이스. 각각 <strong>실제로 터졌던 사고</strong> 하나에
+         대응합니다 — “이 실수를 다시 하지 마라”는 못.</p>
+    </div>
+    <div>
+      <h4>② 골든 테스트 4개 <span class="def">(pii::golden::…)</span></h4>
+      <p class="muted"><strong>정답표를 통째로 훑는</strong> 검사. ko-pii 와 답이 같은지를
+         사례 전량으로 확인합니다(<a href="#make">9장</a>).</p>
+    </div>
+  </div>
+
+  <h4>① 회귀 테스트 10개 — 무엇을 막고 있나</h4>
+  <table>
+    <tr><th>테스트 이름</th><th>막고 있는 사고</th></tr>
+    <tr><td><code>유효한_사업자등록번호는_검출한다</code></td>
+        <td>기본 동작 확인(하이픈이 있든 없든 잡히는가)</td></tr>
+    <tr><td><code>체크섬_틀리면_거른다</code></td>
+        <td>모양만 3-2-5 인 숫자를 사업자번호로 오인</td></tr>
+    <tr><td><code>전부0인_placeholder는_거른다</code></td>
+        <td><strong>표의 빈칸을 0 으로 채운 문서</strong>에서 오탐이 쏟아지던 사고</td></tr>
+    <tr><td><code>placeholder자리는_다른_라벨이_가져간다</code></td>
+        <td>위를 고치다 겹침 해소가 깨지지 않았는지</td></tr>
+    <tr><td><code>국제표기_전화번호를_잡는다</code></td>
+        <td><code>+82-10-…</code> 형태를 통째로 놓치던 사고</td></tr>
+    <tr><td><code>voip_070과_대표번호를_잡는다</code></td>
+        <td><code>070</code>·<code>1588</code> 을 놓치던 사고</td></tr>
+    <tr><td><code>구분자_여러칸도_한건이다</code></td>
+        <td><code>010 - 1234 - 5678</code> 을 3건으로 세던 사고</td></tr>
+    <tr><td><code>국제표기가_국내표기보다_우선이다</code></td>
+        <td>순서가 뒤집혀 <code>+82</code> 가 잘려 나가던 사고</td></tr>
+    <tr><td><code>법인등록번호는_점_슬래시_구분자도_받는다</code></td>
+        <td><code>110111.0000002</code> 를 놓치던 사고</td></tr>
+    <tr><td><code>계좌번호_span은_공백을_물지_않는다</code></td>
+        <td>정규식 꼬리가 줄바꿈까지 삼켜 검출값이 오염되던 사고</td></tr>
+  </table>
+  <p class="muted">범위는 좁지만 <strong>의도가 분명</strong>합니다. 새 버그를 고칠 때마다 여기에 한 줄
+     늘리면, 같은 자리에서 두 번 넘어지지 않습니다.</p>
+
+  <h4>② 골든 테스트 4개 — 무엇을 확인하나</h4>
+  <table>
+    <tr><th>테스트 이름</th><th>하는 일</th><th>깨지면 의미</th></tr>
+    <tr><td><code>정답표와_라벨별_건수가_같다</code></td>
+        <td>정답표 전 사례 × 20라벨의 <strong>건수</strong>를 ko-pii 와 대조</td>
+        <td>못 잡았거나(미탐) 없는 걸 잡았다(오탐)</td></tr>
+    <tr><td><code>정답표와_검출값이_같다</code></td>
+        <td>잡은 <strong>글자 자체</strong>가 같은지</td>
+        <td>건수는 맞지만 <strong>범위(span)가 틀렸다</strong></td></tr>
+    <tr><td><code>정답표가_20라벨을_모두_덮는다</code></td>
+        <td>정답표에 빠진 라벨이 없는지</td>
+        <td>그 라벨은 <strong>검사에서 빠져</strong> 0 을 내도 통과한다</td></tr>
+    <tr><td><code>포팅기준_버전이_정답표와_같다</code></td>
+        <td><code>--version</code> 이 찍는 기준 버전이 정답표와 맞는지</td>
+        <td><code>--version</code> 이 <strong>거짓말</strong>을 하게 된다</td></tr>
+  </table>
+
+  <h3>왜 14개밖에 안 되나 — 숫자에 속지 마세요</h3>
+  <p>다른 묶음은 케이스 하나가 테스트 하나지만, <strong><code>pii</code> 는 테스트 하나가
+     정답표 전량을 돕니다.</strong> 실제 대조 횟수로 세면 이렇습니다.</p>
+  <table>
+    <tr><th>종류</th><th>테스트 개수</th><th>실제 검사 횟수</th></tr>
+    <tr><td>회귀 테스트</td><td>10</td><td>약 30건의 단언</td></tr>
+    <tr><td>골든 테스트</td><td>4</td><td><strong>사례 121건 × 20라벨 ≈ 2,400회 대조</strong></td></tr>
+  </table>
+  <div class="note">
+    그래서 <strong>코퍼스를 늘려도 테스트 개수는 14개 그대로</strong>이고 검증 범위만 넓어집니다.
+    실제로 사례를 31건에서 121건으로 늘렸을 때 개수는 안 변했지만
+    <strong>포팅 버그 6건이 드러났습니다</strong>(<a href="#make">9장</a>).
+  </div>
+
+  <h3>테스트가 없는 곳 — 알고 계세요</h3>
+  <p>커버리지가 고르지 않습니다. 아래는 <strong>유닛 테스트가 0개</strong>입니다.</p>
+  <table>
+    <tr><th>파일</th><th>하는 일</th><th>어떻게 보완되나</th></tr>
+    <tr><td><code>rules.rs</code></td><td>신호를 모아 <strong>최종 등급을 결정</strong>하는 핵심</td>
+        <td>exe 대조(<a href="#c">8장</a>)로 등급이 간접 확인됩니다 — 완전한 사각지대는 아니지만
+            <strong>단위 수준 검증은 없습니다</strong></td></tr>
+    <tr><td><code>districts.rs</code></td><td>행정구역 사전(주소 검출용)</td>
+        <td>PII 골든 테스트의 주소 사례가 간접적으로 밟습니다</td></tr>
+    <tr><td><code>detect.rs</code></td><td>—</td>
+        <td>실제로 쓰이는 파일인지 확인이 필요합니다</td></tr>
+  </table>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="b"><span class="n">7</span>【절차 B】 ko-pii 버전을 올렸을 때</h2>
+<section class="card">
+  <p>ko-pii 를 새 버전으로 바꾸면 <strong>정답 자체가 바뀝니다.</strong>
+     그래서 “선언 → 설치 → 정답표 → Rust → <strong>재빌드</strong>” 순서를 <strong>끝까지</strong> 밟아야 합니다.</p>
+
+  <div class="bad">
+    <strong>중간에 멈추면 안 됩니다.</strong> <code>pip install</code> 만 하고 끝내면
+    개발 PC(③)만 새 버전이 되고, <code>csoclassify.exe</code>(②)는 옛 버전 그대로입니다.
+    그 상태에서 정답표를 다시 뽑으면 <strong>Rust 는 새 버전 기준으로 검증되는데 배포본은 옛 버전으로 도는</strong>,
+    가장 나쁜 어긋남이 생깁니다(<a href="#why">1장</a> 참고).
+  </div>
+
+  <div class="step">
+    <h4><span class="num">1</span>선언부터 고치기 — <code>requirements.txt</code></h4>
+    <p><code>requirements.txt</code> 의 <code>ko-pii==1.15.2</code> 줄을 올릴 버전으로 바꿉니다.
+       <strong>여기가 기준점</strong>이라 가장 먼저 고칩니다.</p>
+    <pre><code>ko-pii==1.16.0         <span class="cmt"># L1 PII 검출 엔진</span></code></pre>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">2</span>개발 PC 에 설치</h4>
+    <pre><code>pip install -r requirements.txt</code></pre>
+    <p class="muted"><code>requirements.txt</code> 를 통해 깔면 ①과 ③이 자동으로 같아집니다.
+       <code>pip install ko-pii==1.16.0</code> 로 직접 깔면 ①을 고치는 걸 잊기 쉽습니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">3</span>정답표 다시 뽑기 <span class="def">— 이번엔 <code>--check</code> 없이</span></h4>
+    <pre><code>cd D:\Project\CSOClassify
+python scripts/gen_pii_golden.py</code></pre>
+    <pre><code>[생성] D:\Project\CSOClassify\Rust\tests\pii_golden.json
+       사례 31건 / 검출 42건 / ko-pii 1.16.0</code></pre>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">4</span>무엇이 달라졌는지 눈으로 확인</h4>
+    <pre><code>git diff Rust/tests/pii_golden.json</code></pre>
+    <p>여기 나오는 차이가 곧 <strong>“새 ko-pii 가 달라진 지점”</strong> 입니다.
+       아무 차이도 없으면 이번 업데이트는 우리가 쓰는 20라벨에 영향이 없다는 뜻이니 그대로 끝내면 됩니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">5</span>Rust 를 새 정답에 맞추기</h4>
+    <pre><code>cd Rust
+cargo test pii</code></pre>
+    <p>여기서 깨지는 항목이 <strong>Rust 가 따라가야 할 변경분 목록</strong>입니다.
+       하나씩 <code>Rust/src/pii.rs</code> 를 고쳐 초록불로 만듭니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">6</span>Python exe 를 새로 빌드 <span class="pill">빠뜨리기 쉬움</span></h4>
+    <p>여기까지 해도 <code>csoclassify.exe</code> 안에는 <strong>아직 옛 ko-pii 가 들어 있습니다.</strong>
+       재빌드해야 비로소 ②가 바뀝니다.</p>
+    <pre><code>pyinstaller build/csoclassify.spec     <span class="cmt"># → dist/csoclassify/</span>
+
+<span class="cmt"># 빌드 뒤 반드시 확인 — 새 버전이 실제로 들어갔는가</span>
+dist\csoclassify\csoclassify.exe --version
+<span class="cmt">csoclassify 0.1.0 (ko-pii 1.16.0)     ← 올린 버전으로 바뀌었으면 성공</span></code></pre>
+    <p class="muted">빌드 환경·옵션은 <a href="csoclassify-빌드가이드-python.html">빌드 가이드(Python)</a> 를 보세요.
+       Rust 판(<code>csoclassify-rs.exe</code>)은 ko-pii 를 안 쓰므로,
+       <code>pii.rs</code> 를 고쳤을 때만 <code>cargo build --release</code> 하면 됩니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">7</span>마무리 — 기록과 커밋</h4>
+    <p><code>README.md</code> 의 설치 안내에 적힌 ko-pii 버전도 함께 바꿉니다.
+       그리고 <code>requirements.txt</code>·정답표·<code>pii.rs</code> 를
+       <strong>한 커밋으로 같이</strong> 올리세요 — 따로 올리면 중간 커밋이 깨진 상태가 됩니다.</p>
+  </div>
+
+  <div class="note">
+    이 절차의 가치는 “일이 늘어난다”가 아니라 <strong>변경분이 눈에 보이게 된다</strong>는 데 있습니다.
+    정답표가 없으면 ko-pii 업데이트로 무엇이 달라졌는지 <strong>아무도 모른 채</strong> 지나갑니다.
+  </div>
+
+  <div class="warn">
+    <strong>반대 방향의 사고도 조심하세요.</strong> 개발 PC 에서 <em>다른 작업 때문에</em>
+    ko-pii 가 딸려 올라가는 경우가 있습니다(다른 프로젝트, <code>--upgrade</code>, 새 가상환경 등).
+    그러면 절차 A 의 <code>--check</code> 가 “정답표가 낡았다”고 알려 줍니다.
+    이때 <strong>무심코 정답표를 다시 뽑지 말고</strong>, 먼저
+    <code>pip install -r requirements.txt</code> 로 <strong>선언된 버전으로 되돌리는 것</strong>이 맞습니다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="c"><span class="n">8</span>【절차 C】 릴리스 전 exe 대조</h2>
+<section class="card">
+  <p>골든 픽스처는 <strong>PII 로직만</strong> 봅니다. 문서에서 글자를 뽑아내는 과정(추출),
+     정책 파일 읽기, CLI 옵션 처리까지 포함해서 확인하려면 두 exe 를 실제로 돌려 비교해야 합니다.
+     <strong>무겁기 때문에 배포 직전에만</strong> 합니다.</p>
+
+  <pre><code><span class="cmt"># Rust 판</span>
+csoclassify-rs --dir &lt;검사폴더&gt; --rules &lt;규칙파일&gt; --simple --nosummary --format jsonl
+
+<span class="cmt"># Python 판</span>
+csoclassify.exe --dir &lt;검사폴더&gt; --hybridparse --rule-only --simple --nosummary --format jsonl</code></pre>
+  <p>두 결과를 파일명 기준으로 놓고 <strong>등급이 같은지</strong> 봅니다.
+     라벨별로 더 깊이 보려면 양쪽에 <code>--with-pii</code> 를 붙여 검출된 값까지 비교할 수 있습니다.</p>
+
+  <div class="warn">
+    <strong>대조 전에 <code>csoclassify.exe</code> 가 최신 빌드인지 확인하세요.</strong>
+    exe 안의 ko-pii 는 <strong>빌드할 때 고정</strong>됩니다(<a href="#why">1장</a>의 ②).
+    <code>requirements.txt</code> 를 바꾼 뒤 재빌드하지 않았다면, 이 대조는
+    <strong>옛 ko-pii 로 만든 exe 와 새 정답 기준으로 고친 Rust 를 비교</strong>하는 셈이라
+    엉뚱한 차이가 나옵니다. 의심스러우면 <code>pyinstaller build/csoclassify.spec</code> 로 다시 빌드하고 시작하세요.
+  </div>
+
+  <div class="warn">
+    <strong>차이가 나도 PII 버그가 아닐 수 있습니다.</strong> Rust 판은 아직
+    doc·xls·ppt·hwp5·이미지에서 <strong>글자를 못 뽑습니다</strong>(건너뜁니다).
+    이런 파일은 애초에 텍스트가 달라서 결과가 다를 수밖에 없으니,
+    비교 대상에서 빼거나 <code>.txt</code>·<code>.md</code> 위주로 검사하세요.
+    자세한 갭 목록은 <code>Rust/README.md</code> 의 “아직 안 된 것”에 있습니다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="make"><span class="n">9</span>정답표는 어떻게 만들어지나</h2>
+<section class="card">
+  <p>정답표(<code>Rust/tests/pii_golden.json</code>)는 <strong>사람이 손으로 쓰는 파일이 아닙니다.</strong>
+     <code>scripts/gen_pii_golden.py</code> 가 <strong>진짜 ko-pii 에게 물어본 답</strong>을 받아 적습니다.</p>
+
+  <h3>만드는 명령</h3>
+  <pre><code>cd D:\Project\CSOClassify
+python scripts/gen_pii_golden.py            <span class="cmt"># 만들기/갱신 (파일을 덮어씀)</span>
+python scripts/gen_pii_golden.py --check    <span class="cmt"># 최신인지 확인만 (덮어쓰지 않음)</span></code></pre>
+  <table>
+    <tr><th>옵션</th><th>하는 일</th></tr>
+    <tr><td>(없음)</td><td>코퍼스를 ko-pii 로 검사해 정답표를 <strong>새로 씁니다</strong>.</td></tr>
+    <tr><td><code>--check</code></td><td>지금 ko-pii 로 다시 뽑아 <strong>기존 파일과 같은지만</strong> 봅니다. 다르면 종료코드 1.</td></tr>
+    <tr><td><code>--corpus &lt;파일&gt;</code></td><td>검사 문장 YAML 을 바꿉니다(기본 <code>Rust/tests/pii_corpus.yaml</code>).</td></tr>
+    <tr><td><code>--corpus-dir &lt;폴더&gt;</code></td><td>그 폴더의 <code>.txt</code>·<code>.md</code> 를 코퍼스에 <strong>더합니다</strong>(최대 200개).</td></tr>
+    <tr><td><code>--out &lt;경로&gt;</code></td><td>출력 위치를 바꿉니다(기본 <code>Rust/tests/pii_golden.json</code>).</td></tr>
+  </table>
+
+  <h3>안에서 벌어지는 일</h3>
+  <div class="tree">scripts/gen_pii_golden.py
+  │
+  ├─ load_corpus()        <span class="cmt">Rust/tests/pii_corpus.yaml 을 읽는다</span>
+  │     └─ 검사할 문장 목록 — <span class="cmt">사람이 손대는 유일한 파일(아래 9장)</span>
+  │
+  ├─ scan(text)           <span class="cmt">ko-pii detect_all(text, include=&lt;20라벨&gt;) 호출</span>
+  │     └─ 라벨별 건수와 검출값을 모은다 (0건 라벨은 아예 안 담는다)
+  │
+  ├─ make_case()          <span class="cmt">사례 1건을 레코드로 — counts / values / values_comparable</span>
+  │
+  ├─ find_uncovered_labels()  <span class="cmt">20라벨 중 한 번도 안 잡힌 게 있으면 경고</span>
+  │
+  └─ Rust/tests/pii_golden.json 으로 저장</div>
+
+  <div class="note">
+    <strong>정답 기준은 <code>detect_all</code> 입니다.</strong> 운영 코드(<code>classify/rules.py</code>)에는
+    속도를 위한 부분검출·청킹 최적화가 들어 있지만, 정답표는 그 우회로가 아니라
+    <strong>원본 엔진</strong>에게 묻습니다. 최적화는 “결과가 같다”가 전제인 지름길이지 기준이 아니기 때문입니다.
+  </div>
+
+  <h3>파일 안에 무엇이 들어 있나</h3>
+  <pre><code>{
+ "note": "...",
+ "generator": "scripts/gen_pii_golden.py",
+ "kopii_version": "1.15.2",          <span class="cmt">← 이 답을 만든 ko-pii 버전</span>
+ "labels": ["RRN", "FRN", ...],      <span class="cmt">← 검증 대상 20라벨</span>
+ "cases": [
+  {
+   "name": "phone_휴대폰",            <span class="cmt">← 실패 메시지에 찍히는 이름</span>
+   "text": "연락처 010-1234-5678 로 주세요.",
+   "values_comparable": true,        <span class="cmt">← 값까지 비교해도 되는가</span>
+   "counts": {"PHONE": 1},           <span class="cmt">← 라벨별 건수 (정답)</span>
+   "values": {"PHONE": ["010-1234-5678"]}
+  }, ...
+ ]
+}</code></pre>
+  <div class="warn">
+    <strong>이 파일을 손으로 고치지 마세요.</strong> 테스트를 통과시키려고 숫자를 바꾸는 것은
+    답안지를 고쳐 100점을 만드는 것과 같습니다. 고칠 일이 있으면 <strong>코퍼스를 고치고 다시 뽑습니다.</strong>
+  </div>
+
+  <h3>코퍼스는 얼마나 촘촘해야 하나 <span class="pill">중요</span></h3>
+  <p>“라벨마다 10개씩” 같은 <strong>일정한 숫자는 기준이 되지 못합니다.</strong> 라벨마다
+     내부 갈래 수가 다르기 때문입니다 — <code>EMAIL</code>·<code>URL</code>·<code>PNU</code> 는 정규식이 하나뿐이라
+     10개를 넣어도 같은 길만 열 번 밟습니다. 반대로 <code>PHONE</code> 은 갈래가 7개(휴대폰·서울·지역 ×
+     국내/국제 + 대표번호)라 5개로는 모자랍니다.</p>
+  <p>그래서 이 프로젝트는 <strong>갈래 하나당 최소 하나</strong>를 기준으로 삼습니다.</p>
+  <table>
+    <tr><th>넣어야 할 것</th><th>왜</th></tr>
+    <tr><td><strong>양성</strong> — 갈래마다 1건 이상<br><span class="def">구분자 변형, 국내/국제, 접두 종류 …</span></td>
+        <td>Rust 가 그 갈래를 <strong>못 잡으면(미탐)</strong> 바로 드러납니다.
+            미탐은 문서가 실제보다 낮은 등급을 받게 하므로 더 위험합니다.</td></tr>
+    <tr><td><strong>음성</strong> — 게이트마다 1건 이상<br><span class="def">체크섬 오류, 전부-0, 문맥 없는 맨 숫자 …</span></td>
+        <td>Rust 가 <strong>없는 걸 잡으면(오탐)</strong> 드러납니다.
+            정규식을 조금만 느슨하게 옮겨도 생깁니다.</td></tr>
+    <tr><td><strong>혼합</strong> — 여러 라벨이 한 문서에<br><span class="def">인적사항 양식, 표, 붙어 있는 PII …</span></td>
+        <td>겹침 해소와 span 경계가 실제로 개입하는 자리입니다.</td></tr>
+  </table>
+  <p>현재 <strong>121건</strong>이고, 그중 <strong>24건은 “검출 0건이 정답”인 음성 사례</strong>입니다.
+     라벨별 사례 수는 갈래 수를 따라 <code>PNU</code> 1건부터 <code>PHONE</code> 20건까지 고르지 않습니다 —
+     <strong>의도된 불균형</strong>입니다.</p>
+
+  <div class="bad">
+    <strong>실제로 이렇게 버그를 찾았습니다.</strong> 코퍼스가 31건이던 때는 라벨마다 사실상 1건씩뿐이라
+    모든 테스트가 초록불이었습니다. 갈래 단위로 108건까지 늘리자 <strong>포팅 버그 4건</strong>이 한 번에 드러났습니다.
+    <ul>
+      <li><strong>사업자등록번호</strong>: ko-pii 는 하이픈만 받는데 Rust 는 공백도 받아
+          <code>436 38 20718</code> 을 잡았습니다 → <strong>오탐</strong>.</li>
+      <li><strong>여권번호</strong>: <code>S</code>·<code>G</code>·<code>PS</code> 접두를 Rust 만 잡았습니다 → <strong>오탐</strong>.
+          원인을 따라가 보니 ko-pii 의 <strong>호모글리프 폴딩</strong>(<code>S</code>→<code>5</code>, <code>O</code>→<code>0</code> …)이
+          Rust 에 빠져 있었습니다.</li>
+    </ul>
+    그리고 그 빠진 폴딩은 <strong>반대 방향으로 훨씬 위험했습니다</strong> —
+    주민번호를 <code>95lOO6-1068003</code> 처럼 <strong>숫자 닮은 글자로 가려 적은 문서</strong>를
+    Rust 가 통째로 놓쳐, 같은 문서에 <strong>Rust=O(공개) / Python=S</strong> 등급을 주고 있었습니다.
+    지금은 폴딩을 옮겨 심어 양쪽 모두 <strong>S</strong> 로 일치합니다.
+  </div>
+  <p class="muted">즉 “31건으로 충분한가”의 답은 <strong>아니오</strong>였습니다. 그리고 이 사실은
+     사람의 감이 아니라 <strong>코퍼스를 늘리자 테스트가 빨간불이 되면서</strong> 드러났습니다.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="corpus"><span class="n">10</span>검사 사례(코퍼스) 추가하기</h2>
+<section class="card">
+  <p>현재 정답표는 <strong>121개 사례</strong>로 20라벨의 갈래를 훑습니다(<a href="#make">9장</a> 기준).
+     현장에서 오검출·미검출을 발견했다면 그 문장을 사례로 넣어 두면
+     <strong>같은 문제가 다시는 안 생깁니다</strong>(회귀 방지).</p>
+
+  <div class="step">
+    <h4><span class="num">1</span>사례 한 줄 추가</h4>
+    <p><code>Rust/tests/pii_corpus.yaml</code> 을 메모장으로 열고 <code>cases:</code> 아래에
+       두 줄을 넣습니다. <strong>파이썬을 몰라도 됩니다</strong> — 코퍼스는 코드가 아니라 데이터라
+       규칙셋(<code>cso_rules.yaml</code>)처럼 밖으로 빼 두었습니다.</p>
+    <pre><code>cases:
+  <span class="cmt"># ... 기존 사례들 ...</span>
+
+  - name: neg_사번_오탐                       <span class="cmt"># ← 추가</span>
+    text: "사번 20240101-0001 은 개인정보가 아니다."
+    note: 사번은 개인정보가 아니므로 잡히면 오탐이다.   <span class="cmt"># 선택</span></code></pre>
+    <p>여러 줄짜리 문장은 <code>|-</code> 블록으로 적습니다(따옴표·역슬래시 신경 쓸 필요 없음).</p>
+    <pre><code>  - name: mix_표형식
+    text: |-
+      번호 | 성명 | 연락처
+      1 | 홍길동 | 010-1234-5678</code></pre>
+    <p class="muted">이름 규칙: 잡혀야 하면 <code>&lt;라벨&gt;_</code>, 안 잡혀야 하면
+       <code>&lt;라벨&gt;_neg_</code>, 여러 라벨이 섞이면 <code>mix_</code> 로 시작하면 읽기 좋습니다.
+       <code>note</code> 는 사람이 읽는 설명이라 검출에는 안 쓰입니다.</p>
+  </div>
+
+  <div class="step">
+    <h4><span class="num">2</span>정답표 다시 뽑고 확인</h4>
+    <pre><code>python scripts/gen_pii_golden.py
+cd Rust
+cargo test pii</code></pre>
+    <p>정답은 <strong>사람이 적는 게 아니라 ko-pii 가 정합니다.</strong>
+       내가 기대한 것과 다르게 나왔다면, 그건 ko-pii 의 실제 동작이 내 예상과 달랐다는 뜻입니다.</p>
+  </div>
+
+  <h3>실제 문서를 통째로 넣기</h3>
+  <pre><code>python scripts/gen_pii_golden.py --corpus-dir D:\검사할텍스트폴더</code></pre>
+  <p>폴더 안의 <code>.txt</code>·<code>.md</code> 를 사례로 추가합니다(최대 200개).
+     <strong>pdf·hwp 는 일부러 받지 않습니다</strong> — 추출 과정의 차이가 섞이면
+     PII 버그인지 추출 버그인지 구분할 수 없기 때문입니다.</p>
+
+  <div class="warn">
+    <strong>실제 개인정보가 든 문서는 넣지 마세요.</strong> 정답표에는 원문이 그대로 저장되고
+    git 에 커밋됩니다. 기존 121개 사례의 번호는 전부 <strong>체크섬만 맞춘 가짜값</strong>입니다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="trouble"><span class="n">11</span>문제 해결</h2>
+<section class="card">
+  <table>
+    <tr><th>증상</th><th>원인과 해결</th></tr>
+    <tr>
+      <td><code>정답표를 못 읽었다 ...</code></td>
+      <td>정답표 파일이 없습니다. <code>python scripts/gen_pii_golden.py</code> 로 만드세요.
+          (ko-pii 설치 필요)</td>
+    </tr>
+    <tr>
+      <td><code>[오류] ko-pii 를 못 불러왔다</code></td>
+      <td><code>pip install ko-pii==1.15.2</code> 로 설치하세요.
+          여러 파이썬이 깔려 있다면 <code>python -m pip install ...</code> 로
+          <strong>지금 쓰는 파이썬</strong>에 설치되게 하세요.</td>
+    </tr>
+    <tr>
+      <td><code>[다름] 정답표가 현재 ko-pii(...) 결과와 다르다</code></td>
+      <td>개발 PC(③)의 ko-pii 가 정답표를 만든 버전과 다릅니다.
+          <strong>모르고 바뀐 것이면</strong> <code>pip install -r requirements.txt</code> 로 되돌리고,
+          <strong>일부러 올린 것이면</strong> <a href="#b">절차 B</a> 를 재빌드까지 끝까지 밟으세요.
+          <span class="def">이 메시지는 exe 안에 박힌 버전(②)과는 무관합니다.</span></td>
+    </tr>
+    <tr>
+      <td><code>정답표가 못 덮는 라벨이 있다: [...]</code></td>
+      <td>그 라벨을 잡는 사례가 정답표에 하나도 없습니다.
+          <code>Rust/tests/pii_corpus.yaml</code> 에 해당 라벨 예문을 넣고 정답표를 다시 뽑으세요.</td>
+    </tr>
+    <tr>
+      <td>한글이 <code>???</code> 나 깨진 글자로 나옴</td>
+      <td>콘솔 인코딩 문제일 뿐 <strong>결과에는 영향이 없습니다.</strong>
+          거슬리면 PowerShell 에서 <code>chcp 65001</code> 을 먼저 실행하세요.</td>
+    </tr>
+    <tr>
+      <td><code>cargo test</code> 가 매우 느림</td>
+      <td>첫 컴파일은 원래 1~2분 걸립니다. 두 번째부터 빨라집니다.
+          PII 만 볼 거면 <code>cargo test pii</code> 를 쓰세요.</td>
+    </tr>
+    <tr>
+      <td>테스트는 통과하는데 실제 문서 등급이 이상함</td>
+      <td>PII 검출이 아니라 <strong>문서 추출</strong> 쪽 문제일 가능성이 큽니다.
+          <a href="#c">절차 C</a> 로 두 exe 의 추출 텍스트를 비교해 보세요.</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="appendix"><span class="n">12</span>부록</h2>
+<section class="card">
+  <h3>관련 파일이 어디 있나</h3>
+  <div class="tree">D:\Project\CSOClassify\
+├─ scripts\
+│   ├─ gen_pii_golden.py        <span class="cmt">정답표를 만드는 프로그램</span>
+│   └─ gen_pii_fold.py          <span class="cmt">문자 정규화표를 만드는 프로그램</span>
+├─ Rust\
+│   ├─ src\pii.rs               <span class="cmt">검증 대상 — ko-pii 를 옮겨 적은 Rust 코드</span>
+│   ├─ src\pii_fold.rs          <span class="cmt">문자 정규화표(자동 생성 — 손대지 말 것)</span>
+│   │                           <span class="cmt">  하단 mod golden 에 대조 테스트 3종</span>
+│   ├─ tests\pii_corpus.yaml    <span class="cmt">검사 문장 목록 — 사람이 고치는 파일</span>
+│   ├─ tests\pii_golden.json    <span class="cmt">정답표 — 손으로 고치지 말 것</span>
+│   └─ README.md                <span class="cmt">검증 절차 요약 · 미포팅 갭 목록</span>
+├─ src\csoclassify\classify\rules.py   <span class="cmt">Python 판 — 진짜 ko-pii 를 쓰는 쪽</span>
+└─ doc\csoclassify-PII검증가이드.html  <span class="cmt">이 문서</span></div>
+
+  <h3>검증 대상 20라벨</h3>
+  <p class="muted">Rust <code>pii.rs</code> 가 실제로 구현한 라벨이며, 곧 검증 범위입니다.</p>
+  <table>
+    <tr><th>분류</th><th>라벨</th></tr>
+    <tr><td>주민·외국인</td><td><code>RRN</code> 주민등록번호 · <code>FRN</code> 외국인등록번호</td></tr>
+    <tr><td>금융</td><td><code>CARD</code> 카드번호 · <code>ACCOUNT</code> 계좌번호</td></tr>
+    <tr><td>사업자·법인</td><td><code>BUSINESS_REG</code> 사업자등록번호 · <code>CORP_REG</code> 법인등록번호</td></tr>
+    <tr><td>연락처</td><td><code>PHONE</code> 전화번호 · <code>EMAIL</code> 이메일 · <code>ADDRESS</code> 주소</td></tr>
+    <tr><td>신분증</td><td><code>PASSPORT</code> 여권 · <code>DRIVER_LICENSE</code> 운전면허 · <code>NATIONALITY</code> 국적</td></tr>
+    <tr><td>의료</td><td><code>MEDICAL_INSURANCE</code> 건강보험 · <code>PRESCRIPTION_ID</code> 처방전 · <code>EDI_DRUG</code> 약품코드</td></tr>
+    <tr><td>기타</td><td><code>VEHICLE</code> 차량번호 · <code>COURT_CASE</code> 사건번호 · <code>PNU</code> 필지고유번호 · <code>IP</code> · <code>URL</code></td></tr>
+  </table>
+  <div class="warn">
+    <strong>검증 범위 밖:</strong> <code>NAME/PERSON</code>(이름)·<code>BIRTH</code>(생년월일)·<code>HEALTH</code> 등은
+    Rust 가 아예 구현하지 않았고 <strong>항상 0건을 반환</strong>합니다.
+    등급 판정에 쓰지 않기로 한 라벨이라 의도된 것이지만,
+    <strong>나중에 이 라벨들을 등급에 쓰기로 하면 Rust 판은 그 즉시 틀린 답을 냅니다.</strong>
+    정책을 바꿀 때 반드시 함께 검토하세요.
+  </div>
+
+  <h3>용어 사전</h3>
+  <table>
+    <tr><th>용어</th><th>뜻</th></tr>
+    <tr><td>골든 픽스처 / 정답표</td><td>정답을 미리 뽑아 파일로 굳혀 둔 것. 여기서는 <code>pii_golden.json</code></td></tr>
+    <tr><td>포팅(porting)</td><td>어떤 언어로 된 코드를 다른 언어로 옮겨 적는 것. 라이브러리를 <strong>가져다 쓰는 것과 다릅니다</strong></td></tr>
+    <tr><td>라벨(label)</td><td>PII 의 종류. <code>PHONE</code>, <code>RRN</code> 같은 것</td></tr>
+    <tr><td>미탐 (FN)</td><td>있는데 <strong>못 잡은</strong> 것. 등급이 실제보다 낮게 나와 <strong>더 위험</strong>합니다</td></tr>
+    <tr><td>오탐 (FP)</td><td>없는데 <strong>잡은</strong> 것. 멀쩡한 문서가 기밀로 분류됩니다</td></tr>
+    <tr><td>체크섬</td><td>번호 자체에 들어 있는 검산용 숫자. 모양만 맞고 체크섬이 틀리면 가짜 번호로 걸러냅니다</td></tr>
+    <tr><td>span (범위)</td><td>문장에서 PII 가 <strong>어디부터 어디까지</strong>인지. 건수가 같아도 범위가 틀릴 수 있습니다</td></tr>
+    <tr><td>parity</td><td>두 구현이 <strong>같은 답을 내는 상태</strong></td></tr>
+    <tr><td>회귀 (regression)</td><td>고쳤던 버그가 <strong>다시 생기는</strong> 것. 테스트의 존재 이유입니다</td></tr>
+  </table>
+
+  <h3>한계 — 알고 쓰세요</h3>
+  <ul>
+    <li>정답표는 <strong>사례가 밟은 경로만</strong> 검증합니다. 갈래마다 최소 1건은 밟지만,
+        갈래 안의 모든 값 조합까지 덮지는 않습니다(<a href="#make">9장</a>).</li>
+    <li>문자 정규화표(<code>Rust/src/pii_fold.rs</code>)는 <strong>자동 생성물</strong>입니다.
+        ko-pii 를 올리면 <code>python scripts/gen_pii_fold.py</code> 로 다시 뽑아야 하며,
+        <code>--check</code> 로 최신 여부를 확인할 수 있습니다.</li>
+    <li>정답표는 <strong>뽑던 시점의 ko-pii 동작</strong>만 담습니다. 그래서 버전을 올릴 때
+        <a href="#b">절차 B</a> 로 다시 뽑아야 합니다.</li>
+    <li>정답표가 검증하는 것은 <strong>③(개발 PC 의 ko-pii)</strong> 기준입니다.
+        그것이 <strong>②(배포 exe 안의 ko-pii)</strong> 와 같은지는
+        아래 <code>--version</code> 대조로 <strong>사람이 확인</strong>해야 하며, 자동으로 막히지는 않습니다.</li>
+    <li>현재 이 프로젝트에는 <strong>CI(자동 실행)가 없습니다.</strong>
+        사람이 기억해서 돌려야 하며, 잊으면 검증되지 않은 채 커밋됩니다.</li>
+  </ul>
+</section>
+
+<footer>
+  CSOClassify — Rust PII 포팅 검증 가이드 · 작성 2026-09-02 · 기준 ko-pii 1.15.2 / 정답표 121사례 / cargo test 141 pass
+</footer>
+
+</div>
+</body>
+</html>

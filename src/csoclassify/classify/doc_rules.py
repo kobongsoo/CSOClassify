@@ -834,12 +834,20 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
         ))
 
     if taxonomy is not None:
+        # '서랍'(최상위이면서 자식이 있는 노드)에는 규칙을 걸지 않는 것이 설계다.
+        # 규칙을 만드는 쪽(docvocab.syncable_nodes)과 반드시 같은 기준을 써야 한다 —
+        # 어긋나면 "규칙을 만들어 주지도 않으면서 경고만 하는" 상태가 된다.
+        from .docvocab import is_drawer
         for node in taxonomy.active_nodes:
-            if node.dc_id not in referenced:
-                warnings.append(
-                    f"[T12] {node.dc_id}({taxonomy.path(node.dc_id)}) 를 참조하는 규칙이 "
-                    f"없습니다 — 이 분류로는 자동분류되는 문서가 없습니다"
-                )
+            if node.dc_id in referenced:
+                continue
+            has_kids = any(c.active for c in taxonomy.children_of(node.dc_id))
+            if is_drawer(bool(node.parent), has_kids):
+                continue
+            warnings.append(
+                f"[T12] {node.dc_id}({taxonomy.path(node.dc_id)}) 를 참조하는 규칙이 "
+                f"없습니다 — 이 분류로는 자동분류되는 문서가 없습니다"
+            )
 
     if not rules:
         warnings.append("doctype_rules 가 비어 있어 doctype 축이 아무 문서도 분류하지 않습니다")

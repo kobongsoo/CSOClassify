@@ -1,0 +1,369 @@
+{
+  "source": "FinCorp.DOC_CLASSIFICATION",
+  "export_server": "sample://doc-classification-example (가짜 예시 데이터)",
+  "node_count": 23,
+  "nodes": [
+    {
+      "dc_id": "DC_001",
+      "parent_dc_id": null,
+      "order_num": 1,
+      "title": "통화/정책",
+      "status": 1,
+      "path_ids": [
+        "DC_001"
+      ],
+      "path_titles": [
+        "통화/정책"
+      ],
+      "path": "통화/정책"
+    },
+    {
+      "dc_id": "DC_001_001",
+      "parent_dc_id": "DC_001",
+      "order_num": 1,
+      "title": "통화신용정책",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001"
+      ],
+      "path_titles": [
+        "통화/정책",
+        "통화신용정책"
+      ],
+      "path": "통화/정책 > 통화신용정책"
+    },
+    {
+      "dc_id": "DC_001_002",
+      "parent_dc_id": "DC_001",
+      "order_num": 2,
+      "title": "정책방향",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_002"
+      ],
+      "path_titles": [
+        "통화/정책",
+        "정책방향"
+      ],
+      "path": "통화/정책 > 정책방향"
+    },
+    {
+      "dc_id": "DC_001_003",
+      "parent_dc_id": "DC_001",
+      "order_num": 3,
+      "title": "경제전망",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_003"
+      ],
+      "path_titles": [
+        "통화/정책",
+        "경제전망"
+      ],
+      "path": "통화/정책 > 경제전망"
+    },
+    {
+      "dc_id": "DC_002",
+      "parent_dc_id": null,
+      "order_num": 2,
+      "title": "감독/인가",
+      "status": 1,
+      "path_ids": [
+        "DC_002"
+      ],
+      "path_titles": [
+        "감독/인가"
+      ],
+      "path": "감독/인가"
+    },
+    {
+      "dc_id": "DC_002_001",
+      "parent_dc_id": "DC_002",
+      "order_num": 1,
+      "title": "인가절차",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001"
+      ],
+      "path_titles": [
+        "감독/인가",
+        "인가절차"
+      ],
+      "path": "감독/인가 > 인가절차"
+    },
+    {
+      "dc_id": "DC_002_002",
+      "parent_dc_id": "DC_002",
+      "order_num": 2,
+      "title": "감독규정",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_002"
+      ],
+      "path_titles": [
+        "감독/인가",
+        "감독규정"
+      ],
+      "path": "감독/인가 > 감독규정"
+    },
+    {
+      "dc_id": "DC_002_003",
+      "parent_dc_id": "DC_002",
+      "order_num": 3,
+      "title": "검사결과보고",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_003"
+      ],
+      "path_titles": [
+        "감독/인가",
+        "검사결과보고"
+      ],
+      "path": "감독/인가 > 검사결과보고"
+    },
+    {
+      "dc_id": "DC_003",
+      "parent_dc_id": null,
+      "order_num": 3,
+      "title": "조사/연구",
+      "status": 1,
+      "path_ids": [
+        "DC_003"
+      ],
+      "path_titles": [
+        "조사/연구"
+      ],
+      "path": "조사/연구"
+    },
+    {
+      "dc_id": "DC_003_001",
+      "parent_dc_id": "DC_003",
+      "order_num": 1,
+      "title": "연구보고서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_001"
+      ],
+      "path_titles": [
+        "조사/연구",
+        "연구보고서"
+      ],
+      "path": "조사/연구 > 연구보고서"
+    },
+    {
+      "dc_id": "DC_003_002",
+      "parent_dc_id": "DC_003",
+      "order_num": 2,
+      "title": "시장분석",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_002"
+      ],
+      "path_titles": [
+        "조사/연구",
+        "시장분석"
+      ],
+      "path": "조사/연구 > 시장분석"
+    },
+    {
+      "dc_id": "DC_003_003",
+      "parent_dc_id": "DC_003",
+      "order_num": 3,
+      "title": "이슈리포트",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_003"
+      ],
+      "path_titles": [
+        "조사/연구",
+        "이슈리포트"
+      ],
+      "path": "조사/연구 > 이슈리포트"
+    },
+    {
+      "dc_id": "DC_004",
+      "parent_dc_id": null,
+      "order_num": 4,
+      "title": "상품/운용",
+      "status": 1,
+      "path_ids": [
+        "DC_004"
+      ],
+      "path_titles": [
+        "상품/운용"
+      ],
+      "path": "상품/운용"
+    },
+    {
+      "dc_id": "DC_004_001",
+      "parent_dc_id": "DC_004",
+      "order_num": 1,
+      "title": "연금",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_001"
+      ],
+      "path_titles": [
+        "상품/운용",
+        "연금"
+      ],
+      "path": "상품/운용 > 연금"
+    },
+    {
+      "dc_id": "DC_004_001_001",
+      "parent_dc_id": "DC_004_001",
+      "order_num": 1,
+      "title": "퇴직연금",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_001",
+        "DC_004_001_001"
+      ],
+      "path_titles": [
+        "상품/운용",
+        "연금",
+        "퇴직연금"
+      ],
+      "path": "상품/운용 > 연금 > 퇴직연금"
+    },
+    {
+      "dc_id": "DC_004_001_002",
+      "parent_dc_id": "DC_004_001",
+      "order_num": 2,
+      "title": "개인연금",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_001",
+        "DC_004_001_002"
+      ],
+      "path_titles": [
+        "상품/운용",
+        "연금",
+        "개인연금"
+      ],
+      "path": "상품/운용 > 연금 > 개인연금"
+    },
+    {
+      "dc_id": "DC_004_002",
+      "parent_dc_id": "DC_004",
+      "order_num": 2,
+      "title": "증권투자",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_002"
+      ],
+      "path_titles": [
+        "상품/운용",
+        "증권투자"
+      ],
+      "path": "상품/운용 > 증권투자"
+    },
+    {
+      "dc_id": "DC_004_003",
+      "parent_dc_id": "DC_004",
+      "order_num": 3,
+      "title": "여신심사서",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_003"
+      ],
+      "path_titles": [
+        "상품/운용",
+        "여신심사서"
+      ],
+      "path": "상품/운용 > 여신심사서"
+    },
+    {
+      "dc_id": "DC_004_004",
+      "parent_dc_id": "DC_004",
+      "order_num": 4,
+      "title": "보험청약서",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_004"
+      ],
+      "path_titles": [
+        "상품/운용",
+        "보험청약서"
+      ],
+      "path": "상품/운용 > 보험청약서"
+    },
+    {
+      "dc_id": "DC_005",
+      "parent_dc_id": null,
+      "order_num": 5,
+      "title": "행사/자료집",
+      "status": 1,
+      "path_ids": [
+        "DC_005"
+      ],
+      "path_titles": [
+        "행사/자료집"
+      ],
+      "path": "행사/자료집"
+    },
+    {
+      "dc_id": "DC_005_001",
+      "parent_dc_id": "DC_005",
+      "order_num": 1,
+      "title": "포럼자료집",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_001"
+      ],
+      "path_titles": [
+        "행사/자료집",
+        "포럼자료집"
+      ],
+      "path": "행사/자료집 > 포럼자료집"
+    },
+    {
+      "dc_id": "DC_005_002",
+      "parent_dc_id": "DC_005",
+      "order_num": 2,
+      "title": "세미나발표",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_002"
+      ],
+      "path_titles": [
+        "행사/자료집",
+        "세미나발표"
+      ],
+      "path": "행사/자료집 > 세미나발표"
+    },
+    {
+      "dc_id": "DC_005_003",
+      "parent_dc_id": "DC_005",
+      "order_num": 3,
+      "title": "연차보고서",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_003"
+      ],
+      "path_titles": [
+        "행사/자료집",
+        "연차보고서"
+      ],
+      "path": "행사/자료집 > 연차보고서"
+    }
+  ]
+}

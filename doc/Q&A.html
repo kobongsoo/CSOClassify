@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Q&amp;A</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  h2{font-size:19px;margin:36px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{color:var(--accent)}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .def{color:var(--muted);font-size:.85em}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .cmt{color:var(--muted)}
+  ul.toc{list-style:none;padding:0;margin:6px 0}
+  ul.toc > li{margin:12px 0 6px;font-weight:700}
+  ul.toc ul{list-style:none;padding:0 0 0 14px;margin:4px 0;font-weight:400}
+  ul.toc ul li{margin:4px 0}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .qa{border:1px solid var(--line);border-radius:12px;background:var(--panel);
+    padding:0 20px 14px;margin:16px 0;box-shadow:var(--shadow);scroll-margin-top:14px}
+  .qa .q{display:flex;gap:10px;align-items:flex-start;margin:16px 0 10px;font-size:16.5px;font-weight:800;
+    letter-spacing:-.01em}
+  .qa .a{display:flex;gap:10px;align-items:flex-start}
+  .qa .a > div{min-width:0;flex:1}
+  .mark{font-family:"Cascadia Code",Consolas,monospace;font-weight:800;flex:none;
+    width:26px;height:26px;display:grid;place-items:center;border-radius:7px;font-size:13px;margin-top:1px}
+  .q .mark{color:#fff;background:var(--accent)}
+  .a .mark{color:var(--accent);background:var(--accent-soft);border:1px solid var(--line)}
+  .qa .a p:first-child{margin-top:0}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  footer a{color:var(--accent);text-decoration:none}
+  footer a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Q&amp;A</h1>
+  <p>실제로 받은 질문과 답을 주제별로 모읍니다. 새 질문이 생기면 해당 주제 아래에 덧붙입니다.</p>
+</header>
+
+<section class="card">
+  <h2>목차</h2>
+  <ul class="toc">
+    <li>1. 업무분류 · 분류체계
+      <ul>
+        <li><a href="#q1">Q1. <code>doc_rule.yaml</code> 에 최상위(경영/관리)가 안 들어갑니다.</a></li>
+        <li><a href="#q2">Q2. 그럼 “경영/관리” 로는 문서가 분류되지 않나요?</a></li>
+        <li><a href="#q3">Q3. <code>[T12]</code> 경고 / “N개 분류에는 기준이 없습니다” 는 뭔가요?</a></li>
+      </ul>
+    </li>
+    <li>2. 실행 · 연동(CLI)
+      <ul>
+        <li><a href="#q4">Q4. 다른 프로그램에서 불러 쓸 수 있나요? 이런 걸 CLI 라고 하나요?</a></li>
+        <li><a href="#q5">Q5. 남이 부르는 도구로서 갖출 것은 다 되어 있나요?</a></li>
+        <li><a href="#q6">Q6. 호출하는 쪽이 파이썬이어야 하나요? 느리지는 않나요?</a></li>
+      </ul>
+    </li>
+    <li>3. 코드 읽기
+      <ul>
+        <li><a href="#q7">Q7. <code>getattr(args, "x", False)</code> 와 <code>args.x</code> 는 뭐가 다른가요?</a></li>
+      </ul>
+    </li>
+  </ul>
+</section>
+
+<h2><span class="n">1.</span> 업무분류 · 분류체계</h2>
+
+<div class="qa" id="q1">
+  <div class="q"><span class="mark">Q</span><span><code>doc_rule.yaml</code> 을 만들 때 최상위(경영/관리)가 안 들어갑니다.</span></div>
+  <div class="a"><span class="mark">A</span><div>
+    <p><b>의도된 동작입니다.</b> 최상위 분류는 <b>서랍 이름</b>이라 문서에 그대로 적히는 말이 아니기 때문입니다.
+    규칙에 <code>경영/관리</code> 를 넣으면 문서에서 그 <b>글자를 찾게</b> 되는데, 그렇게 적힌 문서는 거의 없습니다.</p>
+<pre><code>서랍(규칙을 걸지 않는 분류) = <b>최상위이면서 자식이 있는 분류</b></code></pre>
+    <div class="scroll"><table>
+      <tr><th>분류 모양</th><th>보기</th><th>규칙</th><th>왜</th></tr>
+      <tr><td>최상위 + 자식 있음</td><td>경영/관리, 법무/규정</td><td><b>안 만듦</b></td>
+          <td>서랍 이름 — 문서에 그대로 적히지 않음</td></tr>
+      <tr><td>최상위 + 자식 없음</td><td>경영/관리(단독)</td><td>만듦</td>
+          <td>그 자체가 최종 분류</td></tr>
+      <tr><td>중간 + 자식 있음</td><td>기술/개발 &gt; 설계문서</td><td>만듦</td>
+          <td>“설계문서” 는 문서에 적히는 말</td></tr>
+      <tr><td>잎</td><td>… &gt; 요구사항정의서</td><td>만듦</td><td>—</td></tr>
+    </table></div>
+    <p>지금 분류체계는 최상위 6개가 모두 자식을 가지므로, 27개 중 <b>21개</b>에 규칙이 만들어집니다.</p>
+    <p>늘릴 말이 있느냐로 봐도 같습니다 — 잎은 여러 표기로 불어나지만 서랍은 그 이름 하나뿐입니다.</p>
+    <div class="scroll"><table>
+      <tr><th>분류</th><th>자동으로 채워지는 말</th></tr>
+      <tr><td><code>요구사항정의서</code> <span class="def">(잎)</span></td>
+          <td>요구사항정의서, 요구사항 정의서, 요구사항명세서, 요구정의서, SRS …</td></tr>
+      <tr><td><code>경영/관리</code> <span class="def">(서랍)</span></td>
+          <td>경영/관리 &nbsp;<span class="def">— 늘릴 말이 없음</span></td></tr>
+    </table></div>
+    <div class="warn"><b>2026-09-01 에 고친 점</b> — 예전 기준은 “부모가 없으면 제외” 라서
+    <b>자식이 없는 최상위도 함께 빠졌습니다.</b> 그건 서랍이 아니라 그 자체가 최종 분류인데도
+    규칙을 만들어 주지 않으면서 <code>[T12]</code> 경고만 났고,
+    <b>[분류 불러오기] 를 눌러도 사라지지 않는 경고</b>가 됐습니다. 지금은 위 표대로 동작합니다.</div>
+  </div></div>
+</div>
+
+<div class="qa" id="q2">
+  <div class="q"><span class="mark">Q</span><span>그럼 “경영/관리” 로는 문서가 분류되지 않나요?</span></div>
+  <div class="a"><span class="mark">A</span><div>
+    <p><b>분류됩니다.</b> 자식으로 잡히면 <b>부모까지 함께 올라갑니다</b>(조상 흡수).</p>
+<pre><code>[summary][업무분류] 인사/총무 1 (복리후생 1) / 법무/규정 1 (사내규정 1)
+                    <span class="cmt">↑ 부모(서랍)          ↑ 실제로 걸린 분류</span></code></pre>
+    <p><code>보고서</code> 로 잡힌 문서는 <code>경영/관리 &gt; 보고서</code> 이므로 “경영/관리 밑의 문서”를
+    찾는 데 지장이 없습니다. 결과 레코드에도 <code>path_ids</code> 로 부모까지 담깁니다.</p>
+    <p>그래도 최상위 자체에 규칙을 걸고 싶다면 막지 않습니다 —
+    <b>설정/분류 ▸ 2️⃣ 판단 기준 ▸ 업무분류 ▸ [분류 하나만 직접 추가하기]</b> 에 최상위 6개가 후보로 나옵니다.
+    자동으로 만들지 않을 뿐입니다.</p>
+    <div class="note"><b>넣는다면 단어를 반드시 손보세요.</b> 시작값 <code>경영/관리</code> 는 문서에 거의 안 적힙니다.
+    그 회사에서 실제로 쓰는 말(<code>경영보고</code>, <code>경영지원</code>, <code>임원보고</code>)로 바꿔야 쓸모가 있습니다.
+    <span class="muted">쓰임새 — 하위 세 분류 어디에도 안 걸리는 문서를 “경영/관리 일반” 으로 모으고 싶을 때.</span></div>
+  </div></div>
+</div>
+
+<div class="qa" id="q3">
+  <div class="q"><span class="mark">Q</span><span><code>[T12]</code> 경고 / 화면의 “N개 분류에는 기준이 없습니다” 는 뭔가요?</span></div>
+  <div class="a"><span class="mark">A</span><div>
+    <p>둘은 <b>같은 뜻</b>입니다 — <b>“이 분류로는 자동분류될 문서가 없습니다”</b>, 즉 규칙을 채우라는 알림입니다.
+    <b>오류가 아니라 경고</b>여서 종료코드에 영향을 주지 않고 분류도 그대로 진행됩니다.</p>
+    <div class="scroll"><table>
+      <tr><th>코드</th><th>무엇을 보나</th><th>결과</th></tr>
+      <tr><td><code>T5</code></td><td>규칙이 가리키는 분류가 분류체계에 실제로 있나</td><td>종료 4(중단)</td></tr>
+      <tr><td><code>T6</code></td><td>참조한 분류가 꺼진(STATUS=0) 것인가</td><td>경고</td></tr>
+      <tr><td><code>T12</code></td><td><b>어떤 규칙도 참조하지 않는 분류가 있나</b></td><td>경고</td></tr>
+      <tr><td><code>T13</code></td><td>분류체계 스냅샷이 90일 넘게 묵었나</td><td>경고</td></tr>
+    </table></div>
+    <p>이 경고가 보이면 <b>[🔄 분류 불러오기]</b> 를 누르면 대부분 해결됩니다.
+    그래도 남는 분류는 화면 표에서 직접 단어를 채워 주세요.</p>
+    <div class="warn"><b>2026-08-31 에 고친 점</b> — 예전에는 이 숫자가 <b>서랍까지 세고</b> 있었습니다.
+    그래서 규칙을 아무리 채워도 “6개 분류에는 기준이 없습니다” 가 사라지지 않았고
+    (그 6개가 전부 최상위 서랍), 실행할 때마다 고칠 수 없는 <code>[T12]</code> 경고가 6줄씩 떴습니다.
+    지금은 규칙을 거는 대상만 세므로 <b>다 채우면 실제로 사라집니다.</b></div>
+  </div></div>
+</div>
+
+<h2><span class="n">2.</span> 실행 · 연동(CLI)</h2>
+
+<div class="qa" id="q4">
+  <div class="q"><span class="mark">Q</span><span>다른 프로그램에서 <code>csoclassify.exe</code> 를 불러 쓰려고 합니다.
+  이런 것을 CLI 프로그램이라고 해도 되나요?</span></div>
+  <div class="a"><span class="mark">A</span><div>
+    <p><b>예, CLI 도구(command-line tool) 가 맞습니다.</b> 명령줄 인자를 받아 실행되고,
+    결과를 내고, 끝납니다. 사람이 터미널에서 직접 쳐도 되고 다른 프로그램이
+    <b>서브프로세스로 불러도</b> 똑같이 동작합니다 — 실제로 관리 화면(Streamlit)이 그렇게 쓰고 있습니다.</p>
+    <div class="note"><b>다만 순수한 CLI 도구는 아닙니다.</b> 임베딩 모델을 매번 읽으면 느려서
+    <b>상주 데몬 모드</b>(<code>--serve</code> · <code>--status</code> · <code>--stop</code>)를 함께 가집니다.
+    정확히 적자면 <b>“CLI 도구 + 선택적 데몬”</b> 입니다.</div>
+    <p class="muted">문서나 대화에서는 <b>“분류 엔진을 CLI 도구로 제공하고, UI·배치 시스템이 서브프로세스로
+    호출한다”</b> 처럼 쓰면 오해가 없습니다. 그냥 “CLI 프로그램” 이라고만 하면
+    <b>사람이 터미널에서 치는 것</b>으로 읽히기 쉽습니다.</p>
+  </div></div>
+</div>
+
+<div class="qa" id="q5">
+  <div class="q"><span class="mark">Q</span><span>남이 부르는 도구로서 갖춰야 할 것은 다 되어 있나요?</span></div>
+  <div class="a"><span class="mark">A</span><div>
+    <p>다른 프로그램이 부르는 도구는 <b>사람이 눈으로 보고 판단하는 부분이 없어야</b> 합니다.
+    아래가 그 조건이고, 전부 갖춰져 있습니다.</p>
+    <div class="scroll"><table>
+      <tr><th>요건</th><th>이 도구</th></tr>
+      <tr><td><b>종료 코드</b>로 성패를 알린다</td>
+          <td><code>0</code> 정상 · <code>2</code> 파일 문제 · <code>3</code> 인자 오류 ·
+              <code>4</code> 규칙셋 오류</td></tr>
+      <tr><td>결과가 <b>기계가 읽는 형식</b></td><td><code>--format json|jsonl</code> · <code>--out 파일</code></td></tr>
+      <tr><td><b>stdout / stderr 분리</b></td><td>결과는 stdout, 진행·경고는 stderr</td></tr>
+      <tr><td>진행 상황 보고</td><td><code>--progress</code> → <code>[progress] 3/120 경로</code></td></tr>
+      <tr><td><b>물어보지 않는다</b></td><td>대화형 입력 없음 — 끝까지 실행하고 끝난다</td></tr>
+      <tr><td>실행 흔적</td><td><code>log/class_YYYYMMDD.log</code> · 오류는 <code>log/class_err_*.log</code></td></tr>
+    </table></div>
+<pre><code><span class="cmt"># 파이썬에서 부르는 예</span>
+r = subprocess.run([exe, "--dir", folder,
+                    "--format", "jsonl", "--out", out_path],
+                   capture_output=True)
+if r.returncode != 0:
+    <span class="cmt"># 이유는 stderr 와 log/class_err_*.log 양쪽에 남아 있다</span>
+    raise RuntimeError(r.stderr.decode("utf-8", "replace"))</code></pre>
+    <div class="warn"><b>결과는 <code>--out</code> 으로 파일에 받으세요.</b>
+    stdout 으로 받으면 결과가 클 때 <b>파이프 버퍼가 차서 교착에 빠집니다</b> —
+    부르는 쪽이 다 읽기 전에는 이 프로그램이 못 쓰고, 이 프로그램이 다 쓰기 전에는
+    부르는 쪽이 못 읽는 상태가 됩니다.</div>
+  </div></div>
+</div>
+
+<div class="qa" id="q6">
+  <div class="q"><span class="mark">Q</span><span>호출하는 쪽이 파이썬이어야 하나요?
+  문서가 많으면 느리지 않나요?</span></div>
+  <div class="a"><span class="mark">A</span><div>
+    <p><b>언어는 상관없습니다.</b> 프로세스를 실행할 수 있으면 됩니다 — Java·C#·스케줄러·다른 서버.
+    주고받는 것이 <b>명령줄 인자와 JSON 파일</b> 뿐이라 언어에 매이지 않습니다.
+    Rust 판(<code>csoclassify-rs.exe</code>)이 <b>같은 인자·같은 출력 형식</b>을 쓰는 것도 그래서 가능합니다 —
+    부르는 쪽을 고치지 않고 <b>실행 파일만 바꿔 낄 수</b> 있습니다.</p>
+    <p><b>속도는 부르는 방식이 좌우합니다.</b> 임베딩을 쓰면 모델 적재가 가장 큰 비용입니다.</p>
+    <div class="scroll"><table>
+      <tr><th>상황</th><th>이렇게</th></tr>
+      <tr><td>문서가 많다</td><td><b><code>--dir</code> 한 번</b>으로 부르세요 —
+          <code>--file</code> 을 수백 번 부르는 것보다 훨씬 빠릅니다</td></tr>
+      <tr><td>임베딩이 필요 없다</td><td><code>--rule-only</code> — 모델을 아예 안 읽습니다(가장 빠름)</td></tr>
+      <tr><td>한 건씩 자주 부른다</td><td><b>데몬</b>을 켜 두세요 — 모델이 메모리에 남습니다</td></tr>
+    </table></div>
+    <div class="note"><b>규칙을 바꿔도 다시 빌드하지 않습니다.</b> 규칙셋(<code>cso_rules.yaml</code> ·
+    <code>doc_rule.yaml</code>)과 분류 체계는 <b>실행 파일 옆의 외장 파일</b>이라, 파일만 바꾸면
+    다음 실행부터 적용됩니다. 바꾼 뒤에는 <code>--check-rules</code> 로 먼저 검사하세요 —
+    규칙이 잘못됐으면 <b>분류를 시작하지 않고</b> 종료코드 <code>4</code> 로 멈춥니다.</div>
+    <p class="muted">인자·종료코드의 전체 목록은 <b>실행가이드</b>(<code>doc/csoclassify-실행가이드.html</code>) 5·6장에 있습니다.</p>
+  </div></div>
+</div>
+
+<h2><span class="n">3.</span> 코드 읽기</h2>
+
+<div class="qa" id="q7">
+  <div class="q"><span class="mark">Q</span><span><code>cli.py</code> 를 보면 옵션을 읽는 방식이 두 가지입니다.
+  <code>getattr(args, "check_rules", False)</code> 와 <code>args.propagate</code> — 뭐가 다른가요?</span></div>
+  <div class="a"><span class="mark">A</span><div>
+    <p>차이는 <b>딱 하나</b>입니다 — <b>그 옵션이 없을 때 죽느냐, 안 죽느냐.</b></p>
+<pre><code>args.propagate                        <span class="cmt"># 없으면 → AttributeError 로 즉시 멈춤</span>
+getattr(args, "check_rules", False)   <span class="cmt"># 없으면 → False (안 멈추고 계속 진행)</span></code></pre>
+
+    <p><b>그런데 이 프로그램에서는 둘 다 항상 존재합니다.</b>
+    <code>build_parser()</code> 가 모든 옵션을 <code>default</code> 와 함께 등록하기 때문에,
+    <code>parse_args()</code> 를 거친 <code>args</code> 에는 옵션이 빠질 수가 없습니다.</p>
+    <div class="scroll"><table>
+      <tr><th>등록</th><th>안 주고 실행하면</th></tr>
+      <tr><td><code>--check-rules</code> <span class="def">(action="store_true")</span></td>
+          <td><code>args.check_rules</code> = <code>False</code></td></tr>
+      <tr><td><code>--propagate</code> <span class="def">(default=None)</span></td>
+          <td><code>args.propagate</code> = <code>None</code></td></tr>
+    </table></div>
+    <p>즉 <code>_main()</code> 안에서 두 방식은 <b>동작이 완전히 같습니다.</b>
+    <code>getattr</code> 쪽이 방어적으로 한 겹 더 쌌을 뿐입니다.</p>
+
+    <p><b>그럼 왜 <code>getattr</code> 이 30곳 넘게 쓰였나</b> — <code>args</code> 가
+    <code>parse_args()</code> 산물이 <b>아닌</b> 경로가 실제로 있기 때문입니다.
+    테스트가 필요한 필드만 담은 가짜 <code>args</code> 를 만들어 내부 함수를 직접 부릅니다.</p>
+<pre><code><span class="cmt"># tests/test_cli_doctype.py — 필드가 3개뿐인 가짜 args</span>
+args = SimpleNamespace(axis="security", taxonomy=..., doc_rules=None)
+cli._load_doctype_axis(args, _fake_log())
+<span class="cmt"># 이 함수가 args.with_text 를 직접 읽었다면 여기서 AttributeError 로 터진다</span></code></pre>
+
+    <div class="scroll"><table>
+      <tr><th>어디서</th><th>무엇을 쓰나</th><th>왜</th></tr>
+      <tr><td><code>_main()</code> 안 <span class="def">(args 출처가 확실)</span></td>
+          <td><code>args.check_rules</code></td>
+          <td>없으면 그건 <b>버그</b> — 즉시 드러나야 한다</td></tr>
+      <tr><td>여러 곳에서 불리는 하위 함수</td>
+          <td><code>getattr(args, "x", 기본값)</code></td>
+          <td>부분 <code>args</code> 로 부르는 경로가 실제로 있다</td></tr>
+    </table></div>
+
+    <div class="warn"><b>“안 죽는다” 가 항상 이득은 아닙니다.</b>
+    <code>dest</code> 이름을 바꾸거나 <code>getattr</code> 문자열에 오타가 나면
+    (<code>"chek_rules"</code>) 조용히 <code>False</code> 가 돌아옵니다. 그러면 사용자가
+    <code>--check-rules</code> 로 <b>규칙셋만 검사하려 했는데</b> 그 지시가 무시된 채
+    문서 스캔이 시작되고, <b>종료코드는 0</b> 이라 규칙에 오타가 있어도 “검사했더니 정상” 으로 보입니다.
+    <br>여기서의 선택은 “죽는다 vs 안 죽는다” 가 아니라
+    <b>“바로 드러나는 실패 vs 결과가 틀린 채 성공”</b> 입니다.
+    분류 도구에서는 <b>틀린 결과를 조용히 내는 것이 가장 나쁜 실패</b>이므로,
+    없을 수 없는 자리에서는 직접 접근이 오히려 안전합니다.</div>
+
+    <div class="note"><b><code>getattr</code> 을 쓸 땐 기본값을 파서와 맞추세요.</b>
+    세 번째 인자가 <code>add_argument(..., default=...)</code> 와 다르면,
+    같은 옵션이 <b>부르는 경로에 따라 다르게 동작</b>합니다. 이건 화면에 아무 표시도 없이
+    결과만 갈리므로 찾기가 매우 어렵습니다.</div>
+
+    <p class="muted">같은 원리가 <code>fail_code()</code> 에도 있습니다 —
+    이 함수는 프로그램을 <b>끝내지 않고</b> 종료코드를 돌려주기만 하므로
+    반드시 <code>return fail_code(...)</code> 처럼 <code>return</code> 과 함께 써야 합니다.
+    <code>return</code> 을 빠뜨리면 오류 메시지·로그만 남고 실행이 그대로 이어집니다.</p>
+  </div></div>
+</div>
+
+<footer>CSOClassify · Q&amp;A · 2026-09-01<br>
+<span class="def">실행 방법과 인자는 <a href="csoclassify-실행가이드.html">실행 가이드</a>,
+변경 이력과 운영 정책은 <a href="부록.html">부록</a> 에 있습니다.</span></footer>
+
+</div>
+</body>
+</html>

@@ -99,7 +99,9 @@ class OnnxEmbedder(Embedder):
             except ImportError as e:
                 raise EmbedError(f"필수 라이브러리 미설치(onnxruntime/tokenizers): {e}")
 
+            #--------------------------------------------------------
             # (3) 토크나이저 로드.
+            #--------------------------------------------------------
             try:
                 self._tokenizer = Tokenizer.from_file(tok_path)
             except Exception as e:
@@ -111,6 +113,16 @@ class OnnxEmbedder(Embedder):
                 so.intra_op_num_threads = int(self.num_threads)
             so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
+            #--------------------------------------------------------
+            # (4) 임베딩 모델 로드.
+            # => ort.InferenceSession 호출함으로써 모델 로딩됨.
+            # => CPUExecutionProvider 로 CPU로 사용 전제 임. GPU있어도 안씀.
+            #
+            # GPU로 바꾸려면 (참고)
+            # => providers=["CUDAExecutionProvider", "CPUExecutionProvider"]   # CUDA 실패 시 CPU로 폴백
+            # 윈도우 범용이면 ["DmlExecutionProvider", "CPUExecutionProvider"] (DirectML)
+            # *GPU를 쓰려면 onnxruntime-gpu 패키지 + CUDA/cuDNN이 필요.
+            #--------------------------------------------------------
             try:
                 self._session = ort.InferenceSession(
                     onnx_path, sess_options=so, providers=["CPUExecutionProvider"]

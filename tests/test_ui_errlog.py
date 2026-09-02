@@ -2,7 +2,7 @@
 
 화면에서 문제가 생기면 예전에는 st.error 빨간 상자만 뜨고 끝이라, 사용자가 창을
 닫으면 아무 흔적도 남지 않았다. 이제 exe 판과 같은 파일
-(csoclassify_err_YYYYMMDD.log)에 남긴다. 여기서 지키는 약속:
+(log/class_err_YYYYMMDD.log)에 남긴다. 여기서 지키는 약속:
 
   1) 오류가 실제로 났을 때만 파일이 생긴다
   2) 예외를 주면 **스택까지** 남는다(한 줄 메시지로는 원인을 못 찾는다)
@@ -27,9 +27,9 @@ import uierrlog  # noqa: E402
 def test_log_path_matches_exe_convention(monkeypatch):
     monkeypatch.delenv("CSOCLASSIFY_ERRLOG", raising=False)
     name = os.path.basename(uierrlog.log_path())
-    assert name.startswith("csoclassify_err_")
+    assert name.startswith("class_err_")
     assert name.endswith(".log")
-    day = name[len("csoclassify_err_"):-len(".log")]
+    day = name[len("class_err_"):-len(".log")]
     assert len(day) == 8 and day.isdigit(), name
 
 

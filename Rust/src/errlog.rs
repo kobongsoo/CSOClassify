@@ -1,4 +1,4 @@
-//! 오류 로그 — 실행 파일 옆 `csoclassify_err_YYYYMMDD.log` 에 남긴다.
+//! 오류 로그 — `<실행 파일 폴더>/log/class_err_YYYYMMDD.log` 에 남긴다.
 //!
 //! 왜 필요한가: 이 프로그램은 오류를 화면(stderr)으로만 알렸다. 사람이 콘솔에서
 //! 직접 돌릴 때는 보이지만, UI·배치·스케줄러가 실행하면 그 화면이 없어서
@@ -26,10 +26,15 @@ static HEADER: Once = Once::new();
 //------------------------------------------------------------------
 // 오류 로그 파일 경로
 //=> 어디에 남길지 정한다.
-//    1) 환경변수 CSOCLASSIFY_ERRLOG 가 있으면 그 경로를 그대로 쓴다
-//       (읽기전용 폴더에 설치했거나, 여러 대의 로그를 한곳에 모을 때)
-//    2) 없으면 실행 파일이 있는 폴더의 csoclassify_err_YYYYMMDD.log
+//    1) 환경변수 CSOCLASSIFY_ERRLOG 가 있으면 그 '파일 경로'를 그대로 쓴다
+//       (읽기전용 폴더에 설치했거나, 여러 대의 로그를 한 파일로 모을 때)
+//    2) 환경변수 CSOCLASSIFY_LOGDIR 이 있으면 그 폴더의 class_err_YYYYMMDD.log
+//    3) 없으면 <실행 파일이 있는 폴더>/log/class_err_YYYYMMDD.log
 //   exe 경로를 못 얻으면 None — 이때는 로그를 포기하고 화면에만 낸다.
+//
+//   [왜 exe 옆이 아니라 log/ 인가] 예전에는 실행 파일 바로 옆에 남겼는데,
+//   여러 폴더에서 exe 를 돌리면 로그가 폴더마다 흩어져 어디를 봐야 하는지
+//   알 수 없었다. 일반 로그(파이썬 판 log/class_*.log)와 같은 자리에 모은다.
 //
 // -in: 없음
 //
@@ -42,12 +47,19 @@ pub fn path() -> Option<PathBuf> {
             return Some(PathBuf::from(p));
         }
     }
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
     // now_stamp() 은 "YYYYMMDDHHMMSS" — 앞 8자리가 날짜다.
     let stamp = now_stamp();
     let day = stamp.get(..8).unwrap_or("00000000");
-    Some(dir.join(format!("csoclassify_err_{}.log", day)))
+    let name = format!("class_err_{}.log", day);
+
+    if let Ok(d) = std::env::var("CSOCLASSIFY_LOGDIR") {
+        if !d.is_empty() {
+            return Some(PathBuf::from(d).join(name));
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    Some(dir.join("log").join(name))
 }
 
 //------------------------------------------------------------------
@@ -84,6 +96,12 @@ pub fn note(msg: &str) {
         Some(p) => p,
         None => return,
     };
+    // 이제 로그가 log/ 하위로 들어가므로 폴더가 없을 수 있다. 만들지 않으면
+    // open 이 그냥 실패해 로그가 조용히 사라진다 — 오류를 남기려던 코드가
+    // 오류 때문에 아무것도 못 남기는 셈이 된다.
+    if let Some(dir) = p.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     // 새 파일이면 UTF-8 BOM 을 먼저 얹는다. Windows 의 메모장·엑셀·PowerShell 은
     // BOM 이 없는 UTF-8 을 ANSI(cp949)로 읽어 한글이 통째로 깨진다.
     // 이어쓰는 파일에는 붙이지 않는다 — 파일 중간에 BOM 이 박히면 더 지저분하다.
@@ -122,7 +140,11 @@ pub fn note(msg: &str) {
 // -out: error = 없음
 //------------------------------------------------------------------
 pub fn err(msg: &str) {
-    eprintln!("{}", msg);
+    // --json-errors 를 준 호출에서는 화면으로 내지 않는다 — 기계가 읽는 줄만
+    // stderr 에 남기기로 했다(진행률·요약). 로그 파일에는 언제나 남긴다.
+    if !crate::errcodes::quiet() {
+        eprintln!("{}", msg);
+    }
     note(msg);
 }
 
@@ -189,15 +211,26 @@ mod tests {
         // 빈 값은 '지정 안 함'으로 본다 — 빈 경로에 쓰려다 실패하면 더 헷갈린다.
         std::env::set_var("CSOCLASSIFY_ERRLOG", "");
         let p = path().unwrap();
-        assert!(p.file_name().unwrap().to_string_lossy().starts_with("csoclassify_err_"));
+        assert!(p.file_name().unwrap().to_string_lossy().starts_with("class_err_"));
 
-        // ---- (2) 기본 경로: exe 옆 날짜별 파일 ----
+        // ---- (2) 기본 경로: <exe 폴더>/log/class_err_YYYYMMDD.log ----
         std::env::remove_var("CSOCLASSIFY_ERRLOG");
-        let name = path().unwrap().file_name().unwrap().to_string_lossy().to_string();
-        assert!(name.starts_with("csoclassify_err_"), "{}", name);
+        let full = path().unwrap();
+        // 파이썬 판(logsetup.log_dir)과 같은 자리여야 한다 — 두 판의 로그가
+        // 서로 다른 폴더로 흩어지면 한 사건을 좇는 데 두 곳을 뒤져야 한다.
+        assert_eq!(full.parent().unwrap().file_name().unwrap(), "log");
+        let name = full.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with("class_err_"), "{}", name);
         assert!(name.ends_with(".log"), "{}", name);
-        assert_eq!(name.len(), 16 + 8 + 4, "{}", name);   // csoclassify_err_ + YYYYMMDD + .log
-        assert!(name[16..24].chars().all(|c| c.is_ascii_digit()), "{}", name);
+        assert_eq!(name.len(), 10 + 8 + 4, "{}", name);   // class_err_ + YYYYMMDD + .log
+        assert!(name[10..18].chars().all(|c| c.is_ascii_digit()), "{}", name);
+
+        // ---- (2-1) CSOCLASSIFY_LOGDIR 로 폴더만 옮길 수 있다 ----
+        std::env::set_var("CSOCLASSIFY_LOGDIR", "D:/tmp/mylogs");
+        let d = path().unwrap();
+        assert_eq!(d.parent().unwrap(), PathBuf::from("D:/tmp/mylogs"));
+        assert!(d.file_name().unwrap().to_string_lossy().starts_with("class_err_"));
+        std::env::remove_var("CSOCLASSIFY_LOGDIR");
 
         // ---- (3) 오류를 쓰면 그때 파일이 생기고, 명령줄 헤더가 한 번만 들어간다 ----
         let tmp = std::env::temp_dir().join("csors_errlog_test.log");

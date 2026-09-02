@@ -7,13 +7,16 @@ mod detect;
 mod districts;
 mod doc_rules;
 mod doctype;
+mod docvocab;
 mod embed;
+mod errcodes;
 mod errlog;
 mod extract;
 mod hwp5;
 mod office_legacy;
 mod ole;
 mod pii;
+mod pii_fold;
 mod propagate;
 mod rules;
 mod xls;
@@ -28,9 +31,11 @@ use axes::Taxonomy;
 use doc_rules::{ConflictSpec, DocRuleSet};
 use rules::{build_record, load_rules, Grade, RuleSet};
 
+#[derive(Clone)]
 struct Opts {
     file: Option<String>,
     dir: Option<String>,
+    files_from: Option<String>, // 경로 목록 파일("-" 이면 stdin). 흩어진 파일을 한 프로세스로
     rules_path: Option<String>,
     taxonomy: Option<String>,   // doc_taxonomy.yaml(업무분류 어휘)
     doc_rules: Option<String>,  // doc_rule.yaml(업무분류 규칙)
@@ -50,56 +55,97 @@ struct Opts {
     with_pii: bool,
     rule_only: bool,
     vector_only: bool,
+    doctype_vector_only: bool,   // 업무분류만 규칙 없이 seed 비교로
+    progress: bool,              // 파일마다 '[progress] 처리수/총수 경로' 를 stderr 로(화면 진행바용)
+    embed_needed: bool,          // 임베딩을 '아직 못 정한 문서'에만(Python --embed-needed 와 같은 뜻)
+    no_timing: bool,             // 처리 시간 출력 끄기(요약줄의 총시간)
+    sync_doc_rule: bool,         // 분류 체계를 훑어 doc_rule.yaml 을 채운다
+    sync_fill_blank: bool,       // 빈 규칙도 시작값으로 채울지(기본 켬)
+    sync_enrich: bool,           // 이미 말이 있는 규칙에도 빠진 유의어를 더할지
     with_vector: bool,      // 모든 문서를 임베딩해 결과 레코드에 vector 필드로 실어 보냄
     propagate: Option<String>,  // 1차 결과(jsonl/json)를 읽어 전파만 다시 도는 2차 패스
     auto_propagate: bool,
     seeds: Option<String>,
     failsafe: Option<String>,
     check_rules: bool,      // 규칙셋만 검사하고 종료(문서는 읽지 않음)
+    json_errors: bool,      // 실패할 때 stdout 에 오류 JSON 한 줄(계약: plan/CLI-오류출력-설계.html)
+    simple_why: bool,       // 축약본에 판정 근거 요약(why)을 더한다(--simple 포함)
+}
+
+//------------------------------------------------------------------
+// 버전 문자열 만들기 (앱 버전 + PII 포팅 기준 ko-pii 버전)
+//=> Python 판(csoclassify.exe)은 ko-pii 를 exe 안에 넣어 다니므로 '번들된 버전'을
+//   찍는다. 이 판은 ko-pii 를 쓰지 않고 알고리즘을 옮겨 적었으므로 찍을 번들이
+//   없다 — 대신 '어느 ko-pii 를 보고 옮겼는지'를 찍는다. 두 판의 이 값이 같아야
+//   같은 기준으로 도는 것이고, 다르면 검출 결과가 갈릴 수 있다는 신호다.
+//
+// -in: 없음
+//
+// -out: text = "csoclassify-rs <앱버전> (ko-pii 포팅 기준 <버전>)" 한 줄
+// -out: error = 예외 없음(전부 컴파일 시점에 정해진 상수)
+//------------------------------------------------------------------
+fn version_text() -> String {
+    format!("csoclassify-rs {} (ko-pii 포팅 기준 {})",
+            env!("CARGO_PKG_VERSION"), pii::KOPII_PORTED_FROM)
 }
 
 fn usage() {
-    eprintln!("csoclassify-rs — 추출 + 규칙 분류(rule-only) [Rust PoC]");
-    eprintln!("사용법:");
-    eprintln!("  csoclassify-rs --file <파일> [옵션]");
-    eprintln!("  csoclassify-rs --dir  <폴더> [옵션]   (재귀)");
-    eprintln!("옵션:");
-    eprintln!("  --rules <cso_rules.yaml>  규칙셋(미지정 시 exe 옆/CSOCLASSIFY_POLICY_DIR)");
-    eprintln!("  --taxonomy <doc_taxonomy.yaml>  업무분류 체계 스냅샷(없으면 업무분류 축을 끔)");
-    eprintln!("  --doc-rules <doc_rule.yaml>     업무분류 규칙셋(없으면 업무분류 축을 끔)");
-    eprintln!("  --axis security|doctype   이번 실행에 쓸 축만 지정(doctype 이면 보안등급 계산 생략)");
-    eprintln!("  --conflict <축>=<전략>    업무분류 축 전략 덮어쓰기(예: doctype=top_n:3, doctype=all)");
-    eprintln!("  --export-taxonomy         DOC_CLASSIFICATION JSON → --taxonomy 경로에 스냅샷 생성 후 종료(문서 안 읽음)");
-    eprintln!("  --export-input <파일>     --export-taxonomy 의 원본 JSON(미지정 시 exe 옆 doc_classification_export.json)");
-    eprintln!("  --scaffold-doc-rule       --export-taxonomy 와 함께 쓰면 --doc-rules 경로에 규칙 골격도 생성(이미 있으면 건너뜀)");
+    note!("csoclassify-rs — 추출 + 규칙 분류(rule-only) [Rust PoC]");
+    note!("사용법:");
+    note!("  csoclassify-rs --file <파일> [옵션]");
+    note!("  csoclassify-rs --dir  <폴더> [옵션]   (재귀)");
+    note!("옵션:");
+    note!("  --rules <cso_rules.yaml>  규칙셋(미지정 시 exe 옆/CSOCLASSIFY_POLICY_DIR)");
+    note!("  --taxonomy <doc_taxonomy.yaml>  업무분류 체계 스냅샷(없으면 업무분류 축을 끔)");
+    note!("  --doc-rules <doc_rule.yaml>     업무분류 규칙셋(없으면 업무분류 축을 끔)");
+    note!("  --axis security|doctype   이번 실행에 쓸 축만 지정(doctype 이면 보안등급 계산 생략)");
+    note!("  --conflict <축>=<전략>    업무분류 축 전략 덮어쓰기(예: doctype=top_n:3, doctype=all)");
+    note!("  --export-taxonomy         DOC_CLASSIFICATION JSON → --taxonomy 경로에 스냅샷 생성 후 종료(문서 안 읽음)");
+    note!("  --export-input <파일>     --export-taxonomy 의 원본 JSON(미지정 시 exe 옆 doc_classification_export.json)");
+    note!("  --scaffold-doc-rule       --export-taxonomy 와 함께 쓰면 --doc-rules 경로에 규칙 골격도 생성(이미 있으면 건너뜀)");
     // 중괄호는 포맷 자리표시자로 읽히므로 {{ }} 로 escape 한다.
-    eprintln!("  --glob <패턴>             --dir 에서 고를 파일 패턴(예: \"*.hwp,*.pdf\" · \"*.{{hwp,pdf}}\")");
-    eprintln!("  --format json|jsonl       출력 형식(미지정 시 --out 확장자로 판단, 그것도 없으면 json 배열)");
-    eprintln!("  --out <파일>              결과 저장(미지정 시 stdout)");
-    eprintln!("  --simple                  파일별 문서명·등급·해시 3필드만");
-    eprintln!("  --hash                    각 문서 SHA-256 포함");
-    eprintln!("  --with-pii                [프라이버시 예외] 검출된 원문 PII 값 포함(pii 필드)");
-    eprintln!("  --rule-only               규칙만으로 분류 — 임베딩·전파 없음(가장 빠름). --vector-only 와 배타");
-    eprintln!("  --vector-only             규칙 없이 임베딩 벡터를 seed 와 비교해서만 분류(--seeds 필수). --rule-only 와 배타");
-    eprintln!("  --with-vector             모든 문서를 임베딩해 결과에 vector 필드(384차원)로 포함(RAG 등 전량 벡터가 필요할 때)");
-    eprintln!("  --propagate <결과파일>    1차 결과(jsonl/json)를 읽어 전파만 다시 수행(문서·모델 불필요). --file/--dir 대신 씀");
-    eprintln!("  --auto-propagate          보류 문서를 seed 로 전파(seed 있으면 기본 on)");
-    eprintln!("  --seeds <class_seed.jsonl>  전파 비교 기준 seed 저장소(미지정 시 exe 옆 class_seed.jsonl)");
-    eprintln!("  --summary                 요약만 출력");
-    eprintln!("  --nosummary               요약 제거(파일별만)");
-    eprintln!("  --failsafe [등급]         무신호 기본등급(예: S)");
-    eprintln!("  --check-rules             규칙셋의 등급 값만 검사하고 종료(정상 0, 검증 실패 4)");
+    note!("  --files-from <목록>       처리할 파일 경로를 한 줄에 하나씩 적은 파일(\"-\" 이면 표준입력).");
+    note!("                            여러 폴더에 흩어진 파일을 한 프로세스로 처리 — --file/--dir 과 배타");
+    note!("  --glob <패턴>             --dir 에서 고를 파일 패턴(예: \"*.hwp,*.pdf\" · \"*.{{hwp,pdf}}\")");
+    note!("  --format json|jsonl       출력 형식(미지정 시 --out 확장자로 판단, 그것도 없으면 json 배열)");
+    note!("  --out <파일>              결과 저장(미지정 시 stdout)");
+    note!("  --simple                  파일별 결과를 문서명·등급·해시(+업무분류 dc_id)로 줄여서 출력");
+    note!("  --hash                    각 문서 SHA-256 포함");
+    note!("  --with-pii                [프라이버시 예외] 검출된 원문 PII 값 포함(pii 필드)");
+    note!("  --rule-only               규칙만으로 분류 — 임베딩·전파 없음(가장 빠름). --vector-only 와 배타");
+    note!("  --vector-only             규칙 없이 임베딩 벡터를 seed 와 비교해서만 분류(--seeds 필수). --rule-only 와 배타");
+    note!("  --doctype-vector-only     업무분류를 규칙 없이 기준 문서(class_seed.jsonl) 비교로만 분류(security 축은 그대로)");
+    eprintln!("  --progress                파일마다 진행 상황을 stderr 로 출력(형식: '[progress] 처리수/총수 경로'). 화면 진행바용");
+    note!("  --embed-needed            임베딩을 '아직 못 정한 문서'에만 수행(확정 문서는 건너뜀, 기본 동작과 같음)");
+    note!("  --no-timing               요약줄에서 총시간 표기를 뺀다");
+    note!("  --sync-doc-rule           분류 체계를 훑어 --doc-rules 파일에 규칙을 채운다(유의어 사전 적용, 이미 있는 파일에도 덧붙임)");
+    note!("    --no-fill-blank         └ 단어가 하나도 없는 기존 규칙은 채우지 않는다(기본은 채움)");
+    note!("    --sync-enrich           └ 이미 말이 있는 규칙에도 빠진 유의어만 더한다(기본 끔)");
+    note!("  --with-vector             모든 문서를 임베딩해 결과에 vector 필드(384차원)로 포함(RAG 등 전량 벡터가 필요할 때)");
+    note!("  --propagate <결과파일>    1차 결과(jsonl/json)를 읽어 전파만 다시 수행(문서·모델 불필요). --file/--dir 대신 씀");
+    note!("  --auto-propagate          보류 문서를 seed 로 전파(seed 있으면 기본 on)");
+    note!("  --seeds <class_seed.jsonl>  전파 비교 기준 seed 저장소(미지정 시 exe 옆 class_seed.jsonl)");
+    note!("  --summary                 요약만 출력");
+    note!("  --nosummary               요약 제거(파일별만)");
+    note!("  --failsafe [등급]         무신호 기본등급. O/S/C 만 허용(값 생략 시 S)");
+    note!("  --check-rules             규칙셋의 등급 값만 검사하고 종료(정상 0, 검증 실패 4)");
+    note!("  --json-errors             실패할 때 stdout 에 오류 JSON 한 줄({{\"error\":{{code,kind,message,path}}}})");
+    note!("  --simple-why              --simple 에 판정 근거 요약(why)을 더한다");
+    note!("  -V, --version             버전 출력(앱 버전 + PII 포팅 기준 ko-pii 버전)");
 }
 
 fn parse_args() -> Result<Opts, String> {
     let mut o = Opts {
-        file: None, dir: None, rules_path: None,
+        file: None, dir: None, files_from: None, rules_path: None,
         taxonomy: None, doc_rules: None, axis: None, conflict: None,
         export_taxonomy: false, export_input: None, scaffold_doc_rule: false,
-        glob: None, out: None,
+        glob: None, out: None, json_errors: false, simple_why: false,
         fmt: "json".into(), fmt_explicit: false, simple: false, summary_only: false,
         no_summary: false, hash: false, with_pii: false,
-        rule_only: false, vector_only: false, with_vector: false, propagate: None,
+        rule_only: false, vector_only: false, doctype_vector_only: false,
+        progress: false, embed_needed: false, no_timing: false,
+        sync_doc_rule: false, sync_fill_blank: true, sync_enrich: false,
+        with_vector: false, propagate: None,
         auto_propagate: false, seeds: None,
         failsafe: None, check_rules: false,
     };
@@ -114,21 +160,38 @@ fn parse_args() -> Result<Opts, String> {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        let mut next = || { i += 1; args.get(i).cloned().unwrap_or_default() };
+        // 옵션의 값을 집어 온다. optional=true 면 '값이 없어도 되는' 옵션이다
+        // (--failsafe 처럼 단독으로도 쓰는 것). 다음 토큰이 '-' 로 시작하면 그건
+        // 값이 아니라 다음 옵션이므로 집어 오지 않는다 — 그렇게 하지 않으면
+        // `--failsafe --json-errors` 가 등급 "--json-errors" 로 읽힌다.
+        let mut take = |optional: bool| -> Option<String> {
+            match args.get(i + 1) {
+                Some(v) if !v.starts_with('-') => {
+                    i += 1;
+                    Some(v.clone())
+                }
+                // 값이 빠진 옵션을 빈 문자열로 흘려보내면 "그런 경로 없음"처럼
+                // 엉뚱한 오류로 나타나 원인을 못 찾는다. 여기서 끝낸다.
+                _ if !optional => errcodes::fail("bad_args",
+                    &format!("[csoclassify-rs] {} 뒤에 값이 없습니다.", args[i]), None),
+                _ => None,
+            }
+        };
         match a.as_str() {
-            "--file" | "-file" => o.file = Some(next()),
-            "--dir" | "-dir" => o.dir = Some(next()),
-            "--rules" => o.rules_path = Some(next()),
-            "--taxonomy" => o.taxonomy = Some(next()),
-            "--doc-rules" => o.doc_rules = Some(next()),
-            "--axis" => o.axis = Some(next()),
-            "--conflict" => o.conflict = Some(next()),
-            "--glob" => o.glob = Some(next()),
+            "--file" | "-file" => o.file = Some(take(false).unwrap()),
+            "--dir" | "-dir" => o.dir = Some(take(false).unwrap()),
+            "--files-from" => o.files_from = Some(take(false).unwrap()),
+            "--rules" => o.rules_path = Some(take(false).unwrap()),
+            "--taxonomy" => o.taxonomy = Some(take(false).unwrap()),
+            "--doc-rules" => o.doc_rules = Some(take(false).unwrap()),
+            "--axis" => o.axis = Some(take(false).unwrap()),
+            "--conflict" => o.conflict = Some(take(false).unwrap()),
+            "--glob" => o.glob = Some(take(false).unwrap()),
             "--export-taxonomy" => o.export_taxonomy = true,
-            "--export-input" => o.export_input = Some(next()),
+            "--export-input" => o.export_input = Some(take(false).unwrap()),
             "--scaffold-doc-rule" => o.scaffold_doc_rule = true,
-            "--out" => o.out = Some(next()),
-            "--format" => { o.fmt = next(); o.fmt_explicit = true; }
+            "--out" => o.out = Some(take(false).unwrap()),
+            "--format" => { o.fmt = take(false).unwrap(); o.fmt_explicit = true; }
             "--simple" => o.simple = true,
             "--summary" => o.summary_only = true,
             "--nosummary" => o.no_summary = true,
@@ -136,35 +199,213 @@ fn parse_args() -> Result<Opts, String> {
             "--with-pii" => o.with_pii = true,
             "--rule-only" => o.rule_only = true,
             "--vector-only" => o.vector_only = true,
+            "--doctype-vector-only" => o.doctype_vector_only = true,
+            "--progress" => o.progress = true,
+            "--embed-needed" => o.embed_needed = true,
+            "--no-timing" => o.no_timing = true,
+            "--sync-doc-rule" => o.sync_doc_rule = true,
+            "--no-fill-blank" => o.sync_fill_blank = false,
+            "--sync-enrich" => o.sync_enrich = true,
             "--with-vector" => o.with_vector = true,
-            "--propagate" => o.propagate = Some(next()),
+            "--propagate" => o.propagate = Some(take(false).unwrap()),
             "--auto-propagate" => o.auto_propagate = true,
-            "--seeds" => o.seeds = Some(next()),
-            "--failsafe" => o.failsafe = Some("S".into()),
+            "--seeds" => o.seeds = Some(take(false).unwrap()),
+            // 값이 있으면 그 값, 없으면 S(파이썬 판 nargs="?" const="S" 와 같다).
+            // 검증은 인자를 다 읽은 뒤에 한다 — 여기서 하면 --failsafe 가
+            // 여러 번 나올 때 마지막 값만 검사하는 것이 어색해진다.
+            "--failsafe" => o.failsafe = Some(take(true).unwrap_or_else(|| "S".into())),
             "--check-rules" => o.check_rules = true,
+            "--json-errors" => o.json_errors = true,
+            // 축약본만 받으면 "이 문서가 왜 C 인가"에 답할 수 없다.
+            "--simple-why" => { o.simple_why = true; o.simple = true; }
             "--hybridparse" => {} // 추출은 항상 내용감지 라우팅
             "-h" | "--help" => { usage(); std::process::exit(0); }
-            _ => errlog::err(&format!("[warn] 알 수 없는 인자: {}", a)),
+            // 이 판은 ko-pii 를 번들하지 않고 '옮겨 적은' 사본이라, 번들 버전 대신
+            // '어느 ko-pii 를 보고 옮겼는지'를 찍는다. Python 판의 (ko-pii x.y.z)
+            // 와 이 값이 같아야 두 판이 같은 기준으로 도는 것이다.
+            "-V" | "--version" => { println!("{}", version_text()); std::process::exit(0); }
+
+            // 파이썬 판에만 있는 옵션들 — 이 판에서는 할 일이 없다. 그래도 '모르는
+            // 인자'로 막으면, 두 판을 같은 명령으로 부르던 호출부가 깨진다.
+            // 값이 없는 것들:
+            "--classify" | "--daemon" | "--no-daemon" | "--serve" | "--status" | "--stop"
+            | "--embed" | "--text-only" | "--per-chunk" | "--normalize" | "--no-normalize"
+            | "--timing" | "--recursive" | "-r" | "--verbose" | "-v"
+            // ※ "--nosummary" 는 위에서 실제로 처리하므로 여기 두면 안 된다
+            //   (도달할 수 없는 갈래가 되어 unreachable_patterns 경고가 난다).
+            | "--synap-only" | "--with-text" => {}
+            // 값을 하나 데리고 오는 것들 — 그 값까지 함께 삼켜야 뒤가 밀리지 않는다.
+            "--model" | "--max-tokens" | "--overlap" | "--precision" | "--num-threads"
+            | "--idle-timeout" | "--log" | "--make-doctype-seeds" | "--seed-per-dir"
+            | "--seed-per-node" => { take(false); }
+            // 값이 있어도 되고 없어도 되는 것.
+            "--save-text" => { take(true); }
+
+            // 여기까지 안 걸렸으면 정말 모르는 인자다. 조용히 넘어가면 오타 하나가
+            // 옵션을 통째로 무효로 만든다(예: --json-erros). 파이썬 판도 여기서
+            // 막으므로, 그 자리에서 끝내는 것이 두 판이 같아지는 길이다.
+            _ => errcodes::fail("bad_args",
+                &format!("[csoclassify-rs] 알 수 없는 인자: {}\n\
+                          철자를 확인하세요. 쓸 수 있는 인자는 --help 로 볼 수 있습니다.", a),
+                None),
         }
         i += 1;
     }
     // --axis 는 오타가 조용히 "축 전체 무시"로 이어지면 안 되므로 여기서 막는다.
     if let Some(a) = &o.axis {
         if a != "security" && a != "doctype" {
-            return Err(format!("--axis 는 security 또는 doctype 이어야 합니다: {:?}", a));
+            // 축 오타는 조용히 '축 전체 무시'로 이어지면 안 된다. 계약상 1004.
+            errcodes::fail("bad_axis",
+                &format!("[csoclassify-rs] --axis 는 security 또는 doctype 이어야 합니다: {:?}", a),
+                None);
+        }
+    }
+    // --failsafe 는 규칙셋을 거치지 않고 곧바로 최종 등급이 된다. 오타가 있으면
+    // 정의되지 않은 등급이 그대로 결과에 박히므로(규칙셋 오타와 같은 종류의
+    // fail-open) 스캔 시작 전에 막는다. 파이썬 판과 같은 자리·같은 코드(1005).
+    if let Some(g) = &o.failsafe {
+        if !rules::GRADES.contains(&g.as_str()) {
+            errcodes::fail("bad_failsafe",
+                &format!("[csoclassify-rs] --failsafe 값이 올바르지 않습니다: {:?}\n\
+                          정의된 등급: {}", g, rules::GRADES.join(" < ")),
+                None);
         }
     }
     // --format 을 안 줬으면 --out 확장자로 형식을 정한다.
     if !o.fmt_explicit {
         if let Some(g) = guess_format(&o.out) {
             if g != o.fmt {
-                eprintln!("[csoclassify-rs] --out 확장자에 맞춰 --format {} 로 저장합니다. \
+                note!("[csoclassify-rs] --out 확장자에 맞춰 --format {} 로 저장합니다. \
                            (다르게 하려면 --format 을 직접 지정하세요)", g);
             }
             o.fmt = g;
         }
     }
     Ok(o)
+}
+
+/// 전체 레코드를 '읽는 차례'로 다시 담는다(파이썬 판 `_order_record()` 와 같은 표).
+///
+/// 만들어진 순서 그대로 내보내면 눈에 안 들어온다 — 가장 궁금한 업무분류가
+/// `labels` 안에 묻혀 열 번째에 있고, 판정 근거(`signals`)가 결과보다 먼저 나온다.
+///   1. 무엇을      `file` · `hash`
+///   2. 어떻게 됐나  `grade` · `doctype` · `confidence` · `method` · `decided_by` · `error`
+///   3. 왜          `labels`(축별 상세) · `signals`(근거)
+///   4. 부속        `seed_eligible` · 버전 3개 · `ts` · `elapsed_ms`
+///
+/// 앞 네 칸이 `--simple` 과 같아, 축약본이 전체의 '앞부분만 떼어낸 것'이 된다.
+/// `doctype` 은 `labels.doctype.values` 에서 뽑은 같은 값이라 새 정보가 아니고,
+/// 축이 돌았을 때만 넣는다(빈 배열이면 "분류 못 함"과 "축 안 씀"이 안 갈린다).
+/// 표에 없는 칸은 **뒤에 그대로 붙인다** — 새 칸이 생겼을 때 이 함수가 조용히
+/// 지워 버리면 가장 찾기 어려운 사고가 된다.
+const REC_ORDER: &[&str] = &[
+    "file", "hash", "grade", "doctype", "confidence", "method", "decided_by",
+    "error", "labels", "signals", "pii", "vector", "seed_eligible",
+    "rule_version", "taxonomy_version", "doctype_rule_version", "ts", "elapsed_ms",
+];
+
+fn order_record(rec: &Value) -> Value {
+    let src = match rec.as_object() {
+        Some(o) => o,
+        None => return rec.clone(),
+    };
+    let mut out = serde_json::Map::new();
+    for key in REC_ORDER {
+        if *key == "doctype" {
+            // 축이 돌았을 때만 — labels.doctype 이 객체로 있을 때가 그때다.
+            if let Some(dt) = rec.get("labels").and_then(|l| l.get("doctype")) {
+                if dt.is_object() {
+                    let ids: Vec<Value> = dt.get("values").and_then(|v| v.as_array())
+                        .map(|a| a.iter().filter_map(|v| v.get("dc_id").cloned()).collect())
+                        .unwrap_or_default();
+                    out.insert("doctype".into(), Value::Array(ids));
+                }
+            }
+            continue;
+        }
+        if let Some(v) = src.get(*key) {
+            out.insert((*key).to_string(), v.clone());
+        }
+    }
+    // 표에 없는 칸은 잃지 않고 뒤에 붙인다.
+    for (k, v) in src {
+        if !out.contains_key(k) {
+            out.insert(k.clone(), v.clone());
+        }
+    }
+    Value::Object(out)
+}
+
+/// 감사용 전체 결과 파일 경로 — `result.jsonl` → `result.full.jsonl`.
+///
+/// 화면(UI)이 축약본을 `<이름>.simple.<확장자>` 로 부르는 것과 같은 결의 이름이다.
+fn full_out_path(out: &str) -> String {
+    let p = Path::new(out);
+    let ext = p.extension().map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "jsonl".into());
+    let stem = p.with_extension("");
+    format!("{}.full.{}", stem.display(), ext)
+}
+
+/// 판정 근거 요약을 만든다(`--simple-why`).
+///
+/// 축약본 4칸으로는 "왜 이 등급인가"를 댈 수 없다. 그렇다고 전체 레코드를 주면
+/// 26배로 커진다. 판정에 실제로 쓰인 것만 추린다 — 전체의 15% 쯤이다.
+/// 레코드 자신의 `labels.security` / `labels.doctype` 갈래를 그대로 따라 **축별로
+/// 묶는다**. 평평하게 늘어놓으면 보안등급의 `conf` 를 업무분류의 값으로 오해한다
+/// (게다가 이 판은 키를 사전순으로 내보내 `dt` 가 `conf` 와 `hits` 사이에 끼었다).
+///   * `security.by`   어느 신호가 등급을 정했는가
+///   * `security.conf` 그 판정의 확신     * `security.hits` 걸린 규칙 id 와 건수
+///   * `doctype`       업무분류 후보의 dc_id·확신과 **판정 경로(`by`)**
+///
+/// `doctype.by` 는 같은 0.91 이라도 뜻이 다르기 때문에 넣는다 —
+/// `rule` 은 "정한 낱말이 제목·머리·파일명 여러 군데서 나왔다", `embed` 는
+/// "이미 분류해 둔 기준 문서와 닮았다". 검토자가 다르게 봐야 하는 값이다.
+///
+/// 매칭된 **원문 값은 넣지 않는다** — 이 도구의 불변식이다(주민번호 12건 검출,
+/// 이지 그 번호 자체는 남기지 않는다). 파이썬 판 `_why_record()` 와 같은 칸이다.
+fn why_record(rec: &Value) -> Value {
+    let mut hits: Vec<Value> = vec![];
+    if let Some(sigs) = rec.get("signals").and_then(|v| v.as_object()) {
+        for (sig, val) in sigs {
+            if val.get("grade").map_or(true, |g| g.is_null()) {
+                continue;
+            }
+            match val.get("hits").and_then(|h| h.as_array()) {
+                Some(list) if !list.is_empty() => {
+                    for h in list {
+                        hits.push(json!({"sig": sig, "id": h.get("id"), "n": h.get("count")}));
+                    }
+                }
+                // path 처럼 '걸린 규칙 목록'이 없는 신호는 출처만 남긴다.
+                _ => hits.push(json!({"sig": sig, "src": val.get("source")})),
+            }
+        }
+    }
+    let mut sec = serde_json::Map::new();
+    sec.insert("by".into(), rec.get("decided_by").cloned().unwrap_or(json!([])));
+    sec.insert("conf".into(), rec.get("confidence").cloned().unwrap_or(json!(0.0)));
+    sec.insert("hits".into(), Value::Array(hits));
+    let mut why = serde_json::Map::new();
+    why.insert("security".into(), Value::Object(sec));
+    if let Some(vals) = rec.get("labels").and_then(|l| l.get("doctype"))
+        .and_then(|d| d.get("values")).and_then(|v| v.as_array()) {
+        let dt: Vec<Value> = vals.iter().filter_map(|v| v.get("dc_id").map(|id| json!({
+            "dc": id,
+            "c": (v.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0) * 100.0).round() / 100.0,
+            // stage 는 이 후보가 규칙 스캔에서 나왔는지 기준 문서 비교에서
+            // 나왔는지 말해 준다 — 같은 숫자라도 뜻이 달라 함께 낸다.
+            "by": v.get("stage").and_then(|s| s.as_str()).unwrap_or_else(|| {
+                let embed = v.get("from").and_then(|f| f.as_array())
+                    .map_or(false, |a| a.iter().any(|x| x.as_str() == Some("embed")));
+                if embed { "embed" } else { "rule" }
+            }),
+        }))).collect();
+        if !dt.is_empty() {
+            why.insert("doctype".into(), Value::Array(dt));
+        }
+    }
+    Value::Object(why)
 }
 
 /// `--out` 파일 이름의 확장자로 출력 형식을 추측한다.
@@ -183,12 +424,22 @@ fn guess_format(out: &Option<String>) -> Option<String> {
     }
 }
 
-/// 정책 파일 경로 결정: 명시 인자 → exe 옆 → CSOCLASSIFY_POLICY_DIR.
+/// 정책 파일 경로 결정: 명시 인자 → CSOCLASSIFY_POLICY_DIR → exe 옆.
 /// 명시 인자는 파일이 없어도 그대로 돌려준다 — "지정했는데 없다"는 조용히
 /// 다른 파일로 대체되면 안 되고, 로더가 그 경로로 실패해 알려 줘야 하기 때문이다.
 fn resolve_policy_file(explicit: &Option<String>, filename: &str) -> Option<PathBuf> {
     if let Some(p) = explicit {
         return Some(PathBuf::from(p));
+    }
+    // 환경변수가 exe 옆보다 먼저다. 환경변수는 관리자가 "이 정책을 써라"고 **직접
+    // 지시한 것**이고, exe 옆 파일은 그냥 거기 있을 뿐이다. 지시가 우선해야 한다.
+    // [2026-09-01 순서 교정] 예전에는 exe 옆이 먼저였다. 파이썬 판은 환경변수가
+    // 먼저였으므로, 두 조건이 함께 성립하면 **두 판이 서로 다른 규칙셋을 읽었다**.
+    // 실측에서 15건 중 11건의 등급이 갈렸다 — 그것도 조용히. 정책이 바뀐 줄
+    // 모르는 채로 등급이 달라지는 것은 거버넌스 도구에서 가장 나쁜 실패다.
+    if let Ok(d) = std::env::var("CSOCLASSIFY_POLICY_DIR") {
+        let p = Path::new(&d).join(filename);
+        if p.is_file() { return Some(p); }
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
@@ -196,14 +447,10 @@ fn resolve_policy_file(explicit: &Option<String>, filename: &str) -> Option<Path
             if p.is_file() { return Some(p); }
         }
     }
-    if let Ok(d) = std::env::var("CSOCLASSIFY_POLICY_DIR") {
-        let p = Path::new(&d).join(filename);
-        if p.is_file() { return Some(p); }
-    }
     None
 }
 
-/// 규칙셋 경로 결정: --rules → exe 옆 → CSOCLASSIFY_POLICY_DIR.
+/// 규칙셋 경로 결정: --rules → CSOCLASSIFY_POLICY_DIR → exe 옆 (파이썬 판과 같은 차례).
 fn resolve_rules(opts: &Opts) -> Option<PathBuf> {
     resolve_policy_file(&opts.rules_path, "cso_rules.yaml")
 }
@@ -266,20 +513,23 @@ fn load_doctype_axis(opts: &Opts) -> Result<Option<(Taxonomy, DocRuleSet)>, i32>
             let shown = other.map(|p| p.display().to_string())
                 .unwrap_or_else(|| axes::default_taxonomy_filename().into());
             if explicit {
-                errlog::err(&format!("[csoclassify-rs] 분류체계 스냅샷을 찾을 수 없습니다: {}", shown));
-                return Err(4);
+                // '파일 없음'은 내용 오류(4)가 아니라 부른 쪽이 고칠 문제(3)다.
+                errcodes::fail("taxonomy_missing",
+                    &format!("[csoclassify-rs] 분류체계 스냅샷을 찾을 수 없습니다: {}", shown),
+                    Some(&shown));
             }
-            eprintln!("[csoclassify-rs] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.");
-            eprintln!("                 보안등급(security)만 판정합니다.");
+            note!("[csoclassify-rs] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.");
+            note!("                 보안등급(security)만 판정합니다.");
             return Ok(None);
         }
     };
     let taxonomy = match axes::load_taxonomy(&tpath) {
         Ok(t) => t,
-        Err(e) => { errlog::err(&format!("[csoclassify-rs] {}", e)); return Err(4); }
+        Err(e) => errcodes::fail("taxonomy_invalid",
+            &format!("[csoclassify-rs] {}", e), tpath.to_str()),
     };
     if let Some(msg) = check_stale_taxonomy(&taxonomy, 90) {
-        eprintln!("{}", msg);
+        note!("{}", msg);
     }
 
     // ── 업무분류 규칙셋(규칙). taxonomy 를 넘겨 T5·T6·T12 교차검증까지 함께.
@@ -298,18 +548,19 @@ fn load_doctype_axis(opts: &Opts) -> Result<Option<(Taxonomy, DocRuleSet)>, i32>
                 None => format!("찾아본 곳: exe 옆 · CSOCLASSIFY_POLICY_DIR ({})",
                                 doc_rules::default_doc_rule_filename()),
             };
-            eprintln!("[csoclassify-rs] doc_rule.yaml 이 없어 업무분류(doctype)를 'seed 전파 전용'으로 돌립니다.");
-            eprintln!("                 규칙 대신 class_seed.jsonl 과의 임베딩 유사도로만 분류합니다(seed 도 없으면 전부 미분류).");
-            eprintln!("                 {}", where_);
+            note!("[csoclassify-rs] doc_rule.yaml 이 없어 업무분류(doctype)를 'seed 전파 전용'으로 돌립니다.");
+            note!("                 규칙 대신 class_seed.jsonl 과의 임베딩 유사도로만 분류합니다(seed 도 없으면 전부 미분류).");
+            note!("                 {}", where_);
             return Ok(Some((taxonomy, DocRuleSet::seed_only())));
         }
     };
     let drs = match doc_rules::load_doc_rules(&rpath, Some(&taxonomy)) {
         Ok(d) => d,
-        Err(e) => { errlog::err(&format!("[csoclassify-rs] {}", e)); return Err(4); }
+        Err(e) => errcodes::fail("doc_rules_invalid",
+            &format!("[csoclassify-rs] {}", e), rpath.to_str()),
     };
     for w in &drs.warnings {
-        eprintln!("[csoclassify-rs] {}", w);
+        note!("[csoclassify-rs] {}", w);
     }
     Ok(Some((taxonomy, drs)))
 }
@@ -323,19 +574,80 @@ fn load_doctype_axis(opts: &Opts) -> Result<Option<(Taxonomy, DocRuleSet)>, i32>
 ///  2) --scaffold-doc-rule 이면 doc_rule.yaml 골격도 --doc-rules 경로에 생성
 ///
 /// -out: 종료코드(0 성공 / 3 원본을 못 찾거나 못 읽음 / 4 변환 결과가 검증 실패)
+/// 업무분류 규칙 채우기(--sync-doc-rule) — 화면 [분류 불러오기] 와 같은 일.
+/// 분류 체계를 훑어 doc_rule.yaml 에 규칙을 채운다. 어휘를 만드는 층(docvocab)은
+/// Python 판과 골든 테스트로 묶여 있어, 화면과 같은 결과가 나온다.
+fn run_sync_doc_rule(opts: &Opts) -> i32 {
+    // 경로 규약은 다른 모드와 같다 — --taxonomy 우선, 없으면 정책 폴더/exe 옆.
+    let tax_path = match resolve_policy_file(&opts.taxonomy, axes::default_taxonomy_filename()) {
+        Some(p) => p,
+        None => {
+            errcodes::fail("taxonomy_missing",
+                "[csoclassify-rs] 회사 분류 체계를 찾을 수 없습니다 — --taxonomy <파일경로> 로 지정하세요.",
+                None);
+        }
+    };
+    if !tax_path.is_file() {
+        errcodes::fail("taxonomy_missing",
+            &format!("[csoclassify-rs] 회사 분류 체계를 찾을 수 없습니다: {}\n\
+                      --taxonomy 로 지정하거나 --export-taxonomy 로 먼저 만드세요.",
+                     tax_path.display()),
+            tax_path.to_str());
+    }
+    let taxonomy = match axes::load_taxonomy(&tax_path) {
+        Ok(t) => t,
+        // 파일은 있는데 못 읽는다 = 내용 문제다(없음과 구분해 4 로 나간다).
+        Err(e) => errcodes::fail("taxonomy_invalid",
+            &format!("[csoclassify-rs] 분류 체계를 읽지 못했습니다: {}", e), tax_path.to_str()),
+    };
+    let out_path = match resolve_policy_file(&opts.doc_rules,
+                                             doc_rules::default_doc_rule_filename()) {
+        Some(p) => p,
+        None => {
+            errcodes::fail("doc_rules_write_failed",
+                "[csoclassify-rs] 규칙 파일 경로를 정할 수 없습니다 — --doc-rules <파일경로> 로 지정하세요.",
+                None);
+        }
+    };
+
+    match docvocab::sync_doc_rule(&taxonomy, &out_path, opts.sync_fill_blank, opts.sync_enrich) {
+        Err(e) => errcodes::fail("doc_rules_write_failed",
+            &format!("[csoclassify-rs] {}", e), out_path.to_str()),
+        Ok((0, 0, 0, _)) => {
+            note!("[csoclassify-rs] 바뀐 것이 없습니다 — 규칙 파일은 그대로 둡니다: {}",
+                      out_path.display());
+            0
+        }
+        Ok((added, filled, enriched, layers)) => {
+            let names: Vec<String> = layers.iter()
+                .map(|p| std::path::Path::new(p).file_name()
+                         .map(|s| s.to_string_lossy().into_owned()).unwrap_or_default())
+                .collect();
+            note!("[csoclassify-rs] {} 갱신 — 새 분류 {}개 · 빈 규칙 채움 {}개 · 유의어 더함 {}개{}",
+                      out_path.display(), added, filled, enriched,
+                      if names.is_empty() { " (유의어 사전 없음)".to_string() }
+                      else { format!(" (유의어 사전: {})", names.join(" → ")) });
+            0
+        }
+    }
+}
+
 fn run_export_taxonomy(opts: &Opts) -> i32 {
-    // 두 경로 모두 다른 정책 파일과 같은 규약으로 찾는다(인자 → exe 옆 → 환경변수).
+    // 두 경로 모두 다른 정책 파일과 같은 규약으로 찾는다(인자 → 환경변수 → exe 옆).
     // 단 출력 경로는 '아직 없는 파일'을 만드는 자리라 is_file() 로 거르면 안 된다.
     let input = match resolve_policy_file(&opts.export_input, axes::default_export_input_filename()) {
         Some(p) if p.is_file() => p,
         other => {
             let shown = other.map(|p| p.display().to_string())
                 .unwrap_or_else(|| axes::default_export_input_filename().into());
-            errlog::err(&format!("[csoclassify-rs] 원본 JSON을 찾을 수 없습니다: {}", shown));
-            eprintln!("  · --export-input <파일경로> 로 지정하거나,");
-            eprintln!("  · exe 옆(또는 CSOCLASSIFY_POLICY_DIR)에 {} 를 두세요.",
-                      axes::default_export_input_filename());
-            return 3;
+            if !errcodes::quiet() {
+                note!("  · --export-input <파일경로> 로 지정하거나,");
+                note!("  · exe 옆(또는 CSOCLASSIFY_POLICY_DIR)에 {} 를 두세요.",
+                          axes::default_export_input_filename());
+            }
+            errcodes::fail("export_input_missing",
+                &format!("[csoclassify-rs] 원본 JSON을 찾을 수 없습니다: {}", shown),
+                Some(&shown));
         }
     };
     let output = match &opts.taxonomy {
@@ -346,15 +658,16 @@ fn run_export_taxonomy(opts: &Opts) -> i32 {
 
     let (taxonomy, warnings) = match axes::export_from_mpower_json(&input, &output) {
         Ok(v) => v,
-        Err(msg) => {
-            eprintln!("[csoclassify-rs] {}", msg);
-            // 검증 실패는 '내용이 틀림'(4), 나머지는 '입력을 못 씀'(3)으로 나눈다.
-            return if msg.contains("검증을 통과하지 못했습니다") { 4 } else { 3 };
-        }
+        // 여기까지 왔다는 것은 원본 파일이 있다는 뜻이다(없으면 위에서 끝난다).
+        // 그러니 남은 실패는 전부 '내용이 틀림'(2008) 이다 — 파일 없음(2007)과
+        // 갈라 두면 부르는 쪽이 "경로를 다시 묻는다 / 원본 데이터를 고친다"를
+        // 구분할 수 있다.
+        Err(msg) => errcodes::fail("export_input_invalid",
+            &format!("[csoclassify-rs] {}", msg), input.to_str()),
     };
 
     for w in &warnings {
-        eprintln!("[csoclassify-rs] 경고: {}", w);
+        note!("[csoclassify-rs] 경고: {}", w);
     }
     println!("[csoclassify-rs] {} 생성 완료 — 노드 {}개, 최상위 {}개, exported_at={}",
              output.display(), taxonomy.len(), taxonomy.roots().len(), taxonomy.exported_at);
@@ -375,11 +688,11 @@ fn run_export_taxonomy(opts: &Opts) -> i32 {
         match doc_rules::write_scaffold(&taxonomy, &rpath, false) {
             Ok(Some(n)) => println!("[csoclassify-rs] {} 골격 생성 완료 — 규칙 {}건\
 (terms 는 비어 있음, 채워야 동작).", rpath.display(), n),
-            Ok(None) => eprintln!("[csoclassify-rs] {} 이 이미 있어 골격 생성을 건너뜁니다\
+            Ok(None) => note!("[csoclassify-rs] {} 이 이미 있어 골격 생성을 건너뜁니다\
 (사람이 채운 내용을 덮어쓰지 않기 위함).", rpath.display()),
             Err(msg) => {
-                errlog::err(&format!("[csoclassify-rs] 골격 생성 실패: {}", msg));
-                return 3;
+                errcodes::fail("doc_rules_write_failed",
+                    &format!("[csoclassify-rs] 골격 생성 실패: {}", msg), rpath.to_str());
             }
         }
     }
@@ -462,10 +775,61 @@ fn doctype_breakdown(sig: &doctype::DoctypeSignal) -> Vec<(String, String)> {
     }).collect()
 }
 
-/// 대상 파일 수집: --file 하나, --dir 재귀.
+/// `--files-from` 목록을 읽어 대상 경로로 바꾼다("-" 이면 표준입력).
+///
+/// 여러 폴더에 흩어진 문서를 **한 프로세스**로 처리하려고 만든 입력 방식이다.
+/// `--dir` 은 폴더 하나 아래만 훑을 수 있어서, 경로가 흩어져 있으면 파일마다
+/// 프로세스를 새로 띄우게 되고 그때마다 ONNX 모델을 다시 읽어 느려진다.
+/// 목록을 통째로 받으면 모델을 한 번만 읽고 전부 처리한다.
+/// 규칙은 Python 판 `read_files_from()` 과 같다 — 빈 줄·`#` 주석 무시, 감싼
+/// 따옴표 제거, 실제 파일만, 중복은 첫 것만(입력 순서 보존).
+fn read_files_from(src: &str) -> Vec<PathBuf> {
+    let raw = if src == "-" {
+        let mut buf = String::new();
+        use std::io::Read;
+        // 표준입력을 못 읽으면 대상 0건이 된다 — 아래 '처리할 파일이 없습니다'가 받는다.
+        let _ = std::io::stdin().read_to_string(&mut buf);
+        buf
+    } else {
+        std::fs::read_to_string(src).unwrap_or_default()
+    };
+    // 메모장이 붙이는 BOM 을 떼어 낸다(안 떼면 첫 경로가 통째로 어긋난다).
+    let raw = raw.trim_start_matches('\u{feff}');
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut skipped = 0usize;
+    for line in raw.lines() {
+        // 공백이 든 경로를 따옴표로 감싼 목록(dir /b 결과 등)도 받아 준다.
+        let path = line.trim().trim_matches('"');
+        if path.is_empty() || path.starts_with('#') { continue; }
+        let p = PathBuf::from(path);
+        // 같은 문서를 두 번 임베딩하지 않도록 여기서 미리 중복을 접는다.
+        // 존재하는 경로는 canonicalize 로, 없는 경로는 문자열로 비교한다.
+        let key = std::fs::canonicalize(&p)
+            .map(|q| q.to_string_lossy().to_lowercase())
+            .unwrap_or_else(|_| path.to_lowercase());
+        if !seen.insert(key) { continue; }
+        if p.is_file() { files.push(p); } else { skipped += 1; }
+    }
+    // 조용히 버리면 "왜 결과 건수가 모자라지?" 로 이어진다 — 건수만이라도 남긴다.
+    if skipped > 0 {
+        note!("[csoclassify-rs] --files-from: 파일이 아니어서 건너뜀 {}건", skipped);
+    }
+    files
+}
+
+/// 대상 파일 수집: --files-from 목록, --file 하나, --dir 재귀.
 fn collect_files(opts: &Opts) -> Vec<PathBuf> {
+    // 목록 입력이 있으면 그것이 대상이다(--file/--dir 과의 동시 사용은 호출부에서 막는다).
+    if let Some(lst) = &opts.files_from {
+        return read_files_from(lst);
+    }
     if let Some(f) = &opts.file {
-        return vec![PathBuf::from(f)];
+        // 실제 파일일 때만 대상으로 삼는다(파이썬 판과 같은 규칙). 없는 경로·폴더를
+        // 그대로 넘기면 '추출 실패' 레코드가 만들어져 결과처럼 나간다.
+        let p = PathBuf::from(f);
+        return if p.is_file() { vec![p] } else { vec![] };
     }
     if let Some(d) = &opts.dir {
         // --glob 패턴(콤마·중괄호로 여러 개)을 펼쳐 파일 '이름'에 맞춰 거른다.
@@ -598,6 +962,9 @@ fn file_hash(path: &Path) -> Option<String> {
     Some(format!("{:x}", h.finalize()))
 }
 
+// -----------------------------------------------------------------
+// 메인함수
+// -----------------------------------------------------------------
 fn main() {
     // 예상 못 한 내부 오류(패닉)도 파일에 남긴다 — 화면이 없는 환경(UI·배치)에서
     // 죽으면 원인을 알 방법이 사라진다. 가장 먼저 건다.
@@ -613,40 +980,72 @@ fn main() {
         match embed::Embedder::load() {
             Some(mut e) => match e.embed_document(&text) {
                 Some(v) => println!("{}", serde_json::to_string(&v).unwrap()),
-                None => errlog::fail("embed 실패(빈 텍스트?)", 1),
+                None => errcodes::fail("embed_failed",
+                    "[csoclassify-rs] embed 실패(빈 텍스트?)", None),
             },
-            None => errlog::fail("모델/런타임 로드 실패(models/e5-small-ko, onnxruntime.dll 확인)", 1),
+            None => errcodes::fail("model_load_failed",
+                &format!("[csoclassify-rs] 모델/런타임 로드 실패({}/{}, onnxruntime.dll 확인)",
+                         embed::MODEL_ROOT, embed::MODEL_NAME),
+                None),
         }
         return;
     }
 
-    let opts = match parse_args() { Ok(o) => o, Err(e) => errlog::fail(&e, 2) };
+    // 인자 해석이 실패해도 JSON 으로 알려야 하므로, 파싱 전에 날것의 argv 를 훑는다.
+    errcodes::enable_json(errcodes::wants_json(std::env::args()));
+    
+    // [2026-09-01] 예전에는 인자 오류를 2(임베딩 실패)로 냈다. 받는 쪽이 그 2 를 보고
+    // "모델이 없구나" 하고 재설치를 안내하면 실제 원인(경로 오타)과 전혀 다른 대응을
+    // 하게 된다. 파이썬 판·실행가이드와 같은 3 으로 맞춘다.
+    let opts = match parse_args() {
+        Ok(o) => o,
+        Err(e) => errcodes::fail("bad_args", &format!("[csoclassify-rs] {}", e), None),
+    };
     let t0 = Instant::now();
 
     // 분류체계 내보내기 전용 모드 — 문서도 규칙셋도 필요 없다. 규칙셋을 먼저 읽는
     // 아래 흐름을 타면 "cso_rules.yaml 이 없다"고 엉뚱한 곳에서 멈추고, 만들려던
     // doc_taxonomy.yaml 이 아직 없다는 이유로 축 로드에서 또 걸린다 — 그래서 여기서 끝낸다.
     if opts.export_taxonomy {
-        std::process::exit(run_export_taxonomy(&opts));
+        std::process::exit(errcodes::finish(run_export_taxonomy(&opts), None));
+    }
+
+    // 업무분류 규칙 채우기 전용 모드 — 분류 체계와 규칙 파일만 있으면 된다.
+    // 화면의 [분류 불러오기] 버튼이 부르는 것이 이 길이다(문서도 모델도 안 읽는다).
+    if opts.sync_doc_rule {
+        std::process::exit(errcodes::finish(run_sync_doc_rule(&opts), None));
     }
 
     // 전파 전용 모드 — 입력이 1차 '레코드 파일'이라 문서도 규칙셋도 모델도 필요 없다.
     // 규칙셋을 먼저 읽는 아래 흐름을 타면 cso_rules.yaml 이 없다는 이유로 엉뚱하게
     // 멈추므로, 규칙셋 로드 전에 끝낸다(파이썬 cli.py 의 (1.5) 와 같은 자리).
     if opts.propagate.is_some() {
-        std::process::exit(run_propagate(&opts));
+        std::process::exit(errcodes::finish(run_propagate(&opts),
+                                            opts.propagate.as_deref()));
     }
 
     let rules_path = match resolve_rules(&opts) {
         Some(p) => p,
-        None => errlog::fail("[csoclassify-rs] 규칙셋(cso_rules.yaml)을 찾을 수 없습니다. --rules 로 지정하세요.", 2),
+        None => errcodes::fail("rules_missing",
+            "[csoclassify-rs] 규칙셋(cso_rules.yaml)을 찾을 수 없습니다. --rules 로 지정하세요.",
+            opts.rules_path.as_deref()),
     };
+    if !rules_path.is_file() {
+        errcodes::fail("rules_missing",
+            &format!("[csoclassify-rs] 규칙셋(cso_rules.yaml)을 찾을 수 없습니다: {}",
+                     rules_path.display()),
+            rules_path.to_str());
+    }
     let rs: RuleSet = match load_rules(&rules_path) {
         Ok(rs) => rs,
         // 파일은 있는데 등급 값이 틀린 경우만 코드 4 로 나눠, 배치가 "파일 없음"과
         // "내용 오류"에 다르게 대응할 수 있게 한다(Python 판 EXIT_RULES_INVALID 와 동일).
-        Err(rules::RulesError::Invalid(msg)) => errlog::fail(&format!("[csoclassify-rs] {}", msg), 4),
-        Err(e) => errlog::fail(&format!("[csoclassify-rs] {}", e), 2),
+        // 파일은 있는데 등급 값이 틀린 경우도, 읽다가 깨진 경우도 '내용 문제'(4)다.
+        // 파일이 아예 없는 경우(3)와 갈라 두면 배치가 대응을 나눌 수 있다.
+        Err(rules::RulesError::Invalid(msg)) => errcodes::fail("rules_invalid",
+            &format!("[csoclassify-rs] {}", msg), rules_path.to_str()),
+        Err(e) => errcodes::fail("rules_invalid",
+            &format!("[csoclassify-rs] {}", e), rules_path.to_str()),
     };
 
     // 업무분류(doctype) 축 — 있으면 켜고 없으면 security 만(4-6). --axis doctype 이면 필수.
@@ -657,9 +1056,23 @@ fn main() {
 
     let doctype_strategy_override = apply_conflict_override(&opts, &mut dt_axis);
 
+    // --doctype-vector-only : 업무분류 1차(규칙 스캔)를 통째로 건너뛴다. 규칙 '목록'만
+    // 비우고 embed 임계값·conflict 전략·defaults 는 파일에 적힌 그대로 둔다 —
+    // 빈 규칙셋(DocRuleSet::empty)으로 갈아치우면 관리자가 정해 둔 임계값까지 기본값으로
+    // 되돌아가 조용히 무시된다. 1차가 빈손이 되면 그 뒤는 'doc_rule.yaml 이 없는 배포'와
+    // 똑같은 길을 타므로(2차 전파가 라벨을 채운다) 새 분기를 만들 필요가 없다.
+    if opts.doctype_vector_only {
+        if let Some((_, drs)) = dt_axis.as_mut() {
+            drs.rules.clear();
+            note!("[csoclassify-rs] 업무분류: 규칙을 쓰지 않고 기준 문서(class_seed) 비교로만 분류합니다(--doctype-vector-only).");
+        }
+    }
+
     // 규칙셋 검사 모드: 여기까지 왔다는 것은 검증을 통과했다는 뜻 → 요약만 알리고 종료.
     // 문서·모델이 필요 없으므로 파일 수집 전에 끝낸다.
     if opts.check_rules {
+        // 검사만 하는 모드도 끝을 알린다 — 부르는 쪽이 한 가지 방법으로만 읽게.
+        let _guard = ();
         println!("[csoclassify-rs] 규칙셋 정상: {}", rules_path.display());
         println!("  version={}  등급={}", rs.version, rules::GRADES.join("/"));
         println!("  regex_pii={} · pii_combos={} · keywords={} · sensitive={} · stamps={} · paths={}",
@@ -695,9 +1108,39 @@ fn main() {
         return;
     }
 
+    // 목록과 --file/--dir 을 같이 주면 어느 쪽이 진짜 대상인지 알 수 없다 —
+    // 조용히 하나를 고르면 '왜 저 파일이 빠졌지?' 로 이어지므로 그 자리에서 막는다.
+    if opts.files_from.is_some() && (opts.file.is_some() || opts.dir.is_some()) {
+        errcodes::fail("bad_args",
+            "[csoclassify-rs] --files-from 은 --file/--dir 과 함께 쓸 수 없습니다.", None);
+    }
+
     let files = collect_files(&opts);
     if files.is_empty() {
-        errlog::fail("[csoclassify-rs] 처리할 파일이 없습니다. --file 또는 --dir 지정.", 2);
+        // 부르는 쪽의 대응이 다르므로 두 상황을 갈라 준다.
+        //   · 대상을 아예 안 줌(1002) → 명령 자체를 고쳐야 한다
+        //   · 줬는데 0건(1001)        → 사용자에게 폴더를 다시 물으면 된다
+        match opts.file.as_deref().or(opts.dir.as_deref()).or(opts.files_from.as_deref()) {
+            None => errcodes::fail("no_target_arg",
+                "[csoclassify-rs] 처리할 파일이 없습니다. --file · --dir · --files-from 중 하나 지정.", None),
+            Some(t) => {
+                // 왜 0건인지를 상황에 맞게 말해 준다 — "없다"만으로는 무엇을
+                // 고칠지 모른다.
+                let why = if opts.file.is_some() {
+                    if Path::new(t).is_dir() {
+                        "폴더입니다 — 폴더는 --dir 로 지정하세요.".to_string()
+                    } else {
+                        "그런 파일이 없습니다.".to_string()
+                    }
+                } else {
+                    format!("폴더가 없거나, --glob 패턴({})에 맞는 파일이 없습니다.",
+                            opts.glob.as_deref().unwrap_or("*"))
+                };
+                errcodes::fail("no_input",
+                    &format!("[csoclassify-rs] 처리할 파일이 없습니다: {}\n{}", t, why),
+                    Some(t))
+            }
+        }
     }
 
     // 분류 모드 결정(ko-pii cli.py) — 배타: 벡터만 / 규칙만 / 기본(규칙+자동전파).
@@ -706,7 +1149,9 @@ fn main() {
     let mut auto_prop = opts.auto_propagate;
     let (mut rules_enabled, embed_mode): (bool, &str) = if opts.vector_only {
         if !seed_exists {
-            errlog::fail("[csoclassify-rs] --vector-only 는 비교 기준 seed 파일이 필요합니다: --seeds <class_seed.jsonl>(또는 exe 옆)", 3);
+            errcodes::fail("seeds_missing",
+                "[csoclassify-rs] --vector-only 는 비교 기준 seed 파일이 필요합니다: --seeds <class_seed.jsonl>(또는 exe 옆)",
+                opts.seeds.as_deref());
         }
         auto_prop = true;
         (false, "all")
@@ -716,11 +1161,20 @@ fn main() {
     } else {
         // 기본: seed 가 있으면 자동 전파 on(명시 --auto-propagate 없이도).
         if !auto_prop && seed_exists { auto_prop = true; }
-        // 임베딩 범위: --with-vector 는 '전량'(레코드에 벡터를 실어야 하므로 확정 문서도
-        // 빠뜨리면 안 된다) > 전파용 'needed'(못 정한 문서만) > 'none'.
+        // 임베딩 범위: --embed-needed(명시) > --with-vector 는 '전량'(레코드에 벡터를
+        // 실어야 하므로 확정 문서도 빠뜨리면 안 된다) > 전파용 'needed'(못 정한 문서만) > 'none'.
         // 전파가 켜져 있어도 --with-vector 면 all 이 이긴다 — needed 로 내리면 등급이
         // 이미 확정된 문서에 벡터가 안 실려 "전량 벡터"라는 약속이 깨진다(cli.py 와 동일).
-        let m = if opts.with_vector { "all" } else if auto_prop { "needed" } else { "none" };
+        //
+        // [2026-09-02] --embed-needed 를 맨 앞에 둔다. 예전에는 이 인자를 Opts 에 받아만
+        // 두고 아무도 읽지 않아, seed 파일이 없으면 'none' 으로 떨어져 **인자가 통째로
+        // 무시**됐다(파이썬은 cli.py 의 `if args.embed_needed` 로 언제나 needed 다).
+        // 부르는 쪽이 "못 정한 문서만 임베딩하라"고 명시했는데 조용히 아무것도 안 하면,
+        // --serve 를 무시하던 것과 같은 종류의 함정이 된다.
+        let m = if opts.embed_needed { "needed" }
+                else if opts.with_vector { "all" }
+                else if auto_prop { "needed" }
+                else { "none" };
         (true, m)
     };
 
@@ -749,19 +1203,61 @@ fn main() {
             None
         };
         if let Some(why) = why {
-            eprintln!("[csoclassify-rs] 업무분류: 규칙(doc_rule.yaml)도 없고 {} 전파도 못 합니다 \
+            note!("[csoclassify-rs] 업무분류: 규칙(doc_rule.yaml)도 없고 {} 전파도 못 합니다 \
 — 전부 미분류로 두니 관리자가 분류한 뒤 seed 로 승격하세요.", why);
         }
     }
 
+    // 모델·런타임 배포 점검(값싼 확인) — 세션은 만들지 않고 파일 존재만 본다.
+    //
+    // [2026-09-02] 임베딩 모델을 '필요할 때만' 올리게 되면서, 규칙만으로 끝나는 배치는
+    // 모델을 전혀 건드리지 않는다. 그러면 onnxruntime.dll·models/ 가 빠진 배포가
+    // 조용히 성공하고, 한참 뒤 미분류가 나오는 배치를 만나서야 드러난다 —
+    // "그때는 되고 지금은 안 되네" 는 거버넌스 도구에서 가장 나쁜 실패다.
+    // 이 판은 --status 도 인자만 받고 무시하므로, 배포 이상을 알릴 자리가 여기밖에 없다.
+    //
+    // 점검 결과를 '알리고 끝'이 아니라 뒤에서 실제로 쓴다. onnxruntime 을 못 찾으면
+    // ort 는 PATH 에 있는 아무 onnxruntime.dll 이나 집어 들고, 버전이 다르면 Err 가
+    // 아니라 **패닉**으로 죽는다(실측: "expected 1.22.x, but got 1.17.1", 종료코드 101).
+    // Embedder::load() 가 None 을 준다는 전제가 거기서 깨지므로, 확인이 실패했으면
+    // 아예 부르지 않는다 — 결과 파일도 못 내고 죽는 것보다 '전파만 못 한' 결과가 낫다.
+    let deploy_ok = if embed_mode != "none" {
+        match embed::check_deployment() {
+            Ok(()) => true,
+            Err(why) => {
+                errlog::err(&format!(
+                    "[csoclassify-rs] 임베딩 모델/런타임 확인 실패 — {} \
+→ 임베딩·전파를 건너뜁니다(규칙으로 정해진 등급은 그대로 나갑니다)", why));
+                false
+            }
+        }
+    } else {
+        false   // 임베딩을 안 하는 모드에서는 이 값이 쓰이지 않는다.
+    };
+
     let need_hash = opts.hash || opts.simple;
     let mut fail = 0u32;
+    // 본문에 쓸 만한 글자가 이보다 적으면 '읽을 글자가 없었다'로 본다(파이썬 판
+    // config.MIN_TEXT_LEN 과 같은 값·같은 뜻). 스캔본(이미지) PDF 는 추출기가
+    // 실패를 알리지 않고 장식기호 몇 개를 돌려주므로, 길이로 가리지 않으면
+    // '미분류'(=읽었는데 신호 없음)와 구분되지 않는다.
+    let min_text_len: usize = std::env::var("CSOCLASSIFY_MIN_TEXT_LEN")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(20);
 
     // 1차: 추출 + (규칙) 분류 → 아이템 수집(전파 위해 text/seed_eligible/vector 보관).
     struct Item { rec: Value, grade: Option<Grade>, text: String, seed_eligible: bool,
                   vector: Option<Vec<f32>>, file: String, dt: Option<doctype::DoctypeSignal> }
     let mut items: Vec<Item> = vec![];
-    for path in &files {
+    // 화면(UI)이 진행바를 그리려면 '몇 개 중 몇 개째'를 알아야 한다. 첫 줄은 0/N 으로
+    // 내보낸다 — 규칙셋·분류체계를 읽고 대상을 훑는 준비 단계가 있어, 첫 파일이 끝나기
+    // 전까지 화면이 멈춘 것처럼 보이지 않게 하려는 것이다(Python cli.py 와 같은 형식·차례).
+    // ※ 임베딩 모델은 여기가 아니라 아래 2차 단계에서, 그것도 필요할 때만 올린다.
+    //    예전 주석은 "모델 로딩 때문에 첫 파일이 오래 걸려"라고 적혀 있었는데, 로딩은
+    //    이 루프가 '끝난 뒤'라 사실과 달랐다.
+    if opts.progress {
+        eprintln!("[progress] 0/{} ", files.len());
+    }
+    for (done, path) in files.iter().enumerate() {
         let fmt = detect::detect_format(path);
         let display = path.to_string_lossy().replace('\\', "/");
         let text = match extract::extract_text(path, fmt) {
@@ -802,11 +1298,34 @@ fn main() {
                 "signals": {}, "rule_version": rs.version, "ts": Value::Null
             }), None)
         };
+        // 본문을 사실상 못 읽었으면 표식을 단다(분류 결과 자체는 건드리지 않는다 —
+        // 파일명·경로 신호는 본문과 무관하고, 몇 글자라도 규칙에 걸렸으면 그 등급이
+        // 맞다). 다만 아무것도 못 정했다면 method 를 'unclassified' 로 두지 않는다.
+        // 그 말은 "봤는데 없더라"라는 뜻이라 사실과 다르다.
+        let body_chars = text.chars().filter(|c| !c.is_whitespace()).count();
+        if body_chars < min_text_len {
+            fail += 1;
+            errlog::err(&format!("[본문없음] {} ({}자) — 스캔본(이미지)일 수 있습니다",
+                                 path.display(), body_chars));
+            rec["error"] = json!({
+                "stage": "extract", "detected": fmt.as_str(), "text_len": body_chars,
+                "reason": "본문 텍스트가 거의 없습니다 — 스캔본(이미지)이거나 빈 문서일 수 \
+                           있습니다. OCR 이나 사람 확인이 필요합니다."
+            });
+            if rec["grade"].is_null()
+                && rec["method"].as_str().map_or(true, |m| m == "unclassified") {
+                rec["method"] = json!("extract_failed");
+            }
+        }
         if need_hash { rec["hash"] = json!(file_hash(path)); }
         if opts.with_pii { rec["pii"] = json!(rules::collect_pii(&text, &rs)); }
         // 업무분류 축은 security 모드(rule-only/vector-only)와 무관하게 독립적으로 돈다(6-4).
         let dt = dt_axis.as_ref().map(|(taxonomy, drs)| doctype::scan_doctype(&text, &display, drs, taxonomy));
         let seed_elig = rec.get("seed_eligible").and_then(|b| b.as_bool()).unwrap_or(false);
+        if opts.progress {
+            // 형식은 Python 판과 같아야 한다 — 화면이 같은 규칙으로 읽는다.
+            eprintln!("[progress] {}/{} {}", done + 1, files.len(), path.display());
+        }
         items.push(Item { rec, grade, text, seed_eligible: seed_elig, vector: None, file: display, dt });
     }
 
@@ -814,7 +1333,36 @@ fn main() {
     //   임베딩 자체는 전파와 분리해서 돌린다 — --with-vector 는 전파를 안 하더라도
     //   레코드에 벡터를 실어야 하므로, 전파 조건에 묶어 두면 벡터가 통째로 비게 된다.
     let mut prop_stats: Option<(usize, u32, u32)> = None;
-    if embed_mode != "none" {
+    // 모델을 올릴 필요가 '한 건이라도' 있는가 — 세션을 만들기 전에 먼저 답한다.
+    //
+    // [2026-09-02] 예전에는 embed_mode 만 보고 무조건 Embedder::load() 했다. 전 문서가
+    // 1차 규칙에서 확정된 배치에서는 model.onnx(118MB)+tokenizer.json(17MB)을 읽고
+    // ORT 세션까지 구성한 뒤, 아래 루프에서 need 가 전부 false 라 **한 건도 임베딩하지
+    // 않고** 끝났다. 이 판에는 상주 데몬이 없어 그 비용을 프로세스마다 새로 낸다
+    // (실측 건당 약 1.4초, Rust/README.md 성능표). 그래서 아래 need 와 같은 판정을
+    // 배치 전체에 대해 미리 한 번 돌려, 필요 없으면 모델을 아예 읽지 않는다.
+    //
+    // seed_eligible 은 '벡터가 쓰이는 곳이 있느냐'에 따라 갈린다 — 두 경우를 나눠 본다.
+    //   · 전파용으로만 쓸 때: 내부 seed 인덱스(SeedIndex::from_records)는 security 전파
+    //     루프에서만 쓰이는데 그 루프는 '보류 문서만' 돈다. 보류가 0건이면 seed_eligible
+    //     문서의 벡터는 만들어 놓고 아무도 쓰지 않는다 → has_undecided 가 흡수한다.
+    //   · --embed-needed 로 부를 때: 그 벡터가 '결과 레코드에 실려 나가는 산출물'이 된다.
+    //     seed_eligible 문서는 seed 승격 후보이고, 이 인자의 존재 이유가 바로
+    //     "보류거나 seed_eligible 인 문서만 임베딩"(설계서 §185)이다. 여기서 빼면
+    //     규칙으로 등급이 확정된 승격 후보의 벡터가 통째로 안 나가, 인자가 무의미해진다.
+    //     (파이썬 cli.py 의 need_vec 도 seed_eligible 을 조건에 포함한다.)
+    let has_undecided = items.iter().any(|it| it.grade.is_none());
+    let dt_undecided_any = items.iter()
+        .any(|it| it.dt.as_ref().map_or(false, |s| s.values.is_empty()));
+    let seed_elig_any = items.iter().any(|it| it.seed_eligible);
+    let need_any = embed_mode == "all" || has_undecided || dt_undecided_any
+        || (opts.embed_needed && seed_elig_any);
+    if embed_mode != "none" && !need_any {
+        // 조용히 넘어가면 "임베딩이 안 돌았다"와 "임베딩이 필요 없었다"가 구분되지 않는다.
+        // 뒤에 붙던 [전파] 요약줄도 이 경우엔 안 나가므로, 그 자리를 이 줄이 대신한다.
+        note!("[csoclassify-rs] 임베딩 불필요(전 문서 규칙 확정) → 모델 로드 생략");
+    }
+    if embed_mode != "none" && need_any && deploy_ok {
         match embed::Embedder::load() {
             Some(mut embedder) => {
                 // 임베딩 대상: all=전량, needed=아직 못 정한 축이 하나라도 있을 때.
@@ -867,7 +1415,7 @@ fn main() {
                     // 스위치가 꺼져 있으면 조용히 넘어가지 말고 이유를 남긴다 —
                     // 그러지 않으면 "왜 벡터가 안 도는지"를 아무도 못 찾는다.
                     if dt_seeds.size() > 0 && !drs.embed.enabled {
-                        eprintln!("[전파][업무분류] seed {}건이 있으나 doc_rule.yaml 의 \
+                        note!("[전파][업무분류] seed {}건이 있으나 doc_rule.yaml 의 \
 embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
                     } else if dt_seeds.size() > 0 {
                         let dt_params = propagate::DoctypeParams {
@@ -893,14 +1441,16 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
                             }
                             it.dt = Some(merged);
                         }
-                        eprintln!("[전파][업무분류] seed={} embed기여={}", dt_seeds.size(), contributed);
+                        note!("[전파][업무분류] seed={} embed기여={}", dt_seeds.size(), contributed);
                     }
                     // seed 가 없는 경우의 안내는 위(모드 결정 직후)에서 이미 냈다 — 그쪽은
                     // auto_prop 이 아예 꺼진 경우까지 잡아 주므로 여기서 또 내지 않는다.
                 }
                 } // if auto_prop
             }
-            None => errlog::err("[csoclassify-rs] 임베딩 모델/런타임 로드 실패 → 임베딩·전파 생략(models/e5-small-ko, onnxruntime.dll 확인)."),
+            None => errlog::err(&format!(
+                "[csoclassify-rs] 임베딩 모델/런타임 로드 실패 → 임베딩·전파 생략({}/{}, onnxruntime.dll 확인).",
+                embed::MODEL_ROOT, embed::MODEL_NAME)),
         }
     }
 
@@ -913,6 +1463,8 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
     let mut dt_root_totals: std::collections::BTreeMap<String, u32> = Default::default();
     let mut dt_node_totals: std::collections::BTreeMap<(String, String), u32> = Default::default();
     let mut records: Vec<Value> = vec![];
+    // --simple 일 때만 채운다 — 감사용 전체 결과 파일에 쓸 원본 레코드.
+    let mut full_records: Vec<Value> = vec![];
     for it in items {
         match it.grade {
             Some(Grade::C) => c += 1,
@@ -943,12 +1495,21 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
         }
         rec["labels"] = labels;
 
-        // --with-vector: 문서벡터를 레코드에 실어 보낸다(cli.py 의 rec["vector"] 와 같은 형식).
+        // --with-vector(전량) · --embed-needed(못 정한 문서만): 문서벡터를 레코드에
+        // 실어 보낸다(cli.py 의 rec["vector"] 와 같은 형식).
         //   f32 를 f64 로 넓혀 담는다 — 값 자체는 f32 그대로라 손실이 없고,
         //   파이썬 쪽 numpy float32 → float 변환과 같은 수를 낸다.
         //   모델 로드에 실패했거나 추출 텍스트가 비어 벡터가 없으면 필드를 아예 넣지 않는다
         //   ('벡터 없음'을 빈 배열로 적으면 0차원 벡터와 구분이 안 된다).
-        if opts.with_vector {
+        //
+        // [2026-09-02] --embed-needed 를 조건에 더했다. 이 인자는 파이썬에서 "못 정한
+        // 문서의 벡터를 결과에 실어 달라"는 뜻인데(cli.py 는 벡터를 만들었으면 언제나
+        // 싣는다), Rust 는 --with-vector 만 봐서 그 벡터가 나갈 구멍이 없었다. 실측에서
+        // 임베딩에 1.1초를 쓰고도 결과 레코드가 바이트 단위로 똑같았다 — 순수한 낭비다.
+        // 파이썬처럼 '만들었으면 언제나'로 하지 않은 이유: 그러면 아무 인자도 안 준
+        // 기본 실행(UI 경로)에서도 미분류 문서마다 384개 실수가 붙어 결과 파일이 커진다.
+        // 인자를 명시한 실행에서만 싣는다 — 기존 기본 출력은 그대로 둔다.
+        if opts.with_vector || opts.embed_needed {
             if let Some(v) = &it.vector {
                 rec["vector"] = Value::Array(v.iter().map(|x| json!(*x as f64)).collect());
             }
@@ -956,12 +1517,42 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
 
         if opts.summary_only { continue; }
         let out_rec = if opts.simple {
-            json!({"file": rec["file"], "grade": rec["grade"], "hash": rec.get("hash").cloned().unwrap_or(Value::Null)})
-        } else { rec };
+            // 읽는 차례로 넣는다 — 무엇을(file·hash) → 어떻게 됐나(grade·doctype) →
+            // 왜(why). Cargo.toml 의 serde_json preserve_order 가 이 차례를 지켜 준다
+            // (기본값은 사전순이라 conf 가 업무분류 값 사이에 끼는 식으로 읽혔다).
+            let mut m = serde_json::Map::new();
+            m.insert("file".into(), rec["file"].clone());
+            m.insert("hash".into(), rec.get("hash").cloned().unwrap_or(Value::Null));
+            m.insert("grade".into(), rec["grade"].clone());
+            // 업무분류 축이 돌았을 때만 doctype 키를 붙인다. 축을 안 쓰는 배포에서 빈
+            // 배열이 나가면 "분류를 못 했다"와 "축을 안 썼다"가 구분되지 않는다.
+            if let Some(dt) = rec.get("labels").and_then(|l| l.get("doctype")) {
+                if dt.is_object() {
+                    let ids: Vec<Value> = dt.get("values").and_then(|v| v.as_array())
+                        .map(|a| a.iter().filter_map(|v| v.get("dc_id").cloned()).collect())
+                        .unwrap_or_default();
+                    m.insert("doctype".into(), Value::Array(ids));
+                }
+            }
+            // 못 읽은 문서에는 그 사실을 함께 싣는다. 없으면 '읽었는데 미분류'와
+            // 글자 그대로 같은 모습이라, --simple 만 받는 쪽은 스캔본을 영영
+            // 못 가려낸다. 성공한 문서에는 이 칸이 아예 없다(기존 모양 그대로).
+            if let Some(e) = rec.get("error") {
+                m.insert("error".into(), e.get("reason").cloned()
+                    .unwrap_or_else(|| Value::String("extract_failed".into())));
+            }
+            if opts.simple_why {
+                m.insert("why".into(), why_record(&rec));
+            }
+            // 축약본만으로는 "왜 이 등급인가"를 나중에 댈 수 없다 — 원본을 따로
+            // 들고 있다가 감사용 파일로 함께 남긴다(분류를 다시 하지 않는다).
+            full_records.push(order_record(&rec));
+            Value::Object(m)
+        } else { order_record(&rec) };
         records.push(out_rec);
     }
     if let Some((seeds_n, decided, still)) = prop_stats {
-        eprintln!("[전파] seed={} 전파결정={} 미분류잔여={}", seeds_n, decided, still);
+        note!("[전파] seed={} 전파결정={} 미분류잔여={}", seeds_n, decided, still);
     }
 
     let total = files.len();
@@ -985,12 +1576,50 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
         });
     }
 
-    // 출력 조립
-    let body = render(&records, &summary, &opts);
+    // 상태 줄에 실을 건수를 여기서 먼저 남긴다 — 아래 status_object 가 그 값을 쓴다.
+    errcodes::set_counts(total as i64, fail as i64);
+    // 정책 버전도 함께 — 결과만 있고 '어떤 규칙으로 판정했는지'가 없으면 재현할 수 없다.
+    errcodes::set_versions(&[
+        ("rule_version", Some(rs.version.clone())),
+        ("taxonomy_version", dt_axis.as_ref().map(|(t, _)| t.exported_at.clone())),
+        ("doctype_rule_version", dt_axis.as_ref().map(|(_, d)| d.version.clone())),
+    ]);
+    let target = opts.file.clone().or_else(|| opts.dir.clone());
+    let code = if fail > 0 { errcodes::exit_of("extract_failed") } else { 0 };
+
+    // 출력 조립. --out 으로 저장할 때는 상태도 파일 안에 남긴다 — 파일만 받아
+    // 나중에 읽는 쪽은 stdout 을 이미 흘려보낸 뒤라, 파일 자체가 "이 결과가
+    // 온전한가"를 말해 줘야 한다. --out 이 없으면 결과가 stdout 으로 나가고
+    // 상태 줄도 거기 붙으므로 여기서 또 넣지 않는다(같은 줄이 두 번 나간다).
+    let status = if errcodes::quiet() && opts.out.is_some() {
+        Some(errcodes::status_object(code, target.as_deref()))
+    } else {
+        None
+    };
+    let body = render(&records, &summary, &opts, status.as_ref());
     match &opts.out {
         Some(p) => {
             if let Err(e) = std::fs::write(p, &body) {
-                errlog::fail(&format!("[csoclassify-rs] 출력 저장 실패 {}: {}", p, e), 1);
+                errcodes::fail("output_write_failed",
+                    &format!("[csoclassify-rs] 출력 저장 실패 {}: {}", p, e), Some(p));
+            }
+            // --simple 이면 전체 레코드를 '<out>.full.<확장자>' 에 함께 남긴다.
+            //   · --out 이 가리키는 파일은 지금까지처럼 축약본이다(계약 유지)
+            //   · 이 파일에는 --nosummary 와 무관하게 요약을 남긴다 — 연동용이
+            //     아니라 '나중에 되짚어 보는' 파일이라 정책 버전이 있어야 한다
+            if opts.simple {
+                let fp = full_out_path(p);
+                let mut fopts = opts.clone();
+                fopts.simple = false;
+                fopts.no_summary = false;
+                fopts.summary_only = false;
+                let fbody = render(&full_records, &summary, &fopts, status.as_ref());
+                if let Err(e) = std::fs::write(&fp, &fbody) {
+                    errcodes::fail("output_write_failed",
+                        &format!("[csoclassify-rs] 감사용 전체 결과 저장 실패 {}: {}", fp, e),
+                        Some(&fp));
+                }
+                note!("[csoclassify-rs] 감사용 전체 결과: {}", fp);
             }
         }
         None => { print!("{}", body); }
@@ -998,8 +1627,15 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
 
     // 화면 요약(stderr)
     if !opts.no_summary {
-        eprintln!("[summary] 총 {}개 / 검출 {}, C={} S={} O={} 미분류={} 추출실패={}, 총시간={}ms",
-            total, detected, c, s_, o_, none, fail, total_ms);
+        // --no-timing 이면 총시간을 뺀다(Python 판 --no-timing 과 같은 뜻).
+        // 시간은 실행마다 달라지는 값이라, 결과를 비교·기록할 때 걸리적거린다.
+        if opts.no_timing {
+            eprintln!("[summary] 총 {}개 / 검출 {}, C={} S={} O={} 미분류={} 추출실패={}",
+                total, detected, c, s_, o_, none, fail);
+        } else {
+            eprintln!("[summary] 총 {}개 / 검출 {}, C={} S={} O={} 미분류={} 추출실패={}, 총시간={}ms",
+                total, detected, c, s_, o_, none, fail, total_ms);
+        }
         // 업무분류 롤업 — 뿌리 카테고리별 총계(괄호 안은 실제 걸린 노드별 내역) + 미분류.
         if dt_total > 0 {
             let mut roots: Vec<(&String, &u32)> = dt_root_totals.iter().collect();
@@ -1018,6 +1654,12 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
             eprintln!("[summary][업무분류] {} / 미분류 {}", head, dt_unclassified);
         }
     }
+
+    // 본문을 못 읽은 문서가 하나라도 있으면 종료코드 1 로 끝낸다(계약상 3001).
+    // 결과 파일은 정상적으로 만들어진다 — 실패한 문서도 레코드로 들어 있다.
+    // [2026-09-01] 여기가 없어서 Rust 판은 추출에 실패해도 늘 0 을 냈다. 파이썬
+    // 판·실행가이드는 1 을 약속하고 있었으므로, 배치가 두 판에서 다르게 굴렀다.
+    std::process::exit(errcodes::finish(code, target.as_deref()));
 }
 
 /// json 배열 / jsonl / summary-only 를 CSOClassify 와 같은 형태로 렌더.
@@ -1034,7 +1676,9 @@ fn load_propagate_input(path: &str) -> Vec<Value> {
     let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
-            errlog::fail(&format!("[csoclassify-rs] 전파 입력 파일을 읽을 수 없습니다 {}: {}", path, e), 3);
+            errcodes::fail("propagate_input_missing",
+                &format!("[csoclassify-rs] 전파 입력 파일을 읽을 수 없습니다 {}: {}", path, e),
+                Some(path));
         }
     };
     let mut recs: Vec<Value> = vec![];
@@ -1072,8 +1716,8 @@ fn load_propagate_input(path: &str) -> Vec<Value> {
 fn run_propagate(opts: &Opts) -> i32 {
     let input = opts.propagate.as_deref().unwrap_or("");
     if !Path::new(input).is_file() {
-        errlog::err(&format!("[csoclassify-rs] 전파 입력 파일이 없습니다: {}", input));
-        return 3;
+        errcodes::fail("propagate_input_missing",
+            &format!("[csoclassify-rs] 전파 입력 파일이 없습니다: {}", input), Some(input));
     }
     let mut records = load_propagate_input(input);
 
@@ -1089,14 +1733,14 @@ fn run_propagate(opts: &Opts) -> i32 {
     let seeds_path: Option<String> = opts.seeds.clone().or_else(default_seed_path);
     if let Some(p) = &opts.seeds {
         if !Path::new(p).is_file() {
-            errlog::err(&format!("[csoclassify-rs] seed 파일이 없습니다: {}", p));
-            return 3;
+            errcodes::fail("seeds_missing",
+                &format!("[csoclassify-rs] seed 파일이 없습니다: {}", p), Some(p));
         }
     }
     let external = match &seeds_path {
         Some(p) if Path::new(p).is_file() => {
             let idx = propagate::SeedIndex::from_seed_file(p);
-            eprintln!("[csoclassify-rs] 외부 seed {}건 로드: {}", idx.size(), p);
+            note!("[csoclassify-rs] 외부 seed {}건 로드: {}", idx.size(), p);
             idx
         }
         _ => propagate::SeedIndex::empty(),
@@ -1155,7 +1799,7 @@ fn run_propagate(opts: &Opts) -> i32 {
             None => propagate::DoctypeSeedIndex::empty(),
         };
         if dt_seeds.size() > 0 {
-            eprintln!("[csoclassify-rs] 업무분류 seed {}건 로드: {}",
+            note!("[csoclassify-rs] 업무분류 seed {}건 로드: {}",
                       dt_seeds.size(), seeds_path.clone().unwrap_or_default());
         }
         // 임계값·스위치는 정책 파일(embed: 블록)이 정한다. 1차 분류 경로와
@@ -1167,7 +1811,7 @@ fn run_propagate(opts: &Opts) -> i32 {
             min_share: drs.embed.min_share as f32,
         };
         if dt_seeds.size() > 0 && !drs.embed.enabled {
-            eprintln!("[propagate][업무분류] seed {}건이 있으나 doc_rule.yaml 의 \
+            note!("[propagate][업무분류] seed {}건이 있으나 doc_rule.yaml 의 \
 embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
             dt_seeds = propagate::DoctypeSeedIndex::empty();
         }
@@ -1199,12 +1843,13 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
             }
             rec["labels"]["doctype"] = d;
         }
-        eprintln!("[propagate][업무분류] seeds={} embed_contributed={} no_vector={} axis_off={}",
+        note!("[propagate][업무분류] seeds={} embed_contributed={} no_vector={} axis_off={}",
                   dt_seeds.size(), contributed, dt_novec, axis_off);
     }
 
     // 출력 — 전파 입력은 '레코드 묶음'이라 요약을 붙이지 않는다(파이썬과 동일).
     // json 은 항상 배열로 감싸 유효한 JSON 파일이 되게 한다.
+    let records: Vec<Value> = records.iter().map(order_record).collect();
     let body = if opts.fmt == "jsonl" {
         let mut out = String::new();
         for r in &records {
@@ -1218,14 +1863,14 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
     match &opts.out {
         Some(p) => {
             if let Err(e) = std::fs::write(p, &body) {
-                errlog::err(&format!("[csoclassify-rs] 출력 저장 실패 {}: {}", p, e));
-                return 1;
+                errcodes::fail("output_write_failed",
+                    &format!("[csoclassify-rs] 출력 저장 실패 {}: {}", p, e), Some(p));
             }
         }
         None => print!("{}", body),
     }
 
-    eprintln!("[propagate] seeds={} already_graded={} embed_decided={} still_unclassified={} no_vector={}",
+    note!("[propagate] seeds={} already_graded={} embed_decided={} still_unclassified={} no_vector={}",
               seeds.size(), already, decided, still, novec);
     0
 }
@@ -1287,13 +1932,15 @@ fn apply_conflict_override(opts: &Opts, dt_axis: &mut Option<(Taxonomy, DocRuleS
     let spec = opts.conflict.as_ref()?;
     let (axis, parsed) = match parse_conflict_override(spec) {
         Ok(v) => v,
-        Err(msg) => errlog::fail(&format!("[csoclassify-rs] {}", msg), 4),
+        Err(msg) => errcodes::fail("bad_conflict_axis",
+            &format!("[csoclassify-rs] {}", msg), None),
     };
     if let Err(msg) = conflict::ensure_overridable_axis(&axis) {
-        errlog::fail(&format!("[csoclassify-rs] {}", msg), 4);
+        errcodes::fail("bad_conflict_axis", &format!("[csoclassify-rs] {}", msg), None);
     }
     if axis != "doctype" {
-        errlog::fail(&format!("[csoclassify-rs] --conflict 에 알 수 없는 축입니다: {:?}", axis), 4);
+        errcodes::fail("bad_conflict_axis",
+            &format!("[csoclassify-rs] --conflict 에 알 수 없는 축입니다: {:?}", axis), None);
     }
     if let Some((_, drs)) = dt_axis.as_mut() {
         drs.conflict = parsed;
@@ -1301,7 +1948,7 @@ fn apply_conflict_override(opts: &Opts, dt_axis: &mut Option<(Taxonomy, DocRuleS
     spec.split_once('=').map(|(_, v)| v.trim().to_string())
 }
 
-fn render(records: &[Value], summary: &Value, opts: &Opts) -> String {
+fn render(records: &[Value], summary: &Value, opts: &Opts, status: Option<&Value>) -> String {
     if opts.summary_only {
         // 단일 요약 객체
         return format!("{}\n", serde_json::to_string_pretty(&json!({"summary": summary})).unwrap());
@@ -1316,12 +1963,20 @@ fn render(records: &[Value], summary: &Value, opts: &Opts) -> String {
             out.push_str(&serde_json::to_string(&json!({"summary": summary})).unwrap());
             out.push('\n');
         }
+        if let Some(st) = status {
+            out.push_str(&serde_json::to_string(st).unwrap());
+            out.push('\n');
+        }
         out
     } else {
         // json 배열(들여쓰기), 마지막에 summary 원소
         let mut arr: Vec<Value> = records.to_vec();
         if !opts.no_summary {
             arr.push(json!({"summary": summary}));
+        }
+        // 배열 '밖'에 객체를 붙이면 파일이 통째로 깨진다 — 마지막 원소로 넣는다.
+        if let Some(st) = status {
+            arr.push(st.clone());
         }
         format!("{}\n", serde_json::to_string_pretty(&arr).unwrap())
     }

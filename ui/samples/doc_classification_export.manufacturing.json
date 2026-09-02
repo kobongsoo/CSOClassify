@@ -1,0 +1,371 @@
+{
+  "source": "MfgCorp.DOC_CLASSIFICATION",
+  "export_server": "sample://doc-classification-example (가짜 예시 데이터)",
+  "node_count": 23,
+  "nodes": [
+    {
+      "dc_id": "DC_001",
+      "parent_dc_id": null,
+      "order_num": 1,
+      "title": "표준/절차",
+      "status": 1,
+      "path_ids": [
+        "DC_001"
+      ],
+      "path_titles": [
+        "표준/절차"
+      ],
+      "path": "표준/절차"
+    },
+    {
+      "dc_id": "DC_001_001",
+      "parent_dc_id": "DC_001",
+      "order_num": 1,
+      "title": "표준절차서",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_001"
+      ],
+      "path_titles": [
+        "표준/절차",
+        "표준절차서"
+      ],
+      "path": "표준/절차 > 표준절차서"
+    },
+    {
+      "dc_id": "DC_001_002",
+      "parent_dc_id": "DC_001",
+      "order_num": 2,
+      "title": "작업지시서",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_002"
+      ],
+      "path_titles": [
+        "표준/절차",
+        "작업지시서"
+      ],
+      "path": "표준/절차 > 작업지시서"
+    },
+    {
+      "dc_id": "DC_001_003",
+      "parent_dc_id": "DC_001",
+      "order_num": 3,
+      "title": "검사기준서",
+      "status": 1,
+      "path_ids": [
+        "DC_001",
+        "DC_001_003"
+      ],
+      "path_titles": [
+        "표준/절차",
+        "검사기준서"
+      ],
+      "path": "표준/절차 > 검사기준서"
+    },
+    {
+      "dc_id": "DC_002",
+      "parent_dc_id": null,
+      "order_num": 2,
+      "title": "장비",
+      "status": 1,
+      "path_ids": [
+        "DC_002"
+      ],
+      "path_titles": [
+        "장비"
+      ],
+      "path": "장비"
+    },
+    {
+      "dc_id": "DC_002_001",
+      "parent_dc_id": "DC_002",
+      "order_num": 1,
+      "title": "장비문서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001"
+      ],
+      "path_titles": [
+        "장비",
+        "장비문서"
+      ],
+      "path": "장비 > 장비문서"
+    },
+    {
+      "dc_id": "DC_002_001_001",
+      "parent_dc_id": "DC_002_001",
+      "order_num": 1,
+      "title": "장비매뉴얼",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001",
+        "DC_002_001_001"
+      ],
+      "path_titles": [
+        "장비",
+        "장비문서",
+        "장비매뉴얼"
+      ],
+      "path": "장비 > 장비문서 > 장비매뉴얼"
+    },
+    {
+      "dc_id": "DC_002_001_002",
+      "parent_dc_id": "DC_002_001",
+      "order_num": 2,
+      "title": "명령어레퍼런스",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001",
+        "DC_002_001_002"
+      ],
+      "path_titles": [
+        "장비",
+        "장비문서",
+        "명령어레퍼런스"
+      ],
+      "path": "장비 > 장비문서 > 명령어레퍼런스"
+    },
+    {
+      "dc_id": "DC_002_001_003",
+      "parent_dc_id": "DC_002_001",
+      "order_num": 3,
+      "title": "회로도",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_001",
+        "DC_002_001_003"
+      ],
+      "path_titles": [
+        "장비",
+        "장비문서",
+        "회로도"
+      ],
+      "path": "장비 > 장비문서 > 회로도"
+    },
+    {
+      "dc_id": "DC_002_002",
+      "parent_dc_id": "DC_002",
+      "order_num": 2,
+      "title": "교정성적서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_002"
+      ],
+      "path_titles": [
+        "장비",
+        "교정성적서"
+      ],
+      "path": "장비 > 교정성적서"
+    },
+    {
+      "dc_id": "DC_002_003",
+      "parent_dc_id": "DC_002",
+      "order_num": 3,
+      "title": "정기점검확인서",
+      "status": 1,
+      "path_ids": [
+        "DC_002",
+        "DC_002_003"
+      ],
+      "path_titles": [
+        "장비",
+        "정기점검확인서"
+      ],
+      "path": "장비 > 정기점검확인서"
+    },
+    {
+      "dc_id": "DC_003",
+      "parent_dc_id": null,
+      "order_num": 3,
+      "title": "사업/요구",
+      "status": 1,
+      "path_ids": [
+        "DC_003"
+      ],
+      "path_titles": [
+        "사업/요구"
+      ],
+      "path": "사업/요구"
+    },
+    {
+      "dc_id": "DC_003_001",
+      "parent_dc_id": "DC_003",
+      "order_num": 1,
+      "title": "소요제기서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_001"
+      ],
+      "path_titles": [
+        "사업/요구",
+        "소요제기서"
+      ],
+      "path": "사업/요구 > 소요제기서"
+    },
+    {
+      "dc_id": "DC_003_002",
+      "parent_dc_id": "DC_003",
+      "order_num": 2,
+      "title": "기술협상안",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_002"
+      ],
+      "path_titles": [
+        "사업/요구",
+        "기술협상안"
+      ],
+      "path": "사업/요구 > 기술협상안"
+    },
+    {
+      "dc_id": "DC_003_003",
+      "parent_dc_id": "DC_003",
+      "order_num": 3,
+      "title": "과제기획서",
+      "status": 1,
+      "path_ids": [
+        "DC_003",
+        "DC_003_003"
+      ],
+      "path_titles": [
+        "사업/요구",
+        "과제기획서"
+      ],
+      "path": "사업/요구 > 과제기획서"
+    },
+    {
+      "dc_id": "DC_004",
+      "parent_dc_id": null,
+      "order_num": 4,
+      "title": "품질",
+      "status": 1,
+      "path_ids": [
+        "DC_004"
+      ],
+      "path_titles": [
+        "품질"
+      ],
+      "path": "품질"
+    },
+    {
+      "dc_id": "DC_004_001",
+      "parent_dc_id": "DC_004",
+      "order_num": 1,
+      "title": "시험성적서",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_001"
+      ],
+      "path_titles": [
+        "품질",
+        "시험성적서"
+      ],
+      "path": "품질 > 시험성적서"
+    },
+    {
+      "dc_id": "DC_004_002",
+      "parent_dc_id": "DC_004",
+      "order_num": 2,
+      "title": "부적합보고서",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_002"
+      ],
+      "path_titles": [
+        "품질",
+        "부적합보고서"
+      ],
+      "path": "품질 > 부적합보고서"
+    },
+    {
+      "dc_id": "DC_004_003",
+      "parent_dc_id": "DC_004",
+      "order_num": 3,
+      "title": "자재승인원",
+      "status": 1,
+      "path_ids": [
+        "DC_004",
+        "DC_004_003"
+      ],
+      "path_titles": [
+        "품질",
+        "자재승인원"
+      ],
+      "path": "품질 > 자재승인원"
+    },
+    {
+      "dc_id": "DC_005",
+      "parent_dc_id": null,
+      "order_num": 5,
+      "title": "안전/환경",
+      "status": 1,
+      "path_ids": [
+        "DC_005"
+      ],
+      "path_titles": [
+        "안전/환경"
+      ],
+      "path": "안전/환경"
+    },
+    {
+      "dc_id": "DC_005_001",
+      "parent_dc_id": "DC_005",
+      "order_num": 1,
+      "title": "안전관리규정",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_001"
+      ],
+      "path_titles": [
+        "안전/환경",
+        "안전관리규정"
+      ],
+      "path": "안전/환경 > 안전관리규정"
+    },
+    {
+      "dc_id": "DC_005_002",
+      "parent_dc_id": "DC_005",
+      "order_num": 2,
+      "title": "출입통제지침",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_002"
+      ],
+      "path_titles": [
+        "안전/환경",
+        "출입통제지침"
+      ],
+      "path": "안전/환경 > 출입통제지침"
+    },
+    {
+      "dc_id": "DC_005_003",
+      "parent_dc_id": "DC_005",
+      "order_num": 3,
+      "title": "MSDS",
+      "status": 1,
+      "path_ids": [
+        "DC_005",
+        "DC_005_003"
+      ],
+      "path_titles": [
+        "안전/환경",
+        "MSDS"
+      ],
+      "path": "안전/환경 > MSDS"
+    }
+  ]
+}

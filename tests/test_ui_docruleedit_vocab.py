@@ -295,3 +295,41 @@ def test_겹친_말은_버리고_멀쩡한_말은_남긴다():
 def test_한글자_반복은_멀쩡한_말이다():
     assert not DRE._is_doubled("공공기관계획서")
     assert DRE._is_doubled("자재관리관리대장")
+
+
+#------------------------------------------------------------------
+# '서랍'의 정의 — 규칙을 만드는 곳과 경고하는 곳이 같은 기준을 쓴다
+#=> 예전에는 세 곳이 제각각이었다(규칙 만들기=최상위 전부 제외, T12=자식 있으면
+#   제외, 화면 경고=제외 없음). 그래서 분류체계에 "경영/관리" 하나만 있는 경우
+#   규칙을 만들어 주지도 않으면서 경고만 나는, 관리자가 고칠 수 없는 상태가 됐다.
+#
+# -in: 없음
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_서랍은_최상위이면서_자식이_있는_노드():
+    from csoclassify.classify.docvocab import is_drawer
+    assert is_drawer(has_parent=False, has_children=True) is True    # 최상위 서랍
+    assert is_drawer(has_parent=False, has_children=False) is False  # 자식 없는 최상위
+    assert is_drawer(has_parent=True, has_children=True) is False    # 중간 노드
+    assert is_drawer(has_parent=True, has_children=False) is False   # 잎
+
+
+#------------------------------------------------------------------
+# 자식 없는 최상위도 규칙 대상이다("경영/관리" 하나만 고른 분류체계)
+#
+# -in: 없음
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_자식_없는_최상위도_규칙을_받는다():
+    tax = {"by_id": {
+        "R1": {"dc_id": "R1", "parent": None, "title": "경영/관리",
+               "status": "1", "path": "경영/관리"},
+        "R2": {"dc_id": "R2", "parent": None, "title": "법무/규정",
+               "status": "1", "path": "법무/규정"},
+        "R2A": {"dc_id": "R2A", "parent": "R2", "title": "계약서",
+                "status": "1", "path": "법무/규정 > 계약서"},
+    }}
+    got = {n["dc_id"] for n in DRE.syncable_nodes(tax)}
+    assert got == {"R1", "R2A"}, got     # R2 는 서랍이라 빠지고, R1 은 들어온다

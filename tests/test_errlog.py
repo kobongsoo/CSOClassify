@@ -1,4 +1,4 @@
-"""오류 전용 로그(csoclassify_err_YYYYMMDD.log) 회귀 테스트.
+"""오류 전용 로그(log/class_err_YYYYMMDD.log) 회귀 테스트.
 
 배경: exe 로 배포하면 UI·배치·스케줄러가 실행해 화면이 없다. 예전에는 오류를
 stderr 로만 알려서, 그런 환경에서 실패하면 원인이 통째로 사라졌다. 이제 오류만
@@ -55,9 +55,9 @@ def test_err_log_path_default_is_dated(monkeypatch):
     monkeypatch.delenv("CSOCLASSIFY_ERRLOG", raising=False)
     p = logsetup.default_err_log_path()
     name = os.path.basename(p)
-    assert name.startswith("csoclassify_err_")
+    assert name.startswith("class_err_")
     assert name.endswith(".log")
-    day = name[len("csoclassify_err_"):-len(".log")]
+    day = name[len("class_err_"):-len(".log")]
     assert len(day) == 8 and day.isdigit(), name
 
 
@@ -93,12 +93,14 @@ def test_file_created_on_error(tmp_path):
 
 
 #------------------------------------------------------------------
-# fail() 은 화면과 오류 로그 양쪽에 남기고 종료코드를 돌려준다
+# fail_code() 는 화면과 오류 로그 양쪽에 남기고 종료코드를 돌려준다
+#=> 이름 그대로 '코드를 돌려줄 뿐' 프로세스를 끝내지 않는다. 호출부는 반드시
+#   return 과 함께 써야 하므로, 여기서도 반환값이 그대로 나오는지 확인한다.
 #------------------------------------------------------------------
 def test_fail_helper_logs_and_returns_code(tmp_path, capsys):
     err = tmp_path / "err.log"
     logsetup.setup_logging(log_path=None, verbose=False, err_log_path=str(err))
-    code = cli.fail("[csoclassify] 처리할 파일이 없습니다.\n  --dir 을 지정하세요", 3)
+    code = cli.fail_code("[csoclassify] 처리할 파일이 없습니다.\n  --dir 을 지정하세요", 3)
     assert code == 3
     # 화면(stderr)에는 여러 줄 그대로.
     assert "처리할 파일이 없습니다" in capsys.readouterr().err

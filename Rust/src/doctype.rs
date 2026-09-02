@@ -427,6 +427,8 @@ pub struct Candidate {
 
 impl Candidate {
     /// 근거 없이 후보만 만들 때(테스트·전파 경로). Python 쪽 기본값과 맞춘다.
+    /// 현재 호출부가 테스트 코드뿐이라 릴리스 빌드에서는 dead 로 잡힌다.
+    #[allow(dead_code)]
     pub fn bare(dc_id: String, path: String, path_ids: Vec<String>,
                 confidence: f64, from: Vec<String>) -> Self {
         Candidate { dc_id, path, path_ids, confidence, from,

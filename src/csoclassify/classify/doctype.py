@@ -40,6 +40,67 @@ _DT_NAME_CONF = 0.60
 # ── staged 모드 신호별 신뢰도 (재설계 8-2, 실측 전 잠정치) ───────────
 # 상대 순서(title ≳ head ≳ form > path ≳ name > body ≳ structure)가 핵심이며,
 # 절대값은 16장 검증셋 측정 후 재보정 대상이다.
+#
+# => 계산법 : 예) title(0.65) + name(0.30) → 1 - 0.35×0.70 = 0.755
+# 성질: 항상 [0,1) 안에 머물고, 근거가 늘수록 오르되 포화합니다. 
+# 약한 증거를 아무리 모아도 강한 증거 하나를 못 넘습니다. 
+# 종전 max() 의 "근거가 쌓여도 점수 제자리" 문제를 푸는 게 목적입니다.
+#
+# [표 읽는 법]
+#   세로줄(title/head/…) = "문서의 어디를 보고 맞혔나" — 신호원 7가지.
+#   가로줄(high/medium/low) = 그 규칙에 적힌 weight. 규칙을 만든 사람이
+#     "이 규칙은 얼마나 믿을 만한가"를 3단계로 고른 값이다(기본 medium).
+#   칸의 숫자 = 그 신호 하나가 갖는 확신. 이 값들을 위 noisy-OR 로 합친다.
+#
+# [7가지 신호원 — 무엇을 어디서 보는가]
+#   아래 설명의 예시로 쓸 규칙 하나(weight: medium 이라 가운데 칸이 쓰인다):
+#     node: DC_계약서
+#     title_terms: [계약서]        head_terms: [계약기간]   terms: [갑, 을]
+#     filename: [계약]             paths: ["/계약/"]
+#     form: {all_of: [갑, 을, 계약기간]}   structure: ["제\\s*\\d+\\s*조"]
+#
+#   title (0.65) — 문서의 '첫 비어있지 않은 줄'에 title_terms 가 있나.
+#       예) 첫 줄이 "용역 계약서" → 걸림. 사람이 문서 맨 위에 일부러 적어 둔
+#           이름이라 판별력이 가장 세다. "출 장 여 비 규 정" 처럼 자간을 벌려
+#           놓아도 잡는다(_despace).
+#       ※ .ppt/.xls/.xlsx 는 첫 줄이 제목이 아니어서 이 신호를 건너뛴다.
+#
+#   head (0.55) — 앞 head_chars(기본 400)자 안에 head_terms 가 있나.
+#       예) 제목 줄에는 없어도 "… 계약기간: 2026-01-01 …" 이 문서 앞머리에
+#           나오면 걸림. 제목 다음으로 문서 성격이 잘 드러나는 구간이다.
+#
+#   form (0.50) — '그 양식에만 있는 항목명'이 세트로 나오나(all_of / any_of+min_types).
+#       예) 갑·을·계약기간이 모두 나오면 걸림. 회의록 본문에 "계약서"라는 말이
+#           언급될 수는 있어도 이 세 항목이 함께 나오지는 않는다 — 그것이
+#           종류명보다 양식이 세다고 보는 근거다.
+#
+#   path (0.30) — 문서가 들어 있는 '폴더 경로'에 paths 조각이 있나.
+#       예) D:\사업\계약\2026\x.hwp → '/계약/' 포함 → 걸림. 폴더는 담당자가
+#           옮기기도 하고 하위 문서가 통째로 물려받기도 해서 파일명만큼 믿지 않는다.
+#
+#   name (0.30) — 폴더를 뺀 '파일 이름'에 filename 조각이 있나.
+#       예) "2026_계약_최종.hwp" → 걸림. 짧고 일부러 붙인 이름이라 우연 일치는
+#           드물다. 다만 이 신호 하나만으로는 t_low(0.35)를 못 넘어 후보가 되지
+#           못한다 — 파일 이름만 보고 붙인 라벨은 오탐이 잦기 때문이다.
+#
+#   body (0.15) — 문서 '전체'에서 terms 를 센다(min_distinct·min_count 를 넘겼을 때만).
+#       예) 본문 어딘가에 '갑'·'을'이 나옴. 어느 문서에나 나올 수 있는 말이라
+#           가장 약하고, 단독으로는 후보를 만들지 못한다(_WEAK_ONLY).
+#
+#   structure (0.20) — 어휘가 아니라 '문서 골격'을 정규식으로 잡는다.
+#       예) "제1조"·"제 2 조" 같은 조문 번호가 있나. 한국어 어휘와 겹치지 않는
+#           독립 축이라 form 과 잘 붙지만, 단독 판별력은 약해 보조로만 쓴다.
+#
+# [name·structure 의 세 칸이 같은 값인 이유]
+#   표가 우연히 같은 게 아니라, 코드가 이 둘만 weight 를 보지 않고 "medium"
+#   칸을 직접 집어 쓴다(_scan_rule 의 name·structure 분기). 파일명은 '이름에
+#   그 말이 있다', 정규식은 '맞았다' 라는 사실 하나뿐이라 규칙의 자신감으로
+#   등급을 나눌 근거가 없다. 세 칸을 같은 값으로 채워 둔 것은, 나중에 등급을
+#   주기로 하면 코드 한 줄만 고치면 되도록 자리를 비워 둔 것이다.
+#
+# [지금 실제로 도는 신호] 현재 doc_rule.yaml 규칙들은 form·structure·paths 를
+#   채우지 않아 title·head·body·name 4개만 동작한다. 나머지 셋은 규칙에 그
+#   필드를 넣는 순간 이 표의 값 그대로 자동으로 살아난다.
 _SIG_CONF = {
     "title":     {"high": 0.80, "medium": 0.65, "low": 0.50},
     "head":      {"high": 0.70, "medium": 0.55, "low": 0.40},
@@ -301,6 +362,11 @@ def _thr(rule, defaults, name):
 #
 # -out: float = 결합 점수(parts 가 비면 0.0)
 # -out: error = 없음
+#
+# => 계산법 : 예) title(0.65) + name(0.30) → 1 - 0.35×0.70 = 0.755
+# 성질: 항상 [0,1) 안에 머물고, 근거가 늘수록 오르되 포화합니다. 
+# 약한 증거를 아무리 모아도 강한 증거 하나를 못 넘습니다. 
+# 종전 max() 의 "근거가 쌓여도 점수 제자리" 문제를 푸는 게 목적입니다.
 #------------------------------------------------------------------
 def _noisy_or(parts):
     remain = 1.0
@@ -391,6 +457,10 @@ def _scan_rule(text, file, norm_path, rule, defaults, allow_title=True):
                 {"terms": [{"term": t, "count": c} for t, c in hits], "window": n})
 
     # ── form: 서식 필드어 세트 ─────────────────────────────────
+    # [설계 단계 구현] 계약서(갑·을·제O조·계약기간)처럼 서식 필드어를 판정하는
+    # 신호다. 재설계 7장의 설계에는 포함되지만, 현재 doc_rule.yaml 의 규칙에서
+    # form 필드를 채우지 않았으므로 rule.form = None → 신호 생성 안 함.
+    # 향후 규칙에 form 을 추가하면 이 코드가 자동 활용된다.
     ok, matched = _match_form(text, rule.form, rule.exclude)
     if ok:
         add("form", _SIG_CONF["form"].get(rule.weight, 0.50),
@@ -399,6 +469,10 @@ def _scan_rule(text, file, norm_path, rule, defaults, allow_title=True):
              "min_types": rule.form.min_types})
 
     # ── structure: 구조 정규식 ─────────────────────────────────
+    # [설계 단계 구현] 제N조·금액표·서명란처럼 어휘가 아닌 문서 골격을 정규식
+    # 으로 판정하는 보조 신호다(재설계 7장). 현재 doc_rule.yaml 의 규칙에서
+    # structure 필드를 채우지 않았으므로 rule.structure = () → 신호 생성 안 함.
+    # 향후 규칙에 structure 를 추가하면 이 코드가 자동 활용된다.
     st = _match_structure(text, rule.structure)
     if st:
         add("structure", _SIG_CONF["structure"]["medium"], {"matched": st})
@@ -425,6 +499,10 @@ def _scan_rule(text, file, norm_path, rule, defaults, allow_title=True):
         add("name", conf, {"terms": [t for t, _c in nm]})
 
     # ── path: 폴더 경로 ────────────────────────────────────────
+    # [설계 단계 구현] /contract/, /board/notice/ 처럼 폴더 경로로 문서 종류를
+    # 판정하는 신호다(재설계 7장). 현재 doc_rule.yaml 의 규칙에서 paths 필드를
+    # 채우지 않았으므로 rule.paths = () → 신호 생성 안 함.
+    # 향후 규칙에 paths 를 추가하면 이 코드가 자동 활용된다.
     ph = _match_paths(norm_path, rule)
     if ph:
         conf = (_SIG_CONF["path"].get(rule.weight, 0.30) if staged

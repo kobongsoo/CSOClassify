@@ -4,11 +4,16 @@
 //!   · 모델 폴더        : 환경변수 CSO_MODEL → exe 옆 models/e5-small-ko/
 //! ko-pii(embed) 파이프라인과 동일: 'passage: ' 프리픽스 + 슬라이딩청크 + 평균풀링 + 청크평균 + L2.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ort::session::{builder::GraphOptimizationLevel, Session};
 use ort::value::Tensor;
 use tokenizers::Tokenizer;
+
+// 모델 폴더 위치(exe 옆 기준) — 다른 모델로 바꿀 땐 이 두 상수만 고친다.
+// 에러 메시지(main.rs)도 같은 상수를 써서 안내 경로가 코드와 어긋나지 않게 한다.
+pub const MODEL_ROOT: &str = "models";
+pub const MODEL_NAME: &str = "e5-small-ko";
 
 // e5-small-ko 스펙(config.MODELS 와 동일).
 const PASSAGE_PREFIX: &str = "passage: ";
@@ -24,7 +29,7 @@ pub struct Embedder {
     prefix_ids_len: usize,
 }
 
-/// 모델 폴더 결정: CSO_MODEL → exe 옆 models/e5-small-ko.
+/// 모델 폴더 결정: CSO_MODEL → exe 옆 `MODEL_ROOT`/`MODEL_NAME`.
 fn model_dir() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("CSO_MODEL") {
         let pb = PathBuf::from(p);
@@ -32,7 +37,7 @@ fn model_dir() -> Option<PathBuf> {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let pb = dir.join("models").join("e5-small-ko");
+            let pb = dir.join(MODEL_ROOT).join(MODEL_NAME);
             if pb.is_dir() { return Some(pb); }
         }
     }
@@ -57,8 +62,42 @@ fn ensure_dylib() {
     }
 }
 
+/// 배포 점검 — 세션을 만들지 않고 '파일이 자리에 있는가'만 본다(stat 몇 번).
+///
+/// 지연 로딩(§설계 04)이 들어가면서, 규칙만으로 끝나는 실행은 모델을 아예 읽지 않는다.
+/// 그런데 이 판에는 `--status` 가 없어(인자만 받고 무시) **`load()` 시도 자체가
+/// 배포 누락을 알아챌 유일한 신호**였다. 그 신호가 사라진 자리를 메우는 값싼 확인이다.
+/// 여기서 세션을 만들면 아끼려던 비용을 도로 내는 셈이므로, 파일 존재까지만 본다.
+///
+/// 반환: Ok(()) 정상 / Err(사유) — 사유는 사람이 읽고 바로 고칠 수 있는 문장이어야 한다.
+pub fn check_deployment() -> Result<(), String> {
+    // ORT_DYLIB_PATH 를 채워 주는 부수효과가 있다 — 뒤에서 실제 load() 할 때도 그대로 쓰인다.
+    ensure_dylib();
+    let dir = match model_dir() {
+        Some(d) => d,
+        None => return Err(format!(
+            "모델 폴더를 찾지 못했습니다(exe 옆 {}/{} 또는 CSO_MODEL)", MODEL_ROOT, MODEL_NAME)),
+    };
+    // 폴더만 있고 알맹이가 없는 배포가 실제로 있었다 — 파일 단위로 본다.
+    for name in ["model.onnx", "tokenizer.json"] {
+        let p = dir.join(name);
+        if !p.is_file() {
+            return Err(format!("{} 이(가) 없습니다: {}", name, p.display()));
+        }
+    }
+    // dll 은 ensure_dylib 가 찾았거나, 사용자가 환경변수로 직접 준 것이다.
+    // 환경변수가 '없는 경로'를 가리키는 경우도 여기서 걸러야 한다(설정 오타).
+    match std::env::var("ORT_DYLIB_PATH") {
+        Ok(p) if !p.is_empty() && Path::new(&p).is_file() => Ok(()),
+        _ => Err("onnxruntime 동적 라이브러리를 찾지 못했습니다\
+                  (exe 옆 onnxruntime.dll 또는 ORT_DYLIB_PATH)".to_string()),
+    }
+}
+
 impl Embedder {
     /// 모델 로드. 실패(모델/런타임 없음·초기화 실패)면 None.
+    /// with_optimization_level => 모델 메모리에 올리고 웨이트 계산.
+    /// commit_from_file => 모델 파일을 불러옴.
     pub fn load() -> Option<Embedder> {
         ensure_dylib();
         let dir = model_dir()?;

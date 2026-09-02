@@ -1023,9 +1023,11 @@ def scan_text(text, ruleset):
     text = text or ""
     conf = getattr(ruleset, "confidence", None) or _default_confidence()
     hits = []
+
     # L1: ko-pii 로 PII 유형을 한 번에 검출(유형별 RuleHit) + 건수 맵 회수.
     pii_hits, pii_counts = _scan_pii(text, ruleset.regex_rules, ruleset.defaults, conf.get("regex"))
     hits.extend(pii_hits)
+
     # L1-combo: 개별 PII 는 낮아도 여러 유형이 한 문서에 모이면(결합용이성) 재식별↑ → 상향.
     hits.extend(_combo_hits(pii_counts, getattr(ruleset, "pii_combos", ()), conf.get("regex")))
     for rule in ruleset.keyword_rules:
@@ -1038,6 +1040,7 @@ def scan_text(text, ruleset):
         return GradeSignal(grade=None, confidence=0.0, seed_eligible=False, hits=[])
 
     final = max_grade(h.grade for h in hits)
+
     # 최종 등급을 실제로 만든(=같은 등급인) 히트만 신뢰도·seed 판단에 쓴다.
     deciding = [h for h in hits if h.grade == final]
     confidence = max(h.confidence for h in deciding)
@@ -1085,7 +1088,7 @@ class StampSignal:
 
 #------------------------------------------------------------------
 # 스탬프 스캔(Signal E) — "문서에 찍힌 분류 표식"으로 등급
-#=> 문서 본문에서 보안분류 스탬프(대외비/기밀/내부용 등)를 찾는다. 키워드(L2)와의
+# => 문서 본문에서 보안분류 스탬프(대외비/기밀/내부용 등)를 찾는다. 키워드(L2)와의
 #   결정적 차이는 '스탬프답게 찍혔는가'를 따진다는 점이다 → 본문 한복판의 단발 언급
 #   ("이 문서는 대외비가 아님")은 스탬프로 치지 않아 오탐이 낮다.
 #    1) 각 규칙의 표식 문구를 (대소문자 정책대로) 텍스트에서 센다

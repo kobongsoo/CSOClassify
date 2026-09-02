@@ -193,3 +193,71 @@ def test_용량_표기():
     assert R.human_size(512) == "512B"
     assert R.human_size(2048) == "2.0KB"
     assert R.human_size(1024 * 1024 * 3) == "3.0MB"
+
+
+#------------------------------------------------------------------
+# 기준 문서는 선택으로 남길 수 있다
+#=> 분류 결과는 다시 돌리면 되살아나지만 기준 문서는 사람이 하나씩 확정해 쌓은
+#   것이라 지우면 끝이다. "결과만 갈아엎고 기준 문서는 살려 두고 다시 분류"가
+#   실무에서 필요해 이 파일만 따로 뺄 수 있게 했다.
+#
+# -in: tmp_path = pytest 임시 폴더
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_기준문서는_선택으로_남긴다(tmp_path):
+    ui = make_ui(tmp_path)
+    on = {t["name"] for t in R.plan_reset(ui, drop_seed=True)[0]}
+    off = {t["name"] for t in R.plan_reset(ui, drop_seed=False)[0]}
+
+    assert "class_seed.jsonl" in on          # 기본은 지운다
+    assert "class_seed.jsonl" not in off     # 끄면 남는다
+    # 그 파일 하나만 빠져야 한다 — 다른 것까지 덩달아 남으면 안 된다.
+    assert on - off == {"class_seed.jsonl"}
+
+
+#------------------------------------------------------------------
+# 남긴 기준 문서는 '남는 것' 목록에 뜬다
+#=> 지울 목록에서 조용히 빠지기만 하면, 사람이 남았는지 지워졌는지 알 수 없다.
+#   이 대화상자의 존재 이유가 "무엇이 사라지는지 먼저 보여준다" 이므로,
+#   남는 것도 같은 무게로 보여야 한다.
+#------------------------------------------------------------------
+def test_남긴_기준문서는_남는것_목록에_나온다(tmp_path):
+    ui = make_ui(tmp_path)
+    _, kept_on = R.plan_reset(ui, drop_seed=True)
+    _, kept_off = R.plan_reset(ui, drop_seed=False)
+
+    assert "class_seed.jsonl" not in {k["name"] for k in kept_on}
+    row = [k for k in kept_off if k["name"] == "class_seed.jsonl"]
+    assert len(row) == 1 and row[0]["why"]        # 왜 남는지도 적혀 있어야 한다
+
+
+#------------------------------------------------------------------
+# 기본값은 '지움' 이다
+#=> 이 기능의 이름이 '처음 상태로 되돌리기'다. 인자를 안 주면 종전과 똑같이
+#   전부 지워야 한다 — 기본값이 바뀌면 기존 호출부의 동작이 조용히 달라진다.
+#------------------------------------------------------------------
+def test_인자를_안_주면_종전대로_전부_지운다(tmp_path):
+    ui = make_ui(tmp_path)
+    assert "class_seed.jsonl" in {t["name"] for t in R.plan_reset(ui)[0]}
+
+
+#------------------------------------------------------------------
+# 남기기로 했으면 실제로 파일이 살아 있다
+#=> 계획(plan)만 맞고 실행(run)에서 지워지면 최악이다. 끝까지 확인한다.
+#   변경 이력(class_seed_audit.jsonl)은 이 선택과 무관하게 지운다 —
+#   사람이 고른 것은 '기준 문서'이지 그 로그가 아니다.
+#------------------------------------------------------------------
+def test_남기기로_하면_실제로_파일이_살아있다(tmp_path):
+    ui = make_ui(tmp_path)
+    seed = os.path.join(ui, "policy", "class_seed.jsonl")
+    audit = os.path.join(ui, "class_seed_audit.jsonl")
+    assert os.path.isfile(seed) and os.path.isfile(audit)
+
+    targets, _ = R.plan_reset(ui, drop_seed=False)
+    deleted, failed = R.run_reset(targets)
+
+    assert not failed
+    assert os.path.isfile(seed), "남기기로 했는데 지워졌다"
+    assert not os.path.isfile(audit), "변경 이력은 지워져야 한다"
+    assert not os.path.isfile(os.path.join(ui, "cso_result.jsonl"))

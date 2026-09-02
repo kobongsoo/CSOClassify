@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLI 오류 출력 — 기계가 읽는 오류 계약</title>
+</head>
+<body>
+<style>
+  :root{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+    --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+    --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","맑은 고딕",-apple-system,"Apple SD Gothic Neo",system-ui,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","Cascadia Mono",Consolas,"D2Coding",monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+      --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+      --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+      --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#191d24;
+    --muted:#58616e; --faint:#8b94a2; --line:#dde2ea; --line-strong:#c7cfda;
+    --accent:#26437e; --accent-2:#365fb0; --accent-soft:#e7edf7;
+    --c:#cf3b2e; --c-soft:#fbeceb; --s:#b3760f; --s-soft:#f9f0dc; --o:#2f8f57; --o-soft:#e6f3ea;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1116; --surface:#161b22; --surface-2:#1d232c; --ink:#e7ebf1;
+    --muted:#9aa4b2; --faint:#6b7684; --line:#262d38; --line-strong:#333c49;
+    --accent:#7ea0e8; --accent-2:#8fb0f2; --accent-soft:#182233;
+    --c:#f2695c; --c-soft:#2a1715; --s:#e6a748; --s-soft:#271e10; --o:#57bd85; --o-soft:#122217;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.7;-webkit-font-smoothing:antialiased;font-size:16px;letter-spacing:-0.003em;}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 24px 96px;}
+  header.doc{padding:56px 0 34px;border-bottom:1px solid var(--line);margin-bottom:40px;}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;display:flex;gap:10px;align-items:center;margin-bottom:20px;}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);border-radius:2px;}
+  h1.title{font-size:clamp(28px,4.6vw,44px);line-height:1.12;margin:0 0 14px;font-weight:800;
+    letter-spacing:-0.02em;text-wrap:balance;}
+  .lede{font-size:clamp(16px,2.1vw,19px);color:var(--muted);margin:0 0 22px;max-width:64ch;}
+  .lede b{color:var(--ink);font-weight:600;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;}
+  .chip{font-size:12px;font-family:var(--mono);color:var(--muted);background:var(--surface);
+    border:1px solid var(--line);border-radius:999px;padding:5px 12px;}
+  .chip b{color:var(--ink);font-weight:600;}
+  section{margin:52px 0;scroll-margin-top:20px;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:22px;}
+  .sec-num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);
+    border:1px solid var(--line-strong);border-radius:7px;padding:3px 9px;flex:none;line-height:1.3;}
+  h2{font-size:clamp(21px,3vw,27px);margin:0;font-weight:750;letter-spacing:-0.015em;line-height:1.25;}
+  h3{font-size:17px;margin:30px 0 12px;font-weight:700;letter-spacing:-0.01em;}
+  p{margin:0 0 15px;max-width:72ch;}
+  ul.plain{margin:0 0 15px;padding-left:20px;} ul.plain li{margin:5px 0;color:var(--muted);}
+  ul.plain li b{color:var(--ink);font-weight:600;}
+  .tldr{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:12px;padding:22px 24px;box-shadow:var(--shadow);}
+  .tldr .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:10px;}
+  .tldr p{margin:0;font-size:17px;color:var(--ink);max-width:none;}
+  .tldr b{color:var(--accent-2);}
+  .twrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);}
+  table{border-collapse:collapse;width:100%;font-size:14px;min-width:640px;background:var(--surface);}
+  th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{background:var(--surface-2);font-size:12px;letter-spacing:.03em;color:var(--muted);
+    text-transform:uppercase;font-weight:700;white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,.mono-cell{font-family:var(--mono);font-size:13px;white-space:nowrap;}
+  code.inl{font-family:var(--mono);font-size:.9em;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;}
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;
+    overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.65;box-shadow:var(--shadow);color:var(--ink);}
+  pre .cm{color:var(--o);} pre .kw{color:var(--accent-2);font-weight:600;} pre .hi{color:var(--c);font-weight:600;}
+  .note{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:16px 18px;
+    font-size:14.5px;display:flex;gap:12px;align-items:flex-start;margin:16px 0;}
+  .note .badge{font-family:var(--mono);font-size:10.5px;font-weight:800;letter-spacing:.06em;
+    padding:3px 8px;border-radius:6px;flex:none;text-transform:uppercase;}
+  .note.safe .badge{color:var(--o);background:var(--o-soft);border:1px solid color-mix(in srgb,var(--o) 35%,transparent);}
+  .note.warn .badge{color:var(--s);background:var(--s-soft);border:1px solid color-mix(in srgb,var(--s) 35%,transparent);}
+  .note.bad .badge{color:var(--c);background:var(--c-soft);border:1px solid color-mix(in srgb,var(--c) 35%,transparent);}
+  .note.info .badge{color:var(--accent-2);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent-2) 35%,transparent);}
+  .note p{margin:0;color:var(--muted);max-width:none;}
+  .note b{color:var(--ink);}
+  .grp{font-family:var(--mono);font-weight:800;font-size:12px;padding:2px 8px;border-radius:6px;white-space:nowrap;
+    color:var(--accent);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);}
+  .x{color:var(--c);font-weight:700}
+  .ok{color:var(--o);font-weight:700}
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);
+    font-size:13px;color:var(--faint);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+    font-family:var(--mono);letter-spacing:.02em;}
+  @media print{ body{background:#fff;} .tldr,pre,.twrap{box-shadow:none;} }
+</style>
+
+<div class="wrap">
+
+  <header class="doc">
+    <div class="eyebrow">인터페이스 설계 · CLI Error Contract</div>
+    <h1 class="title">CLI 오류 출력<br>— 기계가 읽는 오류 계약</h1>
+    <p class="lede">다른 프로그램이 <code class="inl">csoclassify</code> 를 부를 때, 실패를 <b>사람이 읽는 한 줄</b>이 아니라
+    <b>고유 코드가 붙은 JSON</b> 으로 받게 한다. 지금은 같은 상황에서 두 엔진이 서로 다른 종료코드를 내고 있어,
+    부르는 쪽이 실패의 종류를 구분할 수 없다.</p>
+    <div class="meta">
+      <span class="chip"><b>대상</b> Python · Rust 두 엔진</span>
+      <span class="chip"><b>방식</b> --json-errors (선택)</span>
+      <span class="chip"><b>필드</b> code · kind · message · path</span>
+      <span class="chip"><b>상태</b> 구현 완료 · 2026-09-01</span>
+      <span class="chip"><b>작성일</b> 2026-08-31</span>
+    </div>
+  </header>
+
+  <div class="tldr">
+    <div class="k">한 줄 요약</div>
+    <p><code class="inl">--json-errors</code> 를 주면 실패할 때 <b>stdout 에 JSON 한 줄</b>을 내고 끝낸다.
+    <b><code class="inl">code</code> 는 오류마다 다른 고유 번호</b>(1001·2002…)이고, 프로세스 종료코드(0~4)는
+    지금까지의 약속을 그대로 지킨다 — <b>거친 종료코드로는 "왜 실패했는지"를 구분할 수 없기 때문</b>이다.</p>
+  </div>
+
+  <!-- 1 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>지금 무엇이 문제인가</h2></div>
+
+    <h3>① 실패가 사람이 읽는 글자로만 나온다</h3>
+<pre><span class="cm">&gt; csoclassify-rs.exe --dir "D:\Sample2" --simple</span>
+[csoclassify-rs] 처리할 파일이 없습니다. --file 또는 --dir 지정.</pre>
+    <p>부르는 쪽이 이 문장을 <b>글자로 맞춰 봐야</b> 원인을 안다. 문구를 한 글자만 고쳐도 상대 프로그램이 깨진다.</p>
+
+    <h3>② 같은 상황인데 엔진마다 종료코드가 다르다</h3>
+    <p>없는 폴더를 준 채 실제로 돌려 확인한 값이다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>상황</th><th>Rust 판</th><th>Python 판</th><th>실행가이드 문서</th></tr></thead>
+        <tbody>
+          <tr><td>없는 폴더 / 대상 0건</td><td class="mono x">2</td><td class="mono ok">3</td><td class="mono">3</td></tr>
+          <tr><td>규칙셋 파일 없음</td><td class="mono x">2</td><td class="mono ok">3</td><td class="mono">3</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note bad">
+      <span class="badge">왜 나쁜가</span>
+      <p>Rust 는 인자 문제를 <b>2(임베딩 실패)</b> 로 낸다. 받는 쪽이 <code class="inl">code==2</code> 를 보고
+      "모델이 없구나" 하고 재설치를 안내하면, 실제 원인(경로 오타)과 전혀 다른 대응을 하게 된다.
+      <b>이 불일치는 JSON 여부와 관계없이 지금 고쳐야 하는 버그다.</b></p>
+    </div>
+
+    <h3>③ 종료코드는 5개뿐이라 원인을 못 담는다</h3>
+    <p>0·1·2·3·4 다섯 값에 실패 열댓 가지가 뭉쳐 있다. "인자 오류(3)"만 해도 대상 없음 · 규칙셋 없음 ·
+    분류체계 없음 · seed 없음이 전부 같은 값이다.</p>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>오류 객체 — 네 칸</h2></div>
+<pre>{"error":{
+  <span class="kw">"code"</span>: 1001,                          <span class="cm">// 오류마다 다른 고유 번호(이것으로 분기한다)</span>
+  <span class="kw">"kind"</span>: "no_input",                    <span class="cm">// 사람도 읽을 수 있는 고유 이름(코드와 1:1)</span>
+  <span class="kw">"message"</span>: "처리할 파일이 없습니다 — --file 또는 --dir 로 대상을 지정하세요.",
+  <span class="kw">"path"</span>: "D:\\Sample2"                   <span class="cm">// 문제가 된 경로(없는 오류면 키 자체가 없다)</span>
+}}</pre>
+
+    <div class="twrap">
+      <table>
+        <thead><tr><th>칸</th><th>형</th><th>규약</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">code</td><td class="mono">정수</td>
+              <td><b>오류마다 유일하다.</b> 한번 부여한 번호는 뜻을 바꾸지 않는다 —
+              오류가 사라져도 그 번호는 다시 쓰지 않는다(받는 쪽 분기가 조용히 뒤바뀌는 것을 막는다).</td></tr>
+          <tr><td class="mono">kind</td><td class="mono">문자열</td>
+              <td>code 와 <b>1:1</b>. 로그에서 눈으로 읽을 때 쓴다. 분기는 code 로 하는 것이 안전하다
+              (이름은 오타·번역 논쟁의 여지가 있다).</td></tr>
+          <tr><td class="mono">message</td><td class="mono">문자열</td>
+              <td>사람에게 보여 줄 한국어 한 문장. <b>이 값으로 분기하지 말 것</b> — 문구는 다듬어질 수 있다.</td></tr>
+          <tr><td class="mono">path</td><td class="mono">문자열</td>
+              <td>문제가 된 파일·폴더. <b>경로와 무관한 오류에는 키가 없다</b>(빈 문자열을 넣지 않는다 —
+              "경로가 비었다"와 "경로와 무관하다"는 다른 뜻이다).</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>어디로 내보내나</h3>
+    <ul class="plain">
+      <li><b>stdout</b> 에 한 줄. 실패하면 결과가 없으므로 결과와 부딪히지 않고, 부르는 쪽은 stdout 만 파싱하면 된다.</li>
+      <li><b>stderr</b> 로는 오류를 <b>내지 않는다</b>. <span class="def">[2026-09-01 구현 중 변경] 설계 때는 "같은 내용을 사람 문장으로 한 번 더 낸다"고 했는데, 부르는 쪽이 두 갈래를 합쳐 받으면(2&gt;&amp;1) JSON 뒤에 그 문장이 따라붙어 파싱이 깨졌다. 옵션을 준 호출은 "기계가 읽겠다"는 뜻이므로 사람용 줄을 뺀다. 진행률·요약·경고는 오류가 아니므로 그대로 나가고, 오류 로그 파일에도 그대로 남는다.</span></li>
+      <li>프로세스 <b>종료코드</b>는 표의 <code class="inl">exit</code> 값으로 끝낸다 — 셸 스크립트가 그것만 보고도 굴러가게.</li>
+    </ul>
+
+    <div class="note info">
+      <span class="badge">왜 선택 옵션인가</span>
+      <p>지금 이 CLI 를 쓰고 있는 쪽이 있다면 stdout 모양이 바뀌는 순간 깨진다.
+      <code class="inl">--json-errors</code> 를 준 호출만 새 계약을 받는다. 옵션을 안 주면 오늘과 똑같이 동작한다.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>오류 목록 — 나올 수 있는 전부</h2></div>
+    <p>두 엔진의 실패 지점을 전수 조사해 정리했다(Rust <code class="inl">errlog::fail</code> 13곳,
+    Python <code class="inl">fail()</code>·<code class="inl">return EXIT_*</code> 18곳). 번호는 백의 자리로 묶는다.</p>
+
+    <h3><span class="grp">1000</span> 인자 · 입력</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>code</th><th>kind</th><th>exit</th><th>언제</th><th>path</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">1001</td><td class="mono">no_input</td><td class="mono">3</td>
+              <td>처리할 파일이 0건(폴더가 없거나, 패턴에 맞는 파일이 없음)</td><td>대상 폴더·파일</td></tr>
+          <tr><td class="mono">1002</td><td class="mono">no_target_arg</td><td class="mono">3</td>
+              <td><code class="inl">--file</code>·<code class="inl">--dir</code> 를 아예 안 줌</td><td>—</td></tr>
+          <tr><td class="mono">1003</td><td class="mono">bad_args</td><td class="mono">3</td>
+              <td>인자 해석 실패(값이 빠진 옵션 등)</td><td>—</td></tr>
+          <tr><td class="mono">1004</td><td class="mono">bad_axis</td><td class="mono">3</td>
+              <td><code class="inl">--axis</code> 가 security/doctype 이 아님</td><td>—</td></tr>
+          <tr><td class="mono">1005</td><td class="mono">bad_failsafe</td><td class="mono">3</td>
+              <td><code class="inl">--failsafe</code> 등급이 정의된 등급이 아님</td><td>—</td></tr>
+          <tr><td class="mono">1006</td><td class="mono">mode_conflict</td><td class="mono">3</td>
+              <td><code class="inl">--rule-only</code> 와 <code class="inl">--vector-only</code> 를 함께 줌</td><td>—</td></tr>
+          <tr><td class="mono">1007</td><td class="mono">seeds_missing</td><td class="mono">3</td>
+              <td><code class="inl">--vector-only</code> 인데 기준 문서 파일이 없음(비교할 잣대가 없어 전부 미분류가 된다)</td><td>seed 파일</td></tr>
+          <tr><td class="mono">1008</td><td class="mono">propagate_input_missing</td><td class="mono">3</td>
+              <td><code class="inl">--propagate</code> 로 준 1차 결과 파일이 없거나 못 읽음</td><td>결과 파일</td></tr>
+          <tr><td class="mono">1009</td><td class="mono">bad_conflict_axis</td><td class="mono">4</td>
+              <td><code class="inl">--conflict</code> 로 security 축 전략을 덮어쓰려 함(T11 — security 는 언제나 max 고정)</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3><span class="grp">2000</span> 정책 파일(규칙셋 · 분류체계)</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>code</th><th>kind</th><th>exit</th><th>언제</th><th>path</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">2001</td><td class="mono">rules_missing</td><td class="mono">3</td>
+              <td>보안등급 규칙셋(<code class="inl">cso_rules.yaml</code>)을 못 찾음</td><td>찾아본 경로</td></tr>
+          <tr><td class="mono">2002</td><td class="mono">rules_invalid</td><td class="mono">4</td>
+              <td>규칙셋 내용 오류 — V0(구조) · V5(정의 안 된 등급) · V6(bulk 가 base 보다 낮음) ·
+              V12(경로 규칙에 grade·acl_restricted 둘 다 없음)</td><td>규칙셋</td></tr>
+          <tr><td class="mono">2003</td><td class="mono">taxonomy_missing</td><td class="mono">3</td>
+              <td><code class="inl">--axis doctype</code> 인데 분류체계(<code class="inl">doc_taxonomy.yaml</code>)가 없음
+              <span style="color:var(--muted)">(축을 명시하지 않았으면 오류가 아니라 축만 끄고 계속한다)</span></td><td>분류체계</td></tr>
+          <tr><td class="mono">2004</td><td class="mono">taxonomy_invalid</td><td class="mono">4</td>
+              <td>분류체계 구조 오류 — T7(순환 A→B→A) · T8(부모가 없는 고아 노드)</td><td>분류체계</td></tr>
+          <tr><td class="mono">2005</td><td class="mono">doc_rules_invalid</td><td class="mono">4</td>
+              <td>업무분류 규칙셋 내용 오류 — T0(구조·id 중복) · T2(conflict 전략 이상) ·
+              T5(없는 node 참조) · T10(top_n 인데 n 이 없음)</td><td>doc_rule.yaml</td></tr>
+          <tr><td class="mono">2006</td><td class="mono">doc_rules_write_failed</td><td class="mono">4</td>
+              <td><code class="inl">--sync-doc-rule</code>·<code class="inl">--scaffold-doc-rule</code> 이 규칙 파일을 쓰지 못함(권한·잠김)</td><td>doc_rule.yaml</td></tr>
+          <tr><td class="mono">2007</td><td class="mono">export_input_missing</td><td class="mono">3</td>
+              <td><code class="inl">--export-taxonomy</code> 의 원본 JSON 을 못 찾음</td><td>원본 JSON</td></tr>
+          <tr><td class="mono">2008</td><td class="mono">export_input_invalid</td><td class="mono">4</td>
+              <td>원본 JSON 구조가 아니거나, 변환 결과를 축 로더가 다시 읽지 못함(왕복 검증 실패)</td><td>원본 JSON</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3><span class="grp">3000</span> 처리(추출 · 임베딩)</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>code</th><th>kind</th><th>exit</th><th>언제</th><th>path</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">3001</td><td class="mono">extract_failed</td><td class="mono">1</td>
+              <td><b>실행 전체</b>가 텍스트를 하나도 못 뽑음. 문서 하나가 실패한 것은 오류가 아니다(아래 4장)</td><td>—</td></tr>
+          <tr><td class="mono">3002</td><td class="mono">model_load_failed</td><td class="mono">2</td>
+              <td>임베딩 모델·런타임을 못 올림(<code class="inl">models/e5-small-ko</code>·onnxruntime 확인)</td><td>모델 폴더</td></tr>
+          <tr><td class="mono">3003</td><td class="mono">embed_failed</td><td class="mono">2</td>
+              <td>모델은 올랐는데 벡터를 못 만듦(빈 텍스트 등)</td><td>문서</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3><span class="grp">4000</span> 출력</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>code</th><th>kind</th><th>exit</th><th>언제</th><th>path</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">4001</td><td class="mono">output_write_failed</td><td class="mono">1</td>
+              <td><code class="inl">--out</code> 파일을 쓰지 못함(권한·디스크·다른 프로그램이 잡고 있음)</td><td>출력 파일</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3><span class="grp">9000</span> 그 밖</h3>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>code</th><th>kind</th><th>exit</th><th>언제</th><th>path</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">9001</td><td class="mono">internal_error</td><td class="mono">1</td>
+              <td>예상 못 한 내부 오류(패닉·예외). message 에 원인 요약을 담고 자세한 것은 오류 로그 파일에 남긴다</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn">
+      <span class="badge">번호 정책</span>
+      <p><b>번호는 재사용하지 않는다.</b> 어떤 오류가 없어져도 그 번호는 영구히 비워 둔다 — 재사용하면
+      옛 버전을 상대하던 프로그램이 <b>조용히 다른 뜻으로</b> 분기한다. 새 오류는 그 무리의 다음 번호를 받는다.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>문서 하나의 실패는 오류가 아니다</h2></div>
+    <p>이 계약은 <b>실행 전체가 멈춘 경우</b>에만 쓴다. 문서 100건 중 3건에서 텍스트를 못 뽑은 것은
+    <b>정상적인 결과</b>이고, 지금처럼 그 문서의 레코드에 담겨 나간다.</p>
+<pre>{"file":"D:/sample/그림만있는.pdf","grade":null,
+ "method":"extract_failed","signals":{},<span class="cm">…</span>}</pre>
+    <div class="note safe">
+      <span class="badge">왜 이렇게</span>
+      <p>못 읽은 문서를 결과에서 빼면 <b>"18건 중 11건"</b> 처럼 조용히 줄어든 숫자만 남는다. 무엇이 왜 빠졌는지
+      알 수 없는 것은 거버넌스 도구에서 가장 나쁜 실패다. 그래서 실패도 <b>결과의 일부</b>로 낸다.
+      실행 전체의 종료코드는 <b>그런 문서가 하나라도 있으면 1</b> 이다(결과 파일은 정상적으로 만들어진다).</p>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>부르는 쪽 예시</h2></div>
+<pre><span class="cm"># 파이썬에서 부를 때</span>
+r = subprocess.run([EXE, "--dir", folder, "--json-errors",
+                    "--format", "jsonl", "--out", out],
+                   capture_output=True, text=True, encoding="utf-8")
+<span class="kw">if</span> r.returncode != 0:
+    err = json.loads(r.stdout).get("error", {})
+    <span class="kw">if</span> err.get("code") == 1001:        <span class="cm"># 대상이 없다 → 사용자에게 폴더를 다시 묻는다</span>
+        ask_folder_again(err.get("path"))
+    <span class="kw">elif</span> err.get("code") == 3002:      <span class="cm"># 모델을 못 올렸다 → 설치 안내</span>
+        show_install_guide()
+    <span class="kw">else</span>:
+        log.error("%s(%s): %s", err.get("kind"), err.get("code"), err.get("message"))</pre>
+    <div class="note info">
+      <span class="badge">권장</span>
+      <p><code class="inl">code</code> 로 분기하고, 모르는 code 는 <b>백의 자리로 뭉뚱그려</b> 처리하면 좋다 —
+      1000번대면 "부른 쪽 잘못", 2000번대면 "정책 파일 문제", 3000번대면 "환경 문제", 4000번대면 "디스크·권한".
+      나중에 새 오류가 늘어도 그 코드가 자동으로 옳은 갈래에 들어간다.</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>할 일</h2></div>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>#</th><th>할 일</th><th>범위</th><th>상태</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">1</td><td><b>Rust 종료코드를 문서·Python 에 맞춘다</b> — 인자 문제를 2 가 아니라 3 으로.
+              옵션과 무관하게 지금 틀린 값이다</td><td class="mono">Rust</td><td><b>완료</b></td></tr>
+          <tr><td class="mono">2</td><td>실패 지점을 <b>한 함수로 모은다</b>(code·kind·exit 를 한곳에서 정하도록).
+              지금은 13곳·18곳에 흩어져 있어 값이 제각각이 되기 쉽다</td><td class="mono">Rust · Python</td><td><b>완료</b></td></tr>
+          <tr><td class="mono">3</td><td><code class="inl">--json-errors</code> 옵션과 stdout 출력</td><td class="mono">Rust · Python</td><td><b>완료</b></td></tr>
+          <tr><td class="mono">4</td><td>두 엔진이 <b>같은 상황에서 같은 code</b> 를 내는지 테스트로 묶는다</td><td class="mono">테스트</td><td><b>완료</b></td></tr>
+          <tr><td class="mono">5</td><td>실행가이드 6장(종료코드)에 이 표를 싣고, 화면 오류 표시도 kind 를 함께 남긴다</td><td class="mono">문서 · UI</td><td><b>완료</b></td></tr>
+          <tr><td class="mono">6</td><td>배포본 4종(Rust·Python × Windows·Linux) 재빌드</td><td class="mono">배포</td><td><b>완료</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note bad">
+      <span class="badge">먼저</span>
+      <p>①(종료코드 불일치)은 <b>지금 실제로 틀린 값</b>이라 이 설계와 상관없이 먼저 고쳐야 한다.
+      나머지는 이 문서가 확정된 뒤 한 번에 넣으면 된다.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>CLI 오류 출력 — 기계가 읽는 오류 계약</span>
+    <span>CSOClassify · 2026-08-31 설계 · 2026-09-01 구현</span>
+  </footer>
+
+</div>
+</body>
+</html>
