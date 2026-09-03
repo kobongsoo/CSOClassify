@@ -219,6 +219,11 @@ def test_detect_subset_matches_full(rs):
             c[m.label] = c.get(m.label, 0) + 1
         return c
 
+    # [주의] 여기 표본에는 '의도적 차이'가 걸리는 문장을 넣지 마십시오. ADDRESS 의
+    # 가짜 시군구("연구 정보관리 1")와 IP 의 판번호 문맥("Release 1.2.3.4 Build 7")
+    # 은 우리가 ko-pii 와 일부러 다르게 판정하는 자리라, 넣으면 이 시험이 영영
+    # 실패합니다(그 동작은 test_address_fake_district_rejected /
+    # test_ip_version_context_rejected 가 따로 지킵니다). doc/ko-pii 차이점.html 참고.
     samples = [
         f"주민 {VALID_RRN} 카드 {VALID_CARD} 처방번호 {VALID_PRESCRIPTION}",
         "서울특별시 강남구 테헤란로 152 여권 M12345678 010-1234-5678",
@@ -287,6 +292,75 @@ def test_address_prefilter_skips_addressfree(rs):
         return c
     assert counts(full(free, include=labels, normalize=True)) == \
            counts(R._detect_subset(free, labels, normalize=True))
+
+
+#------------------------------------------------------------------
+# [의도적 차이 A] 지번 주소 — 가짜 시군구는 거른다
+#=> ko-pii 는 광역(시·도)이 없으면 시군구를 검증하지 않아, '구'로 끝나는 아무
+#   낱말이나 주소가 된다("연구 정보관리 1" → ADDRESS). 실측에서 인사평가 엑셀
+#   5개에 10건이 이렇게 잡혀 등급이 S 로 잘못 올라갔다. 우리는 이걸 거부한다.
+#   여기 벡터는 Rust 의 pii::tests::주소_가짜시군구는_거른다 와 같은 것이라,
+#   두 판이 갈리면 양쪽 시험이 함께 빨간불이 된다.
+#   [주의] 이 사례들은 ko-pii 가 정답인 대조표(Rust/tests/pii_corpus.yaml)에는
+#   넣으면 안 된다 — 넣는 순간 골든 테스트가 영영 실패한다.
+#   근거: rules._jibun_admin_ok 헤더 · doc/ko-pii 차이점.html
+#
+# -in: 없음
+# -out: 없음(assert)
+# -out: error = 동작이 바뀌면 AssertionError / ko-pii 미설치 시 skip
+#------------------------------------------------------------------
+def test_address_fake_district_rejected():
+    if not R._HAVE_KOPII:
+        pytest.skip("ko-pii 미설치 환경")
+
+    def n(text):
+        return R._kopii_counts(text, {"ADDRESS"}).get("ADDRESS", 0)
+
+    # '연구'(구로 끝남) + '정보관리'(리로 끝남) — 둘 다 실제 행정구역이 아니다.
+    assert n("연구 정보관리 1") == 0
+    assert n("연구 정보관리 3 항목") == 0
+
+    # 진짜 주소는 그대로 잡아야 한다(가드가 미탐을 만들지 않았는지 확인).
+    assert n("주소는 서울특별시 강남구 역삼동 737 입니다.") == 1
+    assert n("주소는 충청남도 아산시 탕정면 매곡리 100 입니다.") == 1
+    # 광역이 없어도 시군구가 실존하면 통과.
+    assert n("성남시 정자동 100") == 1
+    # 시군구가 사전에 없어도 법정동이 실존하면 통과(미탐 방지 장치).
+    assert n("없는시 매곡리 100") == 1
+    # 도로명 브랜치에는 가드를 걸지 않았다 — 그대로 잡혀야 한다.
+    assert n("서울 강남구 테헤란로 123") == 1
+
+
+#------------------------------------------------------------------
+# [의도적 차이 B] IP — 판번호 문맥은 IP 로 보지 않는다
+#=> ko-pii 는 한글 문맥("버전 1.2.3.4")만 걸러내고 영문 문서에서는 판번호를 IP 로
+#   잡는다. 986개 문서 실측에서 이 차이가 19건이었고 전부 판번호였다.
+#   근거: rules._guarded_ip_detect 헤더 · doc/ko-pii 차이점.html
+#
+# -in: 없음
+# -out: 없음(assert)
+# -out: error = 동작이 바뀌면 AssertionError / ko-pii 미설치 시 skip
+#------------------------------------------------------------------
+def test_ip_version_context_rejected():
+    if not R._HAVE_KOPII:
+        pytest.skip("ko-pii 미설치 환경")
+
+    def n(text):
+        return R._kopii_counts(text, {"IP"}).get("IP", 0)
+
+    # 왼쪽 문맥 — 영문(ko-pii 가 놓치던 자리)과 한글(ko-pii 도 거르는 자리) 모두.
+    assert n("Release 1.2 / 1.2.3.4 Build 7") == 0
+    assert n("Section 10.20.30.40") == 0
+    assert n("appendix: 10.20.30.40") == 0
+    assert n("펌웨어 10.20.30.40") == 0
+    # 오른쪽 문맥 — 매치 뒤 8자에 build/버전이 붙는 모양.
+    assert n("1.2.3.4 build 7") == 0
+
+    # 진짜 IP 는 그대로 잡아야 한다(가드가 미탐을 만들지 않았는지 확인).
+    assert n("서버 8.8.8.8 접속") == 1
+    assert n("접속 IP 는 10.1.100.25 입니다") == 1
+    # IPv6 에는 가드를 걸지 않았다(Rust 도 det_ipv4 에서만 검사한다).
+    assert n("::ffff:10.1.100.25") >= 1
 
 
 #------------------------------------------------------------------

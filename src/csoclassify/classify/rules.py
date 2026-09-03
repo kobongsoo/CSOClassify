@@ -27,6 +27,14 @@ from ..resources import resource_path, exe_dir
 # 원본 더블패스·겹침 해소는 ko-pii 내부 함수를 '그대로' 재사용하므로 검출 결과·정확도
 # 는 detect_all 과 동일하고 실행시간만 줄어든다(실측 약 -40%/건, 대형 문서에선 더 큼).
 # 전체 엔진(_kopii_detect_all_full)은 우리가 매핑 못 한 라벨이 오면 쓰는 안전 폴백용.
+#
+# [2026-09-03] 위 "결과 동일"에는 예외가 두 개 생겼다. ADDRESS 의 가짜 시군구(차이 A)
+# 와 IP 의 판번호 문맥(차이 B)은 ko-pii 가 틀리는 자리라 일부러 다르게 판정한다.
+# Rust 판(Rust/src/pii.rs)에 먼저 들어간 것을 이식한 것이라, 두 구현이 같은 문서에
+# 같은 등급을 낸다. 근거는 _jibun_admin_ok / _guarded_ip_detect 헤더에 적었고
+# 문서는 doc/ko-pii 차이점.html 이다. 새 차이를 만들 때의 절차도 그쪽에 있다.
+# 주의: 위 안전 폴백(_kopii_detect_all_full)으로 빠지는 경로에는 이 가드가 걸리지
+# 않는다. 현재 설정 라벨은 전부 매핑돼 있어 그 경로는 타지 않는다.
 try:
     import re as _re
     from ko_pii import detect_all as _kopii_detect_all_full
@@ -55,6 +63,20 @@ try:
     from ko_pii.patterns.address import _LOOSE_ANCHORS as _ADDR_LOOSE_ANCHORS
     _ADDR_STRUCT_RE = _re.compile(r"(?:대로|로|길|동|읍|면|리)\s*[0-9０-９]")
     _ADDR_LOOSE_RE = _re.compile("|".join(_re.escape(a) for a in _ADDR_LOOSE_ANCHORS))
+    # [의도적 차이 A·B] 아래 사전·정규식은 ko-pii 와 '다르게' 판정하기 위한 것이다.
+    # 근거와 실측은 _jibun_admin_ok / _guarded_ip_detect 헤더, 문서는
+    # doc/ko-pii 차이점.html. 사전은 ko-pii 원본을 그대로 빌려 써서 두 판(Python·
+    # Rust)이 같은 명단을 보게 한다(Rust 는 districts.rs 의 ALL_DISTRICTS·LEGAL_DONGS).
+    from ko_pii.dictionaries.districts import is_district as _kopii_is_district
+    from ko_pii.dictionaries.legal_dongs import is_legal_dong as _kopii_is_legal_dong
+    # Rust/src/pii.rs 의 RE_IP_CTX_LEFT / RE_IP_CTX_RIGHT 와 글자까지 같은 패턴.
+    # 파이썬의 '$' 는 끝의 개행 앞에서도 맞으므로, Rust 와 어긋나지 않게 '\Z' 를 쓴다.
+    _IP_CTX_LEFT_RE = _re.compile(
+        r"(?:버전|버젼|펌웨어|릴리[스즈]|빌드|패치|표|그림|별표|도표|붙임|항목|조항|조|항"
+        r"|단계|절|장|챕터|version|firmware|release|build|patch|section|chapter"
+        r"|figure|table|appendix|clause)\s*[.·:]?\s*\Z", _re.IGNORECASE)
+    _IP_CTX_RIGHT_RE = _re.compile(
+        r"\s*(?:버전|버젼|version|빌드|build|릴리[스즈])", _re.IGNORECASE)
     _HAVE_KOPII = True
     _KOPII_IMPORT_ERR = None
 except Exception as _e:   # pragma: no cover - ko-pii 미설치 환경에서만
@@ -65,6 +87,11 @@ except Exception as _e:   # pragma: no cover - ko-pii 미설치 환경에서만
     _ADDR_STRUCT_RE = None
     _ADDR_LOOSE_RE = None
     _p_addr = None
+    # 가드용 자원이 없으면 가드는 '아무것도 거르지 않음'으로 안전하게 꺼진다.
+    _kopii_is_district = None
+    _kopii_is_legal_dong = None
+    _IP_CTX_LEFT_RE = None
+    _IP_CTX_RIGHT_RE = None
 
 # 성능/지연 가드: subset(필요한 검출기만) 으로 바꾼 뒤에도 phone(O(n²))·address·
 # account 때문에 검출 시간이 입력 길이에 '초선형'으로 는다(실측: 10K≈0.08s,
@@ -152,9 +179,72 @@ def _address_prefilter(text):
 
 
 #------------------------------------------------------------------
-# 주소 검출기 (프리필터로 감싼 버전)
+# 지번 주소 — 가짜 시군구 거르기 [ko-pii 와 의도적으로 다름]
+#=> ko-pii 는 지번 주소를 "시군구로 끝나는 낱말 + 동/읍/면/리로 끝나는 낱말 + 숫자"
+#   로 찾은 뒤, 광역(시·도)이 있을 때만 진짜 행정구역인지 확인한다. 광역이 없으면
+#   '시군구 자리가 비어 있지 않다'는 이유만으로 통과시킨다(_has_anchor 의 "prefix").
+#   그래서 주소가 아닌 말이 주소가 된다 — ko-pii 가 스스로 내놓는 출력이다.
+#       detect_all("연구 정보관리 1", include=["ADDRESS"])
+#         → ADDRESS conf=0.75 extra={'city': None, 'districts': '연구',
+#                                    'dong': '정보관리', 'lot_number': '1'}
+#   '연구'를 區, '정보관리'를 里 로 읽은 것이다. 2026-09-02 D:\분류함 실측에서
+#   인사평가 엑셀 5개에 이 모양이 10건 잡혀, 주소가 하나도 없는 문서의 등급이
+#   S 로 올라갔다.
+#
+#   [왜 우리가 고치나] 1.15.2 가 PyPI 최신이고, 업스트림 main 의 address.py 도
+#   설치본과 한 줄도 다르지 않다(347줄 동일, 2026-09-02 확인). 버전을 올려
+#   해결될 문제가 아니라서 우리 쪽에서 막는다.
+#
+#   [무엇을 다르게 하나] 광역이 없을 때, 시군구 토큰과 동/읍/면/리 토큰 중
+#   최소 하나는 진짜 행정구역 이름이어야 한다고 요구한다. 둘 다 사전에 없으면
+#   주소로 보지 않는다.
+#
+#   [왜 '둘 다'가 아니라 '둘 중 하나'인가] "시군구가 사전에 있어야 한다"로 못박으면
+#   사전에 빠진 기초자치단체에서 진짜 주소를 놓친다(ALL_DISTRICTS 는 206개로
+#   실제 226개 전수가 아니다). 법정동 가제티어는 10,368개로 훨씬 촘촘하니, 둘 중
+#   하나만 맞아도 통과시키면 미탐 위험은 거의 없이 오탐만 걷어낼 수 있다.
+#     · "연구 정보관리 1"    → 연구✗ + 정보관리✗ → 거부 (오탐 제거)
+#     · "성남시 정자동 100"  → 성남시✓           → 통과
+#     · "없는시 매곡리 100"  → 없는시✗ + 매곡리✓ → 통과 (사전에 없는 시라도 살아남음)
+#
+#   [적용 범위] 지번(format="jibun") 에만 건다. 도로명은 '로/길 + 번호'라는 신호가
+#   훨씬 강해 같은 오탐이 관측되지 않았고, 괜히 건드리면 미탐 위험만 커진다.
+#
+#   [Rust 와의 관계] Rust/src/pii.rs 의 jibun_admin_ok() 과 같은 판정이다. 그쪽이
+#   먼저 들어갔고 이건 그 이식본이라, 두 판이 같은 문서에 같은 등급을 낸다.
+#
+# -in: m = ko-pii DetectionResult (extra 에 format·city·districts·dong 이 들어 있다)
+#
+# -out: bool = 주소로 인정하면 True, 가짜 행정구역이라 버리면 False
+# -out: error = 없음 (사전 import 실패 시엔 항상 True → 종전 동작)
+#------------------------------------------------------------------
+def _jibun_admin_ok(m):
+    # 사전을 못 불러왔으면 판정 불가 → 거르지 않는다(ko-pii 원래 동작 유지).
+    if _kopii_is_district is None:
+        return True
+    extra = m.extra or {}
+    # 지번 브랜치가 아니면(도로명·대화체·단독) 손대지 않는다.
+    if extra.get("format") != "jibun":
+        return True
+    # 광역이 있으면 ko-pii 가 이미 (광역)·(광역+기초) 조합을 검증했다.
+    if extra.get("city"):
+        return True
+    parts = (extra.get("districts") or "").split()
+    first_district = parts[0] if parts else ""
+    # 시군구 토큰 자체가 없으면 ko-pii 도 좌측 20자에 '주소' 낱말을 요구한다
+    # (_has_anchor 의 keyword 경로) — 근거가 이미 있으므로 여기선 통과시킨다.
+    if not first_district:
+        return True
+    # 둘 중 하나라도 진짜 행정구역 이름이면 주소로 본다.
+    return bool(_kopii_is_district(first_district)
+                or _kopii_is_legal_dong(extra.get("dong") or ""))
+
+
+#------------------------------------------------------------------
+# 주소 검출기 (프리필터 + 가짜 시군구 가드)
 #=> _LABEL_TO_DETECTOR 에서 ADDRESS 자리에 원본 address.detect 대신 이걸 넣는다.
-#   프리필터가 '주소 없음'이라 판정하면 비싼 검출을 건너뛰고 빈 결과를 돌린다.
+#    1) 프리필터가 '주소 없음'이라 판정하면 비싼 검출을 건너뛴다(비용 절감, 결과 동일)
+#    2) 검출된 지번 주소 중 가짜 행정구역을 _jibun_admin_ok 로 걸러낸다(오탐 제거)
 #
 # -in: text = 스캔 대상 텍스트
 #
@@ -165,13 +255,51 @@ def _gated_address_detect(text):
     # 주소 신호가 전혀 없으면 address.detect 자체를 호출하지 않는다.
     if not _address_prefilter(text):
         return ()
-    return _p_addr.detect(text)
+    return [m for m in _p_addr.detect(text) if _jibun_admin_ok(m)]
+
+
+#------------------------------------------------------------------
+# IP 검출기 — 판번호 문맥 배제 [ko-pii 와 의도적으로 다름]
+#=> ko-pii 는 한글 문맥("버전 1.2.3.4")만 걸러내고, 영문 문서에서는 판번호를 IP 로
+#   잡는다("Release 1.2 / 1.2.3.4 Build 7" → IP 검출). 986개 문서 실측에서 이
+#   차이가 19건이었고 전부 판번호였다 — 맞추면 오히려 나빠지므로 우리 쪽이 더
+#   엄격하게 간다.
+#    1) 매치 왼쪽 12자에 판·절·표 따위의 낱말이 붙어 있으면 버린다
+#    2) 매치 오른쪽 8자가 "버전/build/릴리스" 로 시작하면 버린다
+#
+#   [적용 범위] IPv4 에만 건다(Rust 도 det_ipv4 에서만 검사한다). IPv6 는 이런
+#   모양의 오탐이 성립하지 않는다.
+#
+#   [Rust 와의 관계] Rust/src/pii.rs 의 RE_IP_CTX_LEFT / RE_IP_CTX_RIGHT 와 같은
+#   패턴·같은 창 크기(왼쪽 12자·오른쪽 8자)다.
+#
+# -in: text = 스캔 대상 텍스트
+#
+# -out: list[DetectionResult] = 판번호 문맥을 걷어낸 IP 검출 결과
+# -out: error = 없음 (정규식 미초기화면 원본 결과를 그대로 돌려준다)
+#------------------------------------------------------------------
+def _guarded_ip_detect(text):
+    if _IP_CTX_LEFT_RE is None:
+        return _p_ip.detect(text)
+    out = []
+    for m in _p_ip.detect(text):
+        # IPv6 는 대상이 아니다 — 라벨은 같아도 version 으로 갈린다.
+        if (m.extra or {}).get("version") == 4:
+            if _IP_CTX_LEFT_RE.search(text[max(0, m.start - 12):m.start]):
+                continue
+            if _IP_CTX_RIGHT_RE.match(text[m.end:m.end + 8]):
+                continue
+        out.append(m)
+    return out
 
 
 # 설정 라벨 → 검출기. 튜플 순서는 ko_pii.detect.DETECTORS 실행 순서를 보존해,
 # 겹침 해소의 '동점 시 먼저 시작한 span' 규칙까지 detect_all 과 동일하게 만든다.
-# ADDRESS 만 프리필터로 감싼 _gated_address_detect 를 쓴다(결과 동일, 주소 없는
-# 문서에서 비용 절감). import 실패(_HAVE_KOPII=False)면 빈 맵으로 둔다.
+# 두 자리만 원본 대신 우리 래퍼를 쓴다.
+#   · ADDRESS → _gated_address_detect : 프리필터(비용 절감) + 가짜 시군구 거부(차이 A)
+#   · IP      → _guarded_ip_detect    : 판번호 문맥 배제(차이 B)
+# 이 둘은 ko-pii 와 '일부러' 결과가 다르다 — 근거는 각 함수 헤더와
+# doc/ko-pii 차이점.html. import 실패(_HAVE_KOPII=False)면 빈 맵으로 둔다.
 if _HAVE_KOPII:
     _LABEL_TO_DETECTOR = (
         ("RRN", _p_rrn.detect), ("FRN", _p_frn.detect),
@@ -189,7 +317,7 @@ if _HAVE_KOPII:
         ("ADDRESS", _gated_address_detect), ("NATIONALITY", _p_nat.detect),
         ("ACCOUNT", _p_acct.detect), ("EDI_DRUG", _p_edi.detect),
         ("COURT_CASE", _p_court.detect),
-        ("URL", _p_url.detect), ("IP", _p_ip.detect),
+        ("URL", _p_url.detect), ("IP", _guarded_ip_detect),
     )
     _MAPPED_LABELS = frozenset(lbl for lbl, _ in _LABEL_TO_DETECTOR)
 else:
