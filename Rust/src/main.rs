@@ -12,6 +12,7 @@ mod embed;
 mod errcodes;
 mod errlog;
 mod extract;
+mod filelist;
 mod hwp5;
 mod office_legacy;
 mod ole;
@@ -36,6 +37,9 @@ struct Opts {
     file: Option<String>,
     dir: Option<String>,
     files_from: Option<String>, // 경로 목록 파일("-" 이면 stdin). 흩어진 파일을 한 프로세스로
+    filelist: Option<String>,   // {path, sfile_id} 목록. 결과의 doc_id 를 채운다(설계 §7-5-2-1)
+    no_doc_id: bool,            // 결과에 doc_id/key 를 넣지 않는다(기본은 넣는다)
+    report_missing_id: Option<String>, // sfile_id 를 못 얻은 문서 목록을 쓸 경로
     rules_path: Option<String>,
     taxonomy: Option<String>,   // doc_taxonomy.yaml(업무분류 어휘)
     doc_rules: Option<String>,  // doc_rule.yaml(업무분류 규칙)
@@ -148,6 +152,7 @@ fn parse_args() -> Result<Opts, String> {
         with_vector: false, propagate: None,
         auto_propagate: false, seeds: None,
         failsafe: None, check_rules: false,
+        filelist: None, no_doc_id: false, report_missing_id: None,
     };
     // args_os() 를 쓴다. std::env::args() 는 인자에 UTF-8 이 아닌 바이트가 섞이면
     // **패닉한다**(리눅스에서 CP949 로 깨진 경로를 받으면 실제로 그렇게 죽었다).
@@ -210,6 +215,9 @@ fn parse_args() -> Result<Opts, String> {
             "--propagate" => o.propagate = Some(take(false).unwrap()),
             "--auto-propagate" => o.auto_propagate = true,
             "--seeds" => o.seeds = Some(take(false).unwrap()),
+            "--filelist" => o.filelist = Some(take(false).unwrap()),
+            "--no-doc-id" => o.no_doc_id = true,
+            "--report-missing-id" => o.report_missing_id = Some(take(false).unwrap()),
             // 값이 있으면 그 값, 없으면 S(파이썬 판 nargs="?" const="S" 와 같다).
             // 검증은 인자를 다 읽은 뒤에 한다 — 여기서 하면 --failsafe 가
             // 여러 번 나올 때 마지막 값만 검사하는 것이 어색해진다.
@@ -299,7 +307,8 @@ fn parse_args() -> Result<Opts, String> {
 /// 표에 없는 칸은 **뒤에 그대로 붙인다** — 새 칸이 생겼을 때 이 함수가 조용히
 /// 지워 버리면 가장 찾기 어려운 사고가 된다.
 const REC_ORDER: &[&str] = &[
-    "file", "hash", "grade", "doctype", "confidence", "method", "decided_by",
+    "file", "doc_id", "doc_id_source", "key", "rematched_by",
+    "hash", "grade", "doctype", "confidence", "method", "decided_by",
     "error", "labels", "signals", "pii", "vector", "seed_eligible",
     "rule_version", "taxonomy_version", "doctype_rule_version", "ts", "elapsed_ms",
 ];
@@ -820,7 +829,7 @@ fn read_files_from(src: &str) -> Vec<PathBuf> {
 }
 
 /// 대상 파일 수집: --files-from 목록, --file 하나, --dir 재귀.
-fn collect_files(opts: &Opts) -> Vec<PathBuf> {
+fn collect_files(opts: &Opts, flist: Option<&filelist::FileList>) -> Vec<PathBuf> {
     // 목록 입력이 있으면 그것이 대상이다(--file/--dir 과의 동시 사용은 호출부에서 막는다).
     if let Some(lst) = &opts.files_from {
         return read_files_from(lst);
@@ -847,6 +856,12 @@ fn collect_files(opts: &Opts) -> Vec<PathBuf> {
                 pats.iter().any(|pat| glob_match(pat, &name))
             })
             .collect();
+    }
+    // --file/--dir/--files-from 이 하나도 없고 목록만 준 경우 — 목록이 대상을 정한다
+    // (설계 §7-5-2-1 "정식 운영"). --dir 과 함께 주면 위에서 이미 돌아갔고, 그때
+    // 목록은 'ID 사전' 역할만 한다.
+    if let Some(fl) = flist {
+        return fl.target_paths().into_iter().map(PathBuf::from).collect();
     }
     vec![]
 }
@@ -1115,14 +1130,41 @@ fn main() {
             "[csoclassify-rs] --files-from 은 --file/--dir 과 함께 쓸 수 없습니다.", None);
     }
 
-    let files = collect_files(&opts);
+    // 입력 목록(--filelist) 로드 — 대상 수집보다 먼저 한다. 목록이 깨져 있으면
+    // (F1·F3) 문서를 한 건도 읽기 전에 멈추는 것이 맞다. 절반쯤 잘못된 ID 가 붙은
+    // 결과가 나가는 것이 최악이기 때문이다(규칙셋 검증과 같은 원칙).
+    let flist: Option<filelist::FileList> = match opts.filelist.as_deref() {
+        None => None,
+        Some(lp) => match filelist::load(lp) {
+            Ok(fl) => {
+                eprintln!("[csoclassify-rs] 목록 {}: {}건 적재(전체 {}줄)",
+                          Path::new(lp).file_name()
+                              .map(|s| s.to_string_lossy().into_owned())
+                              .unwrap_or_else(|| lp.to_string()),
+                          fl.len(), fl.lines);
+                for w in &fl.warnings {
+                    eprintln!("[csoclassify-rs] {}", w);
+                }
+                Some(fl)
+            }
+            // '파일이 없다'와 '내용이 잘못됐다'는 부르는 쪽의 대응이 다르므로 코드를 나눈다.
+            Err(e) => {
+                let kind = if Path::new(lp).is_file() { "filelist_invalid" } else { "filelist_missing" };
+                errcodes::fail(kind, &format!("[csoclassify-rs] {}", e), None);
+                unreachable!()
+            }
+        },
+    };
+
+    let files = collect_files(&opts, flist.as_ref());
     if files.is_empty() {
         // 부르는 쪽의 대응이 다르므로 두 상황을 갈라 준다.
         //   · 대상을 아예 안 줌(1002) → 명령 자체를 고쳐야 한다
         //   · 줬는데 0건(1001)        → 사용자에게 폴더를 다시 물으면 된다
-        match opts.file.as_deref().or(opts.dir.as_deref()).or(opts.files_from.as_deref()) {
+        match opts.file.as_deref().or(opts.dir.as_deref()).or(opts.files_from.as_deref())
+                  .or(opts.filelist.as_deref()) {
             None => errcodes::fail("no_target_arg",
-                "[csoclassify-rs] 처리할 파일이 없습니다. --file · --dir · --files-from 중 하나 지정.", None),
+                "[csoclassify-rs] 처리할 파일이 없습니다. --file · --dir · --files-from · --filelist 중 하나 지정.", None),
             Some(t) => {
                 // 왜 0건인지를 상황에 맞게 말해 준다 — "없다"만으로는 무엇을
                 // 고칠지 모른다.
@@ -1248,6 +1290,11 @@ fn main() {
     struct Item { rec: Value, grade: Option<Grade>, text: String, seed_eligible: bool,
                   vector: Option<Vec<f32>>, file: String, dt: Option<doctype::DoctypeSignal> }
     let mut items: Vec<Item> = vec![];
+    // 문서 식별자 집계 — ID 를 어떤 출처로 채웠는지 센다(요약 · R14).
+    let (mut n_sfile, mut n_content, mut n_pathid) = (0usize, 0usize, 0usize);
+    let (mut n_case, mut n_hash_mismatch) = (0usize, 0usize);
+    let mut missing_id_rows: Vec<Value> = vec![];
+    let docid_on = !opts.no_doc_id;
     // 화면(UI)이 진행바를 그리려면 '몇 개 중 몇 개째'를 알아야 한다. 첫 줄은 0/N 으로
     // 내보낸다 — 규칙셋·분류체계를 읽고 대상을 훑는 준비 단계가 있어, 첫 파일이 끝나기
     // 전까지 화면이 멈춘 것처럼 보이지 않게 하려는 것이다(Python cli.py 와 같은 형식·차례).
@@ -1285,6 +1332,29 @@ fn main() {
                     dt: dt_axis.as_ref().map(|(taxonomy, drs)|
                         doctype::scan_doctype("", &display, drs, taxonomy)),
                 });
+                // 못 읽은 문서에도 식별자는 단다 — 그 문서도 사람이 손볼 '결과'라
+                // 나중에 수정을 이으려면 키가 필요하다(내용을 못 읽으면 경로 해시로 내려간다).
+                if docid_on {
+                    let (did, src, key, matched) =
+                        filelist::resolve_doc_id(&display, path, flist.as_ref());
+                    match src {
+                        "sfile_id" => n_sfile += 1,
+                        "content" => n_content += 1,
+                        _ => n_pathid += 1,
+                    }
+                    if matched == Some("case") { n_case += 1; }
+                    let r = &mut items.last_mut().unwrap().rec;
+                    r["doc_id"] = json!(did);
+                    r["doc_id_source"] = json!(src);
+                    r["key"] = json!(key);
+                    if matched == Some("case") { r["rematched_by"] = json!("case"); }
+                    if src != "sfile_id" {
+                        missing_id_rows.push(json!({
+                            "file": r["file"].clone(), "key": r["key"].clone(),
+                            "doc_id": r["doc_id"].clone(),
+                            "doc_id_source": r["doc_id_source"].clone()}));
+                    }
+                }
                 continue;
             }
         };
@@ -1315,6 +1385,42 @@ fn main() {
             if rec["grade"].is_null()
                 && rec["method"].as_str().map_or(true, |m| m == "unclassified") {
                 rec["method"] = json!("extract_failed");
+            }
+        }
+        // 문서 식별자(doc_id·key) — 설계 §7-5. 해시 계산보다 먼저 달아 둔다.
+        if docid_on {
+            let (did, src, key, matched) =
+                filelist::resolve_doc_id(&display, path, flist.as_ref());
+            match src {
+                "sfile_id" => n_sfile += 1,
+                "content" => n_content += 1,
+                _ => n_pathid += 1,
+            }
+            if matched == Some("case") {
+                n_case += 1;
+                rec["rematched_by"] = json!("case");
+            }
+            // F6 — 목록이 준 해시와 실제 파일이 다르면 문서가 수정된 것이다.
+            // 같은 문서이므로 처리는 그대로 계속하고 건수만 센다.
+            if src == "sfile_id" {
+                if let Some(fl) = flist.as_ref() {
+                    if let Some((e, _)) = fl.lookup(&display) {
+                        if let Some(want) = &e.hash {
+                            if file_hash(path).as_deref() != Some(want.as_str()) {
+                                n_hash_mismatch += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            rec["doc_id"] = json!(did);
+            rec["doc_id_source"] = json!(src);
+            rec["key"] = json!(key);
+            if src != "sfile_id" {
+                missing_id_rows.push(json!({
+                    "file": rec["file"].clone(), "key": rec["key"].clone(),
+                    "doc_id": rec["doc_id"].clone(),
+                    "doc_id_source": rec["doc_id_source"].clone()}));
             }
         }
         if need_hash { rec["hash"] = json!(file_hash(path)); }
@@ -1625,8 +1731,45 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
         None => { print!("{}", body); }
     }
 
+    // --report-missing-id — sfile_id 를 못 얻은 문서를 따로 뽑아 둔다. 이 문서들은
+    // 매핑 테이블 적재 대상이 아니므로(R14), 왜 못 얻었는지 확인할 수 있게 남긴다.
+    if let Some(mp) = opts.report_missing_id.as_deref() {
+        if !missing_id_rows.is_empty() {
+            let body: String = missing_id_rows.iter()
+                .map(|r| format!("{}
+", r)).collect();
+            match std::fs::write(mp, body) {
+                Ok(_) => eprintln!("[csoclassify-rs] 문서 ID 미획득 목록: {} ({}건)",
+                                   mp, missing_id_rows.len()),
+                // 본 작업은 끝난 뒤라, 리포트를 못 썼다고 결과까지 버릴 이유는 없다.
+                Err(e) => eprintln!("[csoclassify-rs] 미획득 목록을 쓰지 못했습니다: {}", e),
+            }
+        }
+    }
+
     // 화면 요약(stderr)
     if !opts.no_summary {
+        // 문서 ID 획득 현황 — 설계 §7-5-2-1. 폴백 건수를 등급 줄보다 먼저 보여 준다.
+        // 이 수치가 조용히 커지면 매핑에 들어가지 못하는 문서가 쌓이는데, 아무 오류도
+        // 나지 않아 알아채기 어려운 종류의 실패이기 때문이다(R14).
+        if docid_on && (n_sfile + n_content + n_pathid) > 0 {
+            eprintln!("[summary][문서 ID] sfile_id {} · 폴백(content) {} · 폴백(path) {}",
+                      n_sfile, n_content, n_pathid);
+            let n_fallback = n_content + n_pathid;
+            if n_fallback > 0 {
+                let hint = if opts.report_missing_id.is_some() { "" }
+                           else { " --report-missing-id 로 목록 확인" };
+                eprintln!("[summary][문서 ID] ※ 폴백 {}건은 매핑 테이블 적재 대상이 아닙니다.{}",
+                          n_fallback, hint);
+            }
+            if n_case > 0 {
+                eprintln!("[summary][문서 ID] 대소문자만 달라 목록과 이어진 문서 {}건(rematched_by=case)",
+                          n_case);
+            }
+            if n_hash_mismatch > 0 {
+                eprintln!("[summary][문서 ID] [F6] 목록의 hash 와 실제 파일이 다른 문서 {}건 — 수정된 것으로 보이며 같은 문서로 처리했습니다", n_hash_mismatch);
+            }
+        }
         // --no-timing 이면 총시간을 뺀다(Python 판 --no-timing 과 같은 뜻).
         // 시간은 실행마다 달라지는 값이라, 결과를 비교·기록할 때 걸리적거린다.
         if opts.no_timing {

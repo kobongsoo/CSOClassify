@@ -138,6 +138,20 @@ def build_parser():
     p.add_argument("--files-from", dest="files_from", default=None,
                    help="처리할 파일 경로 목록(한 줄에 하나, '-' 면 표준입력). "
                         "여러 폴더에 흩어진 파일을 한 프로세스로 처리 — --file/--dir 과 배타")
+    # 문서 식별자(doc_id) — 설계 §7-5 · D0/D0b.
+    p.add_argument("--filelist", dest="filelist", default=None,
+                   help="MpowerV11 이 뽑아 준 {path, sfile_id} 목록(jsonl 또는 csv). "
+                        "이 목록으로 결과 레코드의 doc_id 를 채운다. "
+                        "--file/--dir 이 있으면 그쪽이 대상을 정하고 목록은 'ID 사전' "
+                        "역할만 하며, 없으면 목록에 적힌 파일이 대상이 된다")
+    p.add_argument("--no-doc-id", dest="no_doc_id", action="store_true",
+                   help="결과 레코드에 doc_id/key 를 넣지 않는다(보안등급만 볼 때). "
+                        "기본은 넣는다 — 계산 비용이 사실상 0 이고, 사람이 고친 등급을 "
+                        "결과와 잇는 데도 쓰인다")
+    p.add_argument("--report-missing-id", dest="report_missing_id", default=None,
+                   metavar="경로",
+                   help="sfile_id 를 못 얻어 폴백으로 채운 문서 목록을 이 파일에 쓴다"
+                        "(jsonl). 그 문서들은 매핑 테이블 적재 대상이 아니다")
     p.add_argument("--glob", dest="glob", default="*",
                    help="배치 필터 패턴(기본 *). 여러 개는 콤마로 나열: "
                         "예) \"*.hwp,*.docx,*.pdf\" (중괄호 \"*.{hwp,docx,pdf}\" 도 가능)")
@@ -497,6 +511,12 @@ def collect_files(args):
         # 매칭 결과 중 실제 파일만(폴더 제외) 대상으로, 중복 제거해 정렬한다
         # (여러 패턴에 동시에 걸린 파일이 있을 수 있음).
         return sorted({f for f in found if os.path.isfile(f)})
+    # --file/--dir/--files-from 이 하나도 없고 목록만 준 경우 — 목록이 대상을 정한다
+    # (설계 §7-5-2-1 "정식 운영": MpowerV11 이 '이번에 분류할 문서'를 고른다).
+    # 반대로 --dir 과 함께 주면 위에서 이미 돌아갔다 — 그때 목록은 'ID 사전' 역할만 한다.
+    flist = getattr(args, "_filelist", None)
+    if flist is not None:
+        return flist.target_paths()
     return []
 
 
@@ -648,6 +668,50 @@ def _extract_failed_record(path, err, ruleset, doc_rules=None, taxonomy=None):
     # "분류 안 됨(사람이 봐야 함)"으로 셀 수 있다(키 부재 = 축 미사용과 구분).
     _attach_doctype(rec, "", path, doc_rules, taxonomy)
     return rec
+
+
+#------------------------------------------------------------------
+# 결과 레코드에 문서 식별자 달기 (설계 §7-5)
+#=> 지금까지 결과와 사람의 수정을 잇는 유일한 키가 '경로 문자열'이었다. 경로는
+#   문서의 주소이지 신분증이 아니라서, 폴더를 옮기거나 드라이브 문자 대소문자만
+#   달라져도 그 문서에 쌓아 둔 판단 이력이 끊긴다(실측 4건 유실).
+#   그래서 변하지 않는 이름표(doc_id)와 정규화 경로(key)를 함께 심는다.
+#    1) 목록(--filelist)에 있으면 그 sfile_id 를 쓴다 — 시스템이 이미 정한 정체성
+#    2) 없으면 내용 해시 → 그것도 안 되면 경로 해시로 폴백하고, 어느 것을 썼는지 남긴다
+#    3) 목록의 hash 와 실제 파일이 다르면 경고만 세어 둔다(F6 — 수정됐어도 같은 문서다)
+#
+#   [왜 stats 를 따로 세나] 폴백으로 채워진 문서는 매핑 테이블에 넣으면 안 된다
+#   (그 값은 MpowerV11 문서와 이어지지 않아 같은 문서가 두 건으로 들어간다 — R14).
+#   그런데 이건 아무 오류도 내지 않는 조용한 누적이라, 건수를 요약 첫 줄에 띄운다.
+#
+# -in: rec   = 완성된 결과 레코드(제자리에서 고친다)
+# -in: path  = 표시용 경로(rec["file"] 과 같은 값)
+# -in: src   = 실제로 읽은 경로(압축 내부 파일이면 임시 실경로). None 이면 path
+# -in: flist = filelist.FileList 또는 None
+# -in: stats = 집계 dict(sfile_id/content/path/case/hash_mismatch 키를 늘린다)
+#
+# -out: 없음(rec 을 제자리에서 고친다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _attach_doc_id(rec, path, src, flist, stats):
+    from . import filelist as filelist_mod
+    doc_id, source, key, matched = filelist_mod.resolve_doc_id(path, src, flist)
+    rec["doc_id"] = doc_id
+    rec["doc_id_source"] = source
+    rec["key"] = key
+    stats[source] = stats.get(source, 0) + 1
+    # 대소문자만 달라 구제된 경우는 조용히 넘기지 않고 그 사실을 레코드에 남긴다.
+    if matched == "case":
+        rec["rematched_by"] = "case"
+        stats["case"] = stats.get("case", 0) + 1
+    # F6 — 목록이 준 해시와 실제 파일이 다르면 문서가 수정된 것이다. 같은 문서이므로
+    # 처리는 그대로 계속하고 건수만 센다.
+    if flist is not None and source == "sfile_id":
+        entry, _ = flist.lookup(path)
+        if entry is not None and entry.hash:
+            actual = _file_hash(src or path)
+            if actual and actual != entry.hash:
+                stats["hash_mismatch"] = stats.get("hash_mismatch", 0) + 1
 
 
 #------------------------------------------------------------------
@@ -1343,6 +1407,11 @@ def run_classify(files, args, out_fp):
     # 본문을 못 읽은 문서 수 — 추출기가 예외를 던진 것과 '글자가 사실상 없던 것'을
     # 함께 센다. 부르는 쪽이 "이번 실행에 손봐야 할 문서가 몇 건인가"를 알아야 한다.
     n_extract_failed = 0
+    # 문서 식별자 집계 — ID 를 어떤 출처로 채웠는지 센다(요약 첫 줄 · R14).
+    docid_stats = {}
+    docid_flist = getattr(args, "_filelist", None)
+    docid_on = not getattr(args, "no_doc_id", False)
+    missing_id_rows = []          # --report-missing-id 로 뽑을 폴백 문서들
     code = config.EXIT_OK
 
     # 업무분류(doctype) 축 집계(요약용, 설계서 7-3 — 뿌리 카테고리 롤업). doctype 축이
@@ -1497,6 +1566,12 @@ def run_classify(files, args, out_fp):
             # 무엇이 왜 빠졌는지 알 수 없는 것은 거버넌스 도구에서 가장 나쁜 실패다.
             # 등급 없이(=보류) 실패 사유를 실어 내보내 사람이 처리하게 한다.
             rec = _extract_failed_record(path, e, ruleset, doc_rules_set, taxonomy)
+            # 못 읽은 문서에도 식별자는 단다 — 그 문서도 사람이 손볼 '결과'라
+            # 나중에 수정을 이으려면 키가 필요하다(내용을 못 읽으면 경로 해시로 내려간다).
+            if docid_on:
+                _attach_doc_id(rec, path, src, docid_flist, docid_stats)
+                if rec.get("doc_id_source") != "sfile_id":
+                    missing_id_rows.append(rec)
             counts["none"] = counts.get("none", 0) + 1
             n_extract_failed += 1
             if auto_prop:
@@ -1555,6 +1630,12 @@ def run_classify(files, args, out_fp):
         # 문서해쉬값
         # =>인자가 --hash/--simple 인 경우에만 문서 '내용'의 해시를 레코드에 싣는다(읽기 실경로 src 기준).
         #----------------------------------------------------------------------------
+        # 문서 식별자(doc_id·key) — 설계 §7-5. 해시 계산보다 먼저 달아 둔다.
+        if docid_on:
+            _attach_doc_id(rec, path, src, docid_flist, docid_stats)
+            if rec.get("doc_id_source") != "sfile_id":
+                missing_id_rows.append(rec)
+
         if need_hash:
             rec["hash"] = _file_hash(src)
 
@@ -1821,9 +1902,49 @@ def run_classify(files, args, out_fp):
         full_fp.close()
         print(f"[csoclassify] 감사용 전체 결과: {full_path}", file=sys.stderr)
 
+    # (1-b) --report-missing-id — sfile_id 를 못 얻은 문서를 따로 뽑아 둔다.
+    #       이 문서들은 매핑 테이블 적재 대상이 아니므로(R14), 왜 ID 를 못 얻었는지
+    #       사람이 확인할 수 있게 목록으로 남긴다.
+    if getattr(args, "report_missing_id", None) and missing_id_rows:
+        try:
+            with open(args.report_missing_id, "w", encoding="utf-8") as mf:
+                for r in missing_id_rows:
+                    mf.write(output.dumps_safe(
+                        {"file": r.get("file"), "key": r.get("key"),
+                         "doc_id": r.get("doc_id"),
+                         "doc_id_source": r.get("doc_id_source")},
+                        separators=(",", ":")) + "\n")
+            print(f"[csoclassify] 문서 ID 미획득 목록: {args.report_missing_id} "
+                  f"({len(missing_id_rows)}건)", file=sys.stderr)
+        except OSError as e:
+            # 본 작업은 끝난 뒤라, 리포트를 못 썼다고 결과까지 버릴 이유는 없다.
+            print(f"[csoclassify] 미획득 목록을 쓰지 못했습니다: {e}", file=sys.stderr)
+
     # (2) 화면(stderr) 최종 요약 — 사용자가 요청한 형식(총수/검출/등급별/미분류/총시간).
     #     --nosummary 면 이 화면 요약 줄도 내지 않는다(summary 를 마지막 출력에서 완전 제거).
     if not no_summary:
+        # 문서 ID 획득 현황 — 설계 §7-5-2-1. 폴백 건수를 등급 줄보다 먼저 보여 준다.
+        # 이 수치가 조용히 커지면 매핑에 들어가지 못하는 문서가 쌓이는데, 아무 오류도
+        # 나지 않아 알아채기 어려운 종류의 실패이기 때문이다(R14).
+        if docid_on and docid_stats:
+            n_sf = docid_stats.get("sfile_id", 0)
+            n_content = docid_stats.get("content", 0)
+            n_path = docid_stats.get("path", 0)
+            print(f"[summary][문서 ID] sfile_id {n_sf} · 폴백(content) {n_content} "
+                  f"· 폴백(path) {n_path}", file=sys.stderr)
+            n_fallback = n_content + n_path
+            if n_fallback:
+                hint = ("" if getattr(args, "report_missing_id", None)
+                        else " --report-missing-id 로 목록 확인")
+                print(f"[summary][문서 ID] ※ 폴백 {n_fallback}건은 매핑 테이블 "
+                      f"적재 대상이 아닙니다.{hint}", file=sys.stderr)
+            if docid_stats.get("case"):
+                print(f"[summary][문서 ID] 대소문자만 달라 목록과 이어진 문서 "
+                      f"{docid_stats['case']}건(rematched_by=case)", file=sys.stderr)
+            if docid_stats.get("hash_mismatch"):
+                print(f"[summary][문서 ID] [F6] 목록의 hash 와 실제 파일이 다른 문서 "
+                      f"{docid_stats['hash_mismatch']}건 — 수정된 것으로 보이며 "
+                      f"같은 문서로 처리했습니다", file=sys.stderr)
         arch_note = f", 압축 {len(arch_recs)}건" if arch_recs else ""
         print(
             f"[summary] 총 {total_files}개 / 검출 {detected}, "
@@ -2798,17 +2919,38 @@ def _main(argv=None):
     if getattr(args, "files_from", None) and (args.file or args.dir):
         return fail_err("bad_args",
                         "[csoclassify] --files-from 은 --file/--dir 과 함께 쓸 수 없습니다.")
+
+    # (3-a) 입력 목록(--filelist) 로드 — 대상 수집보다 먼저 한다.
+    # 목록이 깨져 있으면(F1·F3) 문서를 한 건도 읽기 전에 멈추는 것이 맞다.
+    # 절반쯤 잘못된 ID 가 붙은 결과가 나가는 것이 최악이기 때문이다(규칙셋 검증과 같은 원칙).
+    args._filelist = None
+    if getattr(args, "filelist", None):
+        from . import filelist as filelist_mod
+        try:
+            args._filelist = filelist_mod.load(args.filelist)
+        except filelist_mod.FileListError as e:
+            # '파일이 없다'와 '내용이 잘못됐다'는 부르는 쪽의 대응이 다르므로 코드를 나눈다.
+            kind = ("filelist_missing" if not os.path.isfile(args.filelist or "")
+                    else "filelist_invalid")
+            return fail_err(kind, f"[csoclassify] {e}")
+        st = args._filelist.stats
+        print(f"[csoclassify] 목록 {os.path.basename(args.filelist)}: "
+              f"{st['loaded']}건 적재(전체 {st['lines']}줄)", file=sys.stderr)
+        for w in args._filelist.warnings:
+            print(f"[csoclassify] {w}", file=sys.stderr)
+
     files = collect_files(args)
     if not files:
         # 두 상황을 갈라 준다 — 부르는 쪽의 대응이 다르다.
         #   · 대상을 아예 안 줌(1002)      → 명령 자체를 고쳐야 한다
         #   · 줬는데 0건(1001)             → 사용자에게 폴더를 다시 물으면 된다
-        target = args.file or args.dir or getattr(args, "files_from", None)
+        target = (args.file or args.dir or getattr(args, "files_from", None)
+                  or getattr(args, "filelist", None))
         if not target:
             return fail_err("no_target_arg",
                             "[csoclassify] 처리할 파일이 없습니다. "
-                            "--file <경로> · --dir <폴더> · --files-from <목록> 중 "
-                            "하나를 지정하세요.")
+                            "--file <경로> · --dir <폴더> · --files-from <목록> · "
+                            "--filelist <목록> 중 하나를 지정하세요.")
         # 왜 0건인지를 상황에 맞게 말해 준다 — "없다"만으로는 무엇을 고칠지 모른다.
         if args.file:
             why = ("폴더입니다 — 폴더는 --dir 로 지정하세요."

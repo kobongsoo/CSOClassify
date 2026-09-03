@@ -44,6 +44,7 @@ import docruleedit
 import taxonomy as taxlib
 import uisettings
 import uierrlog
+import docidkey
 import uireset
 import uiwords as W
 
@@ -223,7 +224,9 @@ def load_overrides(path):
                 continue
             latest[file] = e                 # 나중 줄이 앞 줄을 덮음 → 최신 유효
             history[file].append(e)
-    return latest, history
+    # 경로 정확 일치만으로는 사람이 고친 기록이 조용히 사라진다(실측 4건).
+    # doc_id → 정규화 경로 → 대소문자 순으로 잇는 색인으로 감싼다(설계 §7-5-3).
+    return docidkey.OverrideIndex(latest), history
 
 
 #------------------------------------------------------------------
@@ -378,9 +381,13 @@ def load_run_meta(grades_path):
 # -out: error = 쓰기 실패 시 예외 전파
 #------------------------------------------------------------------
 def append_override(path, file, old_grade, new_grade, reason, reviewer,
-                    kind="change"):
+                    kind="change", doc_id=None, key=None):
     entry = {
         "file": file,
+        # 다음 실행에서 이 기록을 되찾는 키. 경로만 남기면 폴더를 옮기거나
+        # 표기가 달라졌을 때 조용히 끊긴다(설계 §7-5-3 ①·②).
+        "doc_id": doc_id,
+        "key": key or docidkey.normalize_key(file),
         "axis": "security",
         # 값을 바꾼 것("change")과 자동 판정이 맞다고 확인만 한 것("confirm")을
         # 구분해 둔다. 둘 다 "사람이 판단을 끝냈다"는 뜻이라 검토함에서는 똑같이
@@ -408,7 +415,7 @@ def append_override(path, file, old_grade, new_grade, reason, reviewer,
 #------------------------------------------------------------------
 def effective_grade(rec, latest):
     auto = norm_grade(rec.get("grade"))
-    ov = latest.get(rec.get("file"))
+    ov, _how = docidkey.lookup(latest, rec)
     if ov:
         return norm_grade(ov.get("new_grade")), True
     return auto, False
@@ -427,7 +434,7 @@ def effective_grade(rec, latest):
 # -out: error = 없음
 #------------------------------------------------------------------
 def grade_changed(rec, latest):
-    ov = latest.get(rec.get("file"))
+    ov, _how = docidkey.lookup(latest, rec)
     if not ov:
         return False
     return norm_grade(ov.get("new_grade")) != norm_grade(rec.get("grade"))
@@ -740,14 +747,15 @@ def render_override_panel(rec, latest, history, ov_path, reviewer, scope="list")
             st.error("‘판단 못 함’으로는 확정할 수 없습니다. C·S·O 중에서 골라 주세요.")
         else:
             append_override(ov_path, file, cur, new_grade, reason.strip(),
-                            reviewer.strip(), kind="change" if changed else "confirm")
+                            reviewer.strip(), kind="change" if changed else "confirm",
+                            doc_id=rec.get("doc_id"), key=rec.get("key"))
             st.success(f"바뀌었습니다: {GRADE_LABEL[cur]} → {GRADE_LABEL[new_grade]}"
                        if changed else f"확정됨: {GRADE_LABEL[new_grade]}")
             st.rerun()
     st.caption("✔ 자동 판정이 맞으면 등급을 그대로 두고 눌러 확정하세요 — "
                "확정해야 검토함에서 내려갑니다. 원래 값은 지워지지 않고 남습니다.")
 
-    hist = history.get(file, [])
+    hist = docidkey.history_for(history, latest, rec)
     if hist:
         with st.expander(f"결정 기록 {len(hist)}건"):
             for e in reversed(hist):
@@ -1528,7 +1536,7 @@ def render_doctype_panel(rec, latest_dt, history_dt, ov_path, reviewer, tax, sco
             st.rerun()
     st.caption("✔ 체크하지 않은 제안은 “아니라고 표시함”으로 기록돼 다음 분류가 좋아집니다.")
 
-    hist = history_dt.get(file, [])
+    hist = docidkey.history_for(history_dt, latest_dt, rec)
     if hist:
         with st.expander(f"결정 기록 {len(hist)}건"):
             for e in reversed(hist):

@@ -32,6 +32,9 @@ pub const ERRORS: &[(&str, i64, i32)] = &[
     ("seeds_missing", 1007, 3),
     ("propagate_input_missing", 1008, 3),
     ("bad_conflict_axis", 1009, 4),
+    // 목록(--filelist)은 정책 파일이 아니라 부른 쪽이 준 입력이라, 내용이 틀려도 3 이다.
+    ("filelist_missing", 1010, 3),
+    ("filelist_invalid", 1011, 3),
     // ── 2000 정책 파일(규칙셋 · 분류체계) ────────────────────────────
     ("rules_missing", 2001, 3),
     ("rules_invalid", 2002, 4),

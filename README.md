@@ -243,6 +243,11 @@ doc/                실행 가이드 · 규칙셋 레퍼런스 · 빌드 가이�
 - ✅ C/S/O 분류: 5신호(rule·sensitive·stamp·path·name) 융합 + 결합식별성(combo) + 임베딩 전파(embed).
 - ✅ PII 20종(ko-pii) · 분류 방식 옵션(`--rule-only`/`--vector-only`) · 문서자동분류 UI(검토·판단 기준 편집).
 - ✅ onedir 배포(Windows·Linux) · 규칙셋/모델/사이냅 외장화.
+- ✅ 문서 식별자 `doc_id` · 입력 목록 `--filelist`(설계 D0·D0b) — 결과 레코드에
+  `doc_id`(MpowerV11 `sfile_id`, 없으면 내용/경로 해시 폴백) · `key`(정규화 경로) ·
+  `doc_id_source` 를 심는다. 검토 화면은 `doc_id → 정규화 경로 → 대소문자` 순으로
+  결과와 사람의 수정을 잇는다(경로 표기 차이로 수정이 유실되던 문제 해소).
+  Python·Rust 동일 동작.
 - ✅ 단위/통합 테스트 통과.
 
 ## 라이선스 · 주의

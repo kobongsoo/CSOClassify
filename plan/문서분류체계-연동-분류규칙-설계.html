@@ -96,7 +96,14 @@
   <p>현재 운영 중인 <code>DOC_CLASSIFICATION</code> 업무 분류 체계를 CSOClassify 규칙 엔진에 연동하고,
   <b>신호 충돌 해소 전략을 선택 가능하게</b> 만드는 설계</p>
   <div class="meta">작성 2026-08-24 · 근거 자료 <code>2025 문서 분류 체계\수정.pptx</code>(3매) ·
-  대상 <code>CSOClassify</code>(Python) 및 <code>Rust/</code>(csoclassify-rs) · <b>설계만, 구현 없음</b></div>
+  대상 <code>CSOClassify</code>(Python) 및 <code>Rust/</code>(csoclassify-rs)</div>
+<div class="note"><b>구현 현황 (2026-09-03 갱신)</b> — 이 문서는 처음 작성될 때(2026-08-24) 설계만 담았으나, 그 뒤 다음이 실제로 들어갔다.
+<ul>
+<li><b>D1~D4 (축 · 분류체계 · 충돌 전략 · doctype 가동)</b> — 구현 완료. <code>classify/axes.py</code> · <code>conflict.py</code> · <code>doc_rules.py</code> · <code>doctype.py</code> 와 Rust 대응 포트.</li>
+<li><b>D0 문서 식별자 <code>doc_id</code> · D0b <code>--filelist</code> 어댑터</b> — 구현 완료 2026-09-03. <code>csoclassify/filelist.py</code> · <code>Rust/src/filelist.rs</code> 신설, 결과 레코드에 <code>doc_id</code>/<code>doc_id_source</code>/<code>key</code> 를 심고, 검토 화면(<code>ui/docidkey.py</code>)이 §7-5-3 의 매칭 순서 ①~④ 로 잇는다. 검증 F1~F7 · <code>--report-missing-id</code> · 요약의 ID 획득 현황 포함. §7-5 가 지목한 <b>실측 4건 유실</b>이 해소되는 것을 회귀 시험으로 고정했다(<code>tests/test_docid.py</code>).</li>
+<li><b>D5·D6·D7</b> — 부분 구현(출력 스키마 · 검토 UI 는 돌고 있고, doctype 전파도 가동됨). 남은 것은 §12 의 미결 결정 사항이다.</li>
+</ul>
+아래 본문의 “지금은 …하지 않는다” 식 서술 중 위 항목에 해당하는 부분은 <b>작성 시점(2026-08-24)의 상태</b>를 가리킨다.</div>
 </header>
 
 <section class="card">

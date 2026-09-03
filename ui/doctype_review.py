@@ -13,6 +13,8 @@
 
 import datetime
 import json
+
+import docidkey
 import os
 from collections import defaultdict
 
@@ -63,7 +65,8 @@ def load_doctype_overrides(path):
                 continue
             latest[file] = e            # 나중 줄이 앞 줄을 덮음 → 최신 유효
             history[file].append(e)
-    return latest, history
+    # 보안등급 쪽과 같은 매칭 순서(doc_id → 정규화 경로 → 대소문자)를 쓴다.
+    return docidkey.OverrideIndex(latest), history
 
 
 #------------------------------------------------------------------
@@ -121,7 +124,9 @@ def effective_doctype(rec, latest_dt, tax=None):
     if not dt:
         return [], False
 
-    ov = latest_dt.get(rec.get("file"))
+    ov, _how = (latest_dt.for_rec(rec)
+               if isinstance(latest_dt, docidkey.OverrideIndex)
+               else (latest_dt.get(rec.get("file")), None))
     confirmed_ids = set(ov.get("confirmed") or []) if ov else set()
     rejected_ids = set(ov.get("rejected") or []) if ov else set()
 
