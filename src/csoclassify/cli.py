@@ -778,7 +778,11 @@ def _mark_no_body(rec, n):
 # -out: dict = 같은 내용, 차례만 바뀐 새 dict
 # -out: error = 없음
 #------------------------------------------------------------------
-_REC_ORDER = ("file", "hash", "grade", "doctype", "confidence", "method",
+# doc_id·key 는 --simple 네 칸 바로 뒤에 둔다 — 문서를 잇는 키라 눈에 띄어야 하고,
+# 앞 네 칸(=--simple)의 차례를 건드리면 "축약본은 전체의 앞부분"이라는 약속이 깨진다.
+_REC_ORDER = ("file", "hash", "grade", "doctype",
+              "doc_id", "doc_id_source", "key", "rematched_by",
+              "confidence", "method",
               "decided_by", "error", "labels", "signals", "pii", "vector",
               "seed_eligible", "rule_version", "taxonomy_version",
               "doctype_rule_version", "ts", "elapsed_ms")

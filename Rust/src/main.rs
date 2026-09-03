@@ -307,8 +307,11 @@ fn parse_args() -> Result<Opts, String> {
 /// 표에 없는 칸은 **뒤에 그대로 붙인다** — 새 칸이 생겼을 때 이 함수가 조용히
 /// 지워 버리면 가장 찾기 어려운 사고가 된다.
 const REC_ORDER: &[&str] = &[
-    "file", "doc_id", "doc_id_source", "key", "rematched_by",
-    "hash", "grade", "doctype", "confidence", "method", "decided_by",
+    // doc_id·key 는 --simple 네 칸 바로 뒤에 둔다 — 앞 네 칸의 차례를 건드리면
+    // "축약본은 전체의 앞부분"이라는 위 약속이 깨진다(회귀 시험이 이걸 지킨다).
+    "file", "hash", "grade", "doctype",
+    "doc_id", "doc_id_source", "key", "rematched_by",
+    "confidence", "method", "decided_by",
     "error", "labels", "signals", "pii", "vector", "seed_eligible",
     "rule_version", "taxonomy_version", "doctype_rule_version", "ts", "elapsed_ms",
 ];
