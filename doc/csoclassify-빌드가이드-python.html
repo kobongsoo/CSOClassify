@@ -252,6 +252,8 @@ xcopy /E /I /Y dist\csoclassify  dist-onedir\windows
 copy /Y resources\policy\cso_rules.yaml dist-onedir\windows\
 copy /Y resources\policy\doc_taxonomy.yaml dist-onedir\windows\
 copy /Y resources\policy\doc_rule.yaml dist-onedir\windows\
+<span class="cmt">::   전파 seed 는 UI 가 관리하는 ui\policy 가 정본이다(resources\policy 에는 없다)</span>
+copy /Y ui\policy\class_seed.jsonl dist-onedir\windows\
 
 <span class="cmt">:: (3) 임베딩 모델</span>
 xcopy /E /I /Y resources\models\e5-small-ko dist-onedir\windows\models\e5-small-ko
@@ -260,6 +262,19 @@ xcopy /E /I /Y resources\models\e5-small-ko dist-onedir\windows\models\e5-small-
 xcopy /E /I /Y ..\MpowerAI_v10\pympower_ext\common\filter4-v4.29.0-windows_64bit_VC9\v4  dist-onedir\windows\synap\windows</code></pre>
     <p class="def">사이냅(<code>snf_exe.exe</code>, <code>snf_win.dll</code>)은 <code>--hybridparse</code> 를 쓰면
     폴백 용도로만 필요합니다. 없어도 대부분의 포맷은 오픈소스 파서로 처리됩니다.</p>
+    <div class="warn"><b>seed 를 빠뜨리면 조용히 정확도가 깎입니다</b> —
+    <code>class_seed.jsonl</code> 이 없으면 오류가 나지 않고 <b>전파(Signal B)만 통째로 꺼집니다</b>.
+    규칙이 못 정한 문서가 구제받지 못하고 등급 없이(<code>null</code>) 나가는데,
+    화면에는 그냥 "미분류"로 보여 원인을 찾기 어렵습니다.
+    실제로 2026-08 배포본에서 이 파일이 빠져 보류 21건이 미분류로 나갔고,
+    Rust 판의 seed 를 <code>--seeds</code> 로 지정해 다시 돌리자 두 판의 등급 일치율이
+    99.5% 로 회복됐습니다(부록 C-5). 원인은 엔진이 아니라 배포 폴더에 파일이 빠진 것이었습니다.
+    <br><br>
+    지금은 seed 가 없으면 실행 시 <b>경고를 냅니다</b>
+    ("전파용 seed 파일이 없어 자동 전파를 건너뜁니다"). 규칙만 쓰는 배포라면
+    <code>--rule-only</code> 로 의도를 명시하면 그 경고가 사라집니다.
+    아래 <a href="#verify">7장</a>의 확인 절차에 <code>외부 seed N건 로드</code> 줄이
+    실제로 뜨는지 꼭 보세요.</div>
   </div>
 
   <div class="step">

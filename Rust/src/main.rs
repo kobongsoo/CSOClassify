@@ -1202,7 +1202,21 @@ fn main() {
         (true, "none")
     } else {
         // 기본: seed 가 있으면 자동 전파 on(명시 --auto-propagate 없이도).
-        if !auto_prop && seed_exists { auto_prop = true; }
+        if !auto_prop && seed_exists {
+            auto_prop = true;
+        } else if !auto_prop {
+            // seed 가 없으면 전파(Signal B)가 통째로 꺼진다 — 규칙이 못 정한 문서는
+            // 구제받지 못하고 등급 없이(null) 나간다. 예전에는 두 판 모두 이걸 아무
+            // 말 없이 넘어갔고, 배포 폴더에 파일이 빠진 것을 아무도 몰랐다(실측:
+            // Python 배포본에 class_seed.jsonl 이 없어 보류 21건이 미분류로 나갔다 —
+            // 부록 C-5). 파일이 없는 것 자체는 정상 배포일 수도 있으므로(규칙만 쓰는
+            // 배포) 오류로 막지는 않고, '무엇이 꺼졌는지'만 분명히 알린다.
+            // 문구는 cli.py 와 같게 맞춘다 — 두 판을 같은 눈으로 보게 하려는 것이다.
+            let shown = seeds_path.clone().unwrap_or_else(|| "class_seed.jsonl".into());
+            eprintln!("[csoclassify-rs] 전파용 seed 파일이 없어 자동 전파를 건너뜁니다: {}\n\
+                       \x20               규칙이 못 정한 문서는 미분류로 남습니다. \
+                      의도한 것이면 --rule-only 로 명시하세요.", shown);
+        }
         // 임베딩 범위: --embed-needed(명시) > --with-vector 는 '전량'(레코드에 벡터를
         // 실어야 하므로 확정 문서도 빠뜨리면 안 된다) > 전파용 'needed'(못 정한 문서만) > 'none'.
         // 전파가 켜져 있어도 --with-vector 면 all 이 이긴다 — needed 로 내리면 등급이

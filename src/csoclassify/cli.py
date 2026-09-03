@@ -1299,6 +1299,17 @@ def run_classify(files, args, out_fp):
         # 있으면 auto_prop 을 자동으로 켠다(명시적 --auto-propagate 없이도). 없으면 전파 없이 규칙만.
         if not auto_prop and seeds_path and os.path.isfile(seeds_path):
             auto_prop = True
+        elif not auto_prop:
+            # seed 가 없으면 전파(Signal B)가 통째로 꺼진다 — 규칙이 못 정한 문서는
+            # 구제받지 못하고 등급 없이(null) 나간다. 예전에는 이걸 아무 말 없이
+            # 넘어갔고, 배포 폴더에 파일이 빠진 것을 아무도 몰랐다(실측: 배포본에
+            # class_seed.jsonl 이 없어 보류 21건이 미분류로 나갔다 — 부록 C-5).
+            # 파일이 없는 것 자체는 정상 배포일 수도 있으므로(규칙만 쓰는 배포)
+            # 오류로 막지는 않고, '무엇이 꺼졌는지'만 분명히 알린다.
+            print(f"[csoclassify] 전파용 seed 파일이 없어 자동 전파를 건너뜁니다: "
+                  f"{seeds_path}\n"
+                  f"              규칙이 못 정한 문서는 미분류로 남습니다. "
+                  f"의도한 것이면 --rule-only 로 명시하세요.", file=sys.stderr)
         # 임베딩 정책 needed(선택적) > all(전량) > none. embed_needed 가 우선.
         if getattr(args, "embed_needed", False):
             embed_mode = "needed"
