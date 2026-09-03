@@ -38,6 +38,12 @@ struct Opts {
     dir: Option<String>,
     files_from: Option<String>, // 경로 목록 파일("-" 이면 stdin). 흩어진 파일을 한 프로세스로
     filelist: Option<String>,   // {path, sfile_id} 목록. 결과의 doc_id 를 채운다(설계 §7-5-2-1)
+    // 파이썬 판에만 있는 상주 데몬 관련 요청. 이 판에는 데몬이 없으므로 '무시'가
+    // 아니라 '무엇을 못 해 주는지'를 분명히 답해야 한다(handle_daemon_args).
+    serve: bool,
+    status: bool,
+    stop: bool,
+    daemon_requested: bool,
     no_doc_id: bool,            // 결과에 doc_id/key 를 넣지 않는다(기본은 넣는다)
     report_missing_id: Option<String>, // sfile_id 를 못 얻은 문서 목록을 쓸 경로
     rules_path: Option<String>,
@@ -136,6 +142,13 @@ fn usage() {
     note!("  --json-errors             실패할 때 stdout 에 오류 JSON 한 줄({{\"error\":{{code,kind,message,path}}}})");
     note!("  --simple-why              --simple 에 판정 근거 요약(why)을 더한다");
     note!("  -V, --version             버전 출력(앱 버전 + PII 포팅 기준 ko-pii 버전)");
+    note!("");
+    note!("  [상주 데몬] 이 판에는 데몬이 없습니다. 파이썬 판과 같은 명령으로 불러도 되도록");
+    note!("             인자는 받지만, 조용히 무시하지 않고 사실대로 답합니다.");
+    note!("  --serve                   지원하지 않음 — 오류로 종료(코드 3)");
+    note!("  --status / --stop         \"데몬 없음\"을 알리고 정상 종료(코드 0)");
+    note!("  --daemon                  경고만 내고 그대로 진행(결과는 같고 속도만 다름)");
+    note!("  --no-daemon               이미 그 상태라 아무 말 없이 받아들임");
 }
 
 fn parse_args() -> Result<Opts, String> {
@@ -153,6 +166,7 @@ fn parse_args() -> Result<Opts, String> {
         auto_propagate: false, seeds: None,
         failsafe: None, check_rules: false,
         filelist: None, no_doc_id: false, report_missing_id: None,
+        serve: false, status: false, stop: false, daemon_requested: false,
     };
     // args_os() 를 쓴다. std::env::args() 는 인자에 UTF-8 이 아닌 바이트가 섞이면
     // **패닉한다**(리눅스에서 CP949 로 깨진 경로를 받으면 실제로 그렇게 죽었다).
@@ -236,7 +250,15 @@ fn parse_args() -> Result<Opts, String> {
             // 파이썬 판에만 있는 옵션들 — 이 판에서는 할 일이 없다. 그래도 '모르는
             // 인자'로 막으면, 두 판을 같은 명령으로 부르던 호출부가 깨진다.
             // 값이 없는 것들:
-            "--classify" | "--daemon" | "--no-daemon" | "--serve" | "--status" | "--stop"
+            // 데몬 관련은 삼키지 않고 받아 둔다 — 이 판에 없는 기능이라
+            // '조용히 무시'가 곧 잘못된 성공 신호가 된다.
+            "--serve" => o.serve = true,
+            "--status" => o.status = true,
+            "--stop" => o.stop = true,
+            "--daemon" => o.daemon_requested = true,
+            // --no-daemon 은 이 판에서 이미 참이다(데몬 자체가 없다) — 요청이
+            // 이미 충족된 상태라 아무 말 없이 받아들이는 것이 맞다.
+            "--no-daemon" | "--classify"
             | "--embed" | "--text-only" | "--per-chunk" | "--normalize" | "--no-normalize"
             | "--timing" | "--recursive" | "-r" | "--verbose" | "-v"
             // ※ "--nosummary" 는 위에서 실제로 처리하므로 여기 두면 안 된다
@@ -960,6 +982,47 @@ fn glob_match(pat: &str, name: &str) -> bool {
 }
 
 /// 기본 seed 저장소 경로: CSOCLASSIFY_POLICY_DIR/class_seed.jsonl → exe 옆 class_seed.jsonl.
+//------------------------------------------------------------------
+// 데몬 관련 요청에 답한다 (이 판에는 상주 데몬이 없다)
+//=> 파이썬 판은 임베딩 모델을 물고 있는 상주 데몬을 쓰지만 이 판에는 없다.
+//   예전에는 --serve/--status/--stop/--daemon 을 인자만 받고 **조용히 무시**했다.
+//   그러면 두 판을 같은 명령으로 부르던 쪽은 요청이 받아들여진 줄 알고, 정작
+//   결과를 못 읽는 상태가 된다(부록 C-2). 그래서 요청마다 사실대로 답한다.
+//
+//   [왜 셋을 다르게 다루나] '무엇을 요구했는가'가 다르기 때문이다.
+//    · --serve  : 이 프로세스가 서버가 되기를 요구한다. 못 해 준다 → 오류로 멈춘다.
+//                 여기서 조용히 분류하고 끝내면, 서버를 기다리던 쪽은 영영 기다린다.
+//    · --status : "데몬이 도는가"라는 질의다. 답할 수 있다("없다") → 답하고 정상 종료.
+//                 파이썬 판도 데몬이 없을 때 같은 모양으로 답하고 0 을 낸다.
+//    · --stop   : "데몬을 멈춰라". 멈출 것이 없고 원하는 끝 상태는 이미 참이다
+//                 → 사실을 알리고 정상 종료. 실패로 만들 이유가 없다.
+//    · --daemon : "데몬을 써 달라". 결과는 어차피 같고 속도만 다르다 → 경고하고 계속.
+//   --no-daemon 은 이 판에서 이미 참이라 아무 말도 하지 않는다(인자 처리부 참고).
+//
+// -in: opts = 파싱된 실행 옵션
+//
+// -out: 없음 (--serve 는 종료, --status/--stop 은 출력 후 정상 종료)
+// -out: error = --serve 면 unsupported_option 으로 종료(코드 3)
+//------------------------------------------------------------------
+fn handle_daemon_args(opts: &Opts) {
+    if opts.serve {
+        errcodes::fail("unsupported_option",
+            "[csoclassify-rs] --serve 는 이 판에서 지원하지 않습니다 — 이 빌드에는 상주 데몬이 없습니다. 서버가 필요하면 파이썬 판(csoclassify.exe --serve)을 쓰고, 이 판은 호출마다 새 프로세스로 분류하십시오(대량 처리는 --files-from 이 가장 빠릅니다).",
+            None);
+    }
+    if opts.status {
+        println!("데몬 없음 — 이 빌드(csoclassify-rs)에는 상주 데몬이 없습니다");
+        std::process::exit(0);
+    }
+    if opts.stop {
+        println!("정지할 데몬 없음 — 이 빌드(csoclassify-rs)에는 상주 데몬이 없습니다");
+        std::process::exit(0);
+    }
+    if opts.daemon_requested {
+        eprintln!("[csoclassify-rs] --daemon 은 이 판에 없습니다(상주 데몬 미지원) — 호출마다 모델을 새로 읽습니다. 분류 결과는 같고 속도만 다릅니다. 대량 처리는 --files-from 으로 한 프로세스에 몰아주십시오.");
+    }
+}
+
 fn default_seed_path() -> Option<String> {
     if let Ok(dir) = std::env::var("CSOCLASSIFY_POLICY_DIR") {
         let p = Path::new(&dir).join("class_seed.jsonl");
@@ -1020,6 +1083,10 @@ fn main() {
         Err(e) => errcodes::fail("bad_args", &format!("[csoclassify-rs] {}", e), None),
     };
     let t0 = Instant::now();
+
+    // 데몬 관련 요청에 답한다 — 규칙셋을 읽기 전에 해야 한다(--status 는 정책
+    // 파일과 무관한 질의라, 규칙셋이 없다고 엉뚱한 곳에서 멈추면 안 된다).
+    handle_daemon_args(&opts);
 
     // 분류체계 내보내기 전용 모드 — 문서도 규칙셋도 필요 없다. 규칙셋을 먼저 읽는
     // 아래 흐름을 타면 "cso_rules.yaml 이 없다"고 엉뚱한 곳에서 멈추고, 만들려던
