@@ -640,30 +640,40 @@ def _archive_record(origin, grades, ts):
 # -out: error = 없음
 #------------------------------------------------------------------
 def _extract_failed_record(path, err, ruleset, doc_rules=None, taxonomy=None):
-    # now_iso 는 run_classify 안에서 지역 import 하는 이름이라 모듈 전역에는 없다.
-    # 이 함수도 같은 방식으로 그때 가져온다(무거운 모듈을 import 시점에 끌어오지
-    # 않으려는 이 파일의 관례를 따른다).
+    # now_iso·build_record 는 무거운 모듈을 import 시점에 끌어오지 않으려는 이 파일의
+    # 관례를 따라 그때 가져온다.
     from .classify import now_iso
-    from .classify.engine import _attach_doctype
-    rec = {
-        "file": path,
-        "grade": None,
-        "confidence": 0.0,
-        "method": "extract_failed",
-        "decided_by": [],
-        "seed_eligible": False,
-        "signals": {},
-        "error": {"stage": "extract", "reason": str(err)},
-        "rule_version": getattr(ruleset, "version", ""),
-        "ts": now_iso(),
-        "labels": {
-            "security": {"value": None, "confidence": 0.0, "strategy": "max",
-                         "method": "extract_failed", "decided_by": [], "candidates": []},
-        },
-    }
-    # 본문이 없어도 축이 켜져 있으면 '축은 돌았다'를 남긴다 — 그래야 화면이
-    # "분류 안 됨(사람이 봐야 함)"으로 셀 수 있다(키 부재 = 축 미사용과 구분).
-    _attach_doctype(rec, "", path, doc_rules, taxonomy)
+    from .classify.engine import build_record
+
+    # 빈 본문으로 정상 경로를 그대로 태운다.
+    #=> 본문을 못 읽었어도 경로(Signal C)·파일명(Signal D)은 본문과 무관하게 유효하다.
+    #   내용 기반 신호(rule·sensitive·stamp)는 빈 텍스트라 자연히 아무것도 못 찾는다.
+    #   [왜 바꿨나] 예전에는 여기서 signals 를 통째로 비워, 보안서버 경로의 읽을 수
+    #   없는 문서가 아무 등급 없이 나갔다. 그런데 같은 파일 안에서도 처리가 갈렸다 —
+    #   본문이 '거의' 없으면(_mark_no_body) 경로 신호를 살리고, '완전히' 실패하면
+    #   버렸다. 둘 다 "본문을 못 읽었다"인데 대응이 달랐던 것이다. 업무분류 축은
+    #   이미 파일명·경로로 돌고 있었으니 보안 축만 유독 버려지던 셈이기도 하다.
+    #   (실측: D:\분류함 1,492건 비교에서 보안서버 경로의 스캔 PDF 4건이 Python 만
+    #    미분류로 나갔다. Rust 판은 같은 문서를 경로 신호로 C 로 잡는다.)
+    #   [failsafe 는 주지 않는다] '무신호 기본등급'은 "읽었는데 신호가 없다"에 쓰는
+    #   것이지 "못 읽었다"에 쓰는 것이 아니다. 못 읽은 문서를 자동으로 등급 매기면
+    #   사람이 확인할 기회를 잃는다.
+    rec = build_record(path, "", ruleset, ts=now_iso(), failsafe=None, vector=None,
+                       rules_enabled=True, doc_rules=doc_rules, taxonomy=taxonomy)
+
+    rec["error"] = {"stage": "extract", "reason": str(err)}
+
+    # 못 읽은 문서는 전파 seed 가 될 수 없다 — 근거를 못 본 문서를 다른 문서의
+    # 기준으로 삼으면 오분류가 스스로를 강화한다.
+    rec["seed_eligible"] = False
+
+    # 아무것도 못 정했으면 '봤는데 없더라'(unclassified)가 아니라 '못 읽었다'로 적는다.
+    # 조건과 표기를 _mark_no_body 와 같게 맞춰, 두 실패 경로가 같은 모양을 내게 한다.
+    if not rec.get("grade") and rec.get("method") in (None, "", "unclassified"):
+        rec["method"] = "extract_failed"
+        sec = (rec.get("labels") or {}).get("security")
+        if isinstance(sec, dict):
+            sec["method"] = "extract_failed"
     return rec
 
 
