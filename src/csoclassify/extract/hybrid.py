@@ -50,7 +50,7 @@ class HybridExtractor(TextExtractor):
     #------------------------------------------------------------------
     def _route(self, input_path):
         # detext_format(input_path) 호출
-        # => 2048만큼 읽어서 파일 포멧 확인함
+        # => 512만큼 읽어서 파일 포멧(.doc,.hwp,.ppt 등등) 확인함
         ftype = self.detect(input_path) 
         chain = []
         eng = self.engines.get(ftype)

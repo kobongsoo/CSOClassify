@@ -154,8 +154,12 @@ copy dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll  target\release\
   실측(2026-09-02, `--with-pii` 로 라벨별 건수 대조):
   `.doc`·`.hwp` 는 Python 과 **완전 일치**, `.xls`(주소록 1,434건 검출)는 **PHONE 1건 차이**
   (646 vs 647) — 추출 단계의 미세한 차이로 보이며 원인 미규명.
-- **이미지 추출 미지원**: jpg·png 등은 `Fmt::Image` 로 인식만 하고 본문을 못 뽑는다
-  (Python 은 사이냅 필터로 OCR). parity 공통집합에서 제외.
+- **이미지 추출 미지원 — 단, 이는 parity 갭이 아니다**: jpg·png 등은 `Fmt::Image` 로
+  인식만 하고 본문을 못 뽑는다. **Python 판도 마찬가지다** — 사이냅 문서필터는 OCR 엔진이
+  아니라 문서 텍스트 추출기라, 이미지를 넣으면 0바이트를 내고 실패한다
+  (실측: `snf:rc=0; 출력파일 0바이트; stdout=[ERROR : 40101]`). OCR 은 별도 제품이며
+  이 프로젝트에 붙어 있지 않다(`extract/detect.py` 주석 "OCR 별도").
+  <br>두 판 모두 `grade=null` + `stage:extract` 오류로 **같게 처리**한다.
   ※ 단 이 파일들도 **경로·파일명 신호는 확장자 무관하게 동작**한다.
 - **html 추출(정규식 기반)의 한계**: `<script>` 내부에 마크업 문자열이 박힌 Marp/JS-heavy
   export 는 정규식으로 완전 분리 불가 → 누출된 JS 조각이 L2 키워드에 오매칭될 수 있음
