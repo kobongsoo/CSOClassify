@@ -251,10 +251,12 @@ def load_synonyms(doc_rules_path):
     base_dir = os.path.dirname(os.path.abspath(doc_rules_path))
 
     # 약한 것부터 센 것 순. 업종은 여러 개일 수 있고, 앞에 적은 업종이 더 세다.
+    # synomins(유의어)폴더에서 doc_synoymins_core.yaml 로딩.
     names = [SYN_CORE]
     names += [f"doc_synonyms.{ind}.yaml"
               for ind in reversed(industry_of(doc_rules_path))]
     names.append(SYN_LOCAL)
+
 
     merged = {sec: {} for sec in SYN_SECTIONS}
     layers = []
@@ -273,6 +275,7 @@ def load_synonyms(doc_rules_path):
     # 그물은 합친 뒤 반드시 다시 세운다 — 파일 순서로는 보장되지 않는다.
     merged["tails"] = _order_longest_first(merged["tails"])
     merged["heads"] = _order_longest_first(merged["heads"])
+
     # 화면에 한 줄로 보여 줄 대표 경로는 가장 센 겹(=사람이 고치는 자리)으로 둔다.
     merged["path"] = layers[-1]
     merged["layers"] = layers

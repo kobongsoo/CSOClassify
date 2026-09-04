@@ -101,6 +101,12 @@
         <li><a href="#q7">Q7. <code>getattr(args, "x", False)</code> 와 <code>args.x</code> 는 뭐가 다른가요?</a></li>
       </ul>
     </li>
+    <li>4. 개발 · 디버깅
+      <ul>
+        <li><a href="#q8">Q8. <code>collect_files()</code> 로 수집된 파일 목록을 로그·화면으로 보고 싶습니다.</a></li>
+        <li><a href="#q9">Q9. <code>python -m csoclassify</code> 가 “No module named csoclassify” 라고 합니다.</a></li>
+      </ul>
+    </li>
   </ul>
 </section>
 
@@ -311,7 +317,91 @@ cli._load_doctype_axis(args, _fake_log())
   </div></div>
 </div>
 
-<footer>CSOClassify · Q&amp;A · 2026-09-01<br>
+<h2><span class="n">4.</span> 개발 · 디버깅</h2>
+
+<div class="qa" id="q8">
+  <div class="q"><span class="mark">Q</span><span><code>cli.py</code> 의 <code>files = collect_files(args)</code> 로
+  수집된 파일 목록을 로그나 화면으로 확인하고 싶습니다. 어디를 고치나요?</span></div>
+  <div class="a"><span class="mark">A</span><div>
+    <p><b><code>files = collect_files(args)</code> 바로 아래</b>, <code>if not files:</code> 앞에 넣습니다
+    <span class="def">(<code>src/csoclassify/cli.py</code> — <code>_main()</code> 안 “(3) 대상 파일 수집” 구간)</span>.
+    0건일 때도 <b>무엇을 찾다가 0건이었는지</b>가 남아야 하므로 실패 분기보다 <b>위</b>가 맞습니다.</p>
+<pre><code>    files = collect_files(args)
+
+    <span class="cmt"># 수집 결과를 남긴다 — 나중에 "왜 저 파일이 빠졌지?" 를 따질 때</span>
+    <span class="cmt"># 실제로 무엇이 잡혔는지가 로그에 있어야 원인을 좁힐 수 있다.</span>
+    log.info("대상 수집 %d건 (file=%s dir=%s glob=%s files_from=%s filelist=%s)",
+             len(files), args.file, args.dir, args.glob,
+             getattr(args, "files_from", None), getattr(args, "filelist", None))
+    <span class="cmt"># 목록 자체는 수백~수천 줄이 될 수 있어 DEBUG 로 둔다(--verbose 일 때만 나온다).</span>
+    for i, f in enumerate(files, 1):
+        log.debug("  대상[%d] %s", i, f)
+
+    if not files:</code></pre>
+
+    <div class="scroll"><table>
+      <tr><th>알아둘 점</th><th>내용</th></tr>
+      <tr><td><code>log</code> 는 이미 있다</td>
+          <td><code>_main()</code> 안에서 <code>logsetup.get_logger("csoclassify.cli")</code> 로
+              이미 만들어져 있습니다. <b>import 추가가 필요 없습니다.</b></td></tr>
+      <tr><td>f-string 대신 <code>%s</code></td>
+          <td>이 프로젝트의 다른 로그와 같은 방식입니다. DEBUG 가 꺼져 있을 때
+              <b>문자열 포매팅 비용을 안 치릅니다.</b></td></tr>
+      <tr><td><code>log.debug</code> 는 <code>--verbose</code> 필요</td>
+          <td><code>setup_logging()</code> 이 <code>verbose</code> 가 아니면 레벨을 INFO 로 둡니다.
+              <b>항상 전체 목록을 보려면</b> <code>log.debug</code> → <code>log.info</code>.</td></tr>
+      <tr><td>이 시점의 원소는 <b>문자열</b></td>
+          <td>바로 아래 zip 확장을 거치면 <code>(src, label, origin)</code> <b>튜플이 섞입니다.</b>
+              그 뒤에서 찍을 땐 <code>_as_job()</code> 으로 풀어야 합니다.</td></tr>
+    </table></div>
+
+    <p><b>화면으로도 보고 싶다면</b> — 진단 출력에 <b>stdout 을 쓰면 안 됩니다.</b>
+    stdout 은 결과 JSON 전용이라 한 줄만 섞여도 이 CLI 출력을 파싱하는 쪽이 깨집니다.
+    <code>--filelist</code> 안내처럼 <b>stderr</b> 로 내세요.</p>
+<pre><code>    print(f"[csoclassify] 대상 수집 {len(files)}건", file=sys.stderr)
+    for f in files:
+        print(f"[csoclassify]   {f}", file=sys.stderr)</code></pre>
+    <div class="note"><code>--progress</code> 가 이미 stderr 로 파일별 진행을 내므로,
+    접두사를 <code>[progress]</code> 와 <b>겹치지 않게</b> 두는 편이 낫습니다.</div>
+
+    <p><b>확인은 로그 파일에서</b> — <code>--log</code> 를 안 주면 기본 경로는
+    <code>&lt;실행 파일 폴더&gt;/log/class_YYYYMMDD.log</code> 입니다
+    <span class="def">(소스 실행이면 프로젝트 루트의 <code>log/</code>)</span>.</p>
+<pre><code>Get-Content .\log\class_20260904.log -Tail 30 | Select-String "대상 수집"</code></pre>
+  </div></div>
+</div>
+
+<div class="qa" id="q9">
+  <div class="q"><span class="mark">Q</span><span>소스를 고치고 <code>python -m csoclassify --dir D:\sample</code> 를 쳤더니
+  <code>No module named csoclassify</code> 라고 합니다.</span></div>
+  <div class="a"><span class="mark">A</span><div>
+    <p>이 프로젝트에는 <code>pyproject.toml</code>/<code>setup.py</code> 가 없어 <b>설치되지 않는 구조</b>입니다.
+    소스가 <code>src/</code> 아래에 있으므로 <b><code>src</code> 를 파이썬 경로에 넣어 줘야</b> 합니다.</p>
+
+    <p><b>PowerShell</b></p>
+<pre><code>cd D:\Project\CSOClassify
+$env:PYTHONPATH="src"
+python -m csoclassify --dir D:\sample</code></pre>
+    <p><code>$env:PYTHONPATH</code> 는 <b>그 PowerShell 창에서만</b> 유지됩니다. 창을 새로 열면 다시 줘야 합니다.
+    매번 치기 싫으면 한 줄로:</p>
+<pre><code>$env:PYTHONPATH="D:\Project\CSOClassify\src"; python -m csoclassify --dir D:\sample --verbose</code></pre>
+
+    <p><b>cmd 창</b></p>
+<pre><code>cd /d D:\Project\CSOClassify
+set PYTHONPATH=src
+python -m csoclassify --dir D:\sample</code></pre>
+
+    <div class="note"><b>경로가 잡혔는지 먼저 확인</b> —
+    <code>$env:PYTHONPATH="src"; python -c "import csoclassify; print(csoclassify.__file__)"</code><br>
+    <code>D:\Project\CSOClassify\src\csoclassify\__init__.py</code> 가 찍히면 정상입니다.</div>
+
+    <div class="warn"><b><code>csoclassify.exe</code> 로는 코드 수정이 확인되지 않습니다.</b>
+    exe 는 <b>빌드 시점의 코드</b>라, 방금 고친 내용은 재빌드 전까지 반영되지 않습니다.
+    소스 수정을 확인할 때는 반드시 위의 <code>PYTHONPATH</code> + <code>python -m</code> 으로 실행하세요.</div>
+  </div></div>
+</div>
+
+<footer>CSOClassify · Q&amp;A · 2026-09-04<br>
 <span class="def">실행 방법과 인자는 <a href="csoclassify-실행가이드.html">실행 가이드</a>,
 변경 이력과 운영 정책은 <a href="부록.html">부록</a> 에 있습니다.</span></footer>
 
