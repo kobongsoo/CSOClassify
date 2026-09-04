@@ -5,6 +5,44 @@
 #------------------------------------------------------------------
 
 import json
+import re
+
+# surrogateescape 가 '되돌릴 수 있는' 대리 문자는 U+DC80~U+DCFF 뿐이다.
+# 그 밖의 대리 문자(U+D800~U+DC7F, U+DD00~U+DFFF)는 encode 단계에서 그대로 터진다.
+_UNRECOVERABLE_SURROGATES = re.compile("[\ud800-\udc7f\udd00-\udfff]")
+
+
+#------------------------------------------------------------------
+# 어떤 대리 문자가 섞여 있어도 UTF-8 로 쓸 수 있게 만든다
+#=> 파이썬 str 은 '짝 없는 대리 문자'를 담을 수 있지만 UTF-8 로는 인코딩할 수 없다.
+#   그런 글자가 생기는 길은 두 가지다.
+#     ① surrogateescape — 파이썬이 UTF-8 아닌 바이트를 읽을 때 U+DC80~U+DCFF 로 끼워 넣는다.
+#        이건 되돌리면 원래 바이트가 나오므로 최대한 글자를 살릴 수 있다.
+#     ② 문서 자체가 깨진 경우 — 반쪽만 남은 UTF-16 대리쌍이 그대로 텍스트에 들어온다.
+#        이건 U+D800 같은 값이라 ①의 방법으로는 **되돌릴 수 없고, 다시 예외가 난다.**
+#   예전에는 ①만 처리해서, ②가 든 문서 하나 때문에 --with-text 실행 전체가
+#   `UnicodeEncodeError: surrogates not allowed` 로 죽고 그때까지의 결과가 통째로
+#   날아갔다(실측: 문서 986개 배치가 통으로 유실).
+#    1) 되돌릴 수 없는 대리 문자만 먼저 U+FFFD 로 바꾼다(②를 없앤다)
+#    2) 남은 것(①)은 원래 바이트로 되돌려 UTF-8 로 다시 읽는다(글자를 최대한 살린다)
+#
+# -in: s = 임의 문자열
+#
+# -out: str = UTF-8 로 반드시 인코딩되는 문자열
+# -out: error = 없음(어떤 입력에도 예외를 내지 않는다)
+#------------------------------------------------------------------
+def scrub_surrogates(s):
+    if not isinstance(s, str):
+        return s
+    try:
+        s.encode("utf-8")
+        return s          # 정상 문자열이 대부분이므로 이 경로가 가장 빠르다
+    except UnicodeEncodeError:
+        pass
+    # ② 되돌릴 수 없는 것부터 치운다 — 이걸 안 하면 아래 encode 가 또 터진다.
+    s = _UNRECOVERABLE_SURROGATES.sub("�", s)
+    # ① 남은 U+DC80~U+DCFF 는 원래 바이트로 되돌려 읽는다.
+    return s.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
 
 
 #------------------------------------------------------------------
@@ -29,12 +67,8 @@ import json
 # -out: error = 없음(인코딩 불가 문자는 U+FFFD 로 대체)
 #------------------------------------------------------------------
 def dumps_safe(rec, **kw):
-    s = json.dumps(rec, ensure_ascii=False, **kw)
-    try:
-        s.encode("utf-8")
-        return s
-    except UnicodeEncodeError:
-        return s.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    # 대리 문자 처리는 scrub_surrogates 한 곳에 모아 뒀다(위 헤더 참고).
+    return scrub_surrogates(json.dumps(rec, ensure_ascii=False, **kw))
 
 
 #------------------------------------------------------------------

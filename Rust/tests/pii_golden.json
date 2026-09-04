@@ -117,6 +117,58 @@
    }
   },
   {
+   "name": "rrn_이어붙음_겹침13자리",
+   "text": "951026-1411232821016-2760084",
+   "values_comparable": true,
+   "counts": {
+    "RRN": 1
+   },
+   "values": {
+    "RRN": [
+     "1411232821016"
+    ]
+   }
+  },
+  {
+   "name": "rrn_이어붙음_겹침13자리2",
+   "text": "760827-2907091930107-1692397",
+   "values_comparable": true,
+   "counts": {
+    "RRN": 1
+   },
+   "values": {
+    "RRN": [
+     "2907091930107"
+    ]
+   }
+  },
+  {
+   "name": "rrn_이어붙음_겹침13자리3",
+   "text": "651213-2607074651206-2222827",
+   "values_comparable": true,
+   "counts": {
+    "RRN": 1
+   },
+   "values": {
+    "RRN": [
+     "2607074651206"
+    ]
+   }
+  },
+  {
+   "name": "rrn_이어붙음_표문맥",
+   "text": "성명 홍길동 951026-1411232821016-2760084 부서 총무팀",
+   "values_comparable": true,
+   "counts": {
+    "RRN": 1
+   },
+   "values": {
+    "RRN": [
+     "1411232821016"
+    ]
+   }
+  },
+  {
    "name": "frn_5번대",
    "text": "외국인등록번호 910410-5783619 확인.",
    "values_comparable": true,

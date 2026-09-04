@@ -128,7 +128,7 @@ class _VersionAction(argparse.Action):
 def build_parser():
     p = _ContractParser(
         prog="csoclassify",
-        description="한국어 문서 → C/S/O 자동 분류(기본) · 임베딩 벡터(--embed) · 텍스트 추출(--text-only)",
+        description="한국어 문서 → C/S/O 및 분류체계 자동분류(기본) · 임베딩 벡터(--embed) · 텍스트 추출(--text-only)",
     )
     # 입력 대상
     # 표준(GNU) 관례에 맞춰 긴 이름은 '--' 로 통일한다(--file/--dir). 기존 스크립트·
@@ -561,15 +561,12 @@ def _as_job(item):
 # -out: error = 없음
 #------------------------------------------------------------------
 def safe_text(s):
-    if not isinstance(s, str):
-        return s
-    try:
-        s.encode("utf-8")
-        return s          # 정상 문자열이 대부분이므로 이 경로가 가장 빠르다
-    except UnicodeEncodeError:
-        # surrogateescape 로 되돌린 '원래 바이트'를 UTF-8 로 다시 읽으며,
-        # 해독 안 되는 자리만 U+FFFD 로 바꾼다(나머지 글자는 최대한 살린다).
-        return s.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    # 실제 처리는 output.scrub_surrogates 한 곳에 모아 뒀다.
+    #=> 예전에는 여기서 surrogateescape 만 썼는데, 그 방법은 U+DC80~U+DCFF 밖의
+    #   대리 문자(깨진 문서에서 반쪽만 남은 UTF-16 대리쌍 등)를 만나면 **다시 예외를
+    #   낸다.** 파일 이름뿐 아니라 본문에도 그런 글자가 들어오면서 실제로 배치가
+    #   통째로 죽었다. 두 경우를 모두 막는 판이 output 쪽에 있으므로 그것을 쓴다.
+    return output.scrub_surrogates(s)
 
 
 # 등급 심각도(집계용): C > S > O > 미분류. 압축파일 '자체' 등급은 내부 최고 위험으로 정한다.
@@ -1691,8 +1688,11 @@ def run_classify(files, args, out_fp):
                 log.warning("분류 임베딩 실패 file=%s :: %s", path, e)
 
         # 옵션: 추출(정제) 텍스트를 결과 레코드에 함께 저장(기본 off — 프라이버시).
+        # safe_text 를 거치는 이유: 깨진 문서에서 '짝 없는 대리 문자'가 본문에 섞여
+        # 들어오면 결과를 파일에 쓸 때 UnicodeEncodeError 로 배치 전체가 죽는다.
+        # 레코드에 넣기 전에 걸러 두면 값 자체도 깨끗해진다(출력단 방어는 그대로 둔다).
         if with_text:
-            rec["text"] = text
+            rec["text"] = safe_text(text)
 
         # 처리시간(단계별 ms)을 레코드에 부착 — --embed 와 동일 형식(extract/clean/rule/
         # [model_load/embed]/total). --no-timing 이면 생략.
@@ -2270,6 +2270,7 @@ def run_embed(files, args, opts, out_fp):
 #------------------------------------------------------------------
 def handle_daemon_commands(args):
     # 데몬 본체로 기동: 이 프로세스가 서버가 되어 블로킹 실행.
+    # => --serve 인자인 경우.
     if args.serve:
         from .daemon.server import DaemonServer
         spec = config.get_model_spec(args.model)
@@ -2389,12 +2390,14 @@ def run_sync_doc_rule(args):
                         f"  · --taxonomy <파일경로> 로 지정하거나,\n"
                         f"  · --export-taxonomy 로 먼저 만드세요.", tax_path)
     try:
+        # doc_taxonomy.yaml 파일 로딩.
         taxonomy = AX.load_taxonomy(tax_path)
     except Exception as e:
         # 파일은 있는데 못 읽는다 = 내용 문제다(없음과 구분해 코드 4 로 나간다).
         return fail_err("taxonomy_invalid",
                         f"[csoclassify] 분류 체계를 읽지 못했습니다: {e}", tax_path)
 
+    # doc_taxonomy.yaml 을 읽어오면서 doc_rule.yaml 에 분류체계노드를 만듬.
     nodes = DV.nodes_from_taxonomy(taxonomy)
     if not nodes:
         print("[csoclassify] 규칙을 만들 분류가 없습니다(꺼 둔 분류와 대분류는 "
@@ -2402,16 +2405,20 @@ def run_sync_doc_rule(args):
         return 0
 
     try:
+        # 기존 doc_rule.yaml 에 doc_templete.yaml 을 합쳐서 dict 만듬.
         doc = DV.load_doc(rules_path)
     except Exception as e:
         return fail_err("doc_rules_invalid",
                         f"[csoclassify] 규칙 파일을 읽지 못했습니다: {rules_path}\n  {e}",
                         rules_path)
 
+    # 업종별 분류체계 유의어 사전 파일을 로딩
+    # => synomins 폴더에 있는 _core 및 업종별 유의어 사전파일(doc_synomins_legal.yaml 등) 로딩.
     syn = DV.load_synonyms(rules_path)
     # 새 규칙에 얹을 값(weight 등)은 본보기가 정한다 — 코드에 박아 두지 않는다.
     new_rule = (DR.load_scaffold_template(rules_path) or {}).get("new_rule")
 
+    # doc_rule.yaml 만들 doc dict 에 유의어 규칙들을 추가.
     added, filled, enriched = DV.sync_nodes(
         doc, nodes, fill_existing=bool(args.sync_fill_blank),
         enrich_existing=bool(args.sync_enrich), syn=syn, new_rule=new_rule)
@@ -2422,6 +2429,7 @@ def run_sync_doc_rule(args):
         return 0
 
     try:
+        # 여기서 실제 doc_rule.yaml 파일 자체를 만듬.
         DV.save_doc(rules_path, doc)
     except OSError as e:
         return fail_err("doc_rules_write_failed",
@@ -2820,7 +2828,11 @@ def main(argv=None):
     if errcodes.is_json():
         sys.stderr = _QuietStderr(sys.stderr)
     try:
+        #------------------------
+        # _main 호출
+        #------------------------
         code = _main(argv)
+
         # 성공이든 부분 실패든 마지막에 상태 한 줄을 낸다(이미 실패 줄을 냈으면
         # emit_final 이 알아서 넘어간다).
         errcodes.emit_final(code, _target_of(argv))
@@ -2855,6 +2867,10 @@ def _main(argv=None):
         except (AttributeError, ValueError):
             pass  # 스트림이 없거나(windowed) reconfigure 미지원이면 그냥 둔다
 
+    #------------------------------------------------------------
+    # 입력 인자 파싱
+    # => --dir, --simple-why, --nosummary, --json-errors 등등...
+    #------------------------------------------------------------
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -2954,7 +2970,19 @@ def _main(argv=None):
         for w in args._filelist.warnings:
             print(f"[csoclassify] {w}", file=sys.stderr)
 
+    #-------------------------------------------
+    # 문서 수집
+    # => --file, --dir, --filelist 등 인자값에 따라 분류할 문서수집
+    #-------------------------------------------
     files = collect_files(args)
+    log.info("대상수집파일목록(%d건): dir=%s, file=%s", 
+             len(files), args.dir, args.file)
+    
+    # 수집대상목록 출력 해봄.
+    #for f in files:
+    #    print(f"[대상수집목록] {f}", file=sys.stderr)
+    #    log.inof(f"[대상수집목록] {f}")
+
     if not files:
         # 두 상황을 갈라 준다 — 부르는 쪽의 대응이 다르다.
         #   · 대상을 아예 안 줌(1002)      → 명령 자체를 고쳐야 한다

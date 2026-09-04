@@ -620,13 +620,10 @@ fn rrn_emit(front: &[u8], back: &[u8], start: usize, end: usize, real_no_sep: bo
 fn det_rrn(text: &str) -> Vec<Det> {
     let mut out: Vec<Det> = Vec::new();
     let mut seen: Vec<(usize, usize)> = Vec::new();
-    let bytes = text.as_bytes();
-    // 기본 패턴.
-    for m in RE_RRN.captures_iter(text) {
+    // 기본 패턴. (?<![0-9]) / (?![0-9]) 는 captures_bounded 가 본다 —
+    // 경계로 버린 자리에서 '한 글자 뒤부터 다시' 찾아야 이어붙은 주민번호를 놓치지 않는다.
+    for m in captures_bounded(&RE_RRN, text, |s, e| isolated_at(text, s, e, is_digit, is_digit)) {
         let whole = m.get(0).unwrap();
-        // (?<![0-9]) / (?![0-9])
-        if whole.start() > 0 && bytes[whole.start()-1].is_ascii_digit() { continue; }
-        if whole.end() < bytes.len() && bytes[whole.end()].is_ascii_digit() { continue; }
         let front = digits(&m[1]); let back = digits(&m[2]);
         let real_no_sep = m[0].chars().filter(|c| !c.is_ascii_digit()).count() == 0;
         if let Some(det) = rrn_emit(&front, &back, whole.start(), whole.end(), real_no_sep) {
@@ -635,10 +632,9 @@ fn det_rrn(text: &str) -> Vec<Det> {
         }
     }
     // PDF prefix 패턴(관계코드 1자리 뒤 RRN). span 은 offset 1.
-    for m in RE_RRN_PREFIXED.captures_iter(text) {
+    for m in captures_bounded(&RE_RRN_PREFIXED, text,
+                              |s, e| isolated_at(text, s, e, is_digit, is_digit)) {
         let whole = m.get(0).unwrap();
-        if whole.start() > 0 && bytes[whole.start()-1].is_ascii_digit() { continue; }
-        if whole.end() < bytes.len() && bytes[whole.end()].is_ascii_digit() { continue; }
         let start = whole.start() + 1;
         let front = digits(&m[1]); let back = digits(&m[2]);
         let real = &text[start..whole.end()];
@@ -653,11 +649,9 @@ fn det_rrn(text: &str) -> Vec<Det> {
 }
 fn det_frn(text: &str) -> Vec<Det> {
     let mut out: Vec<Det> = Vec::new();
-    let bytes = text.as_bytes();
-    for m in RE_RRN.captures_iter(text) {
+    // 경계 검사는 captures_bounded 에 맡긴다(det_rrn 과 같은 이유).
+    for m in captures_bounded(&RE_RRN, text, |s, e| isolated_at(text, s, e, is_digit, is_digit)) {
         let whole = m.get(0).unwrap();
-        if whole.start() > 0 && bytes[whole.start()-1].is_ascii_digit() { continue; }
-        if whole.end() < bytes.len() && bytes[whole.end()].is_ascii_digit() { continue; }
         let front = digits(&m[1]); let back = digits(&m[2]);
         let century = match frn_century(back[0]) { Some(c) => c, None => continue };
         let y = century + front[0] as i64 * 10 + front[1] as i64;
@@ -811,9 +805,23 @@ fn det_phone(text: &str) -> Vec<Det> {
 //    2) 경계가 맞으면 담고 매치 끝으로 건너뛴다
 //    3) 안 맞으면 '매치 시작 다음 글자'부터 다시 찾는다(파이썬과 같은 재탐색)
 //
+//   [숫자덩어리 건너뛰기] 3) 을 한 글자씩만 하면 긴 숫자열에서 재탐색이 자릿수만큼
+//   되풀이된다(실측: 숫자 4만개 줄에서 경계검사 없는 판보다 40배 느림 — 이 자리는
+//   파이썬 look-behind 보다도 느려졌다). 그런데 '앞 글자가 숫자라서' 거부된 자리는,
+//   그 숫자 덩어리 안쪽 어디서 시작해도 앞 글자가 여전히 숫자라 전부 거부된다.
+//   그래서 한 글자씩 갈 것 없이 덩어리 끝으로 한 번에 건너뛴다 — 결과는 그대로고
+//   재탐색 횟수만 준다.
+//
+//   ※ 이 지름길이 성립하려면 호출부의 ok 가 '앞 글자가 숫자면 반드시 거부' 여야
+//     한다. 현재 호출부 12곳은 모두 그렇다(is_digit / is_digit_or_dot /
+//     is_ascii_alphanumeric / is_local_ch / 16진수 edge / num_isolated — 전부
+//     숫자를 금지 글자에 포함한다). 이 전제는 tests::앞글자가_숫자면_모든_호출부가_거부한다
+//     가 지키고 있으니, 숫자를 허용하는 ok 를 새로 넣으려면 그 테스트부터 볼 것.
+//
 // -in: re   = 쓸 정규식
 // -in: text = 훑을 본문
 // -in: ok   = (시작, 끝) 을 받아 경계가 맞는지 답하는 판정 함수
+//             (앞 글자가 숫자면 반드시 false 를 돌려줘야 한다 — 위 ※ 참고)
 //
 // -out: spans = 살아남은 (시작, 끝) 목록. 겹치지 않고 앞에서부터 차례로 담긴다
 // -out: error = 예외 없음
@@ -825,6 +833,7 @@ fn find_bounded(re: &Regex, text: &str, ok: impl Fn(usize, usize) -> bool) -> Ve
         while j < text.len() && !text.is_char_boundary(j) { j += 1; }
         j
     }
+    let b = text.as_bytes();
     let mut out = Vec::new();
     let mut pos = 0usize;
     while pos <= text.len() {
@@ -834,7 +843,69 @@ fn find_bounded(re: &Regex, text: &str, ok: impl Fn(usize, usize) -> bool) -> Ve
             // 빈 매치로 제자리걸음 하는 일이 없게 최소 한 글자는 전진한다.
             pos = if m.end() > m.start() { m.end() } else { next_char(text, m.start()) };
         } else {
-            pos = next_char(text, m.start());
+            let one = next_char(text, m.start());
+            // 앞 글자가 숫자라 거부된 자리면, 이어지는 숫자 덩어리는 통째로 헛걸음이다.
+            pos = if m.start() > 0 && b[m.start() - 1].is_ascii_digit() {
+                let mut j = m.start();
+                while j < b.len() && b[j].is_ascii_digit() { j += 1; }
+                // 매치가 숫자 아닌 글자에서 시작했다면 j 가 제자리라 전진이 없다.
+                // 그때는 한 글자 전진으로 되돌려 무한루프를 막는다.
+                one.max(j)
+            } else {
+                one
+            };
+        }
+    }
+    out
+}
+
+//------------------------------------------------------------------
+// find_bounded 의 캡처 판 — 그룹이 필요한 검출기용
+//=> RRN·FRN 은 앞 6자리와 뒤 7자리를 따로 봐야 해서 span 만으로는 모자라고
+//   캡처가 필요하다. 그런데 캡처를 쓰려고 captures_iter 를 쓰면, 경계 검사로
+//   버린 매치의 '끝'까지 반복자가 지나가 버려 그 안쪽에서 시작하는 매치를 잃는다.
+//   실제로 주민번호 두 개가 구분자 없이 붙은 표에서 하나도 못 잡았다
+//   (부록 E-① 과 같은 갈래 — find_bounded 로 고쳤던 그 문제가 여기만 남아 있었다).
+//   그래서 captures_at 으로 '버리면 한 글자 뒤부터 다시' 를 캡처에도 똑같이 준다.
+//    1) pos 부터 캡처를 찾는다
+//    2) 경계가 맞으면 담고 매치 끝으로 건너뛴다
+//    3) 안 맞으면 매치 시작 다음 글자부터 다시 찾는다
+//       (앞 글자가 숫자라 버린 자리면 숫자 덩어리 끝까지 건너뛴다 — find_bounded 와 같은 지름길)
+//
+// -in: re   = 쓸 정규식
+// -in: text = 훑을 본문
+// -in: ok   = (시작, 끝) 을 받아 경계가 맞는지 답하는 판정 함수
+//             (find_bounded 와 같은 전제 — 앞 글자가 숫자면 반드시 false)
+//
+// -out: caps = 살아남은 캡처 목록(앞에서부터 차례로, 겹치지 않게)
+// -out: error = 예외 없음
+//------------------------------------------------------------------
+fn captures_bounded<'t>(re: &Regex, text: &'t str,
+                        ok: impl Fn(usize, usize) -> bool) -> Vec<regex::Captures<'t>> {
+    fn next_char(text: &str, i: usize) -> usize {
+        let mut j = i + 1;
+        while j < text.len() && !text.is_char_boundary(j) { j += 1; }
+        j
+    }
+    let b = text.as_bytes();
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    while pos <= text.len() {
+        let c = match re.captures_at(text, pos) { Some(c) => c, None => break };
+        let whole = c.get(0).unwrap();
+        let (s, e) = (whole.start(), whole.end());
+        if ok(s, e) {
+            out.push(c);
+            pos = if e > s { e } else { next_char(text, s) };
+        } else {
+            let one = next_char(text, s);
+            pos = if s > 0 && b[s - 1].is_ascii_digit() {
+                let mut j = s;
+                while j < b.len() && b[j].is_ascii_digit() { j += 1; }
+                one.max(j)
+            } else {
+                one
+            };
         }
     }
     out
@@ -1236,6 +1307,7 @@ fn det_address(text: &str) -> Vec<Det> {
         let mm = m.get(0).unwrap();
         if overlaps(&seen, mm.start(), mm.end()) { continue; }
         if !addr_struct_ok(&m) { continue; }
+        if !jibun_admin_ok(&m) { continue; }   // [중요] ko-pii 에 없는 추가 검증 — 함수 헤더 참고
         if !addr_tail_ok(text, mm.end()) { continue; }
         if addr_anchor(text, &m, mm.start()).is_none() { continue; }
         let end = extend_with_detail(text, mm.end());
@@ -1307,6 +1379,100 @@ fn addr_struct_ok(cap: &regex::Captures) -> bool {
     }
     true
 }
+//------------------------------------------------------------------
+// [중요] ko-pii 와 의도적으로 다르게 만든 곳 — 지번 주소의 '가짜 시군구' 거부
+//=> ko-pii 는 지번 주소에서 **시·도(광역)가 있을 때만** 행정구역을 검증한다.
+//   광역이 없으면 `_has_anchor` 가 "district 가 비어 있지 않다"는 이유만으로
+//   무조건 통과시킨다(ko_pii/patterns/address.py):
+//
+//       def _has_anchor(text, start, city, district):
+//           if city or district:
+//               return "prefix"        # ← 여기서 검증 없이 통과
+//
+//   그래서 '구'로 끝나는 아무 낱말 + '동/읍/면/리'로 끝나는 아무 낱말 + 숫자면
+//   주소가 된다. 실측에서 이렇게 잡혔다(ko-pii 1.15.2 실제 출력):
+//
+//       "연구 정보관리 1"
+//         → ADDRESS, conf 0.75, evidence=['pattern:address_jibun','anchor:prefix']
+//           extra={'city': None, 'districts': '연구', 'dong': '정보관리', 'lot_number': '1'}
+//
+//   '연구'가 區, '정보관리'가 里 로 읽힌 것이다. 인사평가 엑셀 5개에서 10건이
+//   이 모양으로 잡혀 문서 등급이 S 로 올라갔다(2026-09-02 D:\분류함 실측).
+//
+//   [왜 우리가 고치나] 1.15.2 가 PyPI 최신이고, 업스트림 main 브랜치의
+//   address.py 도 설치본과 **한 줄도 다르지 않다**(347줄 동일, 2026-09-02 확인).
+//   즉 버전을 올려 해결될 문제가 아니다.
+//
+//   [무엇을 다르게 하나] 광역이 없을 때, 시군구 토큰과 동/읍/면/리 토큰 중
+//   **최소 하나는 진짜 행정구역 이름**이어야 한다고 요구한다.
+//   둘 다 사전에 없으면 주소로 보지 않는다.
+//
+//   [왜 '둘 중 하나'인가] '시군구가 사전에 있어야 한다'로 하면, 사전에 빠진
+//   기초자치단체가 있을 때 진짜 주소를 놓친다(ALL_DISTRICTS 는 약 200개라
+//   전수가 아니다). 법정동 가제티어는 10,368개로 훨씬 촘촘하므로, 둘 중 하나만
+//   맞아도 통과시키면 오탐을 걷어내면서 미탐을 최소화할 수 있다.
+//   [측정] 그래도 0 은 아니다 — 전수 스윕(1,780건, 2026-09-03)에서 두 조건이 함께
+//   실패한 실주소가 나왔다('원미구 중동 1153'). 일반구가 ko-pii 사전에 없고
+//   '중동'이 법정동 가제티어에도 없어서다. 그래서 EXTRA_DISTRICTS 를 덧댔다.
+//     · "연구 정보관리 1"      → 연구✗ + 정보관리✗ → 거부 (오탐 제거)
+//     · "성남시 정자동 100"     → 성남시✓            → 통과
+//     · "○○시 매곡리 100"      → ○○시✗ + 매곡리✓   → 통과 (사전에 없는 시라도 살아남음)
+//     · "원미구 중동 1153"    → 원미구✓(보충 사전) → 통과 (실측 미탐을 막은 자리)
+//
+//   [적용 범위] 지번 브랜치에만 건다. 도로명 브랜치는 '로/길 + 번호'라는 신호가
+//   훨씬 강해 같은 오탐이 관측되지 않았고, 괜히 건드리면 미탐 위험만 커진다.
+//
+//   [시험] 이 차이는 pii_corpus.yaml(= ko-pii 가 정답인 대조표)에 넣으면 안 된다.
+//   넣으면 골든 테스트가 영원히 빨간불이 된다. 대신 손으로 쓴 단위테스트
+//   tests::주소_가짜시군구는_거른다 가 이 동작을 지킨다.
+//   문서: doc/ko-pii 차이점.html
+//
+// -in: cap = RE_JIBUN 캡처 (1=시도, 2=시군구, 3=동읍면리, 4=번지)
+//
+// -out: true = 주소로 인정 / false = 가짜 행정구역이라 거부
+// -out: error = 예외 없음
+//------------------------------------------------------------------
+/// ko-pii 의 ALL_DISTRICTS(206개)에는 광역시의 '자치구'만 있고, 광역시가 아닌
+/// 시(市) 아래의 '일반구(행정구)'가 빠져 있다. 그래서 부천시 원미구처럼 실존하는
+/// 주소가 시군구 검증을 통과하지 못한다.
+///   [실측] 전수 스윕 1,780건에서 '원미구 중동 1153' 2건이 이렇게 걸러졌다
+///   (2026-09-03). 등급에는 영향이 없었지만 미탐은 미탐이다.
+/// 법정동 가제티어가 그 구멍을 메워 줄 것으로 봤는데 '중동'이 그 사전에도 없어 두
+/// 조건이 함께 실패했다. 목록이 33개로 작고 잘 바뀌지 않아 여기 적어 둔다. 전부
+/// 고유한 지명이라 '연구' 같은 평범한 낱말을 되살리지 않는다.
+/// Python 판 rules.py 의 _EXTRA_DISTRICTS 와 **같은 목록이어야 한다**.
+const EXTRA_DISTRICTS: &[&str] = &[
+    "장안구", "권선구", "팔달구", "영통구",                    // 수원시
+    "수정구", "중원구", "분당구",                              // 성남시
+    "만안구", "동안구",                                        // 안양시
+    "원미구", "소사구", "오정구",                              // 부천시
+    "상록구", "단원구",                                        // 안산시
+    "덕양구", "일산동구", "일산서구",                          // 고양시
+    "처인구", "기흥구", "수지구",                              // 용인시
+    "상당구", "서원구", "흥덕구", "청원구",                    // 청주시
+    "동남구", "서북구",                                        // 천안시
+    "완산구", "덕진구",                                        // 전주시
+    "의창구", "성산구", "마산합포구", "마산회원구", "진해구",  // 창원시
+];
+
+fn jibun_admin_ok(cap: &regex::Captures) -> bool {
+    let city = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+    // 광역이 있으면 addr_struct_ok 가 이미 (광역)·(광역+기초) 조합을 검증했다.
+    if !city.is_empty() { return true; }
+
+    let districts_str = cap.get(2).map(|m| m.as_str().trim()).unwrap_or("");
+    let first_district = districts_str.split_whitespace().next().unwrap_or("");
+    // 시군구 토큰 자체가 없으면 ko-pii 도 '주소' 낱말을 요구한다(addr_anchor) — 여기선 통과.
+    if first_district.is_empty() { return true; }
+
+    let dong = cap.get(3).map(|m| m.as_str()).unwrap_or("");
+    // 둘 중 하나라도 진짜 행정구역 이름이면 주소로 본다.
+    // 시군구는 ko-pii 사전 + 보충 사전(일반구)을 함께 본다.
+    districts::is_district(first_district)
+        || EXTRA_DISTRICTS.contains(&first_district)
+        || districts::is_legal_dong(dong)
+}
+
 /// 매치 끝 뒤에 숫자/하이픈이 이어지면 거부(ko-pii `(?![0-9-])`).
 fn addr_tail_ok(text: &str, end: usize) -> bool {
     match text.as_bytes().get(end) {
@@ -1610,6 +1776,206 @@ mod tests {
     fn count(text: &str, label: &str) -> u32 {
         let want: HashSet<String> = [label.to_string()].into_iter().collect();
         *pii_counts(text, &want).get(label).unwrap_or(&0)
+    }
+
+    //--------------------------------------------------------------
+    // find_bounded 의 '숫자덩어리 건너뛰기' 전제를 지키는 테스트
+    //=> 지름길은 "앞 글자가 숫자면 ok 가 반드시 거부한다"는 전제 위에 서 있다.
+    //   전제가 깨지면 조용히 미탐이 나므로(테스트가 아니라 운영에서 드러난다),
+    //   호출부 12곳이 쓰는 판정식을 여기 모아 두고 숫자 앞에서 전부 false 인지 본다.
+    //   새 검출기를 붙일 때 여기에도 그 판정식을 넣어야 한다.
+    //
+    // -in: 없음
+    //
+    // -out: 없음
+    // -out: error = 숫자 앞인데 통과시키는 판정식이 있으면 assert 실패
+    //--------------------------------------------------------------
+    #[test]
+    fn 앞글자가_숫자면_모든_호출부가_거부한다() {
+        // 호출부에서 쓰는 '앞 글자 금지' 판정식들. (이름, 판정식)
+        let is_local_ch = |c: u8| c.is_ascii_alphanumeric()
+            || c == b'.' || c == b'_' || c == b'%' || c == b'+' || c == b'-';
+        let ipv6_edge = |c: u8| c.is_ascii_hexdigit() || c == b':' || c == b'.';
+        let befores: [(&str, &dyn Fn(u8) -> bool); 5] = [
+            ("is_digit (card/brn/corp/phone)", &|c: u8| is_digit(c)),
+            ("is_digit_or_dot (ipv4)",         &|c: u8| is_digit_or_dot(c)),
+            ("is_ascii_alphanumeric (여권)",   &|c: u8| c.is_ascii_alphanumeric()),
+            ("is_local_ch (email)",            &is_local_ch),
+            ("hexdigit edge (ipv6)",           &ipv6_edge),
+        ];
+        for (name, bad) in befores {
+            for c in b'0'..=b'9' {
+                assert!(bad(c), "{} 가 숫자 '{}' 를 금지 글자로 안 본다 \
+                    → find_bounded 의 숫자덩어리 건너뛰기가 미탐을 만든다", name, c as char);
+            }
+        }
+        // num_isolated(dl/처방전/EDI/PNU)는 위치로 판정하므로 직접 확인한다.
+        assert!(!num_isolated("12345", 2, 4), "num_isolated 가 숫자 앞을 통과시킨다");
+    }
+
+    //--------------------------------------------------------------
+    // 숫자덩어리 건너뛰기 전/후 결과가 같은가 (등가성)
+    //=> 지름길이 '빠르기만 하고 결과는 그대로'인지 확인한다. 한 글자씩 전진하던
+    //   예전 판을 참조 구현으로 두고, 숫자가 빽빽한 입력에서 두 판의 결과가
+    //   한 칸도 다르지 않은지 실제 정규식들로 대조한다.
+    //    1) 숫자·구분자·한글을 섞어 만든 입력을 여러 벌 만든다
+    //    2) 실제 검출기가 쓰는 정규식과 판정식으로 두 판을 돌린다
+    //    3) span 목록이 완전히 같아야 한다
+    //
+    // -in: 없음
+    //
+    // -out: 없음
+    // -out: error = 한 칸이라도 다르면 assert 실패
+    //--------------------------------------------------------------
+    #[test]
+    fn 숫자덩어리_건너뛰기가_한글자씩과_같다() {
+        // 예전 판 — 거부하면 무조건 한 글자만 전진한다.
+        fn find_bounded_ref(re: &Regex, text: &str,
+                            ok: impl Fn(usize, usize) -> bool) -> Vec<(usize, usize)> {
+            fn next_char(text: &str, i: usize) -> usize {
+                let mut j = i + 1;
+                while j < text.len() && !text.is_char_boundary(j) { j += 1; }
+                j
+            }
+            let mut out = Vec::new();
+            let mut pos = 0usize;
+            while pos <= text.len() {
+                let m = match re.find_at(text, pos) { Some(m) => m, None => break };
+                if ok(m.start(), m.end()) {
+                    out.push((m.start(), m.end()));
+                    pos = if m.end() > m.start() { m.end() } else { next_char(text, m.start()) };
+                } else {
+                    pos = next_char(text, m.start());
+                }
+            }
+            out
+        }
+
+        // 재현 가능한 난수(외부 crate 없이) — xorshift.
+        let mut seed = 0x5EED_1234u64;
+        let mut rnd = move || {
+            seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed
+        };
+        // 숫자가 이어지는 구간을 일부러 길게 만들어 지름길이 실제로 발동하게 한다.
+        let alphabet = ["0","1","2","4","5","7","9","-",".", " ", "가", "@", ":", "e", "\n"];
+        let mut samples: Vec<String> = Vec::new();
+        for _ in 0..40 {
+            let mut s = String::new();
+            for _ in 0..600 {
+                let r = rnd() as usize;
+                // 70% 는 숫자를 뽑아 긴 숫자열이 자주 생기게 한다.
+                if r % 10 < 7 { s.push_str(alphabet[r % 7]); }
+                else { s.push_str(alphabet[7 + r % 8]); }
+            }
+            samples.push(s);
+        }
+        // 실제 문서에서 문제가 됐던 모양도 함께 본다.
+        samples.push("7".repeat(3000));
+        samples.push(format!("{}{}", "9".repeat(500), "가나다".repeat(100)));
+        samples.push("카드번호 4556-3795-0918-5094 로 결제. 2+82-10-123-5678".to_string());
+
+        for s in &samples {
+            let text: &str = s;
+            let b = text.as_bytes();
+            let is_local_ch = |c: u8| c.is_ascii_alphanumeric()
+                || c == b'.' || c == b'_' || c == b'%' || c == b'+' || c == b'-';
+
+            // (이름, 정규식, 판정식) — 호출부가 쓰는 조합을 그대로 옮겨 온다.
+            macro_rules! cmp {
+                ($name:expr, $re:expr, $ok:expr) => {{
+                    let fast = find_bounded($re, text, $ok);
+                    let slow = find_bounded_ref($re, text, $ok);
+                    assert_eq!(fast, slow, "{} 에서 지름길 결과가 다르다\n본문: {:?}", $name, text);
+                }};
+            }
+            cmp!("CARD",     &RE_CARD, |st, en| isolated_at(text, st, en, is_digit, is_digit));
+            cmp!("BRN",      &RE_BRN,  |st, en| isolated_at(text, st, en, is_digit, is_digit));
+            cmp!("CORP",     &RE_CORP, |st, en| isolated_at(text, st, en, is_digit, is_digit));
+            cmp!("IPV4",     &RE_IPV4, |st, en| isolated_at(text, st, en, is_digit_or_dot, is_digit_or_dot));
+            cmp!("PNU",      &RE_PNU,  |st, en| num_isolated(text, st, en));
+            cmp!("DL_PLAIN", &RE_DL_PLAIN, |st, en| num_isolated(text, st, en));
+            cmp!("EMAIL",    &RE_EMAIL, |st: usize, en: usize| {
+                (st == 0 || !is_local_ch(b[st - 1]))
+                    && (en >= b.len() || !b[en].is_ascii_alphanumeric())
+            });
+            cmp!("PASSPORT", &RE_PASSPORT, |st: usize, en: usize| {
+                (st == 0 || !b[st - 1].is_ascii_alphanumeric())
+                    && (en >= b.len() || !b[en].is_ascii_alphanumeric())
+            });
+            cmp!("PH_MOBILE", &RE_PH_MOBILE, |st: usize, en: usize| {
+                let before_ok = st == 0 || { let p = b[st - 1]; !p.is_ascii_digit() && p != b'+' };
+                let after_ok = en >= b.len() || !b[en].is_ascii_digit();
+                before_ok && after_ok
+            });
+            cmp!("PH_MOBILE_INTL", &RE_PH_MOBILE_INTL, |st: usize, en: usize| {
+                let before_ok = st == 0 || !b[st - 1].is_ascii_digit();
+                let after_ok = en >= b.len() || !b[en].is_ascii_digit();
+                before_ok && after_ok
+            });
+        }
+    }
+
+    //--------------------------------------------------------------
+    // [중요] ko-pii 와 의도적으로 다른 동작을 지키는 시험
+    //=> ko-pii 는 광역(시·도)이 없으면 시군구를 검증하지 않아, '구'로 끝나는
+    //   아무 낱말이면 주소가 된다("연구 정보관리 1" → ADDRESS). 우리는 거부한다.
+    //   이 사례는 pii_corpus.yaml 에 넣으면 안 된다 — 거기는 ko-pii 가 정답인
+    //   대조표라 넣는 순간 골든 테스트가 영원히 실패한다. 그래서 여기 손으로 둔다.
+    //   구현 근거는 jibun_admin_ok 헤더, 문서는 doc/ko-pii 차이점.html.
+    //
+    // -in: 없음
+    //
+    // -out: 없음
+    // -out: error = 동작이 바뀌면 assert 실패
+    //--------------------------------------------------------------
+    #[test]
+    fn 주소_가짜시군구는_거른다() {
+        // '연구'(구로 끝남) + '정보관리'(리로 끝남) — 둘 다 실제 행정구역이 아니다.
+        assert_eq!(count("연구 정보관리 1", "ADDRESS"), 0);
+        assert_eq!(count("연구 정보관리 3 항목", "ADDRESS"), 0);
+
+        // 진짜 주소는 그대로 잡아야 한다(미탐을 만들지 않았는지 확인).
+        assert_eq!(count("주소는 서울특별시 강남구 역삼동 737 입니다.", "ADDRESS"), 1);
+        assert_eq!(count("주소는 충청남도 아산시 탕정면 매곡리 100 입니다.", "ADDRESS"), 1);
+        // 광역이 없어도 시군구가 실존하면 통과.
+        assert_eq!(count("성남시 정자동 100", "ADDRESS"), 1);
+        // 시군구가 사전에 없어도 법정동이 실존하면 통과(미탐 방지 장치).
+        assert_eq!(count("없는시 매곡리 100", "ADDRESS"), 1);
+        // 일반구(행정구)는 ko-pii 사전에 없다 — 보충 사전이 그 구멍을 메운다.
+        // 전수 스윕에서 실제로 걸러졌던 미탐이라, 여기서 고정해 둔다.
+        assert_eq!(count("주소는 경기도 부천시 원미구 중동 1153 입니다.", "ADDRESS"), 1);
+        assert_eq!(count("원미구 중동 1153", "ADDRESS"), 1);
+        assert_eq!(count("분당구 정자동 100", "ADDRESS"), 1);
+    }
+
+    //--------------------------------------------------------------
+    // [중요] ko-pii 와 의도적으로 다른 동작을 지키는 시험 (차이 B)
+    //=> ko-pii 는 한글 문맥("버전 1.2.3.4")만 걸러내고 영문 문서에서는 판번호를
+    //   IP 로 잡는다. 986개 문서 실측에서 이 차이가 19건이었고 전부 판번호였다.
+    //   위 주소 시험과 같은 이유로 pii_corpus.yaml 이 아니라 여기 손으로 둔다.
+    //   Python 판에도 같은 벡터가 있다
+    //   (tests/test_rules.py::test_ip_version_context_rejected) — 한쪽만 바뀌면
+    //   다른 쪽이 빨간불이 되어 두 판이 갈린 것을 곧바로 알 수 있다.
+    //   구현 근거는 RE_IP_CTX_LEFT / RE_IP_CTX_RIGHT, 문서는 doc/ko-pii 차이점.html.
+    //
+    // -in: 없음
+    //
+    // -out: 없음
+    // -out: error = 동작이 바뀌면 assert 실패
+    //--------------------------------------------------------------
+    #[test]
+    fn ip_판번호_문맥은_거른다() {
+        // 왼쪽 문맥 — 영문(ko-pii 가 놓치던 자리)과 한글(ko-pii 도 거르는 자리) 모두.
+        assert_eq!(count("Release 1.2 / 1.2.3.4 Build 7", "IP"), 0);
+        assert_eq!(count("Section 10.20.30.40", "IP"), 0);
+        assert_eq!(count("appendix: 10.20.30.40", "IP"), 0);
+        assert_eq!(count("펌웨어 10.20.30.40", "IP"), 0);
+        // 오른쪽 문맥 — 매치 뒤 8자에 build/버전이 붙는 모양.
+        assert_eq!(count("1.2.3.4 build 7", "IP"), 0);
+
+        // 진짜 IP 는 그대로 잡아야 한다(미탐을 만들지 않았는지 확인).
+        assert_eq!(count("서버 8.8.8.8 접속", "IP"), 1);
+        assert_eq!(count("접속 IP 는 10.1.100.25 입니다", "IP"), 1);
     }
 
     // 체크섬이 맞는 실제 번호는 잡아야 한다.

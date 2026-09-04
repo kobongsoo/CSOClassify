@@ -131,3 +131,81 @@ def test_json배열_모드도_유효하다(tmp_path):
 
     data = json.loads(io.open(out, encoding="utf-8").read())
     assert isinstance(data, list) and len(data) == 2
+
+
+# ─────────────────────────────────────────────────────────────────
+# [회귀] 되돌릴 수 없는 대리 문자 — 본문(text)에서 들어온다
+#
+# 위 테스트들이 쓰는 _bad_name() 은 surrogateescape 가 만든 U+DC80~U+DCFF 라
+# `encode("utf-8","surrogateescape")` 로 되돌릴 수 있다. 그래서 예전 구현도 통과했다.
+# 그런데 실제로 죽은 원인은 **그 범위 밖의 대리 문자**였다 — 깨진 문서에서 반쪽만
+# 남은 UTF-16 대리쌍(U+D800 등)이 본문에 섞여 들어오는 경우다. 이건 되돌릴 수 없어
+# fallback 안에서 예외가 또 나고, 그대로 배치가 중단됐다
+# (실측 2026-09-02: --with-text 로 문서 986개를 돌리다 output.py 의 fallback 줄에서
+#  UnicodeEncodeError 로 죽어 결과가 통째로 유실).
+# ─────────────────────────────────────────────────────────────────
+
+#------------------------------------------------------------------
+# 되돌릴 수 없는 대리 문자를 만든다
+#=> surrogateescape 가 다루는 U+DC80~U+DCFF **밖**의 값들이다. 파일 이름이 아니라
+#   문서 본문에서 나오는 종류라, 값을 살릴 길이 없고 자리만 표시할 수 있다.
+#
+# -in: 없음
+#
+# -out: [str] = 시험할 문자열 목록
+# -out: error = 없음
+#------------------------------------------------------------------
+def _unrecoverable_surrogates():
+    return [
+        "본문 앞" + "\ud800" + "본문 뒤",      # 높은 대리 단독
+        "본문 앞" + "\udc00" + "본문 뒤",      # 낮은 대리 단독(DC80 미만)
+        "본문 앞" + "\udc7f" + "본문 뒤",      # 경계 바로 아래
+        "본문 앞" + "\udfff" + "본문 뒤",      # DCFF 초과
+        # 두 개가 잇달아 오는 경우 — 실제 오류 메시지가 "position 820-821" 처럼
+        # 두 자리를 가리켰던 모양 그대로다. (\ud800 두 개는 짝이 아니라 각각 홀로다)
+        "연속" + "\ud800\ud800" + "연속",
+    ]
+
+
+def test_전제_되돌릴수없는_대리문자도_utf8_불가():
+    import pytest
+    for s in _unrecoverable_surrogates():
+        with pytest.raises(UnicodeEncodeError):
+            s.encode("utf-8")
+
+
+def test_safe_text는_되돌릴수없는_대리문자도_처리한다():
+    for s in _unrecoverable_surrogates():
+        got = safe_text(s)
+        got.encode("utf-8")           # 예외가 나면 실패
+        # 멀쩡한 글자는 살아남아야 어느 문서인지 알아볼 수 있다.
+        assert "본문" in got or "연속" in got
+
+
+def test_dumps_safe는_본문에_섞인_대리문자를_견딘다():
+    for s in _unrecoverable_surrogates():
+        out = dumps_safe({"file": "문서.docx", "text": s}, separators=(",", ":"))
+        out.encode("utf-8")           # 예외가 나면 실패
+        assert json.loads(out)["file"] == "문서.docx"
+
+
+#------------------------------------------------------------------
+# 회귀 핵심 — 본문에 대리 문자가 든 문서 하나가 배치를 중단시키지 않는다
+#=> 이름이 아니라 **본문**에서 들어오는 경우다(--with-text 로 실제로 겪은 상황).
+#
+# -in: tmp_path = pytest 임시 폴더
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_본문_대리문자가_배치를_중단시키지_않는다(tmp_path):
+    out = tmp_path / "result.jsonl"
+    with io.open(out, "w", encoding="utf-8") as f:
+        w = RecordWriter(f, "jsonl", multi=True)
+        w.write_record({"file": "깨진문서.docx", "grade": "S", "text": "앞\ud800뒤"})
+        w.write_record({"file": "정상문서.txt", "grade": "O", "text": "정상 본문"})
+        w.close()
+
+    lines = [json.loads(l) for l in io.open(out, encoding="utf-8") if l.strip()]
+    assert len(lines) == 2
+    assert lines[1]["file"] == "정상문서.txt"
+    assert lines[1]["text"] == "정상 본문"

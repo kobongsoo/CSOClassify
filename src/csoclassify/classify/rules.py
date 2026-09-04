@@ -11,7 +11,7 @@
 
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _replace
 
 import yaml
 
@@ -140,7 +140,15 @@ def _env_pos_int(name, default):
 
 
 _KOPII_MAX_CHARS = _env_pos_int("CSOCLASSIFY_KOPII_MAX_CHARS", 10_000)    # 청크 크기(=소형 문서 단일패스 기준)
-_KOPII_MAX_TOTAL = _env_pos_int("CSOCLASSIFY_KOPII_MAX_TOTAL", 100_000)   # 초선형 검출기 총 스캔 상한
+# 초선형 검출기 총 스캔 상한.
+#=> 2026-09-02 에 100K → 1M 으로 올렸다. 이유: 20초 걸리던 문제를 실제로 푼 것은
+#   '청킹'이지 이 상한이 아니었다(실측 최악 밀도 300K: 통짜 17.8초 → 청킹 0.33초).
+#   청킹이 비용을 선형으로 만들어 놓아서, 상한은 100K 당 약 0.18초(최악 밀도 기준)
+#   로 예측 가능하게만 늘어난다. 그런데 100K 상한의 대가는 컸다 — 그 뒤에 있는
+#   전화·주소·계좌를 '통째로' 못 잡아, 120K 문서 실측에서 기밀 문서가 O(공개)로
+#   나갔다. 아끼는 시간(실제 주소록 300K 기준 0.1초 남짓)보다 잃는 것이 크다.
+#   상한을 아주 없애지는 않는다 — 10MB 같은 터무니없는 입력에 대한 최후 방어는 남긴다.
+_KOPII_MAX_TOTAL = _env_pos_int("CSOCLASSIFY_KOPII_MAX_TOTAL", 1_000_000)
 _KOPII_OVERLAP = _env_pos_int("CSOCLASSIFY_KOPII_OVERLAP", 128)           # 인접 청크 오버랩(최장 PII span 보다 크게)
 # 총상한이 청크보다 작으면 최소 한 청크는 돌도록, 오버랩이 청크 이상이면 창이 전진
 # 못 하므로(무한루프) 각각 안전하게 보정한다.
@@ -935,26 +943,34 @@ def _kopii_counts(text, labels):
             counts[m.label] = counts.get(m.label, 0) + 1
         return counts
 
-    counts = {}
+    # 두 갈래(선형·초선형)의 검출을 '한 자루'에 모은 뒤 마지막에 한 번만 겹침을
+    # 해소한다. 예전에는 갈래마다 따로 세어, 갈래가 다른 두 라벨이 같은 자리를
+    # 물면 양쪽이 다 세어졌다 — 실측(45K 주소록)에서 "0220076422" 한 자리를
+    # 사업자등록번호와 전화번호로 '둘 다' 세어 전화가 1건 많았다. ko-pii
+    # detect_all 은 그 자리를 사업자등록번호 하나로만 센다.
+    raw = []
+
     # (1) 선형 검출기: 전체 텍스트를 한 번에 스캔(전량 커버, 저비용, 상한 없음).
     linear = labels - _KOPII_SUPERLINEAR
     if linear:
-        for m in _detect_subset(text, linear, normalize=True):
-            counts[m.label] = counts.get(m.label, 0) + 1
+        raw.extend(_detect_subset(text, linear, normalize=True))
 
-    # (2) 초선형 검출기: 앞 _KOPII_MAX_TOTAL 까지 겹치는 청크로 나눠 스캔하고,
-    #     창 경계에 걸친 중복은 절대 오프셋 구간 병합으로 제거해 건수를 센다.
+    # (2) 초선형 검출기: 앞 _KOPII_MAX_TOTAL 까지 겹치는 청크로 나눠 스캔한다.
     #     (_detect_subset 은 창 문자열 기준 오프셋을 돌려주므로 base 를 더해 절대화.)
+    #     창 경계에 걸친 중복은 아래 겹침 해소가 함께 걷어낸다 — 같은 자리를 두
+    #     창이 잡으면 서로 겹치므로 하나만 살아남고, 경계에 걸려 한쪽이 짧게
+    #     잘린 경우엔 '더 긴 쪽'이 이긴다(resolve_overlaps 의 길이 우선 규칙).
     superlinear = labels & _KOPII_SUPERLINEAR
     if superlinear:
         covered = min(len(text), _KOPII_MAX_TOTAL)
-        spans_by_label = {}
         for base, end in _chunk_windows(covered, _KOPII_MAX_CHARS, _KOPII_OVERLAP):
             for m in _detect_subset(text[base:end], superlinear, normalize=True):
-                spans_by_label.setdefault(m.label, []).append((base + m.start, base + m.end))
-        for label, spans in spans_by_label.items():
-            counts[label] = counts.get(label, 0) + _count_merged_spans(spans)
+                raw.append(_replace(m, start=base + m.start, end=base + m.end))
 
+    # (3) 교차라벨 겹침 해소 — detect_all 과 같은 우선순위(위험도→확신도→길이→시작).
+    counts = {}
+    for m in _kopii_resolve_overlaps(raw):
+        counts[m.label] = counts.get(m.label, 0) + 1
     return counts
 
 

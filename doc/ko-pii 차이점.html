@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ko-pii 차이점</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  h4{font-size:14.5px;margin:16px 0 6px;color:var(--muted)}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  td:first-child{white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .def{color:var(--muted);font-size:.85em}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  /* .must — 지키지 않으면 느려지거나 틀리는 '규약'. note/warn 보다 한 단계 세다. */
+  .must{border:1px solid color-mix(in srgb,var(--c) 45%,transparent);border-left:5px solid var(--c);
+    background:color-mix(in srgb,var(--c) 9%,transparent);border-radius:0 10px 10px 0;
+    padding:14px 16px;margin:16px 0}
+  .must .h{font-weight:800;color:var(--c);margin-bottom:6px;font-size:15px}
+  .must table{width:100%;border-collapse:collapse;margin:10px 0 4px;font-size:13px}
+  .must th,.must td{border:1px solid var(--line);padding:6px 10px;text-align:left}
+  .must th{background:color-mix(in srgb,var(--c) 12%,transparent)}
+  ul.toc{list-style:none;padding:0;margin:6px 0}
+  ul.toc li{margin:10px 0}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .ok{border-left:3px solid var(--o);background:color-mix(in srgb,var(--o) 12%,transparent);
+      border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .chg-b{color:var(--c);font-weight:700}      /* 결과·계약이 바뀌는 항목 */
+  .chg-n{color:var(--o);font-weight:700}      /* 새로 생긴 것 */
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <h1>ko-pii 와 우리 판의 차이</h1>
+  <p>Rust 검출기는 ko-pii 를 옮겨 적은 것입니다. 원칙은 <b>“똑같이 답한다”</b> — 그래서 답이 갈리는 자리는
+  전부 여기에 적습니다. <span class="def">최종 갱신 2026-09-04 · 대상 ko-pii 1.15.2</span></p>
+  <p><b>2026-09-03 — 의도적 차이 A·B 를 Python 판에도 이식했습니다.</b> 그전까지 이 문서는
+  “Rust 만 다르게 판정한다”는 뜻이었고, 그래서 <b>같은 문서에 두 판이 다른 등급</b>을 냈습니다.
+  이제 A·B 는 두 판 공통이며, 아래 표의 “Rust” 열은 <b>Rust·Python 양쪽</b>으로 읽으십시오.
+  Python 쪽 구현은 <code>classify/rules.py</code> 의
+  <code>_jibun_admin_ok()</code> · <code>_guarded_ip_detect()</code> 이고,
+  ko-pii 원본 사전(<code>is_district</code> · <code>is_legal_dong</code>)을 그대로 빌려 써
+  두 판이 같은 명단을 봅니다. C·D·E 는 Rust 판에만 해당하는 이야기로 그대로입니다.</p>
+</header>
+
+<section class="card">
+  <h2 style="border:0;margin-top:14px">30초 요약</h2>
+  <div class="scroll"><table>
+    <tr><th>#</th><th>차이</th><th>종류</th><th>어느 쪽이 맞나</th><th>상태</th></tr>
+    <tr><td>A</td><td>지번 주소에서 <b>가짜 시군구</b>를 주소로 봄</td><td>일부러 다르게</td>
+        <td class="chg-n">Rust</td><td class="chg-n">적용됨 — Rust·Python 양쪽(2026-09-03) · 보충 사전(2026-09-04)</td></tr>
+    <tr><td>B</td><td><b>판번호</b>(<code>1.2.3.4 Build 7</code>)를 IP 로 봄</td><td>일부러 다르게</td>
+        <td class="chg-n">Rust</td><td class="chg-n">적용됨 — Rust·Python 양쪽(2026-09-03)</td></tr>
+    <tr><td>C</td><td><code>::ffff:1.2.3.4</code> 의 <b>범위</b>가 다름</td><td>아직 못 맞춤</td>
+        <td>ko-pii</td><td>영향 없음(건수 동일)</td></tr>
+    <tr><td>D</td><td>구분자 없는 줄에서 <b>EMAIL·IP 겹침 해소</b>가 다름</td><td>아직 못 맞춤</td>
+        <td>—</td><td>보류</td></tr>
+    <tr><td>E</td><td>이어붙은 주민번호를 못 잡음</td><td>버그였음</td>
+        <td>ko-pii</td><td class="chg-n">고침(2026-09-02)</td></tr>
+  </table></div>
+  <p class="def" style="margin-top:12px">측정 근거는 <a href="부록.html#accuracy">부록 F</a>(문서 986개 실측)에 있습니다.</p>
+</section>
+
+<h2 id="rule"><span class="n">0</span> 이 문서가 필요한 이유 — 대조 장치</h2>
+<section class="card">
+  <p>Rust 가 ko-pii 와 같은 답을 내는지는 <b>골든 픽스처</b>로 지킵니다.</p>
+  <div class="tree">Rust/tests/pii_corpus.yaml   ← 사람이 고른 '검사 문장' 목록
+        ↓  python scripts/gen_pii_golden.py   (진짜 ko-pii 를 돌려 정답을 받아 적는다)
+Rust/tests/pii_golden.json   ← 정답표
+        ↓  cargo test
+   pii::golden::정답표와_라벨별_건수가_같다
+   pii::golden::정답표와_검출값이_같다</div>
+  <div class="must"><div class="h">규칙 — 일부러 만든 차이는 코퍼스에 넣지 마십시오</div>
+  <p style="margin-bottom:0"><code>pii_corpus.yaml</code> 은 <b>“ko-pii 가 정답”</b> 인 대조표입니다.
+  일부러 다르게 만든 사례를 여기 넣으면 골든 테스트가 <b>영원히 빨간불</b>이 됩니다.
+  의도적 차이는 <code>src/pii.rs</code> 의 <code>mod tests</code> 에 <b>손으로 쓴 단위테스트</b>로 두고,
+  그 근거를 소스 주석(<code>[중요]</code> 표시)과 이 문서에 남깁니다.</p>
+  </div>
+  <p style="margin-top:12px">A·B 는 Python 판에도 같은 판정으로 들어가 있으므로, <b>양쪽에 같은 시험 벡터</b>를 둡니다.
+  한쪽만 바뀌면 다른 쪽 시험이 빨간불이 되어 두 판이 갈린 것을 곧바로 알 수 있습니다.</p>
+  <div class="tree">Rust   : cargo test  → pii::tests::주소_가짜시군구는_거른다
+Python : pytest      → tests/test_rules.py::test_address_fake_district_rejected
+                     → tests/test_rules.py::test_ip_version_context_rejected</div>
+</section>
+
+<h2 id="a"><span class="n">A</span> 지번 주소 — 가짜 시군구 거부 <span class="pill">일부러 다르게</span></h2>
+<section class="card">
+  <h3>ko-pii 는 이렇게 동작합니다</h3>
+  <p>지번 주소 정규식은 <b>“시군구로 끝나는 낱말 + 동/읍/면/리로 끝나는 낱말 + 숫자”</b> 를 찾습니다.
+  그 뒤 문지기가 통과를 정하는데, <code>ko_pii/patterns/address.py</code> 의 이 함수입니다.</p>
+  <pre><code>def _has_anchor(text, start, city, district):
+    if city or district:
+        return "prefix"        # ← 검증 없이 통과
+    window_start = max(0, start - 20)
+    if "주소" in text[window_start:start]:
+        return "keyword"
+    return None</code></pre>
+  <p><b>시·도(광역)가 있을 때만</b> 실제 행정구역인지 확인합니다. 광역이 없으면
+  “시군구 자리가 비어 있지 않다”는 이유만으로 통과시킵니다. 그래서 이런 일이 생깁니다.</p>
+  <pre><code>&gt;&gt;&gt; detect_all("연구 정보관리 1", include=["ADDRESS"])
+ADDRESS  '연구 정보관리 1'  conf=0.75
+  evidence = ['pattern:address_jibun', 'anchor:prefix']
+  extra    = {'city': None, 'districts': '연구', 'dong': '정보관리', 'lot_number': '1'}</code></pre>
+  <p><b>‘연구’를 區, ‘정보관리’를 里</b> 로 읽은 것입니다. ko-pii 가 스스로 내놓은 출력이라 해석의 여지가 없습니다.</p>
+
+  <h3>실제로 무엇이 잘못됐나</h3>
+  <p>2026-09-02 <code>D:\분류함</code> 실측에서 인사평가 엑셀 5개에 이 모양이 <b>10건</b> 있었습니다.
+  주소가 하나도 없는 문서인데 ADDRESS 가 잡혀 등급이 <span class="tag s">S</span> 로 올라갑니다.</p>
+
+  <div class="warn"><b>버전을 올려도 해결되지 않습니다.</b>
+  PyPI 최신은 <b>1.15.2</b>(2026-06-18)이고 설치본과 같습니다.
+  GitHub <code>CHANGELOG.md</code> 에는 1.15.3·1.15.4·1.16.0 이 있지만 <b>PyPI 에 배포되지 않았고</b>,
+  업스트림 <code>main</code> 의 <code>address.py</code> 를 받아 대조해 보니 설치본과
+  <b>347줄이 한 줄도 다르지 않았습니다</b>(2026-09-02 확인). 그래서 우리 쪽에서 막기로 했습니다.</p></div>
+
+  <h3>Rust 는 이렇게 합니다</h3>
+  <p>광역이 없을 때, <b>시군구 토큰과 동/읍/면/리 토큰 중 최소 하나는 진짜 행정구역 이름</b>이어야 한다고 요구합니다.
+  둘 다 사전에 없으면 주소로 보지 않습니다. 구현은 <code>src/pii.rs</code> 의 <code>jibun_admin_ok()</code> 입니다.</p>
+  <table>
+    <tr><th>입력</th><th>시군구</th><th>동/읍/면/리</th><th>ko-pii</th><th>Rust</th></tr>
+    <tr><td><code>연구 정보관리 1</code></td><td>연구 ✗</td><td>정보관리 ✗</td>
+        <td class="chg-b">주소</td><td class="chg-n">거부</td></tr>
+    <tr><td><code>성남시 정자동 100</code></td><td>성남시 ✓</td><td>정자동 ✓</td><td>주소</td><td>주소</td></tr>
+    <tr><td><code>없는시 매곡리 100</code></td><td>없는시 ✗</td><td>매곡리 ✓</td><td>주소</td><td>주소</td></tr>
+    <tr><td><code>서울특별시 강남구 역삼동 737</code></td><td colspan="2">광역 있음 → 기존 검증</td><td>주소</td><td>주소</td></tr>
+  </table>
+
+  <div class="note"><b>왜 ‘둘 다’가 아니라 ‘둘 중 하나’인가.</b>
+  “시군구가 사전에 있어야 한다”로 못박으면, 사전에 빠진 기초자치단체에서 <b>진짜 주소를 놓칩니다</b>
+  (<code>ALL_DISTRICTS</code> 는 <b>206개</b>로, 실제 기초자치단체 226개를 전부 담고 있지 않습니다).
+  법정동 가제티어는 <b>10,368개</b>로 훨씬 촘촘하니,
+  둘 중 하나만 맞아도 통과시키면 <b>오탐을 걷어내면서 미탐을 최소화</b>할 수 있습니다.</div>
+
+  <div class="warn"><b>그래도 미탐은 0 이 아니었습니다 — 보충 사전을 덧댄 이유</b><br>
+  전수 스윕(<b>1,780건</b>, 2026-09-03)에서 두 조건이 <b>함께 실패한 실주소</b>가 나왔습니다.
+  <code>원미구 중동 1153</code>(부천시) 2건입니다.
+  <ul>
+    <li><code>is_district("원미구")</code> = <b>false</b> — <code>ALL_DISTRICTS</code> 에는 광역시의
+        <b>자치구</b>만 있고, 광역시가 아닌 시(市) 아래의 <b>일반구(행정구)</b>가 빠져 있습니다.
+        일반구 33개를 표본으로 확인하니 <b>31개가 없었습니다</b>(분당·팔달·덕양·수지·상당 …).</li>
+    <li><code>is_legal_dong("중동")</code> = <b>false</b> — 법정동 가제티어에도 없어 구멍을 메우지 못했습니다.</li>
+  </ul>
+  그래서 <b>일반구 33개를 보충 사전</b>(<code>_EXTRA_DISTRICTS</code> · <code>EXTRA_DISTRICTS</code>)으로
+  덧대, 시군구 판정을 <code>ko-pii 사전 ∪ 보충 사전</code>으로 넓혔습니다. 전부 고유한 지명이라
+  <code>연구</code> 같은 평범한 낱말을 되살리지 않습니다(회귀 시험이 그것도 함께 지킵니다).
+  <br><br>
+  <b>영향은 없었습니다</b> — 미탐이 난 두 문서(공개 데이터셋 <code>klue-mrc</code>)는 다른 주소 20건이
+  남아 등급이 <code>C → C</code> 로 그대로였고, 전수 등급 변화는 여전히 <b>1건</b>(올바른 정정)이었습니다.
+  그래도 미탐은 미탐이라 고쳤습니다.</div>
+
+  <p><b>적용 범위는 지번 브랜치뿐</b>입니다. 도로명(<code>…로/길 + 번호</code>)은 신호가 훨씬 강해 같은 오탐이
+  관측되지 않았고, 괜히 건드리면 미탐 위험만 커집니다.</p>
+  <p class="def">지키는 시험: <code>pii::tests::주소_가짜시군구는_거른다</code> · 소스 근거: <code>jibun_admin_ok()</code> 헤더의 <code>[중요]</code> 블록</p>
+</section>
+
+<h2 id="b"><span class="n">B</span> IP — 판번호 문맥 배제 <span class="pill">일부러 다르게</span></h2>
+<section class="card">
+  <p>ko-pii 는 <b>한글</b> 문맥(<code>버전 1.2.3.4</code>)만 걸러냅니다. 영문 문서에서는 판번호를 IP 로 잡습니다.</p>
+  <table>
+    <tr><th>입력</th><th>ko-pii</th><th>Rust</th></tr>
+    <tr><td><code>버전 1.2.3.4 로 배포함</code></td><td>없음</td><td>없음</td></tr>
+    <tr><td><code>Release 1.2 / 1.2.3.4 Build 7</code></td><td class="chg-b">IP 검출</td><td class="chg-n">없음</td></tr>
+  </table>
+  <p>Rust 는 <code>RE_IP_CTX_LEFT</code>/<code>RE_IP_CTX_RIGHT</code> 로 <b>영문 낱말</b>(version·release·build·
+  patch·section·figure·table…)과 <b>오른쪽 문맥</b>까지 봅니다. 실측 986개 문서에서 이 차이가 <b>19건</b>이었고,
+  전부 판번호였습니다. <b>맞추면 오히려 나빠지므로 그대로 둡니다.</b></p>
+</section>
+
+<h2 id="c"><span class="n">C</span> IPv6 사상 주소 — 범위가 다름 <span class="pill">아직 못 맞춤</span></h2>
+<section class="card">
+  <table>
+    <tr><th>입력</th><th>ko-pii</th><th>Rust</th></tr>
+    <tr><td><code>::ffff:10.1.100.25</code></td><td><code>::ffff:10.1.100.25</code></td>
+        <td class="chg-b"><code>10.1.100.25</code></td></tr>
+    <tr><td><code>::10.1.2.3</code></td><td><code>::10.1.2.3</code></td><td class="chg-b"><code>10.1.2.3</code></td></tr>
+  </table>
+  <div class="ok"><b>등급에는 영향이 없습니다.</b> 검출 <b>건수는 같고</b> 잡은 범위(span)만 다릅니다.
+  등급은 “IP 가 몇 건인가”로 정해지므로 결과가 갈리지 않습니다.
+  값을 그대로 보여 주는 <code>--with-pii</code> 출력에서만 차이가 보입니다.</div>
+</section>
+
+<h2 id="d"><span class="n">D</span> EMAIL·IP 겹침 해소 <span class="pill">아직 못 맞춤</span></h2>
+<section class="card">
+  <p>표를 텍스트로 뽑아 <b>칸 사이 구분자가 사라진</b> 줄에서, 이메일이 IP 를 삼키느냐가 미세하게 갈립니다.</p>
+  <pre><code>01kim001@testmail.net192.168.10.25hong002@example.co.kr</code></pre>
+  <p>ko-pii 는 IP 를 따로 잡고, Rust 는 EMAIL 이 그 구간을 가져갑니다(반대인 경우도 있습니다).
+  구분자를 잃은 텍스트에서만 생기는 일이라 <b>추출 품질 문제에 가깝고</b>, 우선순위를 낮춰 두었습니다.</p>
+</section>
+
+<h2 id="e"><span class="n">E</span> 이어붙은 주민번호 <span class="pill">고침</span></h2>
+<section class="card">
+  <p>표에서 주민번호 칸 두 개가 <b>구분자 없이 이어 붙으면</b> Rust 가 하나도 못 잡았습니다.</p>
+  <pre><code>951026-1411232821016-2760084
+  ├ 앞 번호: 뒤에 숫자가 이어져 탈락
+  ├ 뒤 번호: 앞에 숫자가 있어 탈락
+  └ 겹친 자리 13자리(앞7+뒤6) 가 '구분자 없는 주민번호'로 성립 ← ko-pii 는 이것을 잡는다</code></pre>
+  <p>원인은 <code>det_rrn</code>·<code>det_frn</code> 만 <code>captures_iter</code> 를 쓰고 있었던 것입니다.
+  매치를 만든 뒤 경계 검사로 버리는 사이 <b>반복자가 그 매치 끝까지 지나가</b>, 안쪽에서 시작하는 매치를 잃습니다
+  (<a href="부록.html#lookaround">부록 E-①</a> 과 같은 갈래).
+  <code>captures_at</code> 기반 <code>captures_bounded()</code> 를 만들어 붙여 <b>parity 를 되찾았습니다.</b></p>
+  <p class="def">회귀 사례 4건을 <code>pii_corpus.yaml</code> 에 넣었습니다(값은 체크섬만 맞춘 가짜 —
+  실문서 값은 개인정보라 넣을 수 없습니다). 이건 <b>맞추는 게 목적</b>이라 코퍼스에 넣는 것이 맞습니다.</p>
+</section>
+
+<h2 id="howto"><span class="n">F</span> 새 차이를 만들 때</h2>
+<section class="card">
+  <ol>
+    <li><b>정말 우리가 맞나</b> 확인합니다 — ko-pii 를 직접 돌려 <code>evidence</code>·<code>extra</code> 까지 봅니다.</li>
+    <li><b>업스트림에서 고쳐졌는지</b> 봅니다 — PyPI 최신 버전과, GitHub <code>main</code> 의 해당 파일을 받아 대조합니다.
+      (배포되지 않은 버전이 CHANGELOG 에만 있는 경우가 실제로 있었습니다.)</li>
+    <li><b>영향 범위를 잽니다</b> — 실문서로 몇 건이 바뀌는지, 미탐이 생기지 않는지.</li>
+    <li>소스에 <code>[중요]</code> 주석으로 <b>ko-pii 원문 인용 + 우리 규칙 + 왜</b> 를 적습니다.</li>
+    <li><code>mod tests</code> 에 <b>손으로 쓴 단위테스트</b>를 둡니다. <span class="chg-b">코퍼스에는 넣지 않습니다.</span></li>
+    <li><b>두 판에 함께 넣습니다</b> — 한쪽에만 넣으면 같은 문서에 다른 등급이 나옵니다
+        (A·B 가 2026-09-03 까지 실제로 그런 상태였습니다).</li>
+    <li>이 문서의 <b>30초 요약 표</b>에 한 줄 추가합니다.</li>
+  </ol>
+  <div class="note">확인 명령
+  <pre><code>cargo test --release            # 골든 대조 + 의도적 차이 시험
+python scripts/gen_pii_golden.py --check   # 정답표가 최신인지만 확인</code></pre></div>
+</section>
+
+<footer>CSOClassify — ko-pii 차이점 <span class="def">최종 갱신 2026-09-04 · ko-pii 1.15.2</span><br>
+<span class="def">측정 근거는 <a href="부록.html#accuracy">부록 F</a>, look-around 배경은 <a href="부록.html#lookaround">부록 E</a> 에 있습니다.</span></footer>
+
+</div>
+</body>
+</html>
