@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Rust 판이 데몬 관련 인자를 '조용히 무시'하지 않는가.
+"""Rust 판이 지원 못 하는 인자를 '조용히 무시'하지 않는가.
 
 파이썬 판은 임베딩 모델을 물고 있는 상주 데몬을 쓰지만 Rust 판에는 없다.
 그런데 예전에는 --serve/--status/--stop/--daemon 을 인자만 받고 아무 일도 하지
@@ -139,3 +139,43 @@ def test_no_daemon은_조용하다(tmp_path):
     assert r.returncode == 0, f"exit={r.returncode} :: {r.stderr[-300:]}"
     assert '"file"' in r.stdout, f"분류가 돌지 않았다 :: {r.stderr[-300:]}"
     assert "데몬" not in r.stderr, f"쓸데없는 경고가 떴다 :: {r.stderr[-300:]}"
+
+
+#------------------------------------------------------------------
+# --synap-only 는 오류로 멈춘다 (결과가 갈리는 요청이라 더 엄격하다)
+#=> 이 판에는 사이냅(snf)이 없다. 조용히 무시하면 다른 추출기로 돌면서 본문이
+#   달라지고, 본문이 달라지면 PII 검출과 등급까지 갈린다. --daemon 처럼 "결과는
+#   같고 속도만 다른" 요청이 아니므로 경고가 아니라 멈춤이 맞다.
+#   두 판을 비교하는 자리에서 "Rust 는 snf 에서도 결과가 같더라"는 잘못된 결론이
+#   남는 것을 막는 것이기도 하다.
+#
+# -in: 없음
+# -out: 없음(단언)
+# -out: error = 조용히 넘어가면 AssertionError
+#------------------------------------------------------------------
+def test_synap_only는_지원안함으로_멈춘다():
+    r = _run("--synap-only")
+    assert r.returncode == errcodes.exit_of("unsupported_option") == 3,         f"exit={r.returncode} :: {r.stderr[-300:]}"
+    assert "--synap-only" in r.stderr and "지원하지 않습니다" in r.stderr
+    # 대신 무엇을 쓰면 되는지까지 알려 준다.
+    assert "파이썬" in r.stderr
+
+
+#------------------------------------------------------------------
+# --hybridparse 에는 아무 말도 하지 않는다 (오탐 방지)
+#=> 이 판이 늘 하는 일이라 요청이 이미 충족돼 있다. 경고를 내면 매 실행 소음이 된다.
+#
+# -in: tmp_path = pytest 임시 폴더
+# -out: 없음(단언)
+# -out: error = 불필요한 경고가 생기면 AssertionError
+#------------------------------------------------------------------
+def test_hybridparse는_조용하다(tmp_path):
+    doc = tmp_path / "문서.txt"
+    doc.write_text("월간 운영 보고" + chr(10) * 2 +
+                   "정기 점검을 예정대로 수행했습니다." + chr(10), encoding="utf-8")
+    rules = os.path.join(ROOT, "resources", "policy", "cso_rules.yaml")
+    r = _run("--hybridparse", "--file", str(doc), "--rules", rules,
+             "--rule-only", "--format", "jsonl", "--nosummary", "--no-timing")
+    assert r.returncode == 0, f"exit={r.returncode} :: {r.stderr[-300:]}"
+    assert '"file"' in r.stdout, f"분류가 돌지 않았다 :: {r.stderr[-300:]}"
+    assert "추출기" not in r.stderr and "synap" not in r.stderr

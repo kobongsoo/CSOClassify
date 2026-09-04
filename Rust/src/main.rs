@@ -44,6 +44,8 @@ struct Opts {
     status: bool,
     stop: bool,
     daemon_requested: bool,
+    // 사이냅 전용 추출 요청. 이 판에는 사이냅이 없어 못 해 준다.
+    synap_only: bool,
     no_doc_id: bool,            // 결과에 doc_id/key 를 넣지 않는다(기본은 넣는다)
     report_missing_id: Option<String>, // sfile_id 를 못 얻은 문서 목록을 쓸 경로
     rules_path: Option<String>,
@@ -149,6 +151,11 @@ fn usage() {
     note!("  --status / --stop         \"데몬 없음\"을 알리고 정상 종료(코드 0)");
     note!("  --daemon                  경고만 내고 그대로 진행(결과는 같고 속도만 다름)");
     note!("  --no-daemon               이미 그 상태라 아무 말 없이 받아들임");
+    note!("");
+    note!("  [추출기] 이 판에는 사이냅(snf)이 없고 언제나 자체 파서로 추출합니다.");
+    note!("  --hybridparse             이 판이 늘 하는 일이라 그대로 받아들임");
+    note!("  --synap-only              지원하지 않음 — 오류로 종료(코드 3).");
+    note!("                            본문이 달라져 등급까지 갈리므로 조용히 넘기지 않습니다");
 }
 
 fn parse_args() -> Result<Opts, String> {
@@ -167,6 +174,7 @@ fn parse_args() -> Result<Opts, String> {
         failsafe: None, check_rules: false,
         filelist: None, no_doc_id: false, report_missing_id: None,
         serve: false, status: false, stop: false, daemon_requested: false,
+        synap_only: false,
     };
     // args_os() 를 쓴다. std::env::args() 는 인자에 UTF-8 이 아닌 바이트가 섞이면
     // **패닉한다**(리눅스에서 CP949 로 깨진 경로를 받으면 실제로 그렇게 죽었다).
@@ -240,7 +248,13 @@ fn parse_args() -> Result<Opts, String> {
             "--json-errors" => o.json_errors = true,
             // 축약본만 받으면 "이 문서가 왜 C 인가"에 답할 수 없다.
             "--simple-why" => { o.simple_why = true; o.simple = true; }
-            "--hybridparse" => {} // 추출은 항상 내용감지 라우팅
+            // 추출기 선택. 이 판은 사이냅(snf)을 아예 담고 있지 않다.
+            //  · --hybridparse : 이 판이 언제나 하는 일이라 그대로 받아들인다
+            //  · --synap-only  : 못 해 준다. 게다가 조용히 무시하면 다른 추출기로
+            //    돌면서 **본문이 달라져 등급까지 갈린다** — 데몬 인자와 달리
+            //    결과가 바뀌는 요청이라 반드시 멈춰야 한다(handle_extractor_args).
+            "--hybridparse" => {}
+            "--synap-only" => o.synap_only = true,
             "-h" | "--help" => { usage(); std::process::exit(0); }
             // 이 판은 ko-pii 를 번들하지 않고 '옮겨 적은' 사본이라, 번들 버전 대신
             // '어느 ko-pii 를 보고 옮겼는지'를 찍는다. Python 판의 (ko-pii x.y.z)
@@ -263,7 +277,7 @@ fn parse_args() -> Result<Opts, String> {
             | "--timing" | "--recursive" | "-r" | "--verbose" | "-v"
             // ※ "--nosummary" 는 위에서 실제로 처리하므로 여기 두면 안 된다
             //   (도달할 수 없는 갈래가 되어 unreachable_patterns 경고가 난다).
-            | "--synap-only" | "--with-text" => {}
+            | "--with-text" => {}
             // 값을 하나 데리고 오는 것들 — 그 값까지 함께 삼켜야 뒤가 밀리지 않는다.
             "--model" | "--max-tokens" | "--overlap" | "--precision" | "--num-threads"
             | "--idle-timeout" | "--log" | "--make-doctype-seeds" | "--seed-per-dir"
@@ -1004,6 +1018,31 @@ fn glob_match(pat: &str, name: &str) -> bool {
 // -out: 없음 (--serve 는 종료, --status/--stop 은 출력 후 정상 종료)
 // -out: error = --serve 면 unsupported_option 으로 종료(코드 3)
 //------------------------------------------------------------------
+//------------------------------------------------------------------
+// 추출기 선택 요청에 답한다 (이 판에는 사이냅이 없다)
+//=> 파이썬 판은 사이냅 문서필터(snf_exe)를 폴백으로 쓸 수 있고 --synap-only 로
+//   그것만 쓰게 할 수도 있다. 이 판은 사이냅을 아예 담고 있지 않다.
+//
+//   [왜 데몬 인자와 달리 멈추나] --daemon 은 결과가 같고 속도만 다르지만,
+//   --synap-only 는 **어떤 추출기로 본문을 뽑을지**를 정하는 요청이다. 조용히
+//   무시하면 다른 추출기로 돌면서 본문이 달라지고, 본문이 달라지면 PII 검출과
+//   등급까지 갈린다. "요청은 무시됐는데 결과는 그럴듯하게 나오는" 가장 나쁜 모양이라
+//   여기서 멈춘다. 두 판을 비교하는 자리에서 "Rust 는 snf 에서도 결과가 같더라"는
+//   잘못된 결론이 남는 것도 이 때문이다.
+//
+// -in: opts = 파싱된 실행 옵션
+//
+// -out: 없음 (--synap-only 면 종료)
+// -out: error = --synap-only 면 unsupported_option 으로 종료(코드 3)
+//------------------------------------------------------------------
+fn handle_extractor_args(opts: &Opts) {
+    if opts.synap_only {
+        errcodes::fail("unsupported_option",
+            "[csoclassify-rs] --synap-only 는 이 판에서 지원하지 않습니다 — 이 빌드에는 사이냅 문서필터(snf_exe)가 들어 있지 않고, 이 판은 언제나 자체 파서로 추출합니다. 사이냅으로 뽑아 비교하려면 파이썬 판(csoclassify.exe --synap-only)을 쓰십시오. 조용히 다른 추출기로 돌리면 본문이 달라져 등급까지 갈리므로 멈춥니다.",
+            None);
+    }
+}
+
 fn handle_daemon_args(opts: &Opts) {
     if opts.serve {
         errcodes::fail("unsupported_option",
@@ -1087,6 +1126,7 @@ fn main() {
     // 데몬 관련 요청에 답한다 — 규칙셋을 읽기 전에 해야 한다(--status 는 정책
     // 파일과 무관한 질의라, 규칙셋이 없다고 엉뚱한 곳에서 멈추면 안 된다).
     handle_daemon_args(&opts);
+    handle_extractor_args(&opts);
 
     // 분류체계 내보내기 전용 모드 — 문서도 규칙셋도 필요 없다. 규칙셋을 먼저 읽는
     // 아래 흐름을 타면 "cso_rules.yaml 이 없다"고 엉뚱한 곳에서 멈추고, 만들려던
