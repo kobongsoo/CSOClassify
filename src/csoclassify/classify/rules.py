@@ -925,6 +925,36 @@ def _count_merged_spans(spans):
 # -out: dict = {라벨: 건수}  (검출 없으면 빈 dict)
 # -out: error = ko-pii 미설치 시 RuntimeError(설치 안내)
 #------------------------------------------------------------------
+#------------------------------------------------------------------
+# 초선형 검출기가 이 문서를 얼마나 봤나 (스캔 상한 계측)
+#=> 전화·주소·계좌(_KOPII_SUPERLINEAR)는 비용이 초선형이라 앞
+#   _KOPII_MAX_TOTAL 자까지만 훑는다. 나머지 검출기는 전량을 본다.
+#   문제는 이 절단이 **아무 표식도 남기지 않는다**는 것이었다 — 뒤쪽에 있는
+#   주소록·연락처가 통째로 안 잡혀도 결과만 보면 "없더라"와 구분되지 않는다.
+#   [실측] D:\분류함 비교에서 1MB 초과 문서 36건이 이 상한에 걸려, 상한이 없는
+#   Rust 판보다 전화·주소·계좌를 477건 적게 잡았다(2026-09-04).
+#   본문 절단(G3, text_truncated)과는 다른 층이다 — G3 는 본문 자체를 자르고
+#   이건 자르지 않은 본문의 뒷부분을 '이 세 검출기만' 못 보는 것이라, G3 에 안
+#   걸린 문서도 여기 걸릴 수 있다(현재 기본값 G3 200만 자 > 이 상한 100만 자).
+#
+# -in: text   = 스캔 대상 텍스트
+# -in: labels = 이번 실행에서 켠 ko-pii 라벨들
+#
+# -out: (capped, covered, total) =
+#         capped  = 초선형 검출기가 뒷부분을 못 봤으면 True
+#         covered = 그 검출기들이 실제로 훑은 글자 수
+#         total   = 전체 글자 수
+# -out: error = 없음 (초선형 라벨을 안 켰으면 언제나 (False, total, total))
+#------------------------------------------------------------------
+def superlinear_coverage(text, labels):
+    total = len(text or "")
+    # 초선형 라벨을 하나도 안 켰으면 이 상한은 이번 실행과 무관하다.
+    if not (set(labels or ()) & _KOPII_SUPERLINEAR):
+        return False, total, total
+    covered = min(total, _KOPII_MAX_TOTAL)
+    return covered < total, covered, total
+
+
 def _kopii_counts(text, labels):
     if not _HAVE_KOPII:
         raise RuntimeError(

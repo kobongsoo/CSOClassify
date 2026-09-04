@@ -885,3 +885,32 @@ def test_count_outside_helper():
     # '산전과' 제외 → 2회
     ex = R._exclude_spans(hay, ["산전과"], True)
     assert R._count_outside(hay, "전과", ex) == 2
+
+
+#------------------------------------------------------------------
+# 초선형 검출기 스캔 상한 계측
+#=> 전화·주소·계좌는 비용이 초선형이라 앞부분까지만 훑는다. 그 절단이 지금까지
+#   아무 표식도 남기지 않아, 뒤쪽 주소록이 통째로 안 잡혀도 "없더라"와 구분되지
+#   않았다. 이 함수가 '얼마나 봤는지'를 돌려주고 호출부가 레코드에 남긴다.
+#   [실측] D:\분류함 비교에서 1MB 초과 문서 36건이 이 상한에 걸려, 상한이 없는
+#   Rust 판보다 전화·주소·계좌를 477건 적게 잡았다(2026-09-04).
+#
+# -in: 없음
+# -out: 없음(assert)
+# -out: error = 계측이 틀리면 AssertionError
+#------------------------------------------------------------------
+def test_superlinear_coverage():
+    lim = R._KOPII_MAX_TOTAL
+    short, long_ = "가" * 10, "가" * (lim + 500)
+
+    # 초선형 라벨(PHONE/ADDRESS/ACCOUNT)이 켜져 있고 상한을 넘으면 '덜 봤다'.
+    capped, cov, tot = R.superlinear_coverage(long_, {"PHONE", "RRN"})
+    assert capped is True and cov == lim and tot == len(long_)
+
+    # 상한 이하면 전량을 본다.
+    capped, cov, tot = R.superlinear_coverage(short, {"PHONE"})
+    assert capped is False and cov == tot == len(short)
+
+    # 초선형 라벨을 안 켰으면 이 상한은 이번 실행과 무관하다 — 길어도 capped 아님.
+    capped, cov, tot = R.superlinear_coverage(long_, {"RRN", "EMAIL"})
+    assert capped is False and cov == tot == len(long_)
