@@ -15,6 +15,7 @@ mod errcodes;
 mod errlog;
 mod log;
 mod extract;
+mod html_entities;
 mod filelist;
 mod hwp5;
 mod limits;

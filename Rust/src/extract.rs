@@ -266,7 +266,18 @@ fn xml_inner_text(inner: &str) -> String {
 /// [매번 컴파일하지 않는 이유] 예전에는 이 정규식을 html() 안에서 만들어 HTML
 /// 파일 하나당 한 번씩 새로 컴파일했다. 목록은 고정이라 한 번만 만들면 된다.
 static RE_BLOCK_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(
-    r"(?is)</?(p|div|br|tr|td|th|li|table|h[1-6]|ul|ol|section|article|header|footer|hr)[^>]*>"
+    r"(?is)</?(?:p|div|br|tr|td|th|li|table|h[1-6]|ul|ol|section|article|header|footer|hr)(?:[\s/][^>]*)?>"
+//
+// [이름 뒤에 경계를 두는 이유]  2026-09-11
+// 예전에는 이름 다음이 바로 `[^>]*` 라, `<pre>` 가 `p` + `re` 로 매칭됐다.
+// 파이썬 판은 태그 **이름 집합**으로 판정하므로(`tag in _BLOCK`) `pre` 는
+// 블록이 아니다. 그 차이로 Rust 만 `<pre>` 자리에 개행을 넣었고, 앞의 들여쓰기
+// 공백이 혼자 남은 줄이 되어 clean_text 의 줄끝 정리에 지워졌다 —
+// 같은 문서에서 두 판의 본문이 달라지고 pii 좌표가 어긋났다.
+// 전수 확인해 보니 pre·param·picture·progress·track·thead·link 가 걸렸다.
+//
+// `(?:[\s/][^>]*)?` 로 "이름 뒤는 `>` 이거나 공백이거나 `/`" 를 강제한다.
+// `/` 를 받는 것은 `<br/>` 때문이다 — 파이썬 HTMLParser 도 그것을 블록으로 본다.
 ).unwrap());
 
 /// HTML → 텍스트(태그 제거 + 엔티티 복원).
@@ -729,23 +740,50 @@ fn num_in_name(name: &str) -> u32 {
     digits.parse().unwrap_or(0)
 }
 
-/// XML/HTML 기본 엔티티 복원.
+//------------------------------------------------------------------
+// HTML 엔티티 복원
+//=> 숫자 엔티티(&#NN; / &#xHH;)와 이름 엔티티(&mdash; 등)를 모두 푼다.
+//
+//   [이름 엔티티를 표로 두는 이유]  2026-09-11
+//   예전에는 손으로 고른 여섯 개만 풀어, `&mdash;`·`&middot;` 가 본문에 글자
+//   그대로 남았다(실측: doc/*.html 에 11곳). 파이썬 판은 HTMLParser 라
+//   HTML5 이름 엔티티를 전부 푼다 — 그래서 같은 문서의 본문이 두 판에서
+//   달라졌다. 표는 기계로 만든다(scripts/gen_html_entities.py).
+//
+//   [&nbsp; 주의] 파이썬은 U+00A0(줄바꿈 없는 공백)으로 푼다. 예전에는 우리만
+//   일반 공백으로 바꿔 또 하나의 차이를 만들고 있었다 — 표를 따르면 맞는다.
+//
+//   [한 번에 훑는 이유] 예전처럼 replace 를 이어 붙이면 앞 단계가 만든 글자를
+//   뒤 단계가 또 푸는 이중 복원이 생긴다(그래서 &amp; 를 맨 뒤로 미뤄야 했다).
+//   한 번만 훑으면 그 순서 문제가 아예 없다.
+//
+// -in: s = 엔티티가 섞인 문자열
+//
+// -out: 푼 문자열. 모르는 이름은 건드리지 않고 그대로 둔다
+// -out: error = 예외 없음
+//------------------------------------------------------------------
 fn unescape_entities(s: &str) -> String {
-    let mut r = s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&#39;", "'")
-        .replace("&nbsp;", " ");
-    // 숫자 엔티티 &#NN; / &#xHH;
-    static RE_NUM: Lazy<Regex> = Lazy::new(|| Regex::new(r"&#(x?)([0-9A-Fa-f]+);").unwrap());
-    r = RE_NUM.replace_all(&r, |c: &regex::Captures| {
-        let hex = &c[1] == "x";
-        let code = u32::from_str_radix(&c[2], if hex { 16 } else { 10 }).unwrap_or(0);
-        char::from_u32(code).map(|ch| ch.to_string()).unwrap_or_default()
-    }).to_string();
-    // &amp; 는 마지막(이중복원 방지)
-    r.replace("&amp;", "&")
+    // 엔티티가 없으면 훑지도 않는다(대부분의 조각이 여기서 끝난다).
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    static RE_ENT: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"&(?:#(x|X)?([0-9A-Fa-f]+)|([A-Za-z][A-Za-z0-9]*));").unwrap()
+    });
+    RE_ENT.replace_all(s, |c: &regex::Captures| {
+        if let Some(num) = c.get(2) {
+            let hex = c.get(1).is_some();
+            let code = u32::from_str_radix(num.as_str(), if hex { 16 } else { 10 })
+                .unwrap_or(0);
+            return char::from_u32(code).map(|ch| ch.to_string()).unwrap_or_default();
+        }
+        let name = c.get(3).map(|m| m.as_str()).unwrap_or("");
+        match crate::html_entities::lookup(name) {
+            Some(v) => v.to_string(),
+            // 모르는 이름은 손대지 않는다 — 지워 버리면 본문이 조용히 사라진다.
+            None => c.get(0).map(|m| m.as_str().to_string()).unwrap_or_default(),
+        }
+    }).into_owned()
 }
 
 #[cfg(test)]
@@ -855,4 +893,36 @@ mod tests {
         let _ = xml_inner_text("");
     }
 }
+
+    // 태그 이름 뒤 경계가 없으면 `<pre>` 가 `p`+`re` 로 잡힌다 — 파이썬 판은
+    // 태그 **이름 집합**으로 보므로 pre 는 블록이 아니다. 그 차이로 두 판의
+    // 본문이 갈렸다(2026-09-11). 이름이 접두인 태그 전부를 못 박아 둔다.
+    #[test]
+    fn 이름이_겹치는_태그를_블록으로_보지_않는다() {
+        for t in ["<pre>", "</pre>", "<param a=1>", "<picture>", "<progress>",
+                  "<track>", "<thead>", "</thead>", "<link rel=x>"] {
+            assert!(!RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 봤다");
+        }
+        // 진짜 블록은 그대로 잡혀야 한다(`<br/>` 자기닫힘 포함).
+        for t in ["<p>", "</p>", "<p class=a>", "<br>", "<br/>", "<br />",
+                  "<td>", "</td>", "<th>", "<h3>", "<hr/>", "<TABLE>"] {
+            assert!(RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 못 봤다");
+        }
+    }
+
+    // 파이썬 판은 HTMLParser 라 HTML5 이름 엔티티를 전부 푼다. 손으로 고른
+    // 몇 개만 풀면 목록 밖 엔티티가 나올 때마다 같은 어긋남이 되풀이된다.
+    #[test]
+    fn 이름_엔티티를_표대로_푼다() {
+        assert_eq!(unescape_entities("대시&mdash;점&middot;줄임&hellip;"),
+                   "대시—점·줄임…");
+        // &nbsp; 는 일반 공백이 아니라 U+00A0 이다(파이썬과 같아야 한다).
+        assert_eq!(unescape_entities("공백&nbsp;붙임"), "공백\u{A0}붙임");
+        // 숫자 엔티티(10진·16진)도 푼다.
+        assert_eq!(unescape_entities("&#49;&#x32;&#X33;"), "123");
+        // 모르는 이름은 지우지 않고 그대로 둔다 — 지우면 본문이 조용히 사라진다.
+        assert_eq!(unescape_entities("모름&qqqq;끝"), "모름&qqqq;끝");
+        // 한 번만 훑으므로 &amp;lt; 가 `<` 로 두 번 풀리지 않는다.
+        assert_eq!(unescape_entities("&amp;lt;"), "&lt;");
+    }
 
