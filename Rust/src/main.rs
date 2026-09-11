@@ -105,6 +105,9 @@ struct Opts {
     // 추출 본문 보존 — 설계: plan/추출텍스트-저장-설계-20260907.html
     // 폴더를 필수로 받는다(개인정보가 '어디에 쌓이는지 모르는 채로' 생기면 안 된다).
     textsave: Option<String>,
+    // 분류 없이 '추출한 본문만' 내보내는 모드(--text-only). 파이썬 판과 같다.
+    // 규칙셋도 읽지 않으므로 순수 파서 성능을 재는 데 쓸 수 있다.
+    text_only: bool,
 }
 
 //------------------------------------------------------------------
@@ -206,6 +209,11 @@ fn usage() {
     eprintln!("                              기본은 꺼짐이고 폴더를 반드시 지정해야 합니다.");
     eprintln!("                            ※ 파이썬 판과 파서가 달라 본문이 다릅니다 — 폴더를 나누세요");
     eprintln!("  --save-text <폴더>        (옛 이름) --textsave 와 같다");
+    eprintln!("  --text-only               분류하지 않고 뽑아낸 본문만 내보낸다(파이썬 판과 같다).");
+    eprintln!("                            규칙셋·PII 검사를 아예 하지 않아 파서 성능을 잴 때 쓴다.");
+    eprintln!("                            문서마다 '===== 경로 =====' 줄 다음에 본문이 온다.");
+    eprintln!("                            --out 을 주면 파일로, 없으면 화면으로 나간다.");
+    eprintln!("                            ※ 이 모드는 본문이 곧 출력이라 --textsave 를 보지 않는다.");
     eprintln!("");
     eprintln!("─── ⑥ 문서 크기 상한 ──────────────────────────────────────────");
     eprintln!("  초대형 문서가 시간·메모리를 무제한으로 먹는 것을 막습니다.");
@@ -287,13 +295,13 @@ fn usage() {
     eprintln!("  파이썬 판과 같은 명령줄을 그대로 넣어도 오류가 나지 않도록 받아 줍니다.");
     eprintln!("  다만 이 판에서는 효과가 없으므로, 숨기지 않고 여기 적어 둡니다 —");
     eprintln!("  '줬는데 왜 안 되지'를 혼자 헤매는 것이 가장 나쁜 상태이기 때문입니다.");
-    eprintln!("  --text-only  --embed  --emb-test  --with-text   (텍스트·벡터 단독 출력 모드)");
+    eprintln!("  --embed  --emb-test  --with-text                (벡터 단독 출력 모드)");
     eprintln!("  --model  --max-tokens  --overlap  --precision  --per-chunk");
     eprintln!("  --normalize  --no-normalize  --num-threads      (임베딩 세부 설정)");
     eprintln!("  --seed-per-dir  --seed-per-node                 (씨앗 자동 생성 세부 설정)");
     eprintln!("  --idle-timeout  --timing  -r, --recursive  --classify");
     eprintln!("                            ※ --dir 은 원래 늘 재귀라 -r 은 있으나 마나입니다");
-    eprintln!("                            ※ 추출 본문이 필요하면 --textsave 를 쓰세요(⑤)");
+    eprintln!("                            ※ 추출 본문이 필요하면 --textsave·--text-only 를 쓰세요");
 }
 
 //------------------------------------------------------------------
@@ -396,6 +404,7 @@ fn parse_args() -> Result<Opts, String> {
         synap_only: false,
         size_limits: limits::Overrides::default(), no_size_limit: false,
         textsave: None,
+        text_only: false,
     };
     // args_os() 를 쓴다. std::env::args() 는 인자에 UTF-8 이 아닌 바이트가 섞이면
     // **패닉한다**(리눅스에서 CP949 로 깨진 경로를 받으면 실제로 그렇게 죽었다).
@@ -530,8 +539,10 @@ fn parse_args() -> Result<Opts, String> {
             // --no-daemon 은 이 판에서 이미 참이다(데몬 자체가 없다) — 요청이
             // 이미 충족된 상태라 아무 말 없이 받아들이는 것이 맞다.
             "--no-daemon" | "--classify"
-            | "--embed" | "--text-only" | "--per-chunk" | "--normalize" | "--no-normalize"
+            | "--embed" | "--per-chunk" | "--normalize" | "--no-normalize"
             | "--timing" | "--recursive" | "-r" => {}
+            // 분류 없이 본문만 — 파이썬 판과 같은 이름·같은 출력 모양이다.
+            "--text-only" => o.text_only = true,
             // 화면에도 로그를 내라는 뜻. 예전에는 그냥 삼켰다.
             "--verbose" | "-v" => o.verbose = true,
             // 로그 파일 경로. 미지정이면 <exe폴더>/log/class_YYYYMMDD.log.
@@ -1338,6 +1349,78 @@ fn filelist_is_target(opts: &Opts) -> bool {
     opts.file.is_none() && opts.dir.is_none() && opts.files_from.is_none()
 }
 
+//------------------------------------------------------------------
+// 본문만 뽑아 내보내기 (--text-only)
+//=> 등급도 PII 도 보지 않고, 문서에서 글자만 뽑아 정제해 그대로 내놓는다.
+//   파이썬 판 `run_text_only` 와 같은 모양이다 — 문서마다 '===== 경로 =====' 한 줄,
+//   그 다음 본문. 규칙셋을 읽지 않으므로 **파서 자체의 속도·결과**를 잴 수 있다.
+//    1) 대상 파일을 모으고 압축은 내부 문서로 펼친다(분류 때와 같은 대상 규칙)
+//    2) 크기 상한은 그대로 지킨다 — 상한을 끄고 싶으면 --no-size-limit 을 준다
+//    3) 본문 저장이 필요하면 --textsave 대신 --out 을 쓴다 — 이 모드는 본문이
+//       곧 출력이라 따로 또 남길 이유가 없다
+//
+// -in: opts = 명령줄 옵션 묶음(--file/--dir/--out/--textsave 등을 본다)
+//
+// -out: 종료코드 — 전부 성공 0, 한 건이라도 추출 실패면 1
+// -out: error = 개별 실패는 stderr 로 알리고 나머지는 계속 처리한다
+//------------------------------------------------------------------
+fn run_text_only(opts: &Opts) -> i32 {
+    let files = collect_files(opts, None);
+    // 압축은 분류 때와 똑같이 내부 문서로 펼친다 — 대상이 달라지면 비교가 안 된다.
+    let arc_tmp = std::env::temp_dir().join(format!("cso_txt_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&arc_tmp);
+    let _ = std::fs::create_dir_all(&arc_tmp);
+    let mut arc_stats = archive::ExpandStats::default();
+    let jobs: Vec<archive::Job> = archive::expand_paths(&files, &arc_tmp, 3, &mut arc_stats);
+    if jobs.is_empty() {
+        eprintln!("[MpowerClassify-rs] 처리할 파일이 없습니다.");
+        let _ = std::fs::remove_dir_all(&arc_tmp);
+        return 3;
+    }
+    // --out 이 있으면 파일로, 없으면 화면으로. 본문이 크므로 버퍼를 쓴다.
+    let mut sink: Box<dyn std::io::Write> = match &opts.out {
+        Some(p) => match std::fs::File::create(p) {
+            Ok(f) => Box::new(std::io::BufWriter::new(f)),
+            Err(e) => {
+                eprintln!("[MpowerClassify-rs] 출력 파일을 못 만듭니다: {} :: {}", p, e);
+                let _ = std::fs::remove_dir_all(&arc_tmp);
+                return 3;
+            }
+        },
+        None => Box::new(std::io::BufWriter::new(std::io::stdout())),
+    };
+    let mut code = 0;
+    for job in &jobs {
+        let path = &job.src;
+        let fmt = detect::detect_format(path);
+        // 크기 상한은 분류 때와 같은 자를 쓴다 — 여기만 무제한이면 '이 판이 읽을 수
+        // 있는 문서'의 범위가 모드마다 달라져 비교가 어긋난다.
+        let text = if let Some(why) = limits::check_size_limit(path, fmt) {
+            eprintln!("[MpowerClassify-rs] 크기 초과: {} :: {}", job.label, why);
+            code = 1;
+            None
+        } else {
+            extract::extract_text(path, fmt)
+        };
+        // 파서가 상한에서 멈췄다는 표식은 가져가서 비워 둔다(다음 문서에 안 묻게).
+        let _ = limits::notes_take();
+        match text {
+            Some(t) => {
+                let _ = writeln!(sink, "===== {} =====", job.label);
+                let _ = writeln!(sink, "{}", t);
+            }
+            None => {
+                eprintln!("[MpowerClassify-rs] 추출 실패: {} (감지={})",
+                          job.label, fmt.as_str());
+                code = 1;
+            }
+        }
+    }
+    let _ = sink.flush();
+    let _ = std::fs::remove_dir_all(&arc_tmp);
+    code
+}
+
 fn collect_files(opts: &Opts, flist: Option<&filelist::FileList>) -> Vec<PathBuf> {
     // 목록 입력이 있으면 그것이 대상이다(--file/--dir 과의 동시 사용은 호출부에서 막는다).
     if let Some(lst) = &opts.files_from {
@@ -1820,6 +1903,14 @@ fn main() {
         // stdout 에는 등록된 기준 문서 줄만 나가야 한다(설계 P5).
         opts.summary_only = false;
         opts.no_summary = true;
+    }
+
+    // ── 본문만 뽑는 모드(--text-only) ──────────────────────────────
+    // 규칙셋을 읽기 '전에' 갈라져 나간다. 분류를 안 할 거면 규칙 파일도, PII 검사도
+    // 필요 없고, 없어야 이 모드가 '순수 파서'를 재는 자가 된다(있으면 규칙 읽는
+    // 시간이 파서 시간으로 둔갑한다). 규칙셋이 아예 없는 자리에서도 돌아간다.
+    if opts.text_only {
+        std::process::exit(run_text_only(&opts));
     }
 
     let rules_path = match resolve_rules(&opts) {
