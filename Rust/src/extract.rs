@@ -505,43 +505,68 @@ fn for_prefix<F: Fn(&str, &mut String)>(path: &Path, prefix: &str, f: F) -> Opti
 /// -out: 없음(out 에 문단마다 한 줄씩 덧붙인다)
 /// -out: error = 없음
 fn collect_docx_paragraphs(xml: &str, out: &mut String) {
-    // 탭 문자는 자기닫힘 `<w:tab/>` 로 온다. tag_re 는 `<태그>…</태그>` 짝만 받으므로
-    // 여기에 쓸 수 없다 — 그것을 몰라 예전 판은 탭을 통째로 놓쳤다.
-    static TAB: Lazy<Regex> = Lazy::new(|| Regex::new(r"<w:tab\b[^>]*>").unwrap());
-    // 빈 문단은 `<w:p/>` 로 온다. tag_re 는 짝이 있는 태그만 받아 이것을 통째로
-    // 놓쳤고, 그만큼 빈 줄이 사라졌다(실측 '15.의료비 지원 규정' 에서 8개).
-    // 자기닫힘 갈래를 **앞에** 둔다 — 뒤에 두면 `<w:p w:rsidR="…"/>` 의 `/` 를
-    // 여는 태그의 속성으로 삼켜, 다음 `</w:p>` 까지의 본문을 통째로 먹는다.
-    static PARA: Lazy<Regex> = Lazy::new(|| Regex::new(
-        r"(?s)<w:p(?:\s[^>]*?)?/>|<w:p(?:\s[^>]*)?>(.*?)</w:p>").unwrap());
-    let run_re = tag_re("w:r");
-    let text_re = tag_re("w:t");
-    for pcap in PARA.captures_iter(xml) {
-        // 자기닫힘 `<w:p/>` 는 안쪽이 없다 — 빈 문단으로 보고 빈 줄을 남긴다.
-        let body = pcap.get(1).map_or("", |m| m.as_str());
-        // (문단 안 위치, 조각) 을 모아 위치순으로 이어야 파이썬의 훑는 차례와 같다.
-        let mut parts: Vec<(usize, String)> = Vec::new();
-        // 런(<w:r>) 안만 본다. <w:pPr><w:tabs> 안의 <w:tab> 은 탭 정지 위치 '정의'
-        // 이지 본문의 탭 문자가 아니다 — 실측에서 한 문단이 그 정의를 32개 갖고
-        // 있었고, 문단 전체를 훑으면 그것이 탭 32개로 새어 들어가 없던 들여쓰기를
-        // 만든다(파이썬 판이 실제로 그랬다). 진짜 탭은 언제나 런 안에 있다.
-        for rcap in run_re.captures_iter(body) {
-            let (rstart, rbody) = match rcap.get(1) {
-                Some(m) => (m.start(), m.as_str()),
-                None => continue,          // 자기닫힘 `<w:r/>` — 내용이 없다
-            };
-            for tcap in text_re.captures_iter(rbody) {
-                let at = rstart + tcap.get(0).map_or(0, |m| m.start());
-                parts.push((at, xml_inner_text(tcap.get(1).map_or("", |m| m.as_str()))));
+    // 관심 있는 자리만 한 번에 훑는다. 자기닫힘 갈래를 **앞에** 둔다 — 뒤에 두면
+    // 여는 태그 쪽이 끝의 '/' 를 속성으로 삼켜 다음 닫는 태그까지를 통째로 먹는다.
+    // `<w:tab\b` 의 \b 는 `<w:tabs>`(탭 정지 위치 '정의' 묶음)를 걸러 준다.
+    static TOK: Lazy<Regex> = Lazy::new(|| Regex::new(concat!(
+        r"(?s)<w:p(?:\s[^>]*?)?/>|<w:p(?:\s[^>]*)?>|</w:p>",
+        r"|<w:r(?:\s[^>]*?)?/>|<w:r(?:\s[^>]*)?>|</w:r>",
+        r"|<w:t(?:\s[^>]*)?>(.*?)</w:t>",
+        r"|<w:tab\b[^>]*>")).unwrap());
+
+    // 문단마다 한 줄. 문단이 '열린 차례'로 담아 두었다가 마지막에 그 차례로 내보낸다
+    // — 안쪽 문단이 먼저 닫힌다고 해서 바깥 문단보다 앞서 나오면 안 된다.
+    let mut lines: Vec<String> = Vec::new();
+    // 지금 열려 있는 문단들: (줄 번호, 그 문단이 열릴 때의 런 깊이).
+    let mut open: Vec<(usize, usize)> = Vec::new();
+    // 지금 몇 겹의 런(<w:r>) 안에 있는가.
+    let mut run_depth: usize = 0;
+
+    for cap in TOK.captures_iter(xml) {
+        let whole = cap.get(0).map_or("", |m| m.as_str());
+        if let Some(t) = cap.get(1) {
+            // <w:t> 글자 — 지금 문단이 '제 런' 안에 있을 때만 담는다.
+            if let Some(&(idx, base)) = open.last() {
+                if run_depth > base {
+                    lines[idx].push_str(&xml_inner_text(t.as_str()));
+                }
             }
-            for m in TAB.find_iter(rbody) {
-                parts.push((rstart + m.start(), "\t".to_string()));
+            continue;
+        }
+        if whole.starts_with("<w:tab") {
+            // 진짜 탭 문자는 런 안의 <w:tab/> 다. 문단 속성(<w:pPr><w:tabs>) 안의
+            // 것은 탭 정지 '위치 정의'라 본문이 아니다 — 런 깊이로 가린다.
+            if let Some(&(idx, base)) = open.last() {
+                if run_depth > base {
+                    lines[idx].push('\t');
+                }
             }
+            continue;
         }
-        parts.sort_by_key(|(at, _)| *at);
-        for (_, s) in parts {
-            out.push_str(&s);
+        if whole.starts_with("</w:p>") {
+            open.pop();
+            continue;
         }
+        if whole.starts_with("<w:p") {
+            // 자기닫힘 <w:p/> 는 빈 문단이다 — 빈 줄 한 개를 남기고 끝낸다.
+            // (빈 문단을 지우면 실측 '15.의료비 지원 규정' 에서 빈 줄 8개가 사라졌다.)
+            if whole.ends_with("/>") {
+                lines.push(String::new());
+            } else {
+                lines.push(String::new());
+                open.push((lines.len() - 1, run_depth));
+            }
+            continue;
+        }
+        if whole.starts_with("</w:r>") {
+            run_depth = run_depth.saturating_sub(1);
+        } else if whole.starts_with("<w:r") && !whole.ends_with("/>") {
+            run_depth += 1;
+        }
+    }
+
+    for l in lines {
+        out.push_str(&l);
         out.push('\n');
     }
 }
@@ -1381,6 +1406,44 @@ mod tests {
         assert_eq!(unescape_entities("모름&qqqq;끝"), "모름&qqqq;끝");
         // 한 번만 훑으므로 &amp;lt; 가 `<` 로 두 번 풀리지 않는다.
         assert_eq!(unescape_entities("&amp;lt;"), "&lt;");
+    }
+
+    // docx 는 문단이 문단 안에 들어간다 — 텍스트상자(<w:txbxContent>)가 런 안에
+    // 있고 그 안에 또 <w:p> 가 있다. 짝 맞추기 정규식은 바깥 여는 태그와 안쪽
+    // 닫는 태그를 짝지어, 텍스트상자 **뒤에 이어지는 바깥 문단의 글자**를 통째로
+    // 잃었다(실측에서 "1) 개선사항 Summary" 한 줄이 사라졌다).
+    #[test]
+    fn docx_텍스트상자_뒤의_바깥_문단_글자를_잃지_않는다() {
+        let mut out = String::new();
+        collect_docx_paragraphs(
+            "<w:p><w:r><w:t>앞</w:t></w:r>             <w:r><w:pict><w:txbxContent>             <w:p><w:r><w:t>상자안</w:t></w:r></w:p>             </w:txbxContent></w:pict></w:r>             <w:r><w:t>뒤</w:t></w:r></w:p>", &mut out);
+        // 바깥 문단은 제 글자만(앞+뒤), 안쪽 문단은 제 줄. 문단이 열린 차례대로.
+        assert_eq!(out, "앞뒤
+상자안
+");
+    }
+
+    // 문단 속성의 <w:pPr><w:tabs><w:tab/> 은 탭 정지 위치 '정의'이지 본문의 탭이
+    // 아니다. 안쪽 문단의 정의까지 세면 없던 들여쓰기가 생긴다.
+    #[test]
+    fn docx_탭_정의는_탭문자가_아니다() {
+        let mut out = String::new();
+        collect_docx_paragraphs(
+            "<w:p><w:pPr><w:tabs><w:tab w:pos=\"1\"/><w:tab w:pos=\"2\"/></w:tabs></w:pPr>             <w:r><w:t>가</w:t><w:tab/><w:t>나</w:t></w:r></w:p>", &mut out);
+        assert_eq!(out, "가	나
+");
+    }
+
+    // 빈 문단 <w:p/> 은 빈 줄을 남긴다 — 지우면 문서의 여백이 사라진다.
+    #[test]
+    fn docx_빈_문단은_빈_줄로_남는다() {
+        let mut out = String::new();
+        collect_docx_paragraphs(
+            "<w:p><w:r><w:t>가</w:t></w:r></w:p><w:p w:rsidR=\"x\"/>             <w:p><w:r><w:t>나</w:t></w:r></w:p>", &mut out);
+        assert_eq!(out, "가
+
+나
+");
     }
 
     // HWPX 는 서식이 바뀌는 자리에서 <hp:t> 를 가른다 — 태그마다 줄을 끊으면
