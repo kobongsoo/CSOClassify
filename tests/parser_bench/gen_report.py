@@ -35,7 +35,7 @@ VERDICT = {
     "ppt": ("green", "대체 가능", "재현율 100% · 자체판이 도형 글자를 더 뽑는다(글자수 1.59배)"),
     "pptx": ("green", "대체 가능", "발표자 노트 구현으로 96.0% → 99.6%"),
     "xls": ("green", "대체 가능", "수식 결과값 구현으로 95.4% → 98.7% · 자체판이 더 빠름"),
-    "xlsx": ("green", "대체 가능", "셀 메모 구현으로 96.2% → 98.8%"),
+    "xlsx": ("green", "대체 가능", "셀 메모 구현으로 96.2% → 98.9%"),
     "html": ("green", "대체 가능", "재현율 86.5%는 사이냅이 CSS·JS 를 본문에 섞기 때문(7장 ②)"),
     "txt": ("green", "대체 가능", "완전 일치"),
     "md": ("green", "대체 가능", "완전 일치"),
@@ -188,6 +188,8 @@ def main():
         fail=allr["fail"], fail_scan=allr["fail_scan"], fail_size=allr["fail_size"],
         off_snf=off_snf, off_rs=off_rs, off_n=len(off), faster=faster,
         snf_total=allr["snf_total"], rs_total=allr["rs_total"],
+        # 자체판이 사이냅보다 몇 % 더 걸렸는지 — 총 처리시간 비에서 바로 뽑는다
+        slowpct=(allr["rs_total"] / allr["snf_total"] - 1) * 100,
         snf_mbs=allr["snf_mbs"], rs_mbs=allr["rs_mbs"],
         snf_med=allr["snf_med"] * 1000, rs_med=allr["rs_med"] * 1000,
         pdf_snf=ext["pdf"]["snf_med"] * 1000, pdf_rs=ext["pdf"]["rs_med"] * 1000,
@@ -442,12 +444,12 @@ footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
 {trows}
 </table>
 <p><small>※ '배수'는 자체판 ÷ 사이냅. <b>1.05 이하는 녹색</b>(사실상 동급 이상)으로 칠했다.
-JSON·TSV·XLS·MD·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판이 2.4배 느리다.</small></p>
+JSON·TSV·XLS·MD·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판이 {pdf_ratio:.1f}배 느리다.</small></p>
 
 <div class="box">
   <h4>총량으로 보면</h4>
   <p>· 표본 전체 {n}건({mb:,.0f}MB): 사이냅 <b>{snf_total:.1f}초</b> · 자체판 <b>{rs_total:.1f}초</b>
-     — 차이 {rs_total:.1f}÷{snf_total:.1f} = 약 4%</p>
+     — 차이 {rs_total:.1f}÷{snf_total:.1f} = 약 {slowpct:.0f}%</p>
   <p>· 처리량: 사이냅 {snf_mbs:.1f} MB/s · 자체판 {rs_mbs:.1f} MB/s</p>
   <p>· 문서 1건 중앙값: 사이냅 {snf_med:.1f}ms · 자체판 {rs_med:.1f}ms.
      {n}건 중 <b>{faster}건</b>은 자체판이 같거나 더 빨랐다.</p>
@@ -541,7 +543,7 @@ JSON·TSV·XLS·MD·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판�
 <h2><span class="num">09</span>권고</h2>
 <ol>
   <li><b>사이냅 제거를 진행해도 된다.</b> 순수 파서 기준으로 재현율 {recall:.1f}%,
-      속도 차이 4%, 15개 확장자 중 13개가 즉시 대체 가능이고 나머지 2개(TSV·JSON)도 크기 상한 설정만 풀면 된다.</li>
+      속도 차이 {slowpct:.0f}%, 15개 확장자 중 13개가 즉시 대체 가능이고 나머지 2개(TSV·JSON)도 크기 상한 설정만 풀면 된다.</li>
   <li><b>엑셀 날짜 서식은 후순위로 둔다.</b> 남은 격차 중 유일한 '값 차이'지만 날짜는
       등급 신호가 아니라 실질 위험이 낮다. 날짜를 앵커로 쓰는 규칙을 넣을 때 함께 구현한다.</li>
   <li><b>HWPX 는 두 판이 본문을 다르게 뽑는다는 점을 공유한다.</b> 문단 단위로 바꾸면서
