@@ -97,9 +97,11 @@ fn extract_raw(path: &Path, fmt: Fmt) -> Option<String> {
         // 문단 인식: 문단 내 런(run)을 이어붙이고 문단 사이만 개행. Python 과 동일하게
         // 하여 런 경계로 쪼개진 값(예: 절번호 "4.2.2.2.")이 갈라져 오탐되는 것을 막는다.
         Fmt::Docx => docx_text(path),
-        Fmt::Pptx => ooxml_prefix_para(path, "ppt/slides/slide", "a:p", "a:t"),
-        // HWPX 는 <hp:t> 태그 단위(실측 sim 1.0) 유지.
-        Fmt::Hwpx => ooxml_prefix_tag(path, "Contents/section", "hp:t"),
+        // 슬라이드 본문 + 발표자 노트. 노트에 설계·단가 같은 기밀이 적히는 일이
+        // 잦아, 본문만 읽으면 그 문서는 등급이 내려앉는다.
+        Fmt::Pptx => pptx_text(path),
+        // HWPX 도 문단 단위로 이어 붙인다 — 태그 단위로 끊던 예전 판은 낱말을 쪼갰다.
+        Fmt::Hwpx => for_prefix(path, "Contents/section", collect_hwpx_paragraphs),
         Fmt::Xlsx => xlsx(path),
         Fmt::Pdf => pdf_text(path),
         // 구형 Office(OLE): 파일 전체를 읽어 CFB 컨테이너에서 본문 스트림을 꺼낸다.
@@ -265,8 +267,6 @@ fn xml_inner_text(inner: &str) -> String {
 ///
 /// [매번 컴파일하지 않는 이유] 예전에는 이 정규식을 html() 안에서 만들어 HTML
 /// 파일 하나당 한 번씩 새로 컴파일했다. 목록은 고정이라 한 번만 만들면 된다.
-static RE_BLOCK_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(
-    r"(?is)</?(?:p|div|br|tr|td|th|li|table|h[1-6]|ul|ol|section|article|header|footer|hr)(?:[\s/][^>]*)?>"
 //
 // [이름 뒤에 경계를 두는 이유]  2026-09-11
 // 예전에는 이름 다음이 바로 `[^>]*` 라, `<pre>` 가 `p` + `re` 로 매칭됐다.
@@ -278,6 +278,8 @@ static RE_BLOCK_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(
 //
 // `(?:[\s/][^>]*)?` 로 "이름 뒤는 `>` 이거나 공백이거나 `/`" 를 강제한다.
 // `/` 를 받는 것은 `<br/>` 때문이다 — 파이썬 HTMLParser 도 그것을 블록으로 본다.
+static RE_BLOCK_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(
+    r"(?is)</?(?:p|div|br|tr|td|th|li|table|h[1-6]|ul|ol|section|article|header|footer|hr)(?:[\s/][^>]*)?>"
 ).unwrap());
 
 /// HTML → 텍스트(태그 제거 + 엔티티 복원).
@@ -409,14 +411,41 @@ fn docx_text(path: &Path) -> Option<String> {
 // 유일한 사용처가 docx 였는데, 머리말·꼬리말(header1.xml 처럼 번호가 붙어 이름이
 // 고정이 아니다)까지 읽게 되면서 docx_text 가 그 일을 직접 하게 됐다.
 
-/// 이름 접두 항목들(정렬)에서 문단 인식 추출.
-fn ooxml_prefix_para(path: &Path, prefix: &str, para_tag: &str, text_tag: &str) -> Option<String> {
-    for_prefix(path, prefix, |data, out| collect_paragraphs(data, para_tag, text_tag, out))
-}
+// (ooxml_prefix_para · ooxml_prefix_tag 제거) — 각각 pptx·hwpx 만 쓰던 한 줄짜리
+// 껍데기였는데, 두 포맷 모두 자기 사정에 맞는 수집기를 직접 부르게 되면서 호출처가
+// 사라졌다. 쓰는 데 없는 함수는 "이 길로도 갈 수 있나" 하는 착각만 남긴다.
 
-/// 이름 접두 항목들(정렬)에서 태그 단위 추출(개행 구분).
-fn ooxml_prefix_tag(path: &Path, prefix: &str, tag: &str) -> Option<String> {
-    for_prefix(path, prefix, |data, out| collect_tag_text(data, tag, out))
+//------------------------------------------------------------------
+// pptx → 텍스트 (슬라이드 본문 + 발표자 노트)
+//=> 예전에는 `ppt/slides/slide*.xml` 만 읽어 **발표자 노트를 통째로 놓쳤다.**
+//   노트는 발표자만 보는 자리라 오히려 단가·설계 상세·내부 사정이 적히는 일이 잦고,
+//   실측에서 본문 812자를 정확히 뽑고도 노트 2,000자를 놓쳐 사이냅 대비 재현율이
+//   24.9% 까지 떨어진 문서가 있었다. 분류 관점에서는 놓치면 안 되는 쪽이다.
+//    1) 슬라이드를 번호순으로 읽어 문단 단위로 뽑는다(예전과 같다)
+//    2) 이어서 `ppt/notesSlides/notesSlide*.xml` 을 같은 방식으로 뽑아 뒤에 붙인다
+//       — 노트도 슬라이드와 같은 `a:p`/`a:t` 구조라 같은 수집기를 그대로 쓴다
+//
+//   [왜 뒤에 붙이나] 슬라이드 N 과 노트 N 을 번갈아 끼우는 편이 문맥상 자연스럽지만,
+//   둘의 짝은 파일 번호가 아니라 rels 로 맺어져 있어 번호만 보고 맞추면 어긋날 수 있다.
+//   잘못 끼워 문맥을 왜곡하느니, 순서대로 뒤에 붙여 '있는 글자를 다 본다'를 택했다.
+//
+// -in: path = pptx 경로
+//
+// -out: 슬라이드 본문 다음에 노트가 이어진 텍스트
+// -out: error = zip 이 아니거나 못 열면 None (노트가 없으면 본문만)
+//------------------------------------------------------------------
+fn pptx_text(path: &Path) -> Option<String> {
+    let mut out = for_prefix(path, "ppt/slides/slide",
+                             |d, o| collect_paragraphs(d, "a:p", "a:t", o))?;
+    // 노트는 없는 문서가 더 많다 — 없으면 조용히 본문만 돌려준다.
+    if let Some(notes) = for_prefix(path, "ppt/notesSlides/notesSlide",
+                                    |d, o| collect_paragraphs(d, "a:p", "a:t", o)) {
+        if !notes.trim().is_empty() {
+            if !out.is_empty() && !out.ends_with('\n') { out.push('\n'); }
+            out.push_str(&notes);
+        }
+    }
+    Some(out)
 }
 
 /// 접두 매칭 항목을 번호순으로 읽어 콜백에 넘긴다(공통).
@@ -515,6 +544,66 @@ fn collect_docx_paragraphs(xml: &str, out: &mut String) {
         }
         out.push('\n');
     }
+}
+
+//------------------------------------------------------------------
+// HWPX 문단 수집 — 한 문단을 한 줄로
+//=> 예전에는 `<hp:t>` **태그마다 한 줄**로 끊었다. 그런데 HWPX 는 글자 서식이 바뀌는
+//   자리에서 `<hp:t>` 를 갈라 놓기 때문에, 한 낱말이 두 태그에 걸치면 그 자리에서
+//   줄이 끊긴다 — 실측에서 사이냅이 "가치를·개발에·보장한다"로 뽑은 것을 이 판은
+//   "가치 / 를 / 개발 / 에" 로 내놨다(재현율 96.2%·정밀도 95.4%).
+//   낱말이 쪼개지면 **붙어 있어야 성립하는 검출**(전화번호·계좌번호·앵커+값)이
+//   통째로 어긋난다. DOCX·PPTX 는 이미 문단 단위로 이어 붙이고 있었고, HWPX 만
+//   그 보호를 못 받고 있었다.
+//
+//   [왜 공용 collect_paragraphs 를 못 쓰나] HWPX 는 **문단이 문단 안에 들어간다**.
+//   표가 `<hp:p>` 안의 `<hp:tbl>` → `<hp:tc>` → `<hp:subList>` → 또 `<hp:p>` 로
+//   내려가기 때문이다(실측 10개 파일에 중첩 14,413곳). 짝 맞추기 정규식은 바깥
+//   여는 태그와 **안쪽** 닫는 태그를 짝지어 버려 문단 경계가 엉킨다.
+//   그래서 여기서는 짝을 맞추지 않고 **한 번만 훑으면서** 처리한다:
+//    1) `<hp:t>` 글자는 '지금 줄'에 계속 이어 붙인다
+//    2) 문단이 열리거나 닫히는 자리에서 지금 줄을 끊어 낸다
+//       → 안쪽 문단(표 칸)은 제 줄을 갖고, 바깥 문단의 글자도 순서대로 남는다
+//    3) `<hp:lineBreak/>` 는 줄바꿈, `<hp:tab/>` 은 탭으로 살린다
+//       — 없애면 두 줄이 한 낱말로 붙어 없던 말이 생긴다
+//
+// -in: xml = Contents/section*.xml 본문
+// -in: out = 결과를 덧붙일 문자열(제자리에서 늘어난다)
+//
+// -out: 없음(out 에 문단마다 한 줄씩 덧붙인다)
+// -out: error = 없음
+//------------------------------------------------------------------
+fn collect_hwpx_paragraphs(xml: &str, out: &mut String) {
+    // 관심 있는 자리만 한 줄로 훑는다. 자기닫힘 `<hp:p/>` 갈래를 **앞에** 둔다 —
+    // 뒤에 두면 여는 태그 쪽이 끝의 '/' 를 속성으로 삼켜 버린다(docx 에서 겪은 함정).
+    static TOK: Lazy<Regex> = Lazy::new(|| Regex::new(concat!(
+        r"(?s)<hp:p(?:\s[^>]*?)?/>|<hp:p(?:\s[^>]*)?>|</hp:p>",
+        r"|<hp:t(?:\s[^>]*)?>(.*?)</hp:t>",
+        r"|<hp:lineBreak\b[^>]*>|<hp:tab\b[^>]*>")).unwrap());
+    let mut line = String::new();
+    // 지금까지 모은 줄을 끊어 낸다(빈 줄은 버린다 — HWPX 는 빈 문단을 여백으로 쓴다).
+    let flush = |line: &mut String, out: &mut String| {
+        if !line.trim().is_empty() {
+            out.push_str(line.trim_end());
+            out.push('\n');
+        }
+        line.clear();
+    };
+    for cap in TOK.captures_iter(xml) {
+        let whole = cap.get(0).map_or("", |m| m.as_str());
+        if let Some(t) = cap.get(1) {
+            // <hp:t> 안의 글자 — 낱말이 끊기지 않게 '이어' 붙인다.
+            line.push_str(&xml_inner_text(t.as_str()));
+        } else if whole.starts_with("<hp:lineBreak") {
+            line.push('\n');
+        } else if whole.starts_with("<hp:tab") {
+            line.push('\t');
+        } else {
+            // 문단이 열리거나 닫히는 자리 — 여기가 줄 경계다.
+            flush(&mut line, out);
+        }
+    }
+    flush(&mut line, out);
 }
 
 /// 문단 인식: 각 <para>...</para> 안의 <text> 런을 '이어붙여' 한 줄, 문단 사이 개행.
@@ -690,12 +779,90 @@ fn xlsx(path: &Path) -> Option<String> {
         }
     }
 
+    // 셀 메모(주석)는 셀 값이 아니라 따로 담긴다 — 시트를 다 읽은 뒤 이어 붙인다.
+    let notes = xlsx_comments(&mut zip);
+    if !notes.is_empty() {
+        if !out.is_empty() && !out.ends_with('\n') { out.push('\n'); }
+        out.push_str(&notes);
+    }
+
     // 워크시트에서 한 줄도 못 얻었으면(모양이 낯선 파일) 공유문자열표라도 내놓는다.
     // 예전 동작의 안전망 — 아무것도 안 주는 것보다는 낫다.
     if out.is_empty() && !shared.is_empty() {
         out = shared.join("\n");
     }
     Some(out)
+}
+
+//------------------------------------------------------------------
+// xlsx 셀 메모(주석) 모으기
+//=> 엑셀의 '메모'는 셀 값이 아니라 `xl/comments*.xml` 에 따로 들어간다. 그래서
+//   시트만 읽으면 통째로 사라졌다 — 실측에서 셀 값은 완벽히 뽑고도 작성 안내·
+//   주의사항이 메모에만 있어 재현율 48.7% 가 된 신청서가 있었다. 신청서·양식류는
+//   '어떻게 적어라'가 전부 메모에 있는 일이 흔하다.
+//    1) 옛 방식 메모: `<comments><commentList><comment><text><r><t>글자`
+//    2) 새 방식(스레드 댓글): `xl/threadedComments/threadedComment*.xml` 의 `<text>`
+//    3) 메모 하나를 한 줄로 만든다 — 누가 썼는지(authors)는 본문이 아니라 뺀다
+//
+// -in: zip = 이미 열려 있는 xlsx 압축(여기서 항목을 더 읽는다)
+//
+// -out: 메모마다 한 줄씩 담긴 문자열(없으면 빈 문자열)
+// -out: error = 항목을 못 읽어도 예외 없이 그만큼만 돌려준다
+//------------------------------------------------------------------
+fn xlsx_comments(zip: &mut zip::ZipArchive<fs::File>) -> String {
+    // 이름을 먼저 모은다 — by_name 으로 읽는 동안에는 목록을 훑을 수 없다.
+    let mut names: Vec<String> = Vec::new();
+    for i in 0..zip.len() {
+        if let Ok(zf) = zip.by_index(i) {
+            let n = zf.name().to_string();
+            let old = n.starts_with("xl/comments") && n.ends_with(".xml");
+            let new = n.starts_with("xl/threadedComments/") && n.ends_with(".xml");
+            if old || new { names.push(n); }
+        }
+    }
+    names.sort_by_key(|n| num_in_name(n));
+
+    let mut out = String::new();
+    for name in &names {
+        let mut data = String::new();
+        match zip.by_name(name) {
+            Ok(mut f) => { if f.read_to_string(&mut data).is_err() { continue; } }
+            Err(_) => continue,
+        }
+        out.push_str(&xlsx_comment_lines(&data, name.starts_with("xl/threadedComments/")));
+    }
+    out
+}
+
+//------------------------------------------------------------------
+// 메모 XML 한 장에서 글자만 뽑기
+//=> 압축을 다루는 부분과 떼어 놓아 시험하기 쉽게 만든 알맹이다.
+//    1) 옛 방식이면 `<comment>` 안의 `<t>` 들을 이어 붙인다(서식 때문에 쪼개져 온다)
+//    2) 새 방식이면 `<threadedComment>` 안의 `<text>` 를 그대로 쓴다
+//
+// -in: xml = comments*.xml 또는 threadedComment*.xml 본문
+// -in: threaded = true 면 새 방식(스레드 댓글)으로 읽는다
+//
+// -out: 메모마다 한 줄씩 담긴 문자열
+// -out: error = 모양이 낯설면 빈 문자열(예외 없음)
+//------------------------------------------------------------------
+fn xlsx_comment_lines(xml: &str, threaded: bool) -> String {
+    let re = if threaded { tag_re("threadedComment") } else { tag_re("comment") };
+    let inner_re = if threaded { tag_re("text") } else { tag_re("t") };
+    let mut out = String::new();
+    for cap in re.captures_iter(xml) {
+        let mut line = String::new();
+        for t in inner_re.captures_iter(&cap[1]) {
+            line.push_str(&xml_inner_text(&t[1]));
+        }
+        // 메모 하나가 한 덩이로 보이게 앞뒤 공백만 다듬는다(안쪽 줄바꿈은 그대로).
+        let line = line.trim();
+        if !line.is_empty() {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 //------------------------------------------------------------------
@@ -722,17 +889,9 @@ fn tag_re(tag: &str) -> Regex {
     Regex::new(&pat).unwrap()
 }
 
-/// 문서 XML 에서 <TAG ...>...</TAG> 안의 텍스트를 뽑아(내부태그 제거·엔티티 복원) out 에 개행으로 추가.
-fn collect_tag_text(xml: &str, tag: &str, out: &mut String) {
-    let re = tag_re(tag);
-    for cap in re.captures_iter(xml) {
-        let text = xml_inner_text(&cap[1]);
-        if !text.is_empty() {
-            out.push_str(&text);
-            out.push('\n');
-        }
-    }
-}
+// (collect_tag_text 제거) — '태그 하나하나를 한 줄로' 뽑던 도우미다. HWPX 가
+// 유일한 사용처였는데 문단 단위로 바뀌면서 부르는 데가 없어졌다. 이 함수가 지키던
+// CDATA·엔티티 회귀는 아래 시험이 collect_paragraphs 로 그대로 이어 받는다.
 
 /// zip 항목 이름 속 숫자(정렬키). 예: section10.xml > section2.xml.
 fn num_in_name(name: &str) -> u32 {
@@ -790,13 +949,137 @@ fn unescape_entities(s: &str) -> String {
 mod tests {
     use super::*;
 
+    // 태그 이름 뒤 경계가 없으면 `<pre>` 가 `p`+`re` 로 잡힌다 — 파이썬 판은
+    // 태그 **이름 집합**으로 보므로 pre 는 블록이 아니다. 그 차이로 두 판의
+    // 본문이 갈렸다(2026-09-11). 이름이 접두인 태그 전부를 못 박아 둔다.
+    #[test]
+    fn 이름이_겹치는_태그를_블록으로_보지_않는다() {
+        for t in ["<pre>", "</pre>", "<param a=1>", "<picture>", "<progress>",
+                  "<track>", "<thead>", "</thead>", "<link rel=x>"] {
+            assert!(!RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 봤다");
+        }
+        // 진짜 블록은 그대로 잡혀야 한다(`<br/>` 자기닫힘 포함).
+        for t in ["<p>", "</p>", "<p class=a>", "<br>", "<br/>", "<br />",
+                  "<td>", "</td>", "<th>", "<h3>", "<hr/>", "<TABLE>"] {
+            assert!(RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 못 봤다");
+        }
+    }
+
+    // 파이썬 판은 HTMLParser 라 HTML5 이름 엔티티를 전부 푼다. 손으로 고른
+    // 몇 개만 풀면 목록 밖 엔티티가 나올 때마다 같은 어긋남이 되풀이된다.
+    #[test]
+    fn 이름_엔티티를_표대로_푼다() {
+        assert_eq!(unescape_entities("대시&mdash;점&middot;줄임&hellip;"),
+                   "대시—점·줄임…");
+        // &nbsp; 는 일반 공백이 아니라 U+00A0 이다(파이썬과 같아야 한다).
+        assert_eq!(unescape_entities("공백&nbsp;붙임"), "공백\u{A0}붙임");
+        // 숫자 엔티티(10진·16진)도 푼다.
+        assert_eq!(unescape_entities("&#49;&#x32;&#X33;"), "123");
+        // 모르는 이름은 지우지 않고 그대로 둔다 — 지우면 본문이 조용히 사라진다.
+        assert_eq!(unescape_entities("모름&qqqq;끝"), "모름&qqqq;끝");
+        // 한 번만 훑으므로 &amp;lt; 가 `<` 로 두 번 풀리지 않는다.
+        assert_eq!(unescape_entities("&amp;lt;"), "&lt;");
+    }
+
+    // HWPX 는 서식이 바뀌는 자리에서 <hp:t> 를 가른다 — 태그마다 줄을 끊으면
+    // 한 낱말이 쪼개진다("가치를" → "가치" / "를"). 문단 단위로 이어야 한다.
+    #[test]
+    fn hwpx_한_문단은_한_줄로_이어진다() {
+        let mut out = String::new();
+        collect_hwpx_paragraphs(
+            "<hp:p id=\"1\"><hp:run><hp:t>가치</hp:t></hp:run>\
+             <hp:run><hp:t>를 보장한다</hp:t></hp:run></hp:p>\
+             <hp:p id=\"2\"><hp:run><hp:t>다음 문단</hp:t></hp:run></hp:p>", &mut out);
+        assert_eq!(out, "가치를 보장한다\n다음 문단\n");
+    }
+
+    // 표는 문단 안에 문단이 들어간다(hp:p > hp:tbl > hp:tc > hp:subList > hp:p).
+    //=> 짝 맞추기 정규식이면 바깥 여는 태그와 안쪽 닫는 태그를 짝지어 경계가 엉킨다.
+    //   칸마다 제 줄을 갖고, 글자는 문서에 적힌 차례대로 남아야 한다.
+    #[test]
+    fn hwpx_표_안의_문단도_제_줄을_갖는다() {
+        let mut out = String::new();
+        collect_hwpx_paragraphs(
+            "<hp:p id=\"1\"><hp:run><hp:t>표 앞 글</hp:t></hp:run>\
+             <hp:run><hp:tbl><hp:tr>\
+             <hp:tc><hp:subList><hp:p><hp:run><hp:t>왼쪽 칸</hp:t></hp:run></hp:p></hp:subList></hp:tc>\
+             <hp:tc><hp:subList><hp:p><hp:run><hp:t>오른쪽 칸</hp:t></hp:run></hp:p></hp:subList></hp:tc>\
+             </hp:tr></hp:tbl></hp:run></hp:p>", &mut out);
+        assert_eq!(out, "표 앞 글\n왼쪽 칸\n오른쪽 칸\n");
+    }
+
+    // 문단 안 줄바꿈·탭은 살려야 한다 — 없애면 두 줄이 한 낱말로 붙어
+    // 문서에 없던 말("끝다음")이 생긴다.
+    #[test]
+    fn hwpx_줄바꿈과_탭을_살린다() {
+        let mut out = String::new();
+        collect_hwpx_paragraphs(
+            "<hp:p><hp:run><hp:t>끝</hp:t><hp:lineBreak/><hp:t>다음</hp:t>\
+             <hp:tab/><hp:t>칸</hp:t></hp:run></hp:p>", &mut out);
+        assert_eq!(out, "끝\n다음\t칸\n");
+    }
+
+    // 빈 문단(여백용)은 줄을 만들지 않는다 — HWPX 는 빈 문단을 여백으로 쓴다.
+    #[test]
+    fn hwpx_빈_문단은_줄을_만들지_않는다() {
+        let mut out = String::new();
+        collect_hwpx_paragraphs(
+            "<hp:p><hp:run><hp:t>앞</hp:t></hp:run></hp:p><hp:p/>\
+             <hp:p><hp:run></hp:run></hp:p><hp:p><hp:run><hp:t>뒤</hp:t></hp:run></hp:p>",
+            &mut out);
+        assert_eq!(out, "앞\n뒤\n");
+    }
+
+    // 엑셀 '메모'는 셀 값이 아니라 따로 담긴다 — 그래서 통째로 놓치고 있었다.
+    //=> 서식이 섞이면 한 메모가 <r><t> 로 잘게 쪼개져 오므로 이어 붙여야
+    //   한 문장이 된다. 작성자 이름(<authors>)은 본문이 아니라 들어오면 안 된다.
+    #[test]
+    fn 엑셀_셀메모를_한_줄로_모은다() {
+        let xml = "<comments><authors><author>고봉수</author></authors><commentList>\
+                   <comment ref=\"B2\" authorId=\"0\"><text><r><t>셀 서식을 </t></r>\
+                   <r><t>텍스트로</t></r></text></comment>\
+                   <comment ref=\"C3\" authorId=\"0\"><text><t>영구면 9999-12-31</t></text>\
+                   </comment></commentList></comments>";
+        assert_eq!(xlsx_comment_lines(xml, false),
+                   "셀 서식을 텍스트로\n영구면 9999-12-31\n");
+    }
+
+    // 새 방식(스레드 댓글)은 <text> 에 글자가 통으로 들어 있다.
+    #[test]
+    fn 엑셀_스레드댓글도_읽는다() {
+        let xml = "<threadedComments><threadedComment ref=\"A1\" dT=\"2026-01-01T00:00:00\">\
+                   <text>담당자 확인 필요</text></threadedComment></threadedComments>";
+        assert_eq!(xlsx_comment_lines(xml, true), "담당자 확인 필요\n");
+    }
+
+    // 메모가 없는 파일에서 없던 줄이 생기면 안 된다.
+    #[test]
+    fn 메모가_없으면_빈_문자열이다() {
+        assert_eq!(xlsx_comment_lines("<comments><commentList/></comments>", false), "");
+    }
+
+    // 발표자 노트도 슬라이드와 같은 a:p / a:t 구조다 — 같은 수집기로 읽는다.
+    //=> 노트를 안 읽던 시절 실측에서 본문 812자만 뽑고 노트 2,000자를 놓쳤다.
+    #[test]
+    fn 발표자_노트_구조를_문단으로_읽는다() {
+        let mut out = String::new();
+        collect_paragraphs(
+            "<p:notes><p:cSld><p:spTree><p:sp><p:txBody>\
+             <a:p><a:r><a:t>단가는 </a:t></a:r><a:r><a:t>대외비</a:t></a:r></a:p>\
+             <a:p><a:r><a:t>2차 협의 예정</a:t></a:r></a:p>\
+             </p:txBody></p:sp></p:spTree></p:cSld></p:notes>",
+            "a:p", "a:t", &mut out);
+        assert_eq!(out, "단가는 대외비\n2차 협의 예정\n");
+    }
+
     // 회귀 핵심 — CDATA 로 감싼 값이 통째로 사라지면 안 된다.
     // 태그 제거 정규식이 <![CDATA[..]]> 를 '태그 하나'로 삼켜, 엑셀 inlineStr
     // 문서 전체가 빈 텍스트가 되던 버그를 막는다.
     #[test]
     fn cdata_안의_글자를_살린다() {
         let mut out = String::new();
-        collect_tag_text("<t><![CDATA[이름]]></t><t><![CDATA[회사]]></t>", "t", &mut out);
+        collect_paragraphs("<p><t><![CDATA[이름]]></t></p><p><t><![CDATA[회사]]></t></p>",
+                           "p", "t", &mut out);
         assert_eq!(out, "이름\n회사\n");
     }
 
@@ -872,7 +1155,8 @@ mod tests {
     #[test]
     fn cdata가_없으면_종전과_같다() {
         let mut out = String::new();
-        collect_tag_text("<t>보고서</t><t xml:space=\"preserve\"> 초안</t>", "t", &mut out);
+        collect_paragraphs("<p><t>보고서</t></p><p><t xml:space=\"preserve\"> 초안</t></p>",
+                           "p", "t", &mut out);
         assert_eq!(out, "보고서\n 초안\n");
     }
 
@@ -894,35 +1178,4 @@ mod tests {
     }
 }
 
-    // 태그 이름 뒤 경계가 없으면 `<pre>` 가 `p`+`re` 로 잡힌다 — 파이썬 판은
-    // 태그 **이름 집합**으로 보므로 pre 는 블록이 아니다. 그 차이로 두 판의
-    // 본문이 갈렸다(2026-09-11). 이름이 접두인 태그 전부를 못 박아 둔다.
-    #[test]
-    fn 이름이_겹치는_태그를_블록으로_보지_않는다() {
-        for t in ["<pre>", "</pre>", "<param a=1>", "<picture>", "<progress>",
-                  "<track>", "<thead>", "</thead>", "<link rel=x>"] {
-            assert!(!RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 봤다");
-        }
-        // 진짜 블록은 그대로 잡혀야 한다(`<br/>` 자기닫힘 포함).
-        for t in ["<p>", "</p>", "<p class=a>", "<br>", "<br/>", "<br />",
-                  "<td>", "</td>", "<th>", "<h3>", "<hr/>", "<TABLE>"] {
-            assert!(RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 못 봤다");
-        }
-    }
-
-    // 파이썬 판은 HTMLParser 라 HTML5 이름 엔티티를 전부 푼다. 손으로 고른
-    // 몇 개만 풀면 목록 밖 엔티티가 나올 때마다 같은 어긋남이 되풀이된다.
-    #[test]
-    fn 이름_엔티티를_표대로_푼다() {
-        assert_eq!(unescape_entities("대시&mdash;점&middot;줄임&hellip;"),
-                   "대시—점·줄임…");
-        // &nbsp; 는 일반 공백이 아니라 U+00A0 이다(파이썬과 같아야 한다).
-        assert_eq!(unescape_entities("공백&nbsp;붙임"), "공백\u{A0}붙임");
-        // 숫자 엔티티(10진·16진)도 푼다.
-        assert_eq!(unescape_entities("&#49;&#x32;&#X33;"), "123");
-        // 모르는 이름은 지우지 않고 그대로 둔다 — 지우면 본문이 조용히 사라진다.
-        assert_eq!(unescape_entities("모름&qqqq;끝"), "모름&qqqq;끝");
-        // 한 번만 훑으므로 &amp;lt; 가 `<` 로 두 번 풀리지 않는다.
-        assert_eq!(unescape_entities("&amp;lt;"), "&lt;");
-    }
 
