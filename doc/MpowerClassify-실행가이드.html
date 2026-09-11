@@ -394,6 +394,19 @@ MpowerClassify.exe --classify --with-pii --file "문서.hwp" --out result.json</
   { "label": "CARD", "value": "4539-5787-6362-1486", "start": 25, "end": 44 },
   { "label": "IP",   "value": "192.168.0.10",         "start": 70, "end": 82 }
 ]</code></pre>
+  <p class="muted"><b><code>start</code>·<code>end</code> 는 무엇을 가리키나</b> —
+  <b>원본 파일이 아니라</b> 이 도구가 추출·정제한 <b>본문</b>의 위치이고, 단위는
+  <b>글자 수</b>입니다(바이트가 아닙니다). 그 본문은 <code>--textsave</code> 로 받을 수 있고,
+  받은 파일을 <code>본문[start:end]</code> 로 자르면 <code>value</code> 와 같아야 합니다.
+  <br><span class="def">계보: 원본 → 추출 → 정제(<code>clean_text</code>) → 글자수 상한(G3) 절단 → 이 좌표의 기준.
+  그래서 원본 파일에서 같은 자리를 찾으려면 추출 본문을 함께 들고 있어야 합니다.</span>
+  <div class="note"><b>바로잡았습니다</b> <span class="pill">2026-09-11</span> —
+  Rust 판이 이 좌표를 <b>바이트</b>로 세고 있었습니다. 한글은 3바이트라 앞에 한글이
+  많을수록 벌어져, 같은 값이 파이썬 <code>13</code> · Rust <code>31</code> 이었습니다.
+  오류도 경고도 없이 <b>엉뚱한 자리를 지우게</b> 되는 종류라 두 판을 글자 수로 맞췄습니다.
+  나오는 <b>차례</b>도 맞췄습니다 — 이제 두 판 모두 문서 순서(<code>start</code>)입니다.
+  <br><span class="def">다만 HTML 문서는 두 판의 추출 공백이 미세하게 달라 좌표가 조금 어긋날 수 있습니다
+  (값과 차례는 같습니다). 추출기 쪽 별건으로 남아 있습니다.</span></div></p>
   <p class="muted">출력 예시(<code>--file</code>, 기본 <code>json</code>) — <b>대외비 표지 + 진단서 + 주민번호·계좌</b>가 함께 있는 문서:</p>
 <pre><code>{
   "file": "샘플.hwp",

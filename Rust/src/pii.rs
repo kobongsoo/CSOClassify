@@ -292,14 +292,73 @@ pub fn pii_counts(text: &str, wanted: &HashSet<String>) -> HashMap<String, u32> 
 }
 
 /// [프라이버시 예외] 검출된 PII '원문 값'을 반환(--with-pii 전용). ko-pii collect_pii 대응.
-/// 반환: (label, value, start, end). value/offset 은 정규화 텍스트 기준.
+///
+/// 반환: (label, value, start, end).
+/// **좌표는 추출·정제가 끝난 본문의 '문자' 수**다(바이트가 아니다). 파이썬 판이
+/// 그렇게 세고, 받는 쪽이 이 좌표로 마스킹하기 때문이다.
+///
+/// [왜 바꾸나] Rust 문자열 인덱스는 바이트 단위라 예전에는 바이트 좌표가 그대로
+/// 나갔다. 한글은 3바이트여서 앞에 한글이 많을수록 벌어진다 — 실측에서 같은 값이
+/// 파이썬 13, Rust 31 이었다. 오류도 안 나고 **엉뚱한 자리를 지우게** 되는 종류라,
+/// 내보내기 직전에 여기서 맞춘다(2026-09-11).
 pub fn pii_records(text: &str, wanted: &HashSet<String>) -> Vec<(&'static str, String, usize, usize)> {
     if text.is_empty() || wanted.is_empty() { return Vec::new(); }
     let (kept, base) = detect_all_passes(text, wanted);
-    kept.into_iter()
+    let out: Vec<(&'static str, String, usize, usize)> = kept.into_iter()
         .filter(|d| wanted.contains(d.label))
         // 값·위치는 원본 좌표 기준이다(ko-pii remap_to_source 와 같은 불변식).
         .map(|d| (d.label, base[d.start..d.end].to_string(), d.start, d.end))
+        .collect();
+    to_char_offsets(&base, out)
+}
+
+//------------------------------------------------------------------
+// 바이트 좌표 → 문자 좌표
+//=> 필요한 경계만 모아 본문을 **한 번만** 훑는다. 검출 1건마다 앞에서부터
+//   글자를 다시 세면 문서가 길수록 제곱으로 느려진다.
+//   (resolve_overlaps 가 이미 문서 순서로 정렬해 두므로 경계도 오름차순이다.)
+//
+// -in: base = 좌표의 기준이 된 본문
+// -in: recs = (label, value, 시작바이트, 끝바이트) 목록
+//
+// -out: 같은 목록, 좌표만 문자 단위로 바뀐 것
+// -out: error = 예외 없음
+//------------------------------------------------------------------
+fn to_char_offsets(base: &str, recs: Vec<(&'static str, String, usize, usize)>)
+    -> Vec<(&'static str, String, usize, usize)> {
+    if recs.is_empty() { return recs; }
+    // 본문이 전부 ASCII 면 바이트 = 문자라 훑을 것도 없다(흔한 경우를 공짜로).
+    if base.is_ascii() { return recs; }
+
+    let mut marks: Vec<usize> = Vec::with_capacity(recs.len() * 2);
+    for r in &recs { marks.push(r.2); marks.push(r.3); }
+    marks.sort_unstable();
+    marks.dedup();
+
+    let mut char_of: HashMap<usize, usize> = HashMap::with_capacity(marks.len());
+    let mut mi = 0usize;
+    let mut last_ci = 0usize;
+    for (ci, (bi, _c)) in base.char_indices().enumerate() {
+        // '<=' 로 본다 — 혹시 글자 중간을 가리키는 경계가 와도 그 글자 자리로 접는다.
+        while mi < marks.len() && marks[mi] <= bi {
+            char_of.insert(marks[mi], ci);
+            mi += 1;
+        }
+        last_ci = ci + 1;
+        if mi >= marks.len() { break; }
+    }
+    // 본문 끝을 가리키는 경계(마지막 검출의 end)는 위 루프가 못 만난다.
+    while mi < marks.len() {
+        char_of.insert(marks[mi], last_ci);
+        mi += 1;
+    }
+
+    recs.into_iter()
+        .map(|(l, v, s, e)| {
+            let cs = *char_of.get(&s).unwrap_or(&s);
+            let ce = *char_of.get(&e).unwrap_or(&e);
+            (l, v, cs, ce)
+        })
         .collect()
 }
 
@@ -421,6 +480,11 @@ fn resolve_overlaps(mut items: Vec<Det>) -> Vec<Det> {
         }
         accepted.push(d);
     }
+    // 원본은 채택이 끝나면 문서 순서로 되돌려 준다("반환은 문서 순서(start, end)").
+    // 우리는 그 한 줄이 빠져 검출 순서 그대로 나갔고, 두 판의 pii 배열 차례가
+    // 달랐다(2026-09-11). 정렬은 '누구를 채택할지'가 아니라 '어떤 차례로 돌려줄지'라
+    // 판정에는 영향이 없다 — 채택은 위쪽 우선순위 정렬이 이미 끝냈다.
+    accepted.sort_by(|a, b| a.start.cmp(&b.start).then(a.end.cmp(&b.end)));
     accepted
 }
 

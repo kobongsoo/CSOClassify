@@ -16,8 +16,10 @@
 #    1) 자기 일관성 — L1 히트 건수 == pii 배열의 그 라벨 건수
 #    2) 겹침 없음   — 같은 자리를 두 라벨이 물지 않는다
 #    3) 두 판 일치  — (라벨, 값) 목록이 같다
-#       (start/end 는 뺀다 — 두 판의 추출 텍스트 공백이 미세하게 달라
-#        오프셋 기준이 서로 다르다. 그건 이 시험이 볼 대상이 아니다.)
+#    4) 좌표 검산    — start/end 가 '추출된 본문'을 문자 단위로 가리킨다
+#    5) 두 판 완전   — 좌표와 나오는 차례까지 같다(.txt 픽스처 기준)
+#       HTML 은 두 판의 추출 공백이 미세하게 달라 좌표가 어긋난다 —
+#       추출기 쪽 별건이라 여기서 섞지 않는다.
 #------------------------------------------------------------------
 
 import json
@@ -90,13 +92,14 @@ def _label_map():
 # -out: dict = 첫 결과 레코드
 # -out: error = 레코드가 없으면 AssertionError(표준오류를 함께 보여 준다)
 #------------------------------------------------------------------
-def _run(engine, doc_dir):
+def _run(engine, doc_dir, textsave=None):
     cmd = [RS_EXE] if engine == "rust" else [sys.executable, "-m", "csoclassify"]
     env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
                PYTHONIOENCODING="utf-8")
+    extra = ["--textsave", str(textsave)] if textsave else []
     r = subprocess.run(
         cmd + ["--dir", str(doc_dir), "--rule-only", "--rules", POLICY,
-               "--with-pii", "--format", "jsonl", "--nosummary"],
+               "--with-pii", "--format", "jsonl", "--nosummary"] + extra,
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
     recs = [json.loads(l) for l in r.stdout.splitlines()
             if l.strip().startswith("{") and '"file"' in l]
@@ -182,3 +185,65 @@ def test_두_판이_같은_pii_값을_낸다(tmp_path):
     # IPv6 에 박힌 IPv4 는 **통째로** 잡혀야 한다 — 뒤쪽 IPv4 만 잡아도 건수는
     # 같아서, 값을 직접 확인하지 않으면 회귀를 놓친다.
     assert ("IP", IPV6_MAPPED) in py, ("IPv6 매핑 표기가 통째로 안 잡혔다", py)
+
+
+#------------------------------------------------------------------
+# start/end 가 '추출된 본문'을 문자 단위로 정확히 가리킨다
+#=> 이 좌표는 원본 파일이 아니라 **추출·정제가 끝난 본문** 기준이다.
+#   그 본문을 --textsave 로 받아 직접 잘라 본다 — 좌표가 맞다면 잘라낸 글자가
+#   value 와 같아야 한다. 단위가 틀리면(바이트 vs 문자) 바로 어긋난다.
+#
+#   [왜 이게 필요했나] Rust 판은 바이트로 세고 있었다. 한글이 3바이트라
+#   앞에 한글이 많을수록 벌어져, 같은 값이 파이썬 13 · Rust 31 이었다
+#   (2026-09-11). 오류도 안 나고 받는 쪽이 **엉뚱한 자리를 지우게** 되는
+#   종류라, 값이 아니라 좌표를 직접 검산한다.
+#
+#   [픽스처에 한글이 있어야 한다] 전부 ASCII 면 바이트와 문자가 같아
+#   이 시험이 통과해도 아무것도 지켜 주지 못한다.
+#------------------------------------------------------------------
+@pytest.mark.skipif(not os.path.isfile(RS_EXE),
+                    reason="Rust exe 없음(cargo build --release 먼저)")
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_좌표가_추출본문을_문자단위로_가리킨다(engine, tmp_path):
+    doc = tmp_path / "docs"
+    doc.mkdir()
+    (doc / "거래처.txt").write_text(FIXTURE, encoding="utf-8")
+    save = tmp_path / "text"
+    rec = _run(engine, doc, textsave=save)
+
+    saved = sorted(save.glob("*.txt"))
+    assert saved, "%s: --textsave 가 본문을 안 남겼다" % engine
+    body = saved[0].read_text(encoding="utf-8")
+    # 한글이 없으면 바이트=문자라 이 시험이 무의미해진다.
+    assert not body.isascii(), "픽스처에 한글이 없어 단위 차이를 잡지 못한다"
+
+    items = rec.get("pii") or []
+    assert items, "%s: pii 가 비었다" % engine
+    for x in items:
+        assert body[x["start"]:x["end"]] == x["value"], (
+            "%s: 좌표가 본문을 안 가리킨다 — %s %d-%d 기대=%r 실제=%r" % (
+                engine, x["label"], x["start"], x["end"],
+                x["value"], body[x["start"]:x["end"]]))
+
+
+#------------------------------------------------------------------
+# 두 판의 pii 배열이 좌표와 차례까지 똑같다
+#=> 위 test_두_판이_같은_pii_값을_낸다 는 정렬해서 (라벨,값)만 본다.
+#   여기서는 **원본 그대로** 견준다 — 좌표 단위도, 나오는 차례도 같아야
+#   두 판의 결과 파일을 통째로 diff 할 수 있다.
+#   (ko-pii 는 겹침 해소 뒤 문서 순서로 정렬해 돌려준다. Rust 는 그 정렬이
+#    빠져 검출기 순서로 나갔다 — 2026-09-11 에 맞췄다.)
+#   [.txt 를 쓰는 이유] HTML 은 두 판의 추출 공백이 미세하게 달라 좌표가
+#   어긋난다. 그건 추출기 쪽 별건이라 여기서 섞지 않는다.
+#------------------------------------------------------------------
+@pytest.mark.skipif(not os.path.isfile(RS_EXE),
+                    reason="Rust exe 없음(cargo build --release 먼저)")
+def test_두_판이_좌표와_차례까지_같다(tmp_path):
+    (tmp_path / "거래처.txt").write_text(FIXTURE, encoding="utf-8")
+    def rows(engine):
+        return [(x["label"], x["value"], x["start"], x["end"])
+                for x in (_run(engine, tmp_path).get("pii") or [])]
+    py, rs = rows("python"), rows("rust")
+    assert py == rs, ("두 판의 pii 가 좌표·차례까지 같지 않다", py, rs)
+    # 문서 순서로 나와야 한다(받는 쪽이 앞에서부터 훑어 마스킹한다).
+    assert py == sorted(py, key=lambda r: (r[2], r[3])), ("문서 순서가 아니다", py)
