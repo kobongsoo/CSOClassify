@@ -72,7 +72,7 @@ pub fn path() -> Option<PathBuf> {
 // -out: String = "2026-08-26 11:20:33" (형식이 어긋나면 원본 그대로)
 // -out: error = 없음
 //------------------------------------------------------------------
-fn now_readable() -> String {
+pub(crate) fn now_readable() -> String {
     let s = now_stamp();
     if s.len() < 14 {
         return s;
@@ -140,6 +140,10 @@ pub fn note(msg: &str) {
 // -out: error = 없음
 //------------------------------------------------------------------
 pub fn err(msg: &str) {
+    // 일반 로그에도 같은 줄을 남긴다. 파이썬 판은 로거 하나에 핸들러 둘을 달아
+    // 오류가 두 파일에 모두 들어간다 — 이 판도 같아야, 일반 로그만 보고
+    // "그때 아무 문제 없었네" 하고 잘못 읽는 일이 없다.
+    crate::log::line("ERROR", "errlog.err", msg);
     // --json-errors 를 준 호출에서는 화면으로 내지 않는다 — 기계가 읽는 줄만
     // stderr 에 남기기로 했다(진행률·요약). 로그 파일에는 언제나 남긴다.
     if !crate::errcodes::quiet() {

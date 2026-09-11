@@ -2021,6 +2021,32 @@ def run_classify(files, args, out_fp):
                             f"{full_path} :: {e}", full_path)
         full_writer = output.RecordWriter(full_fp, args.fmt, multi=True)
 
+    # [--simple 과 --with-pii 를 같이 준 경우] 축약본에는 pii 를 싣지 않는다.
+    # --simple 은 연동용(문서중앙화) 형식이고, 이 도구의 불변식은 "매칭된 원문
+    # PII 값은 결과에 저장하지 않는다" 이다 — 주민번호 원본이 연동 경로로
+    # 흘러가지 않는 것이 옳은 기본값이다.
+    #
+    # 그런데 사용자는 --with-pii 를 **명시해서** 줬다. 아무 말 없이 무시하면
+    # "줬으니 받았겠지" 라고 믿게 된다. 무엇이 왜 빠졌는지 말해 주지 않는 것이
+    # 이 도구에서 가장 나쁜 실패다(--synap-only·데몬 인자와 같은 원칙).
+    #
+    # --out 이 있으면 감사용 <out>.full 에 그대로 남으므로 어디서 찾을지 알려
+    # 주면 되고, --out 이 없으면 그 사이드카가 아예 안 만들어져 **PII 가 어디에도
+    # 안 남는다** — 그때는 더 분명히 말한다.
+    if simple and getattr(args, "with_pii", False) and not summary_only:
+        if full_writer is not None:
+            print("[MpowerClassify] --simple 축약본에는 pii 를 싣지 않습니다"
+                  "(연동 형식에 원문 PII 를 넣지 않는다는 규칙).", file=sys.stderr)
+            print(f"                 검출된 원문 값은 감사용 전체 파일에 있습니다: "
+                  f"{full_path}", file=sys.stderr)
+        else:
+            print("[MpowerClassify] --with-pii 가 이번 실행에서는 아무 데도 남지 않습니다.",
+                  file=sys.stderr)
+            print("                 --simple 축약본은 pii 를 싣지 않고, --out 이 없어 "
+                  "감사용 전체 파일도 만들지 않습니다.", file=sys.stderr)
+            print("                 원문 값이 필요하면 --out 을 주거나(<out>.full 에 남습니다) "
+                  "--simple 을 빼세요.", file=sys.stderr)
+
     #--------------------------------------------------------------
     # 실행 헤더 한 줄 — 이번 실행이 어떤 기준으로 판정했는가
     #=> 규칙셋 버전 세 칸은 한 번 실행하면 모든 줄이 같은 값이라, 예전에는

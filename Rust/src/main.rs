@@ -13,6 +13,7 @@ mod docvocab;
 mod embed;
 mod errcodes;
 mod errlog;
+mod log;
 mod extract;
 mod filelist;
 mod hwp5;
@@ -44,6 +45,10 @@ struct Opts {
     dir: Option<String>,
     files_from: Option<String>, // 경로 목록 파일("-" 이면 stdin). 흩어진 파일을 한 프로세스로
     filelist: Option<String>,   // {path, sfile_id} 목록. 결과의 doc_id 를 채운다(설계 §7-5-2-1)
+    // 일반 로그(log/class_YYYYMMDD.log). 예전에는 --log 를 받고도 아무 데도 쓰지
+    // 않아, 로그가 남은 줄 알고 나중에 찾으면 파일이 없었다(조용한 실패).
+    log: Option<String>,
+    verbose: bool,
     // 파이썬 판에만 있는 상주 데몬 관련 요청. 이 판에는 데몬이 없으므로 '무시'가
     // 아니라 '무엇을 못 해 주는지'를 분명히 답해야 한다(handle_daemon_args).
     serve: bool,
@@ -265,6 +270,18 @@ fn usage() {
     eprintln!("                            파이썬 판으로 만드세요(만든 파일은 이 판도 그대로 읽습니다).");
     eprintln!("                            문서 하나씩 등록하려면 --seed-add 를 쓰세요(⑨)");
     eprintln!("");
+    eprintln!("─── ⑩-2 실행 기록(로그) ───────────────────────────────────");
+    eprintln!("  무엇을 어떻게 분류했는지 파일로 남깁니다. 화면이 없는 환경(UI·배치·");
+    eprintln!("  스케줄러)에서 돌리면 이 파일이 유일한 근거가 됩니다.");
+    eprintln!("  --log <경로>              로그 파일 경로.");
+    eprintln!("                            안 주면 <exe폴더>/log/class_날짜.log");
+    eprintln!("  -v, --verbose             같은 내용을 화면(stderr)에도 냅니다.");
+    eprintln!("  [환경변수] CSOCLASSIFY_LOGDIR  로그를 모아 둘 폴더(여러 대를 한곳에).");
+    eprintln!("             CSOCLASSIFY_ERRLOG  오류 로그 파일 경로.");
+    eprintln!("  남는 파일은 두 가지입니다 — 파이썬 판과 이름·자리가 같습니다:");
+    eprintln!("    class_날짜.log      실행 명령·파일별 결과·요약까지 전부");
+    eprintln!("    class_err_날짜.log  오류만 따로(오류가 났을 때만 생깁니다)");
+    eprintln!("");
     eprintln!("─── ⑪ 받기만 하고 아무 일도 하지 않는 인자 ────────────────────");
     eprintln!("  파이썬 판과 같은 명령줄을 그대로 넣어도 오류가 나지 않도록 받아 줍니다.");
     eprintln!("  다만 이 판에서는 효과가 없으므로, 숨기지 않고 여기 적어 둡니다 —");
@@ -273,7 +290,7 @@ fn usage() {
     eprintln!("  --model  --max-tokens  --overlap  --precision  --per-chunk");
     eprintln!("  --normalize  --no-normalize  --num-threads      (임베딩 세부 설정)");
     eprintln!("  --seed-per-dir  --seed-per-node                 (씨앗 자동 생성 세부 설정)");
-    eprintln!("  --log  --idle-timeout  --timing  -v, --verbose  -r, --recursive  --classify");
+    eprintln!("  --idle-timeout  --timing  -r, --recursive  --classify");
     eprintln!("                            ※ --dir 은 원래 늘 재귀라 -r 은 있으나 마나입니다");
     eprintln!("                            ※ 추출 본문이 필요하면 --textsave 를 쓰세요(⑤)");
 }
@@ -359,6 +376,7 @@ fn apply_size_limits(o: &Opts) {
 
 fn parse_args() -> Result<Opts, String> {
     let mut o = Opts {
+        log: None, verbose: false,
         file: None, dir: None, files_from: None, rules_path: None,
         taxonomy: None, doc_rules: None, axis: None, conflict: None,
         export_taxonomy: false, export_input: None, scaffold_doc_rule: false,
@@ -512,12 +530,16 @@ fn parse_args() -> Result<Opts, String> {
             // 이미 충족된 상태라 아무 말 없이 받아들이는 것이 맞다.
             "--no-daemon" | "--classify"
             | "--embed" | "--text-only" | "--per-chunk" | "--normalize" | "--no-normalize"
-            | "--timing" | "--recursive" | "-r" | "--verbose" | "-v" => {}
+            | "--timing" | "--recursive" | "-r" => {}
+            // 화면에도 로그를 내라는 뜻. 예전에는 그냥 삼켰다.
+            "--verbose" | "-v" => o.verbose = true,
+            // 로그 파일 경로. 미지정이면 <exe폴더>/log/class_YYYYMMDD.log.
+            "--log" => o.log = take(false),
             // ※ "--nosummary"·"--with-text" 는 실제로 처리하므로 여기 두면 안 된다
             //   (도달할 수 없는 갈래가 되어 unreachable_patterns 경고가 난다).
             // 값을 하나 데리고 오는 것들 — 그 값까지 함께 삼켜야 뒤가 밀리지 않는다.
             "--model" | "--max-tokens" | "--overlap" | "--precision" | "--num-threads"
-            | "--idle-timeout" | "--log" | "--seed-per-dir"
+            | "--idle-timeout" | "--seed-per-dir"
             | "--seed-per-node" => { take(false); }
             // 이 판에는 업무분류 씨앗 자동 생성이 없다. 예전에는 값까지 삼키고
             // 아무 일도 안 했다 — 오류도 경고도 없이 class_seed.jsonl 이 그대로라,
@@ -1730,9 +1752,24 @@ fn main() {
         Ok(o) => o,
         Err(e) => errcodes::fail("bad_args", &format!("[MpowerClassify-rs] {}", e), None),
     };
+    // 일반 로그를 연다. parse_args 뒤에 두는 이유는 --log 경로를 알아야 하기
+    // 때문이고, 그 앞의 인자 오류는 errlog(오류 로그)가 이미 받아 준다.
+    log::init(opts.log.as_deref(), opts.verbose);
+    // 파이썬 판이 남기는 첫 두 줄과 같은 내용이다 — 로그 파일만 받아도 무슨
+    // 명령으로 돌렸는지 알 수 있어야 재현이 된다.
+    linfo!("실행 cmd={}", std::env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect::<Vec<_>>().join(" "));
+    linfo!("실행 argv={:?}", raw);
+
     // 크기 상한 CLI 덮어쓰기를 여기서 한 번만 새긴다 — 아래 모든 단계가
     // limits 모듈을 통해 이 값을 읽는다.
     apply_size_limits(&opts);
+    linfo!("크기 상한 MAX_FILE_BYTES={} TEXT={} ARCHIVE={} MEMBERS={} TEXT_CHARS={} PDF_PAGES={} TIMEOUT={}s",
+           limits::max_file_bytes(), limits::max_file_bytes_text(),
+           limits::max_archive_bytes(), limits::max_archive_members(),
+           limits::max_text_chars(), limits::max_pdf_pages(),
+           limits::parser_timeout_secs());
     let t0 = Instant::now();
 
     // 데몬 관련 요청에 답한다 — 규칙셋을 읽기 전에 해야 한다(--status 는 정책
@@ -2053,6 +2090,36 @@ fn main() {
     } else {
         false   // 임베딩을 안 하는 모드에서는 이 값이 쓰이지 않는다.
     };
+
+    // [--simple 과 --with-pii 를 같이 준 경우] 축약본에는 pii 를 싣지 않는다.
+    // --simple 은 연동용(문서중앙화) 형식이고, 이 도구의 불변식은 "매칭된 원문
+    // PII 값은 결과에 저장하지 않는다" 이다 — 주민번호 원본이 연동 경로로
+    // 흘러가지 않는 것이 옳은 기본값이다.
+    //
+    // 그런데 사용자는 --with-pii 를 **명시해서** 줬다. 아무 말 없이 무시하면
+    // "줬으니 받았겠지" 라고 믿게 된다. 무엇이 왜 빠졌는지 말해 주지 않는 것이
+    // 이 도구에서 가장 나쁜 실패다(--synap-only·데몬 인자와 같은 원칙).
+    //
+    // --out 이 있으면 감사용 <out>.full 에 그대로 남으므로 어디서 찾을지 알려
+    // 주면 되고, --out 이 없으면 그 사이드카가 아예 안 만들어져 **PII 가 어디에도
+    // 안 남는다** — 그때는 더 분명히 말한다. 파이썬 판과 같은 문구다.
+    if opts.simple && opts.with_pii && !opts.summary_only {
+        match &opts.out {
+            Some(p) => {
+                note!("[MpowerClassify-rs] --simple 축약본에는 pii 를 싣지 않습니다\
+(연동 형식에 원문 PII 를 넣지 않는다는 규칙).");
+                note!("                 검출된 원문 값은 감사용 전체 파일에 있습니다: {}",
+                      full_out_path(p));
+            }
+            None => {
+                note!("[MpowerClassify-rs] --with-pii 가 이번 실행에서는 아무 데도 남지 않습니다.");
+                note!("                 --simple 축약본은 pii 를 싣지 않고, --out 이 없어 \
+감사용 전체 파일도 만들지 않습니다.");
+                note!("                 원문 값이 필요하면 --out 을 주거나(<out>.full 에 남습니다) \
+--simple 을 빼세요.");
+            }
+        }
+    }
 
     // --textsave 는 파일 이름을 해시로 삼으므로 해시가 반드시 있어야 한다.
     // 비용은 파일 1회 순차 읽기라 추출에 비하면 무시할 수준이다(설계 5장).
@@ -2834,6 +2901,21 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
     //
     // [축약본에는 넣지 않는다] --simple 은 받는 쪽과의 계약이라 줄 모양을 바꾸지
     // 않는다. 감사용 전체 파일(.full)에는 넣는다.
+    // 파일별 판정 결과를 한 줄씩 남긴다. 파이썬 판 cli._emit 과 같은 내용이라,
+    // 두 판의 로그를 나란히 놓고 어디서 갈렸는지 비교할 수 있다.
+    // run_header 를 끼우기 '전'에 남기는 이유: 그 머리글은 결과가 아니라 이번
+    // 실행의 정책 버전이라, 파일별 결과 줄 사이에 섞이면 세기가 어긋난다.
+    // is_on() 으로 먼저 거르는 까닭은, 로그가 꺼져 있으면 JSON 직렬화(건당 수 KB)
+    // 자체를 하지 말아야 하기 때문이다 — 수천 건이면 그 비용이 그대로 드러난다.
+    if log::is_on() {
+        // --simple 일 때 records 는 축약본이다. 로그에는 근거까지 있는 원본을
+        // 남겨야 나중에 되짚을 수 있으므로, 있으면 full_records 를 쓴다.
+        let logged = if full_records.is_empty() { &records } else { &full_records };
+        for r in logged {
+            linfo!("결과 {}", serde_json::to_string(r).unwrap_or_default());
+        }
+    }
+
     let run_header = {
         let mut m = serde_json::Map::new();
         m.insert("rule_version".into(), json!(rs.version));
@@ -2853,6 +2935,9 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
         }
     }
 
+    // 이번 실행의 요약. 로그를 뒤에서부터 읽을 때 '몇 건을 어떻게 끝냈나'가
+    // 바로 보여야 하므로 결과 줄 다음에 한 줄로 남긴다.
+    linfo!("요약 {}", serde_json::to_string(&summary).unwrap_or_default());
     let body = render(&records, &summary, &opts, status.as_ref());
     match &opts.out {
         Some(p) => {
