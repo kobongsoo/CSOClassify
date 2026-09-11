@@ -220,7 +220,7 @@ fn usage() {
     eprintln!("  우선순위는 CLI > 환경변수 > 기본값. 0 이하를 주면 해제됩니다.");
     eprintln!("  --max-file-mb N           원본 파일 크기 상한(MB, 기본 100). 넘으면 읽지 않고");
     eprintln!("                            보류 레코드로 내보냅니다(error.kind=size_limit)");
-    eprintln!("  --max-file-mb-text N      텍스트 계열(txt/csv/tsv/json/html) 상한(MB, 기본 20).");
+    eprintln!("  --max-file-mb-text N      텍스트 계열(txt/csv/tsv/json/html) 상한(MB, 기본 100).");
     eprintln!("                            이 포맷군만 바이트=글자수라 따로 둡니다");
     eprintln!("  --max-text-chars N        정제 본문 글자수 상한(기본 2,000,000). 넘으면 앞부분만");
     eprintln!("                            보고 분류하고 text_truncated 표식을 답니다");
@@ -374,7 +374,7 @@ fn apply_size_limits(o: &Opts) {
     }
     let mut ov = o.size_limits;
     // 일반 상한을 낮췄으면 텍스트 상한도 그 아래로 따라 내린다 — '일반 5MB,
-    // 텍스트 20MB' 같은 앞뒤 안 맞는 설정이 되지 않게.
+    // 텍스트 100MB' 같은 앞뒤 안 맞는 설정이 되지 않게.
     if let Some(n) = ov.max_file_bytes {
         if ov.max_file_bytes_text.is_none() && (n == 0 || limits::max_file_bytes_text() > n) {
             ov.max_file_bytes_text = Some(n);
