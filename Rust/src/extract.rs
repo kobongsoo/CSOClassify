@@ -753,6 +753,78 @@ fn xlsx_shared_strings_stream<R: std::io::BufRead>(r: R) -> Vec<String> {
 }
 
 //------------------------------------------------------------------
+// 서식표(styles.xml)를 읽어 '칸 서식 번호 → 날짜 종류' 표를 만든다
+//=> 엑셀은 날짜를 숫자로 저장하고 "날짜처럼 보여라"는 서식을 따로 붙인다.
+//   셀의 s 속성은 이 표의 **몇 번째 칸 서식**인지를 가리킨다. 그래서 두 곳을 읽는다.
+//    1) <numFmts> — 사용자가 만든 서식(164 번 이상)의 번호 → 서식 문자열
+//    2) <cellXfs> — 칸 서식이 **순서대로** 들어 있고, 각자 numFmtId 를 가리킨다
+//
+//   [왜 cellStyleXfs 는 세면 안 되나] 같은 <xf> 이름이 <cellStyleXfs>(이름 있는
+//   스타일의 원본)에도 있다. 그것까지 함께 세면 번호가 밀려 엉뚱한 칸에 날짜
+//   서식이 붙는다 — 멀쩡한 숫자가 날짜로 둔갑한다. <cellXfs> 안의 것만 센다.
+//
+// -in: r = styles.xml 을 읽는 입력
+//
+// -out: 칸 서식 번호(s 속성) 순서대로의 날짜 종류 목록
+// -out: error = 없음(모양이 낯설면 빈 목록 → 아무 칸도 날짜로 보지 않는다)
+//------------------------------------------------------------------
+fn xlsx_style_date_kinds<R: std::io::BufRead>(r: R) -> Vec<crate::xlsdate::DateKind> {
+    use crate::xlsdate::{builtin_kind, code_kind, DateKind};
+    let mut rd = quick_xml::Reader::from_reader(r);
+    rd.config_mut().trim_text(false);
+    let mut buf = Vec::new();
+    // 사용자 지정 서식: 번호 → 종류.
+    let mut custom: std::collections::HashMap<u16, DateKind> = std::collections::HashMap::new();
+    let mut out: Vec<DateKind> = Vec::new();
+    // <cellXfs> 안에 있을 때만 <xf> 를 센다.
+    let mut in_cell_xfs = false;
+    // <numFmt> 는 <cellXfs> 보다 앞에 오지만, 순서를 믿지 않고 둘 다 모은 뒤 맞춘다.
+    let mut raw_ids: Vec<u16> = Vec::new();
+
+    loop {
+        let ev = rd.read_event_into(&mut buf);
+        match ev {
+            Ok(quick_xml::events::Event::Start(ref e))
+            | Ok(quick_xml::events::Event::Empty(ref e)) => {
+                match xl_local(e.name().as_ref()) {
+                    "numFmt" => {
+                        let id = xl_attr(e, "numFmtId").parse::<u16>().unwrap_or(u16::MAX);
+                        let code = xl_attr(e, "formatCode");
+                        if id != u16::MAX { custom.insert(id, code_kind(&code)); }
+                    }
+                    "cellXfs" => in_cell_xfs = true,
+                    "xf" if in_cell_xfs => {
+                        raw_ids.push(xl_attr(e, "numFmtId").parse::<u16>().unwrap_or(0));
+                    }
+                    _ => {}
+                }
+                // 자기닫힘 <cellXfs/> 면 바로 닫힌 것으로 본다.
+                if matches!(ev, Ok(quick_xml::events::Event::Empty(_)))
+                    && xl_local(e.name().as_ref()) == "cellXfs" {
+                    in_cell_xfs = false;
+                }
+            }
+            Ok(quick_xml::events::Event::End(ref e)) => {
+                if xl_local(e.name().as_ref()) == "cellXfs" { in_cell_xfs = false; }
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+        buf.clear();
+    }
+
+    for id in raw_ids {
+        // 사용자 지정이 있으면 그것이 이긴다 — 내장 번호를 덮어쓴 파일이 있다.
+        out.push(match custom.get(&id) {
+            Some(k) => *k,
+            None => builtin_kind(id),
+        });
+    }
+    out
+}
+
+//------------------------------------------------------------------
 // 워크시트 한 장을 흘려 읽어 행 단위 텍스트로 (SAX)
 //=> 정규식 판과 같은 규칙으로 칸을 읽어, 한 행의 칸들을 공백으로 이어 한 줄로
 //   만든다. 셀 종류(t 속성)별 처리는 xlsx() 머리말의 [셀 종류별 처리] 와 같다.
@@ -762,12 +834,15 @@ fn xlsx_shared_strings_stream<R: std::io::BufRead>(r: R) -> Vec<String> {
 //
 // -in: r      = 시트 XML 을 읽는 입력
 // -in: shared = 공유문자열표(t="s" 인 칸이 번호로 가리킨다)
+// -in: styles = 칸 서식 번호별 날짜 종류(빈 목록이면 날짜 해석을 하지 않는다)
 // -in: out    = 결과를 이어 붙일 곳
 //
 // -out: 없음(out 에 행을 덧붙인다)
 // -out: error = 깨진 XML 은 그때까지 읽은 행까지만 남기고 멈춘다(예외 없음)
 //------------------------------------------------------------------
-fn xlsx_sheet_stream<R: std::io::BufRead>(r: R, shared: &[String], out: &mut String) {
+fn xlsx_sheet_stream<R: std::io::BufRead>(r: R, shared: &[String],
+                                         styles: &[crate::xlsdate::DateKind],
+                                         out: &mut String) {
     let mut rd = quick_xml::Reader::from_reader(r);
     rd.config_mut().trim_text(false);
     let mut buf = Vec::new();
@@ -775,6 +850,7 @@ fn xlsx_sheet_stream<R: std::io::BufRead>(r: R, shared: &[String], out: &mut Str
     let mut in_row = false;
     // 지금 읽고 있는 칸의 상태 — 종류(t 속성), <t> 글자, 첫 <v> 글자.
     let mut kind = String::new();
+    let mut style: Option<usize> = None;
     let mut c_t = String::new();
     let mut c_v = String::new();
     let mut in_c = false;
@@ -791,6 +867,8 @@ fn xlsx_sheet_stream<R: std::io::BufRead>(r: R, shared: &[String], out: &mut Str
                     in_c = true; c_t.clear(); c_v.clear(); v_done = false;
                     in_t = 0; in_v = 0;
                     kind = xl_attr(&e, "t");
+                    // s 는 '몇 번째 칸 서식인가'다 — 날짜 여부가 여기서 갈린다.
+                    style = xl_attr(&e, "s").parse::<usize>().ok();
                 }
                 "t" if in_c => in_t += 1,
                 "v" if in_c && !v_done => in_v += 1,
@@ -807,6 +885,8 @@ fn xlsx_sheet_stream<R: std::io::BufRead>(r: R, shared: &[String], out: &mut Str
                 "c" if in_c => {
                     in_c = false;
                     let val = xlsx_cell_value(&kind, &c_t, &c_v, shared);
+                    // 숫자 칸이고 서식이 날짜라면 사람이 보는 글자로 바꾼다.
+                    let val = xlsx_as_date(&kind, &val, style, styles).unwrap_or(val);
                     let val = val.trim();
                     if !val.is_empty() { cells.push(val.to_string()); }
                 }
@@ -832,6 +912,30 @@ fn xlsx_sheet_stream<R: std::io::BufRead>(r: R, shared: &[String], out: &mut Str
         }
         buf.clear();
     }
+}
+
+//------------------------------------------------------------------
+// 숫자 칸을 날짜 글자로 (서식이 날짜일 때만)
+//=> 엑셀은 2012-12-31 을 41274 로 저장한다. 서식표에서 이 칸이 날짜 서식임을
+//   확인했을 때만 바꾼다 — 서식을 안 보고 바꾸면 멀쩡한 수량·금액이 날짜가 된다.
+//
+// -in: kind   = 셀의 t 속성(숫자 칸이어야 한다)
+// -in: val    = 지금까지 정해진 칸 값(일련번호 문자열)
+// -in: style  = 셀의 s 속성(칸 서식 번호)
+// -in: styles = 칸 서식별 날짜 종류
+//
+// -out: 바꿀 수 있으면 날짜 글자, 아니면 None(원래 값을 그대로 쓰라는 뜻)
+// -out: error = 없음
+//------------------------------------------------------------------
+fn xlsx_as_date(kind: &str, val: &str, style: Option<usize>,
+                styles: &[crate::xlsdate::DateKind]) -> Option<String> {
+    // 글자 칸(t="s"/"str"/"inlineStr")·오류·논리값은 날짜가 아니다. 서식이 날짜여도
+    // 건드리면 안 된다 — 문자열 "41274" 가 날짜로 둔갑한다.
+    if !(kind.is_empty() || kind == "n") {
+        return None;
+    }
+    let k = *styles.get(style?)?;
+    crate::xlsdate::serial_to_string(val.trim().parse::<f64>().ok()?, k)
 }
 
 //------------------------------------------------------------------
@@ -912,6 +1016,12 @@ fn xlsx(path: &Path) -> Option<String> {
         }
     }
 
+    // 날짜 서식표 — 없으면 빈 목록이고, 그러면 날짜 해석을 하지 않는다(예전 동작).
+    let styles: Vec<crate::xlsdate::DateKind> = match zip.by_name("xl/styles.xml") {
+        Ok(f) => xlsx_style_date_kinds(std::io::BufReader::new(f)),
+        Err(_) => Vec::new(),
+    };
+
     let mut out = String::new();
     // 시간 상한(G5) — 시트가 많거나 한 장이 거대한 통합문서에서 이 루프가 무한정
     // 늘어난다. 넘으면 그때까지 읽은 시트까지만 쓴다(실패 아님).
@@ -928,7 +1038,8 @@ fn xlsx(path: &Path) -> Option<String> {
         match zip.by_name(name) {
             // 시트도 흘려 읽는다 — 33MB 짜리 한 장을 메모리에 올리고 정규식을
             // 다시 돌리던 것이 큰 엑셀에서 비용의 대부분이었다.
-            Ok(f) => xlsx_sheet_stream(std::io::BufReader::new(f), &shared, &mut out),
+            Ok(f) => xlsx_sheet_stream(std::io::BufReader::new(f), &shared,
+                                       &styles, &mut out),
             Err(_) => continue,
         }
     }
@@ -1111,9 +1222,83 @@ mod tests {
     // 시트 한 장을 흘려 읽어 문자열로 (시험 도우미)
     //------------------------------------------------------------------
     fn sheet(xml: &str, shared: &[String]) -> String {
+        sheet_st(xml, shared, &[])
+    }
+
+    //------------------------------------------------------------------
+    // 시트 한 장을 서식표까지 주고 읽기 (시험 도우미)
+    //------------------------------------------------------------------
+    fn sheet_st(xml: &str, shared: &[String],
+                styles: &[crate::xlsdate::DateKind]) -> String {
         let mut out = String::new();
-        xlsx_sheet_stream(std::io::BufReader::new(xml.as_bytes()), shared, &mut out);
+        xlsx_sheet_stream(std::io::BufReader::new(xml.as_bytes()), shared, styles, &mut out);
         out
+    }
+
+    //------------------------------------------------------------------
+    // 서식표(styles.xml) 읽기 (시험 도우미)
+    //------------------------------------------------------------------
+    fn styles(xml: &str) -> Vec<crate::xlsdate::DateKind> {
+        xlsx_style_date_kinds(std::io::BufReader::new(xml.as_bytes()))
+    }
+
+    // 엑셀은 날짜를 숫자로 저장한다. 서식이 날짜라고 말할 때만 글자로 바꾼다.
+    #[test]
+    fn 날짜서식_숫자칸을_날짜글자로_바꾼다() {
+        use crate::xlsdate::DateKind;
+        let st = [DateKind::None, DateKind::Date];
+        let x = r#"<sheetData><row><c s="1"><v>41274</v></c><c s="0"><v>41274</v></c>
+                   </row></sheetData>"#;
+        // 같은 값이라도 서식이 날짜인 칸만 바뀐다 — 아니면 수량·금액이 날짜가 된다.
+        assert_eq!(sheet_st(x, &[], &st), "2012-12-31 41274
+");
+    }
+
+    // 글자 칸은 서식이 날짜여도 건드리면 안 된다. 문자열 "41274" 가 날짜로 둔갑한다.
+    #[test]
+    fn 글자칸은_날짜서식이어도_두다() {
+        use crate::xlsdate::DateKind;
+        let st = [DateKind::Date];
+        let sh = vec!["41274".to_string()];
+        let x = r#"<sheetData><row><c t="s" s="0"><v>0</v></c>
+                   <c t="inlineStr" s="0"><is><t>41274</t></is></c></row></sheetData>"#;
+        assert_eq!(sheet_st(x, &sh, &st), "41274 41274
+");
+    }
+
+    // <xf> 는 <cellStyleXfs>(이름 있는 스타일의 원본)에도 같은 이름으로 들어 있다.
+    // 그것까지 세면 번호가 밀려 엉뚱한 칸에 날짜 서식이 붙는다.
+    #[test]
+    fn cellStyleXfs_는_세지_않는다() {
+        use crate::xlsdate::DateKind;
+        let xml = r#"<styleSheet>
+          <cellStyleXfs count="2"><xf numFmtId="14"/><xf numFmtId="14"/></cellStyleXfs>
+          <cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs>
+        </styleSheet>"#;
+        // 0번은 일반, 1번만 날짜여야 한다(cellStyleXfs 를 셌다면 전부 날짜가 된다).
+        assert_eq!(styles(xml), vec![DateKind::None, DateKind::Date]);
+    }
+
+    // 사용자 지정 서식(164 이상)은 서식 '문자열'을 보고 판단한다.
+    #[test]
+    fn 사용자지정_서식번호를_문자열로_판단한다() {
+        use crate::xlsdate::DateKind;
+        let xml = r##"<styleSheet>
+          <numFmts count="2">
+            <numFmt numFmtId="176" formatCode="yyyy-mm-dd"/>
+            <numFmt numFmtId="177" formatCode="#,##0"/>
+          </numFmts>
+          <cellXfs count="3"><xf numFmtId="176"/><xf numFmtId="177"/><xf numFmtId="0"/></cellXfs>
+        </styleSheet>"##;
+        assert_eq!(styles(xml), vec![DateKind::Date, DateKind::None, DateKind::None]);
+    }
+
+    // 서식표가 없는 파일(styles.xml 부재)에서는 날짜 해석을 아예 하지 않는다.
+    #[test]
+    fn 서식표가_없으면_숫자를_그대로_둔다() {
+        let x = r#"<sheetData><row><c s="1"><v>41274</v></c></row></sheetData>"#;
+        assert_eq!(sheet_st(x, &[], &[]), "41274
+");
     }
 
     // quick-xml 은 `&lt;` 같은 참조를 글자와 **따로** 알려 준다. 이 이벤트를

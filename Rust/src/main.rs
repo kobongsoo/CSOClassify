@@ -29,6 +29,7 @@ mod rules;
 mod seedcli;
 mod seedstore;
 mod xls;
+mod xlsdate;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;

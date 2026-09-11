@@ -30,6 +30,9 @@ const R_RK: u16 = 0x027E;
 const R_MULRK: u16 = 0x00BD;
 const R_STRING: u16 = 0x0207;
 const R_FORMULA: u16 = 0x0006;
+// 칸 서식표(XF)와 사용자 지정 서식 문자열(FORMAT) — 날짜 셀을 가리기 위해 읽는다.
+const R_XF: u16 = 0x00E0;
+const R_FORMAT: u16 = 0x041E;
 const R_BOF: u16 = 0x0809;
 const R_EOF: u16 = 0x000A;
 
@@ -48,6 +51,55 @@ fn num_str(v: f64) -> String {
         let s = format!("{}", v);
         s
     }
+}
+
+//------------------------------------------------------------------
+// 칸 서식 번호(ixfe) → 날짜 종류
+//=> BIFF 의 셀 레코드는 '몇 번째 칸 서식인가'(ixfe)만 들고 있다. 그 서식이
+//   가리키는 서식 번호(ifmt)를 따라가야 이 칸이 날짜인지 알 수 있다.
+//    1) XF 목록에서 ixfe 번째를 찾아 ifmt 를 얻는다
+//    2) 사용자가 만든 서식이면 서식 문자열로, 아니면 내장 번호표로 판단한다
+//
+// -in: ixfe    = 셀이 가리키는 칸 서식 번호
+// -in: xfs     = XF 레코드에서 모은 ifmt 목록(나온 순서 그대로)
+// -in: formats = 사용자 지정 서식(번호 → 서식 문자열)
+//
+// -out: 날짜 종류(모르면 None — 숫자를 그대로 둔다)
+// -out: error = 없음
+//------------------------------------------------------------------
+fn xf_date_kind(ixfe: u16, xfs: &[u16],
+                formats: &std::collections::HashMap<u16, String>)
+                -> crate::xlsdate::DateKind {
+    use crate::xlsdate::{builtin_kind, code_kind, DateKind};
+    let ifmt = match xfs.get(ixfe as usize) { Some(v) => *v, None => return DateKind::None };
+    // 사용자 지정이 있으면 그것이 이긴다 — 내장 번호를 덮어쓴 파일이 있다.
+    match formats.get(&ifmt) {
+        Some(code) => code_kind(code),
+        None => builtin_kind(ifmt),
+    }
+}
+
+//------------------------------------------------------------------
+// 숫자 칸을 사람이 보던 글자로 (날짜면 날짜로)
+//=> 서식이 날짜일 때만 바꾼다. 서식을 안 보고 바꾸면 멀쩡한 수량·금액이 날짜가 된다.
+//
+// -in: v       = 셀의 숫자 값
+// -in: ixfe    = 셀이 가리키는 칸 서식 번호
+// -in: xfs     = XF 목록
+// -in: formats = 사용자 지정 서식표
+//
+// -out: 날짜면 날짜 글자, 아니면 예전처럼 숫자 글자
+// -out: error = 없음
+//------------------------------------------------------------------
+fn cell_str(v: f64, ixfe: Option<u16>, xfs: &[u16],
+            formats: &std::collections::HashMap<u16, String>) -> String {
+    if let Some(x) = ixfe {
+        let k = xf_date_kind(x, xfs, formats);
+        if let Some(t) = crate::xlsdate::serial_to_string(v, k) {
+            return t;
+        }
+    }
+    num_str(v)
 }
 
 /// RK 값(4바이트로 압축된 수) 풀기 — BIFF 규약.
@@ -225,6 +277,9 @@ pub fn xls_text(data: Vec<u8>) -> Option<String> {
 
     // ── 1차: SST 를 모은다(CONTINUE 포함). 셀 레코드가 이 표를 가리킨다.
     let mut sst_chunks: Vec<&[u8]> = vec![];
+    // 칸 서식표(XF)는 '나온 순서'가 곧 번호다 — 순서를 흐트러뜨리면 안 된다.
+    let mut xfs: Vec<u16> = Vec::new();
+    let mut formats: std::collections::HashMap<u16, String> = std::collections::HashMap::new();
     let mut i = 0usize;
     let mut in_sst = false;
     while i + 4 <= stream.len() {
@@ -240,6 +295,19 @@ pub fn xls_text(data: Vec<u8>) -> Option<String> {
             sst_chunks.push(body);
         } else {
             in_sst = false;
+            if rt == R_XF {
+                // XF 레코드의 2바이트째가 이 서식이 가리키는 서식 번호(ifmt)다.
+                xfs.push(u16le(body, 2).unwrap_or(0));
+            } else if rt == R_FORMAT {
+                // [서식번호(2)][서식 문자열]
+                if let Some(id) = u16le(body, 0) {
+                    if let Some(n) = u16le(body, 2) {
+                        if let Some((code, _)) = read_unicode_string(body, 4, n as usize) {
+                            formats.insert(id, code);
+                        }
+                    }
+                }
+            }
         }
         i = body_end;
         if len == 0 && body_end == body_start && rt == 0 { break; }   // 안전장치
@@ -289,22 +357,27 @@ pub fn xls_text(data: Vec<u8>) -> Option<String> {
                     if let Some(raw) = b.get(6..14) {
                         let v = f64::from_le_bytes([raw[0], raw[1], raw[2], raw[3],
                                                     raw[4], raw[5], raw[6], raw[7]]);
-                        cells.insert((sheet, r, c), num_str(v));
+                        // 4바이트째가 이 칸이 쓰는 칸 서식 번호(ixfe)다.
+                        let s = cell_str(v, u16le(b, 4), &xfs, &formats);
+                        cells.insert((sheet, r, c), s);
                     }
                 }
             }
             R_RK => {
                 if let (Some(r), Some(c), Some(rk)) = (u16le(b, 0), u16le(b, 2), u32le(b, 6)) {
-                    cells.insert((sheet, r, c), num_str(rk_value(rk)));
+                    let s = cell_str(rk_value(rk), u16le(b, 4), &xfs, &formats);
+                    cells.insert((sheet, r, c), s);
                 }
             }
             R_MULRK => {
-                // [행][첫 열] (xf, rk)* [마지막 열]
+                // [행][첫 열] (xf, rk)* [마지막 열] — 칸마다 제 서식 번호를 들고 있다.
                 if let (Some(r), Some(c0)) = (u16le(b, 0), u16le(b, 2)) {
                     let n = b.len().saturating_sub(6) / 6;
                     for k in 0..n {
                         if let Some(rk) = u32le(b, 4 + k * 6 + 2) {
-                            cells.insert((sheet, r, c0 + k as u16), num_str(rk_value(rk)));
+                            let s = cell_str(rk_value(rk), u16le(b, 4 + k * 6),
+                                             &xfs, &formats);
+                            cells.insert((sheet, r, c0 + k as u16), s);
                         }
                     }
                 }
@@ -313,7 +386,11 @@ pub fn xls_text(data: Vec<u8>) -> Option<String> {
                 // 식 자체가 아니라 '계산해 둔 결과'를 읽는다 — 사람이 표에서 보는 값이 그것이다.
                 if let (Some(r), Some(c)) = (u16le(b, 0), u16le(b, 2)) {
                     match formula_value(b) {
-                        FormulaVal::Num(v) => { cells.insert((sheet, r, c), num_str(v)); }
+                        // 수식 결과도 날짜 서식이면 날짜다 — 마감일 계산 칸이 흔하다.
+                        FormulaVal::Num(v) => {
+                            let s = cell_str(v, u16le(b, 4), &xfs, &formats);
+                            cells.insert((sheet, r, c), s);
+                        }
                         // 글자 결과는 바로 뒤 STRING 레코드에 온다 — 그 자리를 적어 둔다.
                         FormulaVal::Str => { pending_str = Some((sheet, r, c)); }
                         FormulaVal::Skip => {}
