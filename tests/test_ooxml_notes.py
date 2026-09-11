@@ -160,3 +160,51 @@ def test_xlsx_작성자_이름은_넣지_않는다(tmp_path):
     got = XlsxExtractor().extract(str(p))
     assert got == "1\n메모 본문"
     assert "홍길동" not in got
+
+
+#------------------------------------------------------------------
+# 텍스트상자 안 문단을 바깥 문단이 삼키지 않는다 (docx)
+#=> docx 는 문단이 문단 안에 들어간다 — 텍스트상자(<w:txbxContent>)가 런 안에
+#   있고 그 안에 또 <w:p> 가 있다. 바깥 문단을 만들 때 안쪽 런까지 끌어오면
+#   표지의 여러 칸이 한 줄로 뭉쳐 '가나다라' 처럼 문서에 없는 낱말이 생기고,
+#   안쪽 문단은 제 줄로 또 나와 같은 글자가 두 번 나온다.
+#
+# -in: tmp_path = pytest 임시폴더 픽스처
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_docx_텍스트상자_문단을_바깥이_삼키지_않는다(tmp_path):
+    from csoclassify.extract.office_ooxml import DocxExtractor
+
+    doc = ("<w:document xmlns:w='urn:w'><w:body>"
+           "<w:p><w:r><w:t>바깥</w:t></w:r>"
+           "<w:r><w:txbxContent>"
+           "<w:p><w:r><w:t>가나</w:t></w:r></w:p>"
+           "<w:p><w:r><w:t>다라</w:t></w:r></w:p>"
+           "</w:txbxContent></w:r></w:p>"
+           "</w:body></w:document>")
+    p = tmp_path / "h.docx"
+    p.write_bytes(_zip({"word/document.xml": doc}))
+    # 바깥 문단은 '바깥'만, 안쪽 두 문단은 각자 제 줄. '가나다라' 가 생기면 안 된다.
+    assert DocxExtractor().extract(str(p)) == "바깥\n가나\n다라"
+
+
+#------------------------------------------------------------------
+# 탭 정지 위치 '정의'는 탭 문자가 아니다 (docx)
+#=> <w:pPr><w:tabs> 안의 <w:tab> 은 위치 정의일 뿐이다. 세어 버리면 문단 앞에
+#   문서에 없던 들여쓰기가 생긴다. 진짜 탭은 런 안의 <w:tab/> 다.
+#
+# -in: tmp_path = pytest 임시폴더 픽스처
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_docx_탭_정의는_탭문자가_아니다(tmp_path):
+    from csoclassify.extract.office_ooxml import DocxExtractor
+
+    doc = ("<w:document xmlns:w='urn:w'><w:body><w:p>"
+           "<w:pPr><w:tabs><w:tab w:pos='1'/><w:tab w:pos='2'/></w:tabs></w:pPr>"
+           "<w:r><w:t>가</w:t><w:tab/><w:t>나</w:t></w:r>"
+           "</w:p></w:body></w:document>")
+    p = tmp_path / "i.docx"
+    p.write_bytes(_zip({"word/document.xml": doc}))
+    assert DocxExtractor().extract(str(p)) == "가\t나"
