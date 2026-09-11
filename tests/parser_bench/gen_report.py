@@ -199,6 +199,10 @@ def main():
         gap_xlsx_rest=(ext["xlsx"]["rs_total"] - ext["xlsx"]["snf_total"]
                        - allr["worst_gap"]["gap"]),
         off_gap=off_gap,
+        gap_tsv=ext["tsv"]["rs_total"] - ext["tsv"]["snf_total"],
+        gap_json=ext["json"]["rs_total"] - ext["json"]["snf_total"],
+        gap_csv=ext["csv"]["rs_total"] - ext["csv"]["snf_total"],
+        worst_ext=allr["worst_gap"]["ext"], gap_worst=allr["worst_gap"]["gap"],
         slowsec=allr["rs_total"] - allr["snf_total"],
         gap_xlsx_worst_pct=allr["worst_gap"]["gap"]
                            / (allr["rs_total"] - allr["snf_total"]) * 100,
@@ -337,13 +341,13 @@ footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
 <div class="navybar">
   <p><b>파서만 놓고 봐도 대체 가능하다.</b> 본문 재현율 <b>{recall:.1f}%</b>,
   문서 1건 중앙값 <b>{rs_med:.1f}ms 대 사이냅 {snf_med:.1f}ms</b>로 한 건씩은 비슷하고
-  뽑아내는 글자도 거의 같다. 다만 {mb:,.0f}MB 를 통째로 돌린 전체 시간은
-  <b>{rs_total:.1f}초 대 {snf_total:.1f}초({slowpct:.0f}% 더 걸림)</b>인데,
-  그 차이의 대부분이 <b>초대형 엑셀 단 한 건</b>에서 나온다(4장·7장 ④).
+  뽑아내는 글자도 거의 같다. {mb:,.0f}MB 를 통째로 돌린 전체 시간은
+  <b>{rs_total:.1f}초 대 {snf_total:.1f}초({slowpct:.0f}% 더 걸림)</b>로,
+  이제 어느 한 포맷이 격차를 만들지 않는다 — 가장 큰 확장자도 +1초 미만이다(4장).
   지난 측정이 지목한 격차 네 가지
   — <b>PPTX 발표자 노트</b> · <b>엑셀 셀 메모</b> · <b>구형 XLS 수식 결과값</b> ·
   <b>HWPX 문단 단위 추출</b> — 를 모두 구현해 <b>내용 격차는 사실상 사라졌다</b>.
-  남은 것은 값 차이가 아니라 속도(초대형 XLSX·건수 많은 PDF)와 엑셀 날짜 서식뿐이다.</p>
+  남은 것은 값 차이가 아니라 속도(건수 많은 PDF)와 엑셀 날짜 서식뿐이다.</p>
 </div>
 
 <div class="cards">
@@ -375,7 +379,7 @@ footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
 </div>
 
 <h2><span class="num">03</span>이번에 고친 것</h2>
-<p class="lead">지난 보고서가 지목한 격차를 구현했다(①~④). ⑤ 는 파서가 아니라 설정 쪽 구멍이다.
+<p class="lead">지난 보고서가 지목한 격차를 구현했다(①~④). ⑤ 는 설정 쪽 구멍이고, ⑥ 은 속도 개선이다.
 아래 '고치기 전' 수치는
 같은 잣대로 다시 계산한 값이라, 측정 방식 변화가 섞이지 않은 순수한 개선 폭이다.</p>
 
@@ -451,11 +455,34 @@ footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
   같은 값으로 맞췄다 — 두 판의 기본값이 어긋나면 같은 배치가 판마다 다른 결과를 낸다.</p>
 </div>
 
+<div class="box">
+  <h4>⑥ XLSX 를 흘려 읽는다 (정규식 → SAX) <code>quick-xml</code></h4>
+  <p>앞의 ①~⑤ 가 '못 읽던 것을 읽게' 한 일이라면, 이건 <b>속도</b> 쪽이다.
+  예전 방식은 시트 XML 을 통째로 문자열에 올린 뒤 정규식으로 행·칸을 훑었다.
+  보통 크기 엑셀에서는 문제가 없지만, 시트 한 장이 33MB 인 데이터셋 엑셀에서는
+  <b>메모리에 올리고 · 행마다 정규식을 다시 돌리고 · 값마다 새 문자열을 만드는</b>
+  비용이 한꺼번에 커진다.</p>
+  <p>이제 압축을 푸는 족족 이벤트로 받아 처리하고 지나간다. 83MB 짜리 XML(시트 2장
+  + 공유문자열표)을 단 한 번도 통째로 올리지 않는다.</p>
+  <p><b>결과:</b> 문제의 15.2MB 파일이 <b>4.97초 → 1.61초</b>(3.1배). xlsx 전체
+  총시간 차이는 +3.64초 → <b>+{gap_xlsx:.2f}초</b>로 줄었다.</p>
+  <p><b>본문은 그대로다.</b> 표본의 xls·xlsx 35건을 바꾸기 전후로 각각 뽑아
+  <b>바이트 단위로 견줘 전부 같음</b>을 확인했다. 속도만 바꾸는 변경이므로
+  본문이 한 글자라도 달라지면 안 된다.</p>
+  <div class="note">
+    <p style="margin:0"><b>※ 옮기는 중에 잡은 함정.</b> quick-xml 은
+    <code>&amp;lt;</code> 같은 엔티티 참조를 글자와 <b>따로</b> 알려 준다. 처음엔 이
+    이벤트를 흘려보내 <code>"4TB &lt; 전체"</code> 가 <code>"4TB 전체"</code> 로 나왔다 —
+    부등호가 소리 없이 사라졌다. 바이트 비교를 하지 않았다면 못 봤을 종류의 오류라,
+    같은 일이 다시 생기지 않게 단위시험으로 못 박았다.</p>
+  </div>
+</div>
+
 <table>
 <tr><th>확장자</th><th class="n">고치기 전 재현율</th><th class="n">고친 뒤</th><th class="n">차이</th></tr>
 {brows}
 </table>
-<p><small>※ 손대지 않은 포맷이 전부 '변화 없음'인 것이 중요하다 — 위 기능을 넣으면서
+<p><small>※ 손대지 않은 포맷이 전부 '변화 없음'인 것이 중요하다 — 위 ①~④ 를 넣으면서
 <b>다른 포맷의 추출 결과를 건드리지 않았다</b>는 뜻이다. 단위시험 200건도 모두 통과한다.</small></p>
 
 <h2><span class="num">04</span>확장자별 추출 시간</h2>
@@ -493,12 +520,14 @@ TSV·JSON 이 지난 표에서 '자체판이 더 빠름'으로 찍혔던 것은 
      {n}건 중 <b>{faster}건</b>은 자체판이 같거나 더 빨랐다.</p>
   <p>· 오피스/PDF/HTML {off_n}건 평균: 사이냅 {off_snf:.1f}ms · 자체판 {off_rs:.1f}ms
      (총 {off_gap:+.2f}초 차이).</p>
-  <p>· <b>이 차이는 PDF 가 아니라 XLSX 한 건에서 나온다.</b> 확장자별 총시간 차이를 보면
-     xlsx <b>+{gap_xlsx:.2f}초</b> · pptx +{gap_pptx:.2f}초 · docx +{gap_docx:.2f}초이고,
+  <p>· <b>남은 차이는 어느 한 포맷 탓이 아니다.</b> 확장자별 총시간 차이는
+     tsv +{gap_tsv:.2f}초 · pptx +{gap_pptx:.2f}초 · json +{gap_json:.2f}초 ·
+     csv +{gap_csv:.2f}초 · docx +{gap_docx:.2f}초 · xlsx +{gap_xlsx:.2f}초로 고르게 퍼져 있고,
      <b>PDF 는 {gap_pdf:+.2f}초로 사실상 같다</b>. PDF 는 한 건 중앙값이 2.9배 느리지만
-     (7장 ③) 큰 PDF 에서는 사이냅도 느려져 총량에서는 상쇄된다.
-     xlsx <b>+{gap_xlsx:.2f}초</b> 중 <b>{gap_xlsx_worst:.2f}초가 파일 단 한 건</b>이고,
-     그 한 건을 빼면 xlsx 차이는 +{gap_xlsx_rest:.2f}초로 줄어든다(7장 ④).</p>
+     (7장 ③) 큰 PDF 에서는 사이냅도 느려져 총량에서는 상쇄된다.</p>
+  <p>· 직전 측정에서 이 자리를 혼자 차지하던 <b>초대형 XLSX(+3.64초)</b> 는
+     흘려읽기 파서로 바꿔 <b>+{gap_xlsx:.2f}초</b>가 됐다(3장 ⑥). 그 전까지는
+     격차의 절반이 파일 단 한 건이었다.</p>
 </div>
 
 <h2><span class="num">05</span>추출 성공률</h2>
@@ -570,15 +599,15 @@ TSV·JSON 이 지난 표에서 '자체판이 더 빠름'으로 찍혔던 것은 
 </div>
 
 <div class="box warn">
-  <h4>④ 초대형 XLSX 한 건이 총량 차이의 절반을 만든다 <span class="pill amber">가장 큰 속도 격차</span></h4>
-  <p><code>{worst_name}</code>({worst_mb:.1f}MB) — 사이냅 {worst_snf:.2f}초 · 자체판 {worst_rs:.2f}초.
-  시트 XML 을 정규식으로 훑는 방식이라 거대한 단일 시트에서 비용이 커진다.</p>
-  <p><b>이 한 건이 전체 격차의 대부분이다.</b> 표본 305건 전체의 시간 차이 {slowsec:.1f}초 중
-  <b>{gap_xlsx_worst:.2f}초(={gap_xlsx_worst_pct:.0f}%)가 이 파일 하나</b>다. xlsx 전체 차이
-  +{gap_xlsx:.2f}초에서 이 한 건을 빼면 나머지 19건의 차이는 <b>+{gap_xlsx_rest:.2f}초</b>에 지나지 않는다.
-  앞선 보고서가 총량 격차를 'PDF 탓'으로 적은 것은 틀렸다 — 실제 범인은 이 파일이다.</p>
-  <p><b>조치:</b> 데이터셋 성격의 엑셀이 많은 현장이라면 스트리밍 파서(SAX)로 바꾸는 것을 검토한다.
-  일반 업무용 엑셀(표본 19건 평균 0.85MB)에서는 지금도 차이가 없다.</p>
+  <h4>④ 초대형 XLSX — 흘려읽기로 바꿔 해소 <span class="pill green">해결</span></h4>
+  <p>직전 측정에서는 <code>감성대화말뭉치(최종데이터)_Training.xlsx</code>(15.2MB) 한 건이
+  사이냅 1.42초 · 자체판 <b>4.97초</b>였고, 표본 전체 시간 차이의 <b>절반</b>이 이 파일
+  하나였다. 시트 XML 을 통째로 메모리에 올린 뒤 정규식으로 훑는 방식이라
+  거대한 단일 시트에서 비용이 급격히 커졌다.</p>
+  <p>흘려읽기(SAX)로 바꾼 뒤 <b>1.61초</b>가 됐고, xlsx 전체 총시간 차이도
+  +3.64초 → <b>+{gap_xlsx:.2f}초</b>로 줄었다. 추출 본문은 표본 35건이 <b>바이트까지 같다</b>
+  (3장 ⑥). 이제 표본에서 격차 1위 문서는 {worst_ext} 의 +{gap_worst:.2f}초로,
+  '한 건이 전체를 좌우하는' 상황이 아니다.</p>
 </div>
 
 <div class="box good">
@@ -603,6 +632,8 @@ TSV·JSON 이 지난 표에서 '자체판이 더 빠름'으로 찍혔던 것은 
   <li><b>HWPX 는 두 판이 본문을 다르게 뽑는다는 점을 공유한다.</b> 문단 단위로 바꾸면서
       파이썬 판과 갈렸다(3장 ④). 같은 HWPX 문서를 두 판으로 나눠 돌리는 구간이 있다면
       등급이 갈릴 수 있으므로, 전환 계획에 이 항목을 명시한다.</li>
+  <li><b>초대형 XLSX 는 해소됐다.</b> 총량 격차의 절반이던 자리가 흘려읽기 파서로
+      +{gap_xlsx:.2f}초가 됐다(3장 ⑥·7장 ④). 남은 격차는 어느 한 포맷에 몰려 있지 않다.</li>
   <li><b>PDF 속도는 배치 설계로 흡수한다.</b> 파서를 바꾸기보다 문서 단위 병렬 실행이 현실적이다.</li>
   <li><b>스캔 PDF 는 별도 트랙으로 뺀다.</b> 자체판의 <code>no_body</code> 신호를 받아
       OCR 대기열이나 사람 검토 대상으로 돌린다 — 사이냅으로는 이 구분조차 안 됐다.</li>
