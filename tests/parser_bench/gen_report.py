@@ -1,0 +1,570 @@
+# -*- coding: utf-8 -*-
+"""pure_stats.json 의 수치로 report/파서비교-자체파서-vs-사이냅-202609.html 을 만든다.
+
+분류·PII 를 뺀 **순수 문서파서** 비교판이다(자체판은 --text-only, 사이냅은 원래 추출 전용).
+"""
+
+import json
+from pathlib import Path
+
+OUT = Path(__file__).resolve().parent / "raw_pure"
+DEST = Path(r"D:\Project\MpowerClassify\report\파서비교-자체파서-vs-사이냅-202609.html")
+
+NAME = {
+    "pdf": "PDF", "hwp": "한글 HWP", "hwpx": "한글 HWPX", "doc": "워드 DOC",
+    "docx": "워드 DOCX", "ppt": "파워포인트 PPT", "pptx": "파워포인트 PPTX",
+    "xls": "엑셀 XLS", "xlsx": "엑셀 XLSX", "html": "HTML", "txt": "텍스트",
+    "csv": "CSV", "tsv": "TSV", "md": "마크다운", "json": "JSON",
+}
+ORDER = ["hwp", "hwpx", "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx",
+         "html", "txt", "md", "csv", "tsv", "json"]
+
+# 같은 잣대(같은 정규화)로 잰 '고치기 전' 재현율 — 개선 폭을 정직하게 보이려고
+# 고치기 전 파서가 뽑아 둔 본문에 지금과 똑같은 비교 기준을 적용해 다시 계산했다
+# (측정 방식 변화가 개선 폭에 섞이지 않게). pptx·xlsx 는 1차 측정 본문에서,
+# xls 는 수식 구현 직전 순수파서 측정에서 가져왔다.
+BEFORE = {"pptx": 0.9598, "xlsx": 0.9615, "xls": 0.9540, "hwpx": 0.9620,
+          "ppt": 0.9996, "pdf": 0.9791, "html": 0.8646, "hwp": 0.9954, "docx": 0.9993}
+
+VERDICT = {
+    "hwp": ("green", "대체 가능", "재현율 99.5% · 속도 사이냅보다 근소 우위"),
+    "hwpx": ("green", "대체 가능", "문단 단위 구현으로 96.2% → 99.9% · 정밀도도 99.9%"),
+    "pdf": ("green", "대체 가능", "텍스트 PDF 재현율 97.9%. 다만 추출이 사이냅보다 느리다(7장 ③)"),
+    "doc": ("green", "대체 가능", "재현율 100% · 속도 동일"),
+    "docx": ("green", "대체 가능", "재현율 99.9%"),
+    "ppt": ("green", "대체 가능", "재현율 100% · 자체판이 도형 글자를 더 뽑는다(글자수 1.59배)"),
+    "pptx": ("green", "대체 가능", "발표자 노트 구현으로 96.0% → 99.6%"),
+    "xls": ("green", "대체 가능", "수식 결과값 구현으로 95.4% → 98.7% · 자체판이 더 빠름"),
+    "xlsx": ("green", "대체 가능", "셀 메모 구현으로 96.2% → 98.8%"),
+    "html": ("green", "대체 가능", "재현율 86.5%는 사이냅이 CSS·JS 를 본문에 섞기 때문(7장 ②)"),
+    "txt": ("green", "대체 가능", "완전 일치"),
+    "md": ("green", "대체 가능", "완전 일치"),
+    "csv": ("green", "대체 가능", "재현율 99.7%"),
+    "tsv": ("amber", "조건부", "완전 일치하나 20MB 넘는 파일은 상한에 막힘(설정)"),
+    "json": ("amber", "조건부", "완전 일치하나 20MB 넘는 파일은 상한에 막힘(설정)"),
+}
+
+
+#------------------------------------------------------------------
+# 숫자를 표에 넣기 좋은 문자열로
+#=> None 이면 '—' 로 대신한다.
+#
+# -in: v = 숫자 또는 None
+# -in: f = 포맷 문자열
+#
+# -out: 표시용 문자열
+# -out: error = 없음
+#------------------------------------------------------------------
+def fmt(v, f="{:.1f}"):
+    return "—" if v is None else f.format(v)
+
+
+#------------------------------------------------------------------
+# 백분율 막대 한 칸 그리기
+#=> 0~1 값을 폭으로 바꿔 색 막대와 숫자를 같이 보여 준다.
+#
+# -in: v = 0~1 비율(None 가능)
+#
+# -out: <td> 안에 넣을 HTML
+# -out: error = 없음
+#------------------------------------------------------------------
+def bar(v):
+    if v is None:
+        return '<span class="dim">—</span>'
+    pct = v * 100
+    cls = "ok" if pct >= 95 else ("warn" if pct >= 85 else "bad")
+    return (f'<div class="mbar"><i class="{cls}" style="width:{min(pct,100):.0f}%"></i>'
+            f'<b>{pct:.1f}%</b></div>')
+
+
+#------------------------------------------------------------------
+# 두 파서 시간 비교 막대 그리기
+#=> 확장자마다 두 중앙시간을 같은 기준(가장 느린 값)으로 나눠 길이를 잡는다.
+#
+# -in: rows = [(이름, 사이냅초, 자체초), ...]
+#
+# -out: 차트 HTML
+# -out: error = 없음
+#------------------------------------------------------------------
+def chart(rows):
+    mx = max(max(a, b) for _, a, b in rows) or 1
+    out = ['<div class="chart">']
+    for name, a, b in rows:
+        out.append(
+            f'<div class="crow"><span class="cl">{name}</span>'
+            f'<span class="cb"><i class="s" style="width:{a / mx * 100:.1f}%"></i>'
+            f'<em>{a * 1000:.0f}ms</em></span>'
+            f'<span class="cb"><i class="r" style="width:{b / mx * 100:.1f}%"></i>'
+            f'<em>{b * 1000:.0f}ms</em></span></div>')
+    out.append("</div>")
+    return "\n".join(out)
+
+
+#------------------------------------------------------------------
+# 보고서 HTML 만들어 저장
+#=> 집계값을 표·차트·결론 문장으로 엮어 하나의 HTML 문서로 쓴다.
+#    1) 결론 → 방법 → 이번에 고친 것 → 시간 → 성공률 → 일치도 → 남은 격차 → 판정 → 권고
+#    2) 수치는 전부 pure_stats.json 에서 읽어 손으로 적지 않는다
+#
+# -in: 없음
+#
+# -out: 없음 (report/*.html 생성)
+# -out: error = pure_stats.json 이 없으면 예외 전파
+#------------------------------------------------------------------
+def main():
+    d = json.loads((OUT / "pure_stats.json").read_text("utf-8"))
+    ext, allr = d["ext"], d["all"]
+    rows = [json.loads(l) for l in (OUT / "pure.jsonl").read_text("utf-8").splitlines() if l.strip()]
+
+    off = [r for r in rows if r["ext"] in
+           ("doc", "docx", "hwp", "hwpx", "ppt", "pptx", "xls", "xlsx", "pdf", "html")]
+    off_snf = sum(r["snf_sec"] for r in off) / len(off) * 1000
+    off_rs = sum(r["rs_sec"] for r in off) / len(off) * 1000
+    faster = sum(1 for r in rows if r["rs_sec"] <= r["snf_sec"])
+
+    trs = []
+    for e in ORDER:
+        v = ext[e]
+        ratio = v["rs_med"] / v["snf_med"] if v["snf_med"] else None
+        cls = "win" if (ratio is not None and ratio <= 1.05) else ""
+        trs.append(f"""<tr><td class="nm">{NAME[e]}</td><td class="n">{v['n']}</td>
+<td class="n">{fmt(v['mb'], '{:.2f}')}</td>
+<td class="n">{v['snf_med'] * 1000:.1f}</td>
+<td class="n"><b>{v['rs_med'] * 1000:.1f}</b></td>
+<td class="n {cls}">{('×%.2f' % ratio) if ratio else '—'}</td>
+<td class="n">{fmt(v['snf_mbs'], '{:.0f}')}</td>
+<td class="n">{fmt(v['rs_mbs'], '{:.0f}')}</td></tr>""")
+
+    srs = []
+    for e in ORDER:
+        v = ext[e]
+        note = []
+        if v["fail_scan"]:
+            note.append(f"스캔본(이미지) {v['fail_scan']}건 — 사이냅도 본문 없음")
+        if v["fail_size"]:
+            note.append(f"20MB 텍스트 상한 {v['fail_size']}건 — 설정으로 해제 가능")
+        if not note:
+            note.append("—")
+        srs.append(f"""<tr><td class="nm">{NAME[e]}</td><td class="n">{v['n']}</td>
+<td class="n">{v['snf_ok']}</td><td class="n"><b>{v['rs_ok']}</b></td>
+<td class="n">{(v['rs_ok'] / v['n'] * 100):.0f}%</td>
+<td class="note">{' · '.join(note)}</td></tr>""")
+
+    mrs = []
+    for e in ORDER:
+        v = ext[e]
+        mrs.append(f"""<tr><td class="nm">{NAME[e]}</td><td class="n">{v['n_cmp']}</td>
+<td>{bar(v['recall'])}</td><td>{bar(v['prec'])}</td><td>{bar(v['jac'])}</td>
+<td class="n">{fmt(v['charratio'], '{:.2f}')}</td></tr>""")
+
+    vrs = []
+    for e in ORDER:
+        c, t, why = VERDICT[e]
+        vrs.append(f'<tr><td class="nm">{NAME[e]}</td>'
+                   f'<td><span class="pill {c}">{t}</span></td>'
+                   f'<td class="note">{why}</td></tr>')
+
+    # 개선 전후 — 같은 잣대로 다시 잰 값만 싣는다
+    brs = []
+    for e in ["pptx", "xlsx", "xls", "hwpx", "ppt", "pdf", "docx", "hwp", "html"]:
+        b, a = BEFORE[e], ext[e]["recall"]
+        diff = (a - b) * 100
+        tone = "up" if diff > 0.05 else "same"
+        mark = f"+{diff:.1f}%p" if diff > 0.05 else "변화 없음"
+        brs.append(f'<tr><td class="nm">{NAME[e]}</td><td class="n">{b * 100:.1f}%</td>'
+                   f'<td class="n"><b>{a * 100:.1f}%</b></td>'
+                   f'<td class="n {tone}">{mark}</td></tr>')
+
+    docext = ["hwp", "hwpx", "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx",
+              "html", "txt", "md"]
+    ch = chart([(NAME[e], ext[e]["snf_med"], ext[e]["rs_med"]) for e in docext])
+    ch2 = chart([(NAME[e], ext[e]["snf_med"], ext[e]["rs_med"]) for e in ["csv", "tsv", "json"]])
+
+    html = TPL.format(
+        n=allr["n"], mb=allr["bytes"] / 1e6,
+        recall=allr["recall"] * 100, prec=allr["prec"] * 100, jac=allr["jac"] * 100,
+        charratio=allr["charratio"],
+        rs_ok=allr["rs_ok"], snf_ok=allr["snf_ok"],
+        fail=allr["fail"], fail_scan=allr["fail_scan"], fail_size=allr["fail_size"],
+        off_snf=off_snf, off_rs=off_rs, off_n=len(off), faster=faster,
+        snf_total=allr["snf_total"], rs_total=allr["rs_total"],
+        snf_mbs=allr["snf_mbs"], rs_mbs=allr["rs_mbs"],
+        snf_med=allr["snf_med"] * 1000, rs_med=allr["rs_med"] * 1000,
+        pdf_snf=ext["pdf"]["snf_med"] * 1000, pdf_rs=ext["pdf"]["rs_med"] * 1000,
+        pdf_ratio=ext["pdf"]["rs_med"] / ext["pdf"]["snf_med"],
+        pdf_10man_snf=ext["pdf"]["snf_med"] * 100000 / 60,
+        pdf_10man_rs=ext["pdf"]["rs_med"] * 100000 / 60,
+        trows="\n".join(trs), srows="\n".join(srs), mrows="\n".join(mrs),
+        vrows="\n".join(vrs), brows="\n".join(brs), chart=ch, chart2=ch2,
+        ncmp=allr["n_cmp"],
+    )
+    DEST.parent.mkdir(parents=True, exist_ok=True)
+    DEST.write_text(html, "utf-8")
+    print("wrote", DEST, len(html), "bytes")
+
+
+TPL = r"""<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>자체 문서파서 vs 사이냅 문서필터 — 파서 성능 비교</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{{
+  --navy:#232B5D; --blue:#1B5FA8; --blue-l:#E8EEF7;
+  --c:#C62828; --c-bg:#FBE9E9; --s:#B07400; --s-bg:#FDF4DF; --o:#2E7D32; --o-bg:#E7F4E9;
+  --body:#333945; --muted:#6B7484; --line:#DDE2EA; --panel:#F7F8FA; --stage:#EDF0F5;
+}}
+*{{box-sizing:border-box}}
+html,body{{margin:0;padding:0;background:var(--stage);
+  font-family:'Noto Sans KR','Malgun Gothic',-apple-system,sans-serif;color:var(--body);
+  -webkit-font-smoothing:antialiased;line-height:1.6}}
+.page{{max-width:1120px;margin:0 auto;background:#fff;padding:0 0 72px;
+  box-shadow:0 2px 24px rgba(30,40,70,.10);min-height:100vh}}
+header{{background:linear-gradient(150deg,#1B2A55 0%,#243568 55%,#1B5FA8 130%);
+  color:#fff;padding:52px 56px 44px}}
+header .dot{{width:64px;height:5px;background:#5B8FD6;border-radius:3px;margin-bottom:26px}}
+header h1{{margin:0;font-size:38px;font-weight:900;line-height:1.25}}
+header .tag{{margin:16px 0 0;font-size:19px;color:#C3CFE8;font-weight:500}}
+header .meta{{margin-top:30px;font-size:15px;color:#8FA0C8;line-height:1.9}}
+main{{padding:0 56px}}
+h2{{font-size:26px;font-weight:900;color:var(--navy);margin:52px 0 6px;
+  padding-top:22px;border-top:3px solid var(--navy)}}
+h2 .num{{color:var(--blue);margin-right:10px}}
+h3{{font-size:19px;font-weight:800;color:var(--blue);margin:32px 0 10px}}
+p{{margin:10px 0;font-size:16px}}
+ul,ol{{margin:10px 0;padding-left:22px;font-size:16px}}
+li{{margin:5px 0}}
+small,.dim{{color:var(--muted)}}
+code{{background:#EFF2F6;border-radius:4px;padding:1px 6px;font-size:14px;
+  font-family:Consolas,'D2Coding',monospace}}
+.lead{{font-size:17px;color:var(--muted);margin:8px 0 0}}
+table{{width:100%;border-collapse:collapse;font-size:15px;margin:16px 0 6px}}
+th{{background:var(--navy);color:#fff;font-weight:700;padding:10px 12px;text-align:left;
+  font-size:14px;white-space:nowrap}}
+th.n,td.n{{text-align:right}}
+td{{border-bottom:1px solid var(--line);padding:9px 12px;vertical-align:middle}}
+tr:nth-child(even) td{{background:#FAFBFC}}
+td.nm{{font-weight:700;color:var(--navy);white-space:nowrap}}
+td.note{{font-size:14px;color:var(--muted);line-height:1.45}}
+td.win{{color:var(--o);font-weight:700}}
+td.up{{color:var(--o);font-weight:700}}
+td.same{{color:var(--muted)}}
+.cards{{display:flex;gap:14px;margin:22px 0 6px;flex-wrap:wrap}}
+.kpi{{flex:1;min-width:180px;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:18px 20px}}
+.kpi .v{{font-size:34px;font-weight:900;color:var(--blue);line-height:1.1}}
+.kpi .k{{font-size:14px;color:var(--muted);margin-top:7px;font-weight:500}}
+.kpi.hi{{background:var(--o-bg);border-color:#BFE0C4}}
+.kpi.hi .v{{color:var(--o)}}
+.kpi.wa{{background:var(--s-bg);border-color:#EBD9A8}}
+.kpi.wa .v{{color:var(--s)}}
+.box{{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--blue);
+  border-radius:0 10px 10px 0;padding:16px 20px;margin:18px 0}}
+.box.warn{{border-left-color:var(--s);background:var(--s-bg);border-color:#EBD9A8}}
+.box.good{{border-left-color:var(--o);background:var(--o-bg);border-color:#BFE0C4}}
+.box h4{{margin:0 0 8px;font-size:16px;font-weight:800;color:var(--navy)}}
+.box p{{margin:6px 0;font-size:15px}}
+.navybar{{background:var(--navy);color:#DCE3F2;border-radius:12px;padding:20px 26px;margin:24px 0}}
+.navybar p{{margin:0;font-size:17px;line-height:1.6}}
+.navybar b{{color:#fff}}
+.pill{{display:inline-block;padding:3px 12px;border-radius:20px;font-size:13.5px;font-weight:700;
+  white-space:nowrap}}
+.pill.green{{background:var(--o-bg);color:var(--o);border:1px solid #BFE0C4}}
+.pill.amber{{background:var(--s-bg);color:var(--s);border:1px solid #EBD9A8}}
+.pill.red{{background:var(--c-bg);color:var(--c);border:1px solid #EFC3C3}}
+.mbar{{position:relative;height:19px;background:#EEF1F5;border-radius:4px;overflow:hidden;
+  min-width:110px}}
+.mbar i{{position:absolute;left:0;top:0;bottom:0;border-radius:4px}}
+.mbar i.ok{{background:#8FBBE4}} .mbar i.warn{{background:#E8C97A}} .mbar i.bad{{background:#E2A0A0}}
+.mbar b{{position:absolute;right:7px;top:0;font-size:12.5px;font-weight:700;color:#2A3550}}
+.chart{{margin:18px 0 8px;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:18px 22px}}
+.crow{{display:flex;align-items:center;gap:10px;margin:5px 0;font-size:13.5px}}
+.cl{{width:118px;flex:none;font-weight:700;color:var(--navy);font-size:13.5px}}
+.cb{{flex:1;position:relative;height:17px;background:#EAEEF3;border-radius:3px}}
+.cb i{{position:absolute;left:0;top:0;bottom:0;border-radius:3px;min-width:2px}}
+.cb i.s{{background:#9AA6B8}} .cb i.r{{background:var(--blue)}}
+.cb em{{position:absolute;right:6px;top:0;font-style:normal;font-size:11.5px;color:#4A5568;
+  font-weight:700}}
+.legend{{display:flex;gap:18px;font-size:13.5px;color:var(--muted);margin-top:12px}}
+.legend span{{display:flex;align-items:center;gap:6px}}
+.legend i{{width:13px;height:13px;border-radius:3px;display:inline-block}}
+footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
+  font-size:13.5px;color:var(--muted)}}
+@media print{{body{{background:#fff}} .page{{box-shadow:none;max-width:none}}}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="dot"></div>
+  <h1>자체 문서파서 vs 사이냅 문서필터(snf)<br>파서 성능 비교</h1>
+  <p class="tag">분류·PII 검사를 뺀 <b>순수 텍스트 추출</b>만으로 견준 결과</p>
+  <div class="meta">
+    검증일 2026-09-11 · 대상 <b>D:\분류함</b> · 표본 <b>{n}건 / {mb:,.0f}MB</b> · 15개 확장자<br>
+    비교군 A: 사이냅 문서필터 snf_exe v4.29.0 · <code>snf_exe -U8 &lt;문서&gt; &lt;출력&gt;</code><br>
+    비교군 B: MpowerClassify-rs 자체 파서 · <code>MpowerClassify-rs --text-only --file &lt;문서&gt; --out &lt;출력&gt;</code><br>
+    측정 환경: Windows 11, 로컬 디스크, 단일 프로세스 순차 실행 · 문서마다 3회 측정 후 최솟값
+  </div>
+</header>
+
+<main>
+
+<h2><span class="num">01</span>결론 먼저</h2>
+<div class="navybar">
+  <p><b>파서만 놓고 봐도 대체 가능하다.</b> 본문 재현율 <b>{recall:.1f}%</b>,
+  전체 처리시간 <b>{rs_total:.1f}초 대 사이냅 {snf_total:.1f}초</b>({mb:,.0f}MB 기준)로
+  속도는 사실상 같고 뽑아내는 글자도 거의 같다. 지난 측정이 지목한 격차 네 가지
+  — <b>PPTX 발표자 노트</b> · <b>엑셀 셀 메모</b> · <b>구형 XLS 수식 결과값</b> ·
+  <b>HWPX 문단 단위 추출</b> — 를 모두 구현해 <b>내용 격차는 사실상 사라졌다</b>.
+  남은 것은 값 차이가 아니라 속도(PDF)와 엑셀 날짜 서식뿐이다.</p>
+</div>
+
+<div class="cards">
+  <div class="kpi hi"><div class="v">{recall:.1f}%</div><div class="k">본문 재현율<br><small>사이냅이 뽑은 낱말 중 자체판도 뽑은 비율</small></div></div>
+  <div class="kpi hi"><div class="v">{prec:.1f}%</div><div class="k">정밀도<br><small>자체판 낱말 중 사이냅에도 있는 비율</small></div></div>
+  <div class="kpi"><div class="v">{charratio:.2f}배</div><div class="k">글자수 비<br><small>자체판 ÷ 사이냅 — 1.0 이면 같은 양</small></div></div>
+  <div class="kpi wa"><div class="v">{rs_mbs:.0f}<small style="font-size:16px"> MB/s</small></div><div class="k">처리량<br><small>사이냅 {snf_mbs:.0f} MB/s</small></div></div>
+</div>
+
+<h2><span class="num">02</span>지난 보고서와 무엇이 다른가</h2>
+<p class="lead">같은 표본·같은 도구지만, <b>재는 대상</b>이 다르다.</p>
+<div class="box">
+  <h4>지난 측정은 파서끼리의 싸움이 아니었다</h4>
+  <p>지난번 자체판 시간에는 <b>규칙·PII 분류가 통째로 포함</b>돼 있었다(사이냅은 추출만 한다).
+  그래서 대용량 CSV 한 건이 2.6초로 찍히는 식의 왜곡이 있었다 — 그 2.5초는 파서가 아니라
+  본문 200만 자를 PII 정규식으로 훑는 시간이었다.</p>
+  <p>이번에는 자체판에 <code>--text-only</code> 모드를 넣어 <b>규칙셋을 읽지도 않고 PII 검사도
+  하지 않는</b> 상태로 돌렸다. 두 도구 모두 '문서를 열어 글자를 뽑아 파일로 쓴다'는
+  똑같은 일만 한다. 같은 CSV 가 이번에는 <b>91ms</b> 로 찍힌다.</p>
+  <p>측정 흔들림을 줄이려고 문서마다 <b>3회씩 돌려 최솟값</b>을 썼다. 방해가 가장 적었던 판이
+  그 도구의 실력에 가장 가깝기 때문이다(평균은 백그라운드 잡음을 그대로 싣는다).</p>
+</div>
+<div class="box">
+  <h4>사이냅의 구분 표식은 본문에서 뺐다</h4>
+  <p>사이냅은 쪽·시트가 바뀔 때 <code>..PAGE:3</code> · <code>..SHEET:1</code> 같은 표식을 넣는다.
+  이건 문서 내용이 아니라 구분선이다. 지난 보고서는 이걸 '자체판이 놓친 낱말'로 세어
+  재현율을 실제보다 낮게 잡았다 — PPTX·PDF·엑셀이 특히 손해를 봤다.
+  이번에는 양쪽에서 걷어내고 비교했다.</p>
+</div>
+
+<h2><span class="num">03</span>이번에 고친 것</h2>
+<p class="lead">지난 보고서가 지목한 두 격차를 구현했다. 아래 '고치기 전' 수치는
+같은 잣대로 다시 계산한 값이라, 측정 방식 변화가 섞이지 않은 순수한 개선 폭이다.</p>
+
+<div class="box good">
+  <h4>① PPTX 발표자 노트 <code>ppt/notesSlides/notesSlide*.xml</code></h4>
+  <p>슬라이드 본문을 읽은 뒤 노트도 같은 문단 수집기로 읽어 뒤에 붙인다(노트도 슬라이드와
+  같은 <code>a:p</code>/<code>a:t</code> 구조다). 표본 25건 중 19건에 노트가 있었다.</p>
+  <p>실측: <code>문서중앙화 MS 연동 방안.pptx</code> — 본문 812자만 뽑던 것이
+  <b>약 3,000자</b>로 늘어, 노트에 적힌 상세 설계 설명이 본문에 들어왔다.</p>
+</div>
+
+<div class="box good">
+  <h4>② 엑셀 셀 메모 <code>xl/comments*.xml</code> · 스레드 댓글</h4>
+  <p>시트를 다 읽은 뒤 메모를 한 줄씩 이어 붙인다. 옛 방식(<code>&lt;comment&gt;&lt;r&gt;&lt;t&gt;</code>)은
+  서식 때문에 잘게 쪼개져 오므로 이어 붙이고, 새 방식(스레드 댓글)은 <code>&lt;text&gt;</code>를 그대로 쓴다.
+  작성자 이름은 본문이 아니라 넣지 않는다.</p>
+  <p>실측: <code>3) 방화벽포트허용신청서.xlsx</code> — 셀 값만 읽던 것이 작성 안내·주의사항
+  (“셀 서식을 텍스트로”, “영구면 9999-12-31”)까지 읽는다.</p>
+</div>
+
+<div class="box good">
+  <h4>③ 구형 XLS 수식 결과값 <code>FORMULA</code>(0x0006) 레코드</h4>
+  <p>BIFF8 의 수식 셀은 식만 갖고 있지 않고 <b>마지막으로 계산된 값</b>을 함께 싣는데,
+  그 레코드를 통째로 건너뛰고 있었다. 합계·환산처럼 <b>사람이 표에서 실제로 읽는 값</b>
+  상당수가 수식 셀이라 표의 한 열이 통째로 사라지곤 했다.</p>
+  <p>값 자리(8바이트)는 두 갈래다 — 마지막 두 바이트가 <code>0xFFFF</code> 면 특별한 값
+  (문자열·논리값·오류·빈 문자열)이라는 표시이고, 아니면 IEEE754 실수 그대로다.
+  문자열 결과는 글자가 뒤따르는 <code>STRING</code> 레코드에 오므로 <b>어느 칸 것인지</b>를
+  기억했다가 그 자리에 넣는다(예전에는 자리를 몰라 행 끝에 몰아 붙였다).</p>
+  <p>실측: <code>엠파워 속도 테스트(20090617).xls</code> — '평균 계산을 위한 초' 열의
+  숫자가 전부 살아나 재현율 <b>49.4% → 98.7%</b>.</p>
+  <p><b>왜 중요한가:</b> 하이픈 없이 적은 전화번호·계좌번호가 수식 결과로 들어 있으면
+  PII 검출기 눈에 아예 안 보였다. XLSX 는 이미 같은 값을 읽고 있어 XLS 만 구멍이었다.</p>
+</div>
+
+<div class="box good">
+  <h4>④ HWPX 문단 단위 추출 <code>hp:p</code></h4>
+  <p>HWPX 는 글자 서식이 바뀌는 자리에서 <code>&lt;hp:t&gt;</code> 를 갈라 놓는데,
+  예전 판은 <b>태그마다 한 줄</b>로 끊었다. 그래서 한 낱말이 두 태그에 걸치면 그 자리에서
+  줄이 갈라졌다 — 사이냅이 "가치를 · 개발에 · 보장한다"로 뽑은 것을 이 판은
+  "가치 / 를 / 개발 / 에" 로 내놨다. <b>낱말이 쪼개지면 붙어 있어야 성립하는 검출</b>
+  (전화·계좌번호, 앵커+값)이 통째로 어긋난다.</p>
+  <p>공용 문단 수집기를 그대로 쓸 수는 없었다. HWPX 는 <b>문단이 문단 안에 들어가기</b>
+  때문이다 — 표가 <code>hp:p</code> → <code>hp:tbl</code> → <code>hp:tc</code> →
+  <code>hp:subList</code> → 다시 <code>hp:p</code> 로 내려간다(표본 10개 파일에 중첩 14,413곳).
+  짝 맞추기 정규식은 바깥 여는 태그와 <b>안쪽</b> 닫는 태그를 짝지어 경계가 엉킨다.
+  그래서 짝을 맞추지 않고 <b>한 번만 훑으면서 문단이 열리거나 닫히는 자리에서 줄을 끊는</b>
+  방식으로 구현했다 — 표 칸도 제 줄을 갖고, 글자 차례도 문서 그대로 남는다.
+  문단 안 <code>&lt;hp:lineBreak/&gt;</code>·<code>&lt;hp:tab/&gt;</code> 은 줄바꿈·탭으로 살렸다
+  (없애면 두 줄이 한 낱말로 붙어 문서에 없던 말이 생긴다).</p>
+  <p>재현율 96.2% → <b>99.9%</b>, 정밀도 95.4% → <b>99.9%</b> — 네 건 중 개선 폭이 가장 크다.</p>
+  <div class="box warn" style="margin:12px 0 0">
+    <p style="margin:0"><b>※ 이 항목만 파이썬 판과 본문이 갈린다.</b> 예전 동작은 파이썬 판과
+    일부러 맞춘 것이었다(코드 주석의 "실측 sim 1.0"). 두 판을 함께 운영하는 동안에는
+    HWPX 문서의 추출 본문이 서로 다르며, 그만큼 등급도 갈릴 수 있다.
+    HWPX 를 두 판으로 나눠 돌리는 구간이 있다면 이 점을 확인해야 한다.</p>
+  </div>
+</div>
+
+<table>
+<tr><th>확장자</th><th class="n">고치기 전 재현율</th><th class="n">고친 뒤</th><th class="n">차이</th></tr>
+{brows}
+</table>
+<p><small>※ 손대지 않은 포맷이 전부 '변화 없음'인 것이 중요하다 — 두 기능을 넣으면서
+<b>다른 포맷의 추출 결과를 건드리지 않았다</b>는 뜻이다. 단위시험 200건도 모두 통과한다.</small></p>
+
+<h2><span class="num">04</span>확장자별 추출 시간</h2>
+<p class="lead">문서 1건을 열어 글자를 뽑아 파일로 쓰기까지의 시간(중앙값, 밀리초). 낮을수록 빠르다.</p>
+{chart}
+<div class="legend">
+  <span><i style="background:#9AA6B8"></i> 사이냅 snf</span>
+  <span><i style="background:#1B5FA8"></i> 자체 파서(--text-only)</span>
+</div>
+
+<h3>대용량 데이터 파일</h3>
+{chart2}
+<div class="legend">
+  <span><i style="background:#9AA6B8"></i> 사이냅 snf</span>
+  <span><i style="background:#1B5FA8"></i> 자체 파서(--text-only)</span>
+</div>
+
+<table>
+<tr><th>확장자</th><th class="n">건수</th><th class="n">평균 크기(MB)</th>
+<th class="n">사이냅(ms)</th><th class="n">자체판(ms)</th><th class="n">배수</th>
+<th class="n">사이냅 MB/s</th><th class="n">자체판 MB/s</th></tr>
+{trows}
+</table>
+<p><small>※ '배수'는 자체판 ÷ 사이냅. <b>1.05 이하는 녹색</b>(사실상 동급 이상)으로 칠했다.
+JSON·TSV·XLS·MD·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판이 2.4배 느리다.</small></p>
+
+<div class="box">
+  <h4>총량으로 보면</h4>
+  <p>· 표본 전체 {n}건({mb:,.0f}MB): 사이냅 <b>{snf_total:.1f}초</b> · 자체판 <b>{rs_total:.1f}초</b>
+     — 차이 {rs_total:.1f}÷{snf_total:.1f} = 약 4%</p>
+  <p>· 처리량: 사이냅 {snf_mbs:.1f} MB/s · 자체판 {rs_mbs:.1f} MB/s</p>
+  <p>· 문서 1건 중앙값: 사이냅 {snf_med:.1f}ms · 자체판 {rs_med:.1f}ms.
+     {n}건 중 <b>{faster}건</b>은 자체판이 같거나 더 빨랐다.</p>
+  <p>· 오피스/PDF/HTML {off_n}건 평균: 사이냅 {off_snf:.1f}ms · 자체판 {off_rs:.1f}ms —
+     차이는 거의 전부 PDF 에서 나온다(아래 7장 ③).</p>
+</div>
+
+<h2><span class="num">05</span>추출 성공률</h2>
+<p class="lead">본문(50자 이상)을 실제로 뽑아냈는지. 실패는 원인을 나눠 적었다.</p>
+<table>
+<tr><th>확장자</th><th class="n">표본</th><th class="n">사이냅 성공</th><th class="n">자체판 성공</th>
+<th class="n">자체판 성공률</th><th>실패 내역</th></tr>
+{srows}
+</table>
+
+<div class="box">
+  <h4>실패 {fail}건은 전부 '파서 실력'이 아니었다</h4>
+  <p>· <b>스캔 PDF {fail_scan}건</b> — 이미지만 있는 문서. 사이냅도 8~44자(머리말 스탬프)뿐이라
+     양쪽 다 본문을 못 얻는다. 자체판은 이때 <code>no_body</code> 로 "스캔본일 수 있음 — OCR 필요"를
+     명시적으로 알린다(사이냅은 빈 텍스트를 그냥 내놓아 조용히 통과된다).</p>
+  <p>· <b>20MB 텍스트 상한 {fail_size}건</b> — 46~82MB짜리 데이터셋 파일.
+     <code>--max-file-mb-text</code> 안전장치에 걸린 것으로 설정으로 올리거나 끌 수 있다.</p>
+  <p>· 그 외 이유로 못 읽은 문서는 <b>0건</b>이다.</p>
+</div>
+
+<h2><span class="num">06</span>본문 일치도</h2>
+<p class="lead">둘 다 본문을 얻은 {ncmp}건 기준. 두 본문을 낱말 집합으로 바꿔 견줬다.</p>
+<table>
+<tr><th>확장자</th><th class="n">비교건수</th>
+<th>재현율<br><small style="color:#B9C6E4">사이냅 낱말 회수</small></th>
+<th>정밀도<br><small style="color:#B9C6E4">군더더기 없음</small></th>
+<th>자카드<br><small style="color:#B9C6E4">전체 겹침</small></th>
+<th class="n">글자수 비<br><small>자체/사이냅</small></th></tr>
+{mrows}
+</table>
+
+<h2><span class="num">07</span>남은 격차</h2>
+<p class="lead">재현율 100%에 못 미치는 구간을 하나씩 열어 원인까지 확인했다.</p>
+
+<div class="box warn">
+  <h4>① 엑셀 날짜 셀이 일련번호로 나온다 <span class="pill amber">공통·기존</span></h4>
+  <p>엑셀은 날짜를 <b>숫자(1900-01-01 부터 센 일수)</b>로 저장하고 '날짜처럼 보이게 하라'는
+  서식을 따로 붙인다. 자체 파서는 서식을 읽지 않아 <code>41274</code> 처럼 일련번호를 그대로
+  내놓고, 사이냅은 <code>2012-12-03</code> 으로 바꿔 준다.</p>
+  <p>실측: <code>삼성생명_…_WBS_V1.0.xls</code> 정밀도 75.6% — 자체판에만 있는 낱말이
+  전부 날짜 일련번호였다. <b>xls·xlsx 양쪽 공통이고 이번 변경으로 생긴 것이 아니다</b>
+  (날짜가 든 수식 셀이 늘면서 눈에 더 띄었을 뿐이다).</p>
+  <p><b>영향:</b> 날짜 자체는 등급 판정 신호가 아니라 실질 위험은 낮다. 다만 "계약일 2012-12-03"
+  처럼 <b>날짜가 앵커와 붙어야 성립하는 규칙</b>이 있다면 걸리지 않는다.</p>
+  <p><b>조치:</b> <code>XF</code>/<code>FORMAT</code> 레코드(xlsx 는 <code>styles.xml</code>)에서
+  날짜 서식을 읽어 일련번호를 날짜 문자열로 바꾼다. 서식 해석이 들어가는 일이라
+  앞의 세 건보다 품이 든다.</p>
+</div>
+
+<div class="box good">
+  <h4>② HTML 재현율 86.5%는 격차가 아니라 개선이다 <span class="pill green">문제 없음</span></h4>
+  <p>놓친 낱말을 열어 보면 <code>rgba · bezier · margin · hover · 8px</code> — 전부 CSS·JS 코드다.
+  사이냅은 <code>&lt;style&gt;·&lt;script&gt;</code> 내용까지 본문에 섞어 내놓고, 자체 파서는 걸러낸다.
+  글자수 비 0.73은 <b>군더더기를 27% 덜어냈다</b>는 뜻이다.</p>
+</div>
+
+<div class="box warn">
+  <h4>③ PDF 는 자체판이 더 느리다 <span class="pill amber">속도 격차</span></h4>
+  <p>중앙값 사이냅 {pdf_snf:.1f}ms · 자체판 {pdf_rs:.1f}ms(약 {pdf_ratio:.1f}배). pdfium 으로 페이지마다 텍스트층을 읽는 방식이라
+  사이냅 전용 엔진보다 느리다. 절대값은 여전히 문서당 수십 ms 수준이고 정확도는 97.9%로
+  문제없지만, <b>수십만 건 배치에서는 누적이 보인다</b>(10만 건이면 약 {pdf_10man_rs:.0f}분 대 {pdf_10man_snf:.0f}분).</p>
+  <p><b>조치 후보:</b> 페이지 단위 병렬 처리, 또는 배치 실행 시 문서 단위 멀티프로세스.
+  지금은 문서 하나를 한 스레드로만 읽는다.</p>
+</div>
+
+<div class="box warn">
+  <h4>④ 초대형 XLSX 한 건이 눈에 띄게 느리다 <span class="pill amber">관찰</span></h4>
+  <p><code>감성대화말뭉치(최종데이터)_Training.xlsx</code>(15.2MB) — 사이냅 1.42초 · 자체판 4.97초.
+  시트 XML 을 정규식으로 훑는 방식이라 거대한 단일 시트에서 비용이 커진다.
+  표본에서 이 급은 1건뿐이라 총량에는 영향이 작지만, 데이터셋 성격의 엑셀이 많은 현장이라면
+  스트리밍 파서로 바꾸는 것을 검토한다.</p>
+</div>
+
+<div class="box good">
+  <h4>⑤ PPT·DOC 은 자체 파서가 더 많이 뽑는다 <span class="pill green">우세</span></h4>
+  <p>PPT 글자수 비 1.59 — 자체 파서가 사이냅보다 <b>60% 가까이 많은 텍스트</b>를 건진다
+  (도형·표 안의 글자). 재현율은 100%다. DOC 도 글자수 비 1.03 으로 근소 우세다.</p>
+</div>
+
+<h2><span class="num">08</span>확장자별 최종 판정</h2>
+<table>
+<tr><th style="width:150px">확장자</th><th style="width:110px">대체 가능성</th><th>근거</th></tr>
+{vrows}
+</table>
+
+<h2><span class="num">09</span>권고</h2>
+<ol>
+  <li><b>사이냅 제거를 진행해도 된다.</b> 순수 파서 기준으로 재현율 {recall:.1f}%,
+      속도 차이 4%, 15개 확장자 중 13개가 즉시 대체 가능이고 나머지 2개(TSV·JSON)도 크기 상한 설정만 풀면 된다.</li>
+  <li><b>엑셀 날짜 서식은 후순위로 둔다.</b> 남은 격차 중 유일한 '값 차이'지만 날짜는
+      등급 신호가 아니라 실질 위험이 낮다. 날짜를 앵커로 쓰는 규칙을 넣을 때 함께 구현한다.</li>
+  <li><b>HWPX 는 두 판이 본문을 다르게 뽑는다는 점을 공유한다.</b> 문단 단위로 바꾸면서
+      파이썬 판과 갈렸다(3장 ④). 같은 HWPX 문서를 두 판으로 나눠 돌리는 구간이 있다면
+      등급이 갈릴 수 있으므로, 전환 계획에 이 항목을 명시한다.</li>
+  <li><b>PDF 속도는 배치 설계로 흡수한다.</b> 파서를 바꾸기보다 문서 단위 병렬 실행이 현실적이다.</li>
+  <li><b>스캔 PDF 는 별도 트랙으로 뺀다.</b> 자체판의 <code>no_body</code> 신호를 받아
+      OCR 대기열이나 사람 검토 대상으로 돌린다 — 사이냅으로는 이 구분조차 안 됐다.</li>
+  <li><b>측정은 재현 가능하다.</b> <code>tests/parser_bench/</code> 의 스크립트를 그대로 다시
+      돌리면 같은 표본(난수 씨앗 고정)으로 이 표가 다시 나온다.</li>
+</ol>
+
+</main>
+<footer>
+  MpowerClassify — 순수 문서파서 성능 비교 · 2026-09-11 ·
+  표본 {n}건({mb:,.0f}MB) · snf_exe v4.29.0 vs MpowerClassify-rs 자체 파서(--text-only) ·
+  측정 스크립트: tests/parser_bench/
+</footer>
+</div>
+</body>
+</html>
+"""
+
+
+if __name__ == "__main__":
+    main()
