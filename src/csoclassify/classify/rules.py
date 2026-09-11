@@ -898,10 +898,17 @@ def _count_merged_spans(spans):
 #   경우엔 detect_all 의 교차라벨 겹침해소가 적용되지 않아 양쪽이 각각 세어질 수 있다
 #   (건수 기반 등급엔 영향 미미). 소형 문서(대다수)는 단일 패스라 완전히 동일하다.
 #
-# -in: text   = 스캔 대상 텍스트
-# -in: labels = 셀 ko-pii 라벨 목록(활성 유형들)
+#   [2026-09-11 하나로 합침] 예전에는 건수(_kopii_counts)와 원문 값(collect_pii)이
+#   **같은 스캔을 따로 구현**하고 있었다. 겹침 해소가 건수 쪽에만 들어가 있어,
+#   1만 자가 넘는 문서에서 레코드가 "전화 7건"이라고 적어 놓고 전화번호 값을
+#   9개 싣는 일이 벌어졌다(같은 자리를 사업자등록번호와 전화번호가 함께 물었다).
+#   이제 둘 다 이 함수가 낸 **한 목록**에서 나온다 — 세는 것과 싣는 것이
+#   어긋날 자리 자체가 없다.
 #
-# -out: dict = {라벨: 건수}  (검출 없으면 빈 dict)
+# -in: text   = 스캔 대상 텍스트
+# -in: labels = 볼 ko-pii 라벨 목록(활성 유형들)
+#
+# -out: list = 겹침까지 해소된 ko-pii Match 목록(오프셋은 원문 text 기준 절대값)
 # -out: error = ko-pii 미설치 시 RuntimeError(설치 안내)
 #------------------------------------------------------------------
 #------------------------------------------------------------------
@@ -934,23 +941,20 @@ def superlinear_coverage(text, labels):
     return covered < total, covered, total
 
 
-def _kopii_counts(text, labels):
+def _kopii_scan(text, labels):
     if not _HAVE_KOPII:
         raise RuntimeError(
             "PII 검출 엔진 ko-pii 가 설치되어 있지 않습니다. "
             "`pip install ko-pii==1.15.2` 후 다시 실행하세요. "
             f"(원인: {_KOPII_IMPORT_ERR})")
     if not text or not labels:
-        return {}
+        return []
     labels = set(labels)
 
     # (소형) 청크 크기 이하 문서는 예전과 100% 동일한 단일 패스로 처리한다.
     # 모든 라벨을 한 스캔에서 검출해 교차라벨 겹침해소(detect_all 동작)까지 그대로 보존.
     if len(text) <= _KOPII_MAX_CHARS:
-        counts = {}
-        for m in _detect_subset(text, labels, normalize=True):
-            counts[m.label] = counts.get(m.label, 0) + 1
-        return counts
+        return list(_detect_subset(text, labels, normalize=True))
 
     # 두 갈래(선형·초선형)의 검출을 '한 자루'에 모은 뒤 마지막에 한 번만 겹침을
     # 해소한다. 예전에는 갈래마다 따로 세어, 갈래가 다른 두 라벨이 같은 자리를
@@ -977,8 +981,22 @@ def _kopii_counts(text, labels):
                 raw.append(_replace(m, start=base + m.start, end=base + m.end))
 
     # (3) 교차라벨 겹침 해소 — detect_all 과 같은 우선순위(위험도→확신도→길이→시작).
+    return list(_kopii_resolve_overlaps(raw))
+
+
+#------------------------------------------------------------------
+# 라벨별 건수
+#=> _kopii_scan 이 낸 목록을 세기만 한다. 세는 규칙이 따로 있지 않다.
+#
+# -in: text   = 스캔 대상 텍스트
+# -in: labels = 셀 ko-pii 라벨 목록(활성 유형들)
+#
+# -out: dict = {라벨: 건수}  (검출 없으면 빈 dict)
+# -out: error = ko-pii 미설치 시 RuntimeError(_kopii_scan 이 낸다)
+#------------------------------------------------------------------
+def _kopii_counts(text, labels):
     counts = {}
-    for m in _kopii_resolve_overlaps(raw):
+    for m in _kopii_scan(text, labels):
         counts[m.label] = counts.get(m.label, 0) + 1
     return counts
 
@@ -1463,43 +1481,17 @@ def scan_sensitive(text, ruleset):
 
 
 #------------------------------------------------------------------
-# 겹치는 span 병합(원문값 보존)
-#=> 초선형 검출기를 겹치는 청크로 나눠 돌리면 같은 실제 PII 가 두 번 잡힐 수 있다.
-#   절대 오프셋 (start,end) 이 겹치면 '같은 PII'로 보고 하나만 남긴다(대표값 유지).
-#   _count_merged_spans 의 '값 보존' 판이다(같은 라벨끼리만 넘겨야 한다).
-#
-# -in: items = [(start, end, value), ...] 동일 라벨의 절대 오프셋 + 원문값
-#
-# -out: list[(start, end, value)] = 병합 후 대표 검출들(정렬됨)
-# -out: error = 없음
-#------------------------------------------------------------------
-def _merge_spans_keep_value(items):
-    if not items:
-        return []
-    items = sorted(items, key=lambda x: (x[0], x[1]))
-    out = [items[0]]
-    cur_end = items[0][1]
-    for s, e, v in items[1:]:
-        if s < cur_end:               # 앞 구간과 겹침 = 같은 PII → 대표(먼저 잡힌 것) 유지
-            cur_end = max(cur_end, e)
-        else:
-            out.append((s, e, v))
-            cur_end = e
-    return out
-
-
-#------------------------------------------------------------------
 # 검출된 PII '원문 값' 수집 (옵션 --with-pii 전용)
 #=> [프라이버시 예외] 기본 동작은 원문 값을 절대 저장하지 않는다(건수만). 하지만
 #   사용자가 --with-pii 로 '명시 요청'하면 이 함수로 실제 검출된 PII 값을 모아
 #   결과(--out)에만 싣는다(로그엔 남기지 않음 — cli._loggable_record 가 가림).
-#   [커버리지] 건수 스캔(_kopii_counts)과 '완전히 동일한 범위'를 본다 — 그래야 hits 의
-#   건수와 pii 값 개수가 일치한다(대형 문서에서 10K 뒤 PII 를 놓치던 버그 수정, 2026-08):
-#    1) 소형(≤ 청크 크기): 단일 패스로 전부 수집(교차라벨 겹침해소 포함)
-#    2) 대형: 선형 검출기는 전량 스캔, 초선형(PHONE/ADDRESS/ACCOUNT)은 앞 _KOPII_MAX_TOTAL
-#       까지 겹치는 청크로 스캔 후 절대 오프셋 병합으로 경계 중복 제거(값 보존)
-#    3) 규칙에 등록된 PII 라벨(regex_rules)만 검출 — 설정에 없는 유형은 안 남긴다
-#    4) 검출 1건마다 {label, value, start, end} (offset 은 원문 text 기준 절대값)
+#   [건수와 같은 목록에서 나온다] 건수(_kopii_counts)와 이 값 목록은 **같은
+#   _kopii_scan 결과**를 쓴다. 예전에는 같은 스캔을 따로 구현해 두 곳이 갈렸다 —
+#   겹침 해소가 건수 쪽에만 있어서, 1만 자가 넘는 문서에서 "전화 7건"이라고
+#   적어 놓고 전화번호 값을 9개 싣고 있었다(2026-09-11 고침). 한 목록에서
+#   파생시키면 어긋날 자리가 없다.
+#    1) 규칙에 등록된 PII 라벨(regex_rules)만 검출 — 설정에 없는 유형은 안 남긴다
+#    2) 검출 1건마다 {label, value, start, end} (offset 은 원문 text 기준 절대값)
 #
 # -in: text    = 스캔 대상 텍스트
 # -in: ruleset = RuleSet(활성 PII 라벨 = regex_rules)
@@ -1514,32 +1506,10 @@ def collect_pii(text, ruleset):
     if not labels:
         return []
 
-    out = []
-    # (소형) 청크 크기 이하: 예전과 동일한 단일 패스로 전부 수집(교차라벨 겹침해소 보존).
-    if len(text) <= _KOPII_MAX_CHARS:
-        for m in _detect_subset(text, labels, normalize=True):
-            out.append({"label": m.label, "value": m.text, "start": m.start, "end": m.end})
-        return out
-
-    # (대형) _kopii_counts 와 동일 커버리지: 선형=전량, 초선형=앞 _KOPII_MAX_TOTAL 청킹+병합.
-    linear = labels - _KOPII_SUPERLINEAR
-    if linear:
-        for m in _detect_subset(text, linear, normalize=True):
-            out.append({"label": m.label, "value": m.text, "start": m.start, "end": m.end})
-
-    superlinear = labels & _KOPII_SUPERLINEAR
-    if superlinear:
-        covered = min(len(text), _KOPII_MAX_TOTAL)
-        by_label = {}
-        for base, end in _chunk_windows(covered, _KOPII_MAX_CHARS, _KOPII_OVERLAP):
-            for m in _detect_subset(text[base:end], superlinear, normalize=True):
-                # 창 문자열 기준 오프셋을 base 로 절대화해 원문 text 기준으로 맞춘다.
-                by_label.setdefault(m.label, []).append((base + m.start, base + m.end, m.text))
-        for label, items in by_label.items():
-            for s, e, v in _merge_spans_keep_value(items):
-                out.append({"label": label, "value": v, "start": s, "end": e})
-
-    return out
+    # 건수를 세는 그 목록에서 그대로 값을 꺼낸다 — 같은 스캔이므로
+    # hits 의 건수와 여기 실리는 값 개수가 구조적으로 같아진다.
+    return [{"label": m.label, "value": m.text, "start": m.start, "end": m.end}
+            for m in _kopii_scan(text, labels)]
 
 
 # 보안등급 규칙셋 파일 이름. 업무분류(doc_rule.yaml)와 짝을 맞춰 단수형으로

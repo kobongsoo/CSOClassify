@@ -1,0 +1,176 @@
+#------------------------------------------------------------------
+# --with-pii 원문 값 목록 — 회귀 시험
+#=> 2026-09-11 까지 파이썬 판의 `pii` 배열이 **자기 판정과 어긋나** 있었다.
+#   레코드가 "휴대전화 7건"이라고 적어 놓고 전화번호 값을 9개 실었고,
+#   히트가 하나도 없는 ACCOUNT 값을 하나 더 실었다.
+#
+#   [원인] 건수(_kopii_counts)와 원문 값(collect_pii)이 같은 스캔을 **따로**
+#   구현하고 있었고, 교차라벨 겹침 해소가 건수 쪽에만 들어가 있었다. 그래서
+#   사업자등록번호 "022-00-76422" 한 자리를 전화번호로도 함께 실었다.
+#   지금은 둘 다 _kopii_scan 이 낸 한 목록에서 나온다.
+#
+#   [왜 1만 자를 넘겨야 하나] 그 갈래는 문서가 _KOPII_MAX_CHARS(기본 10,000자)를
+#   넘을 때만 탄다. 짧은 픽스처로는 이 시험이 통과해도 아무것도 지켜 주지 못한다.
+#
+#   [무엇을 지키나]
+#    1) 자기 일관성 — L1 히트 건수 == pii 배열의 그 라벨 건수
+#    2) 겹침 없음   — 같은 자리를 두 라벨이 물지 않는다
+#    3) 두 판 일치  — (라벨, 값) 목록이 같다
+#       (start/end 는 뺀다 — 두 판의 추출 텍스트 공백이 미세하게 달라
+#        오프셋 기준이 서로 다르다. 그건 이 시험이 볼 대상이 아니다.)
+#------------------------------------------------------------------
+
+import json
+import os
+import re
+import subprocess
+import sys
+from collections import Counter
+
+import pytest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RS_EXE = os.path.join(ROOT, "Rust", "target", "release", "MpowerClassify-rs.exe")
+POLICY = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
+
+# 사업자등록번호이면서 전화번호 모양이기도 한 값(국세청 체크섬 통과).
+# 겹침 해소가 없으면 이 한 자리가 BUSINESS_REG 와 PHONE 으로 두 번 실린다.
+#
+# [하이픈이 없어야 한다] "022-00-76422" 처럼 구분자를 넣으면 사업자등록번호로만
+# 읽혀 겹침이 일어나지 않는다. 실제 사고도 붙여 쓴 "0220076422" 에서 났다.
+# (고치기 전 코드로 돌리면 이 한 자리가 BUSINESS_REG·PHONE 둘 다로 나오는 것을
+#  확인했다 — 그래야 이 시험이 회귀를 잡는다.)
+AMBIGUOUS = "0220076422"
+
+# 1만 자를 넘겨 청킹 갈래를 타게 한다. 채우는 글자는 검출기에 안 걸리는 것으로.
+_PAD = ("본 문서는 사내 절차를 설명하는 일반 안내문이며 별도의 첨부는 없습니다. " * 400)
+
+FIXTURE = (
+    "거래처 안내\n"
+    "사업자등록번호 %s 로 등록되어 있습니다.\n"
+    "%s\n"
+    "문의: 010-1234-5678\n" % (AMBIGUOUS, _PAD)
+)
+
+
+#------------------------------------------------------------------
+# cso_rule.yaml 에서 규칙 id → ko-pii 라벨 매핑을 읽는다
+#=> 히트(규칙 id)와 pii 배열(ko-pii 라벨)을 견주려면 이 다리가 필요하다.
+#   yaml 파서를 끌어오지 않는다 — 이 시험이 보려는 것은 두 줄뿐이다.
+#
+# -in: 없음(POLICY 경로 고정)
+#
+# -out: dict = {규칙 id: 라벨}
+# -out: error = 없음
+#------------------------------------------------------------------
+def _label_map():
+    out, cur = {}, None
+    with open(POLICY, encoding="utf-8") as f:
+        for line in f:
+            m = re.match(r"- id:\s*(\S+)", line)
+            if m:
+                cur = m.group(1)
+            m = re.match(r"\s+label:\s*([A-Z_]+)", line)
+            if m and cur:
+                out[cur] = m.group(1)
+    return out
+
+
+#------------------------------------------------------------------
+# 한 엔진을 --with-pii 로 돌려 첫 레코드를 돌려준다
+#
+# -in: engine  = "python" | "rust"
+# -in: doc_dir = 분류할 폴더
+#
+# -out: dict = 첫 결과 레코드
+# -out: error = 레코드가 없으면 AssertionError(표준오류를 함께 보여 준다)
+#------------------------------------------------------------------
+def _run(engine, doc_dir):
+    cmd = [RS_EXE] if engine == "rust" else [sys.executable, "-m", "csoclassify"]
+    env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
+               PYTHONIOENCODING="utf-8")
+    r = subprocess.run(
+        cmd + ["--dir", str(doc_dir), "--rule-only", "--rules", POLICY,
+               "--with-pii", "--format", "jsonl", "--nosummary"],
+        cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+    recs = [json.loads(l) for l in r.stdout.splitlines()
+            if l.strip().startswith("{") and '"file"' in l]
+    assert recs, "%s: 레코드가 없다 :: %s" % (engine, r.stderr[-400:])
+    return recs[0]
+
+
+#------------------------------------------------------------------
+# 픽스처가 실제로 문제 갈래를 타는지 먼저 확인한다
+#=> 이 시험이 통과해도 갈래를 안 타면 아무것도 지켜 주지 못한다.
+#------------------------------------------------------------------
+def test_픽스처가_청킹_갈래를_탄다():
+    from csoclassify.classify import rules as R
+    assert len(FIXTURE) > R._KOPII_MAX_CHARS, \
+        "픽스처가 %d자뿐이라 청킹 갈래를 안 탄다(_KOPII_MAX_CHARS=%d)" % (
+            len(FIXTURE), R._KOPII_MAX_CHARS)
+    # 겹침이 실제로 일어나는 값인지도 본다 — 안 겹치면 회귀를 못 잡는다.
+    assert AMBIGUOUS in FIXTURE
+
+
+#------------------------------------------------------------------
+# pii 배열이 그 레코드의 히트 건수와 맞는다 (자기 일관성)
+#=> "전화 7건"이라고 적어 놓고 값 9개를 싣던 것이 이 검사에 걸린다.
+#------------------------------------------------------------------
+@pytest.mark.skipif(not os.path.isfile(RS_EXE),
+                    reason="Rust exe 없음(cargo build --release 먼저)")
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_pii_배열이_히트_건수와_맞는다(engine, tmp_path):
+    (tmp_path / "거래처.txt").write_text(FIXTURE, encoding="utf-8")
+    rec = _run(engine, tmp_path)
+    lab = _label_map()
+
+    hits = {h["id"]: h["count"]
+            for h in (rec["why"]["security"]["signals"].get("rule") or {}).get("hits") or []
+            if h.get("layer") == "L1"}
+    arr = Counter(x["label"] for x in (rec.get("pii") or []))
+    assert hits, (engine, "L1 히트가 없다 — 픽스처가 검출기에 안 걸렸다")
+
+    for rid, n in sorted(hits.items()):
+        assert arr.get(lab.get(rid), 0) == n, \
+            "%s: %s(%s) 히트는 %d건인데 pii 배열에는 %d건" % (
+                engine, rid, lab.get(rid), n, arr.get(lab.get(rid), 0))
+    # 히트가 없는 라벨의 값이 실리는 일도 없어야 한다(ACCOUNT 가 그랬다).
+    known = {lab.get(rid) for rid in hits}
+    assert not (set(arr) - known), \
+        "%s: 히트 없는 라벨이 pii 에 실렸다: %s" % (engine, sorted(set(arr) - known))
+
+
+#------------------------------------------------------------------
+# 같은 자리를 두 라벨이 물지 않는다
+#=> 겹침 해소가 빠지면 사업자등록번호가 전화번호로도 실린다. 이 배열은
+#   마스킹·비식별에 쓰라고 있는 값이라, 겹치면 엉뚱한 유형으로 지우게 된다.
+#------------------------------------------------------------------
+@pytest.mark.skipif(not os.path.isfile(RS_EXE),
+                    reason="Rust exe 없음(cargo build --release 먼저)")
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_pii_배열에_겹치는_자리가_없다(engine, tmp_path):
+    (tmp_path / "거래처.txt").write_text(FIXTURE, encoding="utf-8")
+    rec = _run(engine, tmp_path)
+    items = sorted(rec.get("pii") or [], key=lambda x: (x["start"], x["end"]))
+    assert items, (engine, "pii 가 비었다")
+    for i, x in enumerate(items):
+        for y in items[i + 1:]:
+            if y["start"] >= x["end"]:
+                break
+            pytest.fail("%s: 같은 자리를 두 라벨이 물었다 — %s %d-%d ↔ %s %d-%d" % (
+                engine, x["label"], x["start"], x["end"],
+                y["label"], y["start"], y["end"]))
+
+
+#------------------------------------------------------------------
+# 두 판이 같은 (라벨, 값) 목록을 낸다
+#=> start/end 는 견주지 않는다 — 두 판의 추출 텍스트 공백이 미세하게 달라
+#   오프셋 기준이 서로 다르다(별개 사안). 무엇을 찾았는가는 같아야 한다.
+#------------------------------------------------------------------
+@pytest.mark.skipif(not os.path.isfile(RS_EXE),
+                    reason="Rust exe 없음(cargo build --release 먼저)")
+def test_두_판이_같은_pii_값을_낸다(tmp_path):
+    (tmp_path / "거래처.txt").write_text(FIXTURE, encoding="utf-8")
+    py = sorted((x["label"], x["value"]) for x in (_run("python", tmp_path).get("pii") or []))
+    rs = sorted((x["label"], x["value"]) for x in (_run("rust", tmp_path).get("pii") or []))
+    assert py == rs, ("두 판의 pii 값이 다르다", py, rs)
