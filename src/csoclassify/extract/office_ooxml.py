@@ -14,6 +14,7 @@ from xml.etree import ElementTree as ET
 
 from ..logsetup import get_logger
 from . import notes
+from . import xlsdate
 from .base import TextExtractor, ExtractError, ParserDeadline
 
 log = get_logger(__name__)
@@ -178,6 +179,8 @@ class XlsxExtractor(TextExtractor):
             with zipfile.ZipFile(input_path) as z:
                 names = z.namelist()
                 shared = self._shared_strings(z, names)
+                # 날짜 서식표 — 없으면 빈 목록이고, 그러면 날짜 해석을 하지 않는다.
+                styles = self._date_styles(z, names)
                 # 시트를 번호순으로 정렬해 통합문서 순서를 유지한다.
                 sheets = sorted((n for n in names if _XLSX_SHEET.search(n)),
                                 key=lambda n: _num_key(n, _XLSX_SHEET))
@@ -193,7 +196,7 @@ class XlsxExtractor(TextExtractor):
                         notes.set_partial(f"시간 상한({deadline.seconds}s)",
                                           "sheets", i, len(sheets))
                         break
-                    out.extend(self._read_sheet(z.read(n), shared))
+                    out.extend(self._read_sheet(z.read(n), shared, styles))
                 return "\n".join(out)
         except FileNotFoundError:
             raise ExtractError("입력 파일 없음")
@@ -233,11 +236,12 @@ class XlsxExtractor(TextExtractor):
     #
     # -in: data   = 시트 XML 바이트
     # -in: shared = 공유문자열표(인덱스→문자열)
+    # -in: styles = 칸 서식 번호별 날짜 종류(빈 목록이면 날짜 해석 안 함)
     #
     # -out: list[str] = 행 텍스트 목록
     # -out: error = XML 손상 시 빈 목록
     #------------------------------------------------------------------
-    def _read_sheet(self, data, shared):
+    def _read_sheet(self, data, shared, styles=()):
         try:
             root = ET.fromstring(data)
         except ET.ParseError:
@@ -250,7 +254,7 @@ class XlsxExtractor(TextExtractor):
             for c in row:
                 if _local(c.tag) != "c":
                     continue
-                cells.append(self._cell_value(c, shared))
+                cells.append(self._cell_value(c, shared, styles))
             rows.append("\t".join(cells))
         return rows
 
@@ -260,11 +264,12 @@ class XlsxExtractor(TextExtractor):
     #
     # -in: c      = 셀 요소(<c>)
     # -in: shared = 공유문자열표
+    # -in: styles = 칸 서식 번호별 날짜 종류
     #
     # -out: str = 셀 표시 문자열(빈 셀이면 "")
     # -out: error = 인덱스 이상/파싱 실패 시 "" (해당 셀만 비움)
     #------------------------------------------------------------------
-    def _cell_value(self, c, shared):
+    def _cell_value(self, c, shared, styles=()):
         t = c.get("t")
         if t == "s":
             # 공유문자열 참조: <v> 안 숫자가 표의 인덱스.
@@ -281,8 +286,81 @@ class XlsxExtractor(TextExtractor):
         # 그 외(숫자·불리언·수식 결과 등): <v> 리터럴을 그대로.
         for e in c:
             if _local(e.tag) == "v":
-                return e.text or ""
+                raw = e.text or ""
+                # 숫자 칸이고 서식이 날짜면 사람이 보는 글자로 바꾼다. 글자 칸
+                # (t="s"/"inlineStr")은 위에서 이미 돌려보냈으므로 여기 오지 않는다.
+                # t="str"(수식의 글자 결과)·"b"(불리언)는 날짜가 아니라 건드리지 않는다.
+                if t in (None, "n") and styles:
+                    kind = self._style_kind(c, styles)
+                    shown = xlsdate.serial_to_string(raw, kind)
+                    if shown is not None:
+                        return shown
+                return raw
         return ""
+
+    #------------------------------------------------------------------
+    # 이 칸이 쓰는 서식의 날짜 종류
+    #=> 셀의 s 속성은 '몇 번째 칸 서식인가'를 가리킨다. 그 번호로 서식표를 본다.
+    #
+    # -in: c      = 셀 요소(<c>)
+    # -in: styles = 칸 서식 번호별 날짜 종류
+    #
+    # -out: int = KIND_* (모르면 KIND_NONE)
+    # -out: error = 없음(s 가 없거나 범위 밖이면 KIND_NONE)
+    #------------------------------------------------------------------
+    @staticmethod
+    def _style_kind(c, styles):
+        try:
+            return styles[int(c.get("s"))]
+        except (TypeError, ValueError, IndexError):
+            return xlsdate.KIND_NONE
+
+    #------------------------------------------------------------------
+    # 서식표(styles.xml) → 칸 서식 번호별 날짜 종류
+    #=> 셀의 s 속성이 가리키는 <cellXfs> 목록을 순서대로 읽어, 각자가 쓰는 서식
+    #   번호(numFmtId)가 날짜인지 판단해 둔다.
+    #    1) <numFmts> — 사용자가 만든 서식(164 번 이상)의 번호 → 서식 문자열
+    #    2) <cellXfs> — 칸 서식이 순서대로 들어 있고, 각자 numFmtId 를 가리킨다
+    #
+    #   [왜 cellStyleXfs 는 세면 안 되나] 같은 <xf> 이름이 <cellStyleXfs>(이름
+    #   있는 스타일의 원본)에도 있다. 그것까지 함께 세면 번호가 밀려 엉뚱한 칸에
+    #   날짜 서식이 붙는다 — 멀쩡한 숫자가 날짜로 둔갑한다. <cellXfs> 안만 센다.
+    #
+    # -in: z     = 열린 ZipFile
+    # -in: names = zip 항목 이름 목록
+    #
+    # -out: list[int] = 칸 서식 번호 순서대로의 KIND_*
+    # -out: error = 서식표가 없거나 손상이면 빈 목록(날짜 해석을 하지 않는다)
+    #------------------------------------------------------------------
+    def _date_styles(self, z, names):
+        if "xl/styles.xml" not in names:
+            return []
+        try:
+            root = ET.fromstring(z.read("xl/styles.xml"))
+        except (ET.ParseError, KeyError, OSError):
+            return []
+        custom = {}
+        for e in root.iter():
+            if _local(e.tag) != "numFmt":
+                continue
+            try:
+                custom[int(e.get("numFmtId"))] = xlsdate.code_kind(e.get("formatCode"))
+            except (TypeError, ValueError):
+                continue
+        out = []
+        for grp in root.iter():
+            if _local(grp.tag) != "cellXfs":
+                continue
+            for xf in grp:
+                if _local(xf.tag) != "xf":
+                    continue
+                try:
+                    fid = int(xf.get("numFmtId") or 0)
+                except (TypeError, ValueError):
+                    fid = 0
+                out.append(custom.get(fid, xlsdate.builtin_kind(fid)))
+            break   # <cellXfs> 는 하나뿐이다
+        return out
 
 
 class PptxExtractor(TextExtractor):
