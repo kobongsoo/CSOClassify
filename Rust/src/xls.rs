@@ -10,6 +10,7 @@
 //!   · LABEL(0x0204)    — 셀 안에 직접 든 문자열(구형)
 //!   · RSTRING(0x00D6)  — 서식 붙은 문자열 셀
 //!   · NUMBER(0x0203) · RK(0x027E) · MULRK(0x00BD) — 숫자 셀
+//!   · FORMULA(0x0006)  — 수식 셀. 식이 아니라 **계산해 둔 결과값**을 읽는다
 //!   · STRING(0x0207)   — 수식 결과 문자열
 //!
 //! 셀은 (행, 열)을 갖고 있으므로 행 단위로 탭으로 이어 붙여, 파이썬 판(xlrd)의
@@ -28,6 +29,7 @@ const R_NUMBER: u16 = 0x0203;
 const R_RK: u16 = 0x027E;
 const R_MULRK: u16 = 0x00BD;
 const R_STRING: u16 = 0x0207;
+const R_FORMULA: u16 = 0x0006;
 const R_BOF: u16 = 0x0809;
 const R_EOF: u16 = 0x000A;
 
@@ -61,6 +63,55 @@ fn rk_value(rk: u32) -> f64 {
     };
     if div100 { v /= 100.0; }
     v
+}
+
+/// 수식 셀이 담고 있던 '계산된 결과'의 갈래.
+///
+/// FORMULA 레코드는 식만 갖고 있는 게 아니라 **마지막으로 계산된 값**을 함께 싣는다.
+/// 그 값이 무엇이냐에 따라 뒤 처리가 달라지므로 갈래를 나눠 돌려준다.
+enum FormulaVal {
+    /// 숫자 결과 — 그대로 본문에 쓴다.
+    Num(f64),
+    /// 문자열 결과 — 글자는 **바로 뒤 STRING 레코드**에 따로 온다.
+    /// 그래서 여기서는 "다음 STRING 은 이 칸 것"이라는 표시만 한다.
+    Str,
+    /// 논리값·오류(#N/A 등)·빈 문자열 — 본문이 아니므로 버린다.
+    Skip,
+}
+
+//------------------------------------------------------------------
+// FORMULA 레코드에서 '계산된 결과값' 읽기
+//=> 예전에는 이 레코드를 통째로 건너뛰어, **수식으로 만든 값이 전부 사라졌다**
+//   (실측: 표의 '평균 계산을 위한 초' 열 숫자 전부 유실 → 재현율 49%).
+//   합계·환산처럼 사람이 표에서 읽는 값 상당수가 수식 셀이고, 하이픈 없이 적은
+//   전화·계좌번호가 수식 결과로 들어 있으면 PII 검출기 눈에 아예 안 보인다.
+//
+//   [값이 어디 있나] 레코드 앞은 행(2)·열(2)·서식(2)이고, 그 다음 **8바이트**가
+//   결과값 자리다. 이 8바이트는 두 가지로 쓰인다:
+//    1) 마지막 두 바이트가 0xFFFF 면 → 숫자가 아니라 '특별한 값'이라는 표시다.
+//       첫 바이트가 갈래를 말한다(0=문자열 · 1=논리값 · 2=오류 · 3=빈 문자열).
+//    2) 아니면 → 8바이트 통째로 IEEE754 배정도 실수다.
+//   진짜 숫자가 우연히 이 표시와 겹칠 일은 없다(그 비트꼴은 NaN 자리라서다).
+//
+// -in: b = FORMULA 레코드 본문(헤더 4바이트를 뺀 나머지)
+//
+// -out: FormulaVal — 숫자 / 문자열예고 / 버림
+// -out: error = 레코드가 짧아 값을 못 읽으면 Skip
+//------------------------------------------------------------------
+fn formula_value(b: &[u8]) -> FormulaVal {
+    let raw = match b.get(6..14) {
+        Some(r) => r,
+        None => return FormulaVal::Skip,
+    };
+    if raw[6] == 0xFF && raw[7] == 0xFF {
+        return match raw[0] {
+            0 => FormulaVal::Str,      // 글자는 뒤따르는 STRING 레코드에 있다
+            _ => FormulaVal::Skip,     // 1=논리값 · 2=오류 · 3=빈 문자열
+        };
+    }
+    FormulaVal::Num(f64::from_le_bytes([
+        raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
+    ]))
 }
 
 /// BIFF8 문자열 하나 읽기(길이는 호출자가 준다).
@@ -200,6 +251,8 @@ pub fn xls_text(data: Vec<u8>) -> Option<String> {
     let mut cells: BTreeMap<(usize, u16, u16), String> = BTreeMap::new();
     let mut sheet = 0usize;
     let mut seen_first_bof = false;
+    // 문자열 결과를 낸 수식 셀의 자리 — 바로 뒤 STRING 레코드가 이 자리에 들어간다.
+    let mut pending_str: Option<(usize, u16, u16)> = None;
     i = 0;
     while i + 4 <= stream.len() {
         let rt = match u16le(&stream, i) { Some(v) => v, None => break };
@@ -207,6 +260,10 @@ pub fn xls_text(data: Vec<u8>) -> Option<String> {
         let bs = i + 4;
         let be = (bs + len).min(stream.len());
         let b = &stream[bs..be];
+        // STRING 은 '바로 앞' FORMULA 의 결과다. 사이에 다른 레코드가 끼면 그 짝은
+        // 깨진 것이므로, 매 레코드마다 표시를 걷어 두고 이번 레코드에서만 쓴다.
+        // 이렇게 하지 않으면 엉뚱하게 멀리 떨어진 칸에 글자가 박힌다.
+        let prev_pending = pending_str.take();
         match rt {
             R_BOF => {
                 // 첫 BOF 는 워크북 자체 — 그 다음부터가 시트다.
@@ -252,12 +309,26 @@ pub fn xls_text(data: Vec<u8>) -> Option<String> {
                     }
                 }
             }
+            R_FORMULA => {
+                // 식 자체가 아니라 '계산해 둔 결과'를 읽는다 — 사람이 표에서 보는 값이 그것이다.
+                if let (Some(r), Some(c)) = (u16le(b, 0), u16le(b, 2)) {
+                    match formula_value(b) {
+                        FormulaVal::Num(v) => { cells.insert((sheet, r, c), num_str(v)); }
+                        // 글자 결과는 바로 뒤 STRING 레코드에 온다 — 그 자리를 적어 둔다.
+                        FormulaVal::Str => { pending_str = Some((sheet, r, c)); }
+                        FormulaVal::Skip => {}
+                    }
+                }
+            }
             R_STRING => {
-                // 수식 결과 문자열 — 위치 정보가 없어 행 끝에 덧붙인다.
+                // 수식 결과 문자열. 바로 앞 FORMULA 가 자리를 알려 줬으면 그 칸에 넣는다.
+                // 그래야 같은 행의 다른 칸과 한 줄로 붙어, 앞뒤가 붙어 있어야 성립하는
+                // 문맥 규칙(예: 앵커 낱말 + 번호)이 제대로 걸린다.
                 if let Some(n) = u16le(b, 0) {
                     if let Some((s, _)) = read_unicode_string(b, 2, n as usize) {
                         if !s.trim().is_empty() {
-                            let key = (sheet, u16::MAX, cells.len() as u16);
+                            // 자리를 모르면 예전처럼 행 끝에 덧붙인다(값을 버리지는 않는다).
+                            let key = prev_pending.unwrap_or((sheet, u16::MAX, cells.len() as u16));
                             cells.insert(key, s);
                         }
                     }
@@ -297,6 +368,44 @@ pub fn xls_text(data: Vec<u8>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 수식 셀의 숫자 결과를 읽어야 한다 — 예전에는 이 레코드를 통째로 건너뛰어
+    // 합계·환산 같은 '사람이 표에서 보는 값'이 전부 사라졌다.
+    #[test]
+    fn 수식셀의_숫자결과를_읽는다() {
+        // 행0 열0, 서식0, 결과 243.0(IEEE754), 그 뒤는 식(본문 아님)
+        let mut b = vec![0, 0, 0, 0, 0, 0];
+        b.extend_from_slice(&243.0f64.to_le_bytes());
+        b.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0]);
+        match formula_value(&b) {
+            FormulaVal::Num(v) => assert_eq!(v, 243.0),
+            _ => panic!("숫자로 읽히지 않았다"),
+        }
+    }
+
+    // 마지막 두 바이트가 0xFFFF 면 숫자가 아니라 '특별한 값' 표시다.
+    // 첫 바이트 0 은 "글자 결과이고, 글자는 뒤 STRING 레코드에 있다"는 뜻.
+    #[test]
+    fn 문자열_결과는_뒤_레코드를_예고한다() {
+        let b = [0u8, 0, 0, 0, 0, 0, /*값*/ 0, 0, 0, 0, 0, 0, 0xFF, 0xFF];
+        assert!(matches!(formula_value(&b), FormulaVal::Str));
+    }
+
+    // 오류(#N/A 등)·논리값은 본문이 아니라 버린다 — 버리지 않으면 뜻 없는
+    // 숫자가 본문에 섞여 검출기를 흔든다.
+    #[test]
+    fn 오류와_논리값은_버린다() {
+        let err = [0u8, 0, 0, 0, 0, 0, 2, 0, 0x07, 0, 0, 0, 0xFF, 0xFF];
+        assert!(matches!(formula_value(&err), FormulaVal::Skip));
+        let bool_ = [0u8, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0xFF, 0xFF];
+        assert!(matches!(formula_value(&bool_), FormulaVal::Skip));
+    }
+
+    // 레코드가 잘려 값 자리가 없으면 조용히 넘어가야 한다(패닉 금지).
+    #[test]
+    fn 짧은_수식레코드는_건너뛴다() {
+        assert!(matches!(formula_value(&[0, 0, 0, 0, 0, 0]), FormulaVal::Skip));
+    }
 
     // RK 는 정수/실수 · 100분의1 네 가지 조합이 있다.
     #[test]
