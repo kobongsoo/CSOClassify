@@ -59,6 +59,9 @@ def row(rs):
     rs_t = sum(r["rs_sec"] for r in rs)
     return {
         "n": n, "mb": mb / n,
+        # 확장자별 '총' 처리시간 — 중앙값만으로는 총량 차이를 누가 만드는지 알 수 없다.
+        # (PDF 는 중앙값이 2.9배 느린데 총량은 같다. 큰 파일에서 사이냅도 느려서다.)
+        "snf_total": snf_t, "rs_total": rs_t,
         "snf_med": med([r["snf_sec"] for r in rs]),
         "rs_med": med([r["rs_sec"] for r in rs]),
         "snf_mbs": mb / snf_t if snf_t else None,
@@ -94,6 +97,12 @@ def main():
     allr["bytes"] = sum(r["size"] for r in rows)
     allr["snf_total"] = sum(r["snf_sec"] for r in rows)
     allr["rs_total"] = sum(r["rs_sec"] for r in rows)
+    worst = max(rows, key=lambda r: r["rs_sec"] - r["snf_sec"])
+    allr["worst_gap"] = {
+        "ext": worst["ext"], "name": Path(worst["path"]).name,
+        "mb": worst["size"] / 1e6, "snf": worst["snf_sec"], "rs": worst["rs_sec"],
+        "gap": worst["rs_sec"] - worst["snf_sec"],
+    }
     (OUT / "pure_stats.json").write_text(
         json.dumps({"ext": res, "all": allr}, ensure_ascii=False, indent=1), "utf-8")
     print(json.dumps(allr, ensure_ascii=False, indent=1))

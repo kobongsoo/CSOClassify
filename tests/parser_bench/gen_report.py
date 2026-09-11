@@ -40,8 +40,8 @@ VERDICT = {
     "txt": ("green", "대체 가능", "완전 일치"),
     "md": ("green", "대체 가능", "완전 일치"),
     "csv": ("green", "대체 가능", "재현율 99.7%"),
-    "tsv": ("amber", "조건부", "완전 일치하나 20MB 넘는 파일은 상한에 막힘(설정)"),
-    "json": ("amber", "조건부", "완전 일치하나 20MB 넘는 파일은 상한에 막힘(설정)"),
+    "tsv": ("green", "대체 가능", "완전 일치 · 텍스트 상한을 100MB 로 올려 72~82MB 도 읽는다"),
+    "json": ("green", "대체 가능", "완전 일치 · 텍스트 상한을 100MB 로 올려 48MB 도 읽는다"),
 }
 
 
@@ -120,6 +120,8 @@ def main():
            ("doc", "docx", "hwp", "hwpx", "ppt", "pptx", "xls", "xlsx", "pdf", "html")]
     off_snf = sum(r["snf_sec"] for r in off) / len(off) * 1000
     off_rs = sum(r["rs_sec"] for r in off) / len(off) * 1000
+    # 평균 ms 만 보면 '조금 느리다'로 읽히지만, 총량으로는 몇 초짜리 차이다.
+    off_gap = sum(r["rs_sec"] - r["snf_sec"] for r in off)
     faster = sum(1 for r in rows if r["rs_sec"] <= r["snf_sec"])
 
     trs = []
@@ -142,7 +144,7 @@ def main():
         if v["fail_scan"]:
             note.append(f"스캔본(이미지) {v['fail_scan']}건 — 사이냅도 본문 없음")
         if v["fail_size"]:
-            note.append(f"20MB 텍스트 상한 {v['fail_size']}건 — 설정으로 해제 가능")
+            note.append(f"텍스트 크기 상한 {v['fail_size']}건")
         if not note:
             note.append("—")
         srs.append(f"""<tr><td class="nm">{NAME[e]}</td><td class="n">{v['n']}</td>
@@ -188,6 +190,20 @@ def main():
         fail=allr["fail"], fail_scan=allr["fail_scan"], fail_size=allr["fail_size"],
         off_snf=off_snf, off_rs=off_rs, off_n=len(off), faster=faster,
         snf_total=allr["snf_total"], rs_total=allr["rs_total"],
+        # 확장자별 총시간 차이 — '누가 총량 격차를 만드는가'를 본문에서 말하려면 필요하다
+        gap_xlsx=ext["xlsx"]["rs_total"] - ext["xlsx"]["snf_total"],
+        gap_pptx=ext["pptx"]["rs_total"] - ext["pptx"]["snf_total"],
+        gap_docx=ext["docx"]["rs_total"] - ext["docx"]["snf_total"],
+        gap_pdf=ext["pdf"]["rs_total"] - ext["pdf"]["snf_total"],
+        gap_xlsx_worst=allr["worst_gap"]["gap"],
+        gap_xlsx_rest=(ext["xlsx"]["rs_total"] - ext["xlsx"]["snf_total"]
+                       - allr["worst_gap"]["gap"]),
+        off_gap=off_gap,
+        slowsec=allr["rs_total"] - allr["snf_total"],
+        gap_xlsx_worst_pct=allr["worst_gap"]["gap"]
+                           / (allr["rs_total"] - allr["snf_total"]) * 100,
+        worst_name=allr["worst_gap"]["name"], worst_mb=allr["worst_gap"]["mb"],
+        worst_snf=allr["worst_gap"]["snf"], worst_rs=allr["worst_gap"]["rs"],
         # 자체판이 사이냅보다 몇 % 더 걸렸는지 — 총 처리시간 비에서 바로 뽑는다
         slowpct=(allr["rs_total"] / allr["snf_total"] - 1) * 100,
         snf_mbs=allr["snf_mbs"], rs_mbs=allr["rs_mbs"],
@@ -320,11 +336,14 @@ footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
 <h2><span class="num">01</span>결론 먼저</h2>
 <div class="navybar">
   <p><b>파서만 놓고 봐도 대체 가능하다.</b> 본문 재현율 <b>{recall:.1f}%</b>,
-  전체 처리시간 <b>{rs_total:.1f}초 대 사이냅 {snf_total:.1f}초</b>({mb:,.0f}MB 기준)로
-  속도는 사실상 같고 뽑아내는 글자도 거의 같다. 지난 측정이 지목한 격차 네 가지
+  문서 1건 중앙값 <b>{rs_med:.1f}ms 대 사이냅 {snf_med:.1f}ms</b>로 한 건씩은 비슷하고
+  뽑아내는 글자도 거의 같다. 다만 {mb:,.0f}MB 를 통째로 돌린 전체 시간은
+  <b>{rs_total:.1f}초 대 {snf_total:.1f}초({slowpct:.0f}% 더 걸림)</b>인데,
+  그 차이의 대부분이 <b>초대형 엑셀 단 한 건</b>에서 나온다(4장·7장 ④).
+  지난 측정이 지목한 격차 네 가지
   — <b>PPTX 발표자 노트</b> · <b>엑셀 셀 메모</b> · <b>구형 XLS 수식 결과값</b> ·
   <b>HWPX 문단 단위 추출</b> — 를 모두 구현해 <b>내용 격차는 사실상 사라졌다</b>.
-  남은 것은 값 차이가 아니라 속도(PDF)와 엑셀 날짜 서식뿐이다.</p>
+  남은 것은 값 차이가 아니라 속도(초대형 XLSX·건수 많은 PDF)와 엑셀 날짜 서식뿐이다.</p>
 </div>
 
 <div class="cards">
@@ -356,7 +375,8 @@ footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
 </div>
 
 <h2><span class="num">03</span>이번에 고친 것</h2>
-<p class="lead">지난 보고서가 지목한 두 격차를 구현했다. 아래 '고치기 전' 수치는
+<p class="lead">지난 보고서가 지목한 격차를 구현했다(①~④). ⑤ 는 파서가 아니라 설정 쪽 구멍이다.
+아래 '고치기 전' 수치는
 같은 잣대로 다시 계산한 값이라, 측정 방식 변화가 섞이지 않은 순수한 개선 폭이다.</p>
 
 <div class="box good">
@@ -415,11 +435,27 @@ footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
   </div>
 </div>
 
+<div class="box">
+  <h4>⑤ 텍스트 크기 상한 20MB → 100MB <code>MAX_FILE_BYTES_TEXT</code></h4>
+  <p>이건 파서가 아니라 <b>설정</b> 쪽 구멍이었다. txt·csv·tsv·json·html 만 20MB 에서
+  <b>문서를 통째로 버리고</b> 있었다 — 지난 측정에서 46~82MB 짜리 tsv·json 4건이 본문을
+  한 글자도 못 남긴 반면, 사이냅은 같은 파일을 멀쩡히 읽어냈다. 상한이 파서 실력처럼
+  보이던 자리다.</p>
+  <p><b>왜 올려도 되는가.</b> 크기 상한 설계의 원칙은 "진짜 상한은 <b>추출 후 글자수</b>(G3,
+  200만 자)에 걸고 바이트는 느슨한 안전핀으로 둔다" 인데, G3 는 문서를 버리지 않고
+  <b>앞부분만 읽고 '일부만 봤다' 표식</b>을 단다. 텍스트만 20MB 에서 통째로 버리는 것은
+  그 원칙과 어긋나 있었다. PII 정규식·분류가 실제로 훑는 길이는 어차피 G3 가 잡으므로,
+  올려서 늘어나는 비용은 디스크에서 더 읽고 디코드하는 몫뿐이다.</p>
+  <p><b>결과:</b> 4건 모두 추출 성공, 재현율 100%·100%·99.97%·100%. 안전핀은 일반 상한과
+  같은 100MB 로 남는다(실측 2,254파일 중 100MB 초과는 2건). 파이썬 판 <code>config.py</code> 도
+  같은 값으로 맞췄다 — 두 판의 기본값이 어긋나면 같은 배치가 판마다 다른 결과를 낸다.</p>
+</div>
+
 <table>
 <tr><th>확장자</th><th class="n">고치기 전 재현율</th><th class="n">고친 뒤</th><th class="n">차이</th></tr>
 {brows}
 </table>
-<p><small>※ 손대지 않은 포맷이 전부 '변화 없음'인 것이 중요하다 — 두 기능을 넣으면서
+<p><small>※ 손대지 않은 포맷이 전부 '변화 없음'인 것이 중요하다 — 위 기능을 넣으면서
 <b>다른 포맷의 추출 결과를 건드리지 않았다</b>는 뜻이다. 단위시험 200건도 모두 통과한다.</small></p>
 
 <h2><span class="num">04</span>확장자별 추출 시간</h2>
@@ -444,7 +480,9 @@ footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
 {trows}
 </table>
 <p><small>※ '배수'는 자체판 ÷ 사이냅. <b>1.05 이하는 녹색</b>(사실상 동급 이상)으로 칠했다.
-JSON·TSV·XLS·MD·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판이 {pdf_ratio:.1f}배 느리다.</small></p>
+XLS·PPT·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판이 {pdf_ratio:.1f}배 느리다.
+TSV·JSON 이 지난 표에서 '자체판이 더 빠름'으로 찍혔던 것은 상한에 막혀 <b>읽지 않고 끝냈기</b>
+때문이다 — 상한을 푼 지금은 ×1.11·×1.18 로 사이냅보다 조금 느리다(3장 ⑤).</small></p>
 
 <div class="box">
   <h4>총량으로 보면</h4>
@@ -453,8 +491,14 @@ JSON·TSV·XLS·MD·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판�
   <p>· 처리량: 사이냅 {snf_mbs:.1f} MB/s · 자체판 {rs_mbs:.1f} MB/s</p>
   <p>· 문서 1건 중앙값: 사이냅 {snf_med:.1f}ms · 자체판 {rs_med:.1f}ms.
      {n}건 중 <b>{faster}건</b>은 자체판이 같거나 더 빨랐다.</p>
-  <p>· 오피스/PDF/HTML {off_n}건 평균: 사이냅 {off_snf:.1f}ms · 자체판 {off_rs:.1f}ms —
-     차이는 거의 전부 PDF 에서 나온다(아래 7장 ③).</p>
+  <p>· 오피스/PDF/HTML {off_n}건 평균: 사이냅 {off_snf:.1f}ms · 자체판 {off_rs:.1f}ms
+     (총 {off_gap:+.2f}초 차이).</p>
+  <p>· <b>이 차이는 PDF 가 아니라 XLSX 한 건에서 나온다.</b> 확장자별 총시간 차이를 보면
+     xlsx <b>+{gap_xlsx:.2f}초</b> · pptx +{gap_pptx:.2f}초 · docx +{gap_docx:.2f}초이고,
+     <b>PDF 는 {gap_pdf:+.2f}초로 사실상 같다</b>. PDF 는 한 건 중앙값이 2.9배 느리지만
+     (7장 ③) 큰 PDF 에서는 사이냅도 느려져 총량에서는 상쇄된다.
+     xlsx <b>+{gap_xlsx:.2f}초</b> 중 <b>{gap_xlsx_worst:.2f}초가 파일 단 한 건</b>이고,
+     그 한 건을 빼면 xlsx 차이는 +{gap_xlsx_rest:.2f}초로 줄어든다(7장 ④).</p>
 </div>
 
 <h2><span class="num">05</span>추출 성공률</h2>
@@ -470,8 +514,9 @@ JSON·TSV·XLS·MD·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판�
   <p>· <b>스캔 PDF {fail_scan}건</b> — 이미지만 있는 문서. 사이냅도 8~44자(머리말 스탬프)뿐이라
      양쪽 다 본문을 못 얻는다. 자체판은 이때 <code>no_body</code> 로 "스캔본일 수 있음 — OCR 필요"를
      명시적으로 알린다(사이냅은 빈 텍스트를 그냥 내놓아 조용히 통과된다).</p>
-  <p>· <b>20MB 텍스트 상한 {fail_size}건</b> — 46~82MB짜리 데이터셋 파일.
-     <code>--max-file-mb-text</code> 안전장치에 걸린 것으로 설정으로 올리거나 끌 수 있다.</p>
+  <p>· <b>텍스트 크기 상한 {fail_size}건</b> — 지난 측정에서는 46~82MB 짜리 데이터셋 파일
+     <b>4건</b>이 여기 걸려 본문을 한 글자도 못 남겼다. 상한을 20MB → 100MB 로 올려
+     지금은 네 건 모두 읽는다(3장 ⑤).</p>
   <p>· 그 외 이유로 못 읽은 문서는 <b>0건</b>이다.</p>
 </div>
 
@@ -516,16 +561,24 @@ JSON·TSV·XLS·MD·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판�
   <p>중앙값 사이냅 {pdf_snf:.1f}ms · 자체판 {pdf_rs:.1f}ms(약 {pdf_ratio:.1f}배). pdfium 으로 페이지마다 텍스트층을 읽는 방식이라
   사이냅 전용 엔진보다 느리다. 절대값은 여전히 문서당 수십 ms 수준이고 정확도는 97.9%로
   문제없지만, <b>수십만 건 배치에서는 누적이 보인다</b>(10만 건이면 약 {pdf_10man_rs:.0f}분 대 {pdf_10man_snf:.0f}분).</p>
+  <p><b>다만 총량에서는 상쇄된다</b> — 표본 45건의 <b>총</b> 추출시간은 사이냅 8.20초 · 자체판 8.18초로
+  {gap_pdf:+.2f}초, 사실상 같다. 중앙값이 벌어지는 것은 <b>작은 PDF</b> 에서이고, 큰 PDF 에서는
+  사이냅도 함께 느려지기 때문이다. 그래서 '느린 PDF' 는 <b>건수가 많은 배치</b>의 문제이지
+  용량이 큰 배치의 문제가 아니다.</p>
   <p><b>조치 후보:</b> 페이지 단위 병렬 처리, 또는 배치 실행 시 문서 단위 멀티프로세스.
   지금은 문서 하나를 한 스레드로만 읽는다.</p>
 </div>
 
 <div class="box warn">
-  <h4>④ 초대형 XLSX 한 건이 눈에 띄게 느리다 <span class="pill amber">관찰</span></h4>
-  <p><code>감성대화말뭉치(최종데이터)_Training.xlsx</code>(15.2MB) — 사이냅 1.42초 · 자체판 4.97초.
-  시트 XML 을 정규식으로 훑는 방식이라 거대한 단일 시트에서 비용이 커진다.
-  표본에서 이 급은 1건뿐이라 총량에는 영향이 작지만, 데이터셋 성격의 엑셀이 많은 현장이라면
-  스트리밍 파서로 바꾸는 것을 검토한다.</p>
+  <h4>④ 초대형 XLSX 한 건이 총량 차이의 절반을 만든다 <span class="pill amber">가장 큰 속도 격차</span></h4>
+  <p><code>{worst_name}</code>({worst_mb:.1f}MB) — 사이냅 {worst_snf:.2f}초 · 자체판 {worst_rs:.2f}초.
+  시트 XML 을 정규식으로 훑는 방식이라 거대한 단일 시트에서 비용이 커진다.</p>
+  <p><b>이 한 건이 전체 격차의 대부분이다.</b> 표본 305건 전체의 시간 차이 {slowsec:.1f}초 중
+  <b>{gap_xlsx_worst:.2f}초(={gap_xlsx_worst_pct:.0f}%)가 이 파일 하나</b>다. xlsx 전체 차이
+  +{gap_xlsx:.2f}초에서 이 한 건을 빼면 나머지 19건의 차이는 <b>+{gap_xlsx_rest:.2f}초</b>에 지나지 않는다.
+  앞선 보고서가 총량 격차를 'PDF 탓'으로 적은 것은 틀렸다 — 실제 범인은 이 파일이다.</p>
+  <p><b>조치:</b> 데이터셋 성격의 엑셀이 많은 현장이라면 스트리밍 파서(SAX)로 바꾸는 것을 검토한다.
+  일반 업무용 엑셀(표본 19건 평균 0.85MB)에서는 지금도 차이가 없다.</p>
 </div>
 
 <div class="box good">
@@ -543,7 +596,8 @@ JSON·TSV·XLS·MD·HWP·DOC 은 자체판이 더 빠르고, PDF 는 자체판�
 <h2><span class="num">09</span>권고</h2>
 <ol>
   <li><b>사이냅 제거를 진행해도 된다.</b> 순수 파서 기준으로 재현율 {recall:.1f}%,
-      속도 차이 {slowpct:.0f}%, 15개 확장자 중 13개가 즉시 대체 가능이고 나머지 2개(TSV·JSON)도 크기 상한 설정만 풀면 된다.</li>
+      <b>15개 확장자 전부가 대체 가능</b>이다(TSV·JSON 을 막던 텍스트 크기 상한은
+      20MB → 100MB 로 올렸다 — 3장 ⑤). 남은 것은 값 차이가 아니라 속도뿐이다.</li>
   <li><b>엑셀 날짜 서식은 후순위로 둔다.</b> 남은 격차 중 유일한 '값 차이'지만 날짜는
       등급 신호가 아니라 실질 위험이 낮다. 날짜를 앵커로 쓰는 규칙을 넣을 때 함께 구현한다.</li>
   <li><b>HWPX 는 두 판이 본문을 다르게 뽑는다는 점을 공유한다.</b> 문단 단위로 바꾸면서
