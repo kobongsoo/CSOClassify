@@ -34,9 +34,15 @@ from collections import Counter, defaultdict
 import pandas as pd
 import streamlit as st
 
-# 같은 폴더의 seed 저장소·csoclassify 러너 모듈을 확실히 import 하도록 경로 추가.
+# 같은 폴더의 화면 모듈(gerunner·rulesedit 등)을 확실히 import 하도록 경로 추가.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import seedstore
+# 기준 문서 저장소는 2026-09-08 부터 라이브러리(src/csoclassify/seedstore.py)에 있다.
+# 화면·CLI·--make-doctype-seeds 가 같은 writer 를 쓰게 하려는 것이라, 화면 쪽에도
+# 소스 폴더를 경로에 넣어 준다(exe 로 돌 때는 패키지 안에 들어 있어 필요 없다).
+sys.path.insert(0, os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "src")))
+from csoclassify import seedstore
+from csoclassify import record as csorecord
 import gerunner
 import rulesedit
 import doctype_review
@@ -275,9 +281,10 @@ def simple_path(grades_path):
 # 레코드 하나 → --simple 한 줄
 #=> 엔진의 --simple 이 내는 것과 '같은 내용'을 전체 결과에서 그대로 뽑는다.
 #   엔진 쪽 구현(cli.py _simple_record · main.rs)과 고르는 칸이 같아야 한다:
-#     file · grade · hash (+ 업무분류 축이 돌았으면 doctype = dc_id 배열)
+#     file · hash · grade (+ 업무분류 축이 돌았으면 doctype = dc_id 배열,
+#                          + 문서 ID 축이 돌았으면 doc_id)
 #   업무분류 키는 축이 돌았을 때만 붙인다 — 빈 배열로 내보내면 "분류를 못 했다"와
-#   "축을 안 썼다"가 구분되지 않는다.
+#   "축을 안 썼다"가 구분되지 않는다. doc_id 도 같은 규약이다.
 #
 # -in: rec = 분류 레코드(전체)
 #
@@ -286,10 +293,14 @@ def simple_path(grades_path):
 #------------------------------------------------------------------
 def simple_record(rec):
     # 칸 차례도 엔진의 --simple 과 맞춘다(file·hash → grade·doctype → why).
-    out = {"file": rec.get("file"), "hash": rec.get("hash"), "grade": rec.get("grade")}
-    dt = (rec.get("labels") or {}).get("doctype")
-    if isinstance(dt, dict):
-        out["doctype"] = [v.get("dc_id") for v in (dt.get("values") or []) if v.get("dc_id")]
+    out = {"file": rec.get("file"), "hash": rec.get("hash"),
+           "grade": csorecord.grade_of(rec)}
+    if csorecord.doctype_of(rec) is not None:
+        out["doctype"] = csorecord.doctype_ids(rec)
+    # 문서 ID 축이 돌았을 때만 doc_id 를 붙인다. 폴백(content·path)은 우리가 만들어 낸
+    # 값이라 적재하면 안 되므로 None 으로 내보낸다 — 받는 쪽은 hash 로 문서를 가린다.
+    if "doc_id_source" in rec:
+        out["doc_id"] = rec.get("doc_id") if rec.get("doc_id_source") == "sfile_id" else None
     # 못 읽은 문서에는 그 사실을 함께 싣는다 — 엔진의 --simple 과 같은 모양이다.
     err = rec.get("error")
     if isinstance(err, dict):
@@ -381,13 +392,16 @@ def load_run_meta(grades_path):
 # -out: error = 쓰기 실패 시 예외 전파
 #------------------------------------------------------------------
 def append_override(path, file, old_grade, new_grade, reason, reviewer,
-                    kind="change", doc_id=None, key=None):
+                    kind="change", doc_id=None, doc_hash=None):
     entry = {
         "file": file,
         # 다음 실행에서 이 기록을 되찾는 키. 경로만 남기면 폴더를 옮기거나
         # 표기가 달라졌을 때 조용히 끊긴다(설계 §7-5-3 ①·②).
+        #   doc_id = MpowerV11 문서 번호(있을 때만) · hash = 내용 지문
+        # 2026-09-10 부터 지문이 주된 결합 키다 — 번호는 목록을 준 실행에만 있고,
+        # 경로는 폴더를 옮기면 끊기지만 지문은 둘 다 견딘다.
         "doc_id": doc_id,
-        "key": key or docidkey.normalize_key(file),
+        "hash": doc_hash,
         "axis": "security",
         # 값을 바꾼 것("change")과 자동 판정이 맞다고 확인만 한 것("confirm")을
         # 구분해 둔다. 둘 다 "사람이 판단을 끝냈다"는 뜻이라 검토함에서는 똑같이
@@ -397,7 +411,7 @@ def append_override(path, file, old_grade, new_grade, reason, reviewer,
         "new_grade": new_grade,
         "reason": reason,
         "reviewer": reviewer,
-        "ts": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "ts": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -414,7 +428,7 @@ def append_override(path, file, old_grade, new_grade, reason, reviewer,
 # -out: error = 없음
 #------------------------------------------------------------------
 def effective_grade(rec, latest):
-    auto = norm_grade(rec.get("grade"))
+    auto = norm_grade(csorecord.grade_of(rec))
     ov, _how = docidkey.lookup(latest, rec)
     if ov:
         return norm_grade(ov.get("new_grade")), True
@@ -437,7 +451,7 @@ def grade_changed(rec, latest):
     ov, _how = docidkey.lookup(latest, rec)
     if not ov:
         return False
-    return norm_grade(ov.get("new_grade")) != norm_grade(rec.get("grade"))
+    return norm_grade(ov.get("new_grade")) != norm_grade(csorecord.grade_of(rec))
 
 
 #------------------------------------------------------------------
@@ -468,15 +482,15 @@ def records_to_df(records, latest, latest_dt=None, tax=None, seed_files=None):
     for r in records:
         # decided = "사람이 판단을 끝냈다"(고침 + 확인). 검토함에서 내리는 기준.
         final, decided = effective_grade(r, latest)
-        conf = round(float(r.get("confidence", 0.0)), 3)
+        conf = round(float(csorecord.security_of(r).get("confidence") or 0.0), 3)
         cands, reviewed = doctype_review.effective_doctype(r, latest_dt, tax)
         # 업무분류에서 사람이 손대야 하는 것은 "아직 분류가 하나도 안 붙은 문서"다.
         # 기계가 후보를 낸 문서는 이미 분류된 것으로 본다.
-        #   [축이 꺼진 배포와 구분] labels 에 "doctype" 키가 아예 없으면 이번 배포는
+        #   [축이 꺼진 배포와 구분] doctype 칸이 아예 없으면 이번 배포는
         #   그 축을 안 쓴 것이라, 셀 것도 검토할 것도 없다. 키는 있는데 values 가
         #   비어 있을 때만 '미분류'다 — 이 구분이 없으면 보안등급만 쓰는 배포에서
         #   모든 문서가 "업무분류 확인 필요"로 잡힌다.
-        dt_axis_on = "doctype" in (r.get("labels") or {})
+        dt_axis_on = csorecord.doctype_of(r) is not None
         # 사람이 한 번 보고 "해당 없음"으로 정리한 문서는 다시 부르지 않는다.
         need_doc = dt_axis_on and (not cands) and (not reviewed)
         # 보안등급은 판단 못 했거나 확신이 낮으면 사람이 본다. 이미 사람이 고친
@@ -494,7 +508,7 @@ def records_to_df(records, latest, latest_dt=None, tax=None, seed_files=None):
             "file": r.get("file", ""),
             "folder": os.path.dirname(r.get("file", "")),
             "name": os.path.basename(r.get("file", "")),
-            "auto": norm_grade(r.get("grade")),
+            "auto": norm_grade(csorecord.grade_of(r)),
             "final": final,
             # 표·내보내기의 '고침'은 값이 실제로 달라진 문서만이다(확인만 한 것 제외).
             "overridden": grade_changed(r, latest),
@@ -561,7 +575,8 @@ def term_count_text(t):
 #------------------------------------------------------------------
 def render_evidence(rec, latest):
     final, decided = effective_grade(rec, latest)
-    sig = rec.get("signals", {}) or {}
+    sec = csorecord.security_of(rec)
+    sig = sec.get("signals") or {}
 
     # 두 축은 화면에서 대등해야 한다 — 오른쪽 업무분류 칸과 똑같은 제목 크기·모양을
     # 쓴다. 예전에는 이쪽만 metric 의 작은 회색 라벨이라 한 축이 곁다리로 보였다.
@@ -571,10 +586,10 @@ def render_evidence(rec, latest):
 
     c1, c2 = st.columns(2)
     c1.metric("지금 등급", GRADE_LABEL[final], help="관리자가 고쳤으면 그 값이 최종입니다")
-    c2.metric("확신", W.pct(rec.get("confidence", 0)) or "-")
+    c2.metric("확신", W.pct(sec.get("confidence") or 0) or "-")
     if decided and grade_changed(rec, latest):
         st.caption(f"관리자가 고친 등급입니다 · 자동 판정은 "
-                   f"{GRADE_LABEL[norm_grade(rec.get('grade'))]} 이었습니다")
+                   f"{GRADE_LABEL[norm_grade(csorecord.grade_of(rec))]} 이었습니다")
     elif decided:
         # 확인만 한 것도 사람이 남긴 판단이다. 화면에 안 쓰면 "왜 검토함에서
         # 사라졌지?" 를 아무도 답할 수 없다.
@@ -652,20 +667,41 @@ def render_evidence(rec, latest):
 #------------------------------------------------------------------
 # "다른 의견" 렌더 (채택되지 않은 보안등급 후보)
 #=> 보안등급은 신호가 엇갈리면 더 엄격한 쪽 하나로 정해진다. 그 순간 나머지 근거가
-#   화면에서 사라지면 검토자가 "왜 이 등급인가"를 되짚을 수 없다. 그래서 결과에
-#   남아 있는 후보 목록(labels.security.candidates)을 사람 말로 풀어 항상 보여준다.
+#   화면에서 사라지면 검토자가 "왜 이 등급인가"를 되짚을 수 없다. 그래서 각 신호가
+#   주장한 등급(security_candidates)을 사람 말로 풀어 항상 보여준다.
 #   더 엄격한 후보가 있는데 채택되지 않았다면(=사람이 이미 등급을 낮춘 경우 등)
 #   그 사실을 특히 눈에 띄게 알린다 — 덜 보호하는 실수가 더 비싸기 때문이다.
 #
-# -in: rec   = 분류 레코드(labels.security.candidates 가 없을 수 있다 — 옛 결과)
+# -in: rec   = 분류 레코드(signals 로 후보를 만든다 · 옛 결과는 candidates 칸)
 # -in: final = 지금 적용 중인 최종 등급("C"/"S"/"O"/"보류")
 #
 # -out: 없음(후보가 없거나 1개뿐이면 아무것도 그리지 않는다)
 # -out: error = 없음
 #------------------------------------------------------------------
+def security_candidates(rec):
+    """이 문서에 대해 각 신호가 주장한 등급 목록.
+
+    2026-09-10 부터 레코드에 candidates 칸이 없다 — signals 에서 등급이 있는
+    것만 추리면 같은 값이 나오므로 두 번 적지 않기로 했다. 옛 결과 파일에는
+    그 칸이 남아 있어, 없을 때만 그쪽을 본다(옛 파일도 그대로 보여야 한다).
+    """
+    old = ((rec.get("labels") or {}).get("security") or {})
+    sigs = csorecord.security_of(rec).get("signals") or {}
+    if sigs:
+        return [{"value": v.get("grade"),
+                 "confidence": v.get("confidence", 0.0),
+                 "from": name}
+                for name, v in sigs.items()
+                if isinstance(v, dict) and v.get("grade") is not None]
+    return old.get("candidates") or []
+
+
+#------------------------------------------------------------------
+# '다른 의견' 표시 — 채택되지 않은 후보를 사람 말로 풀어 준다
+#=> 아래 함수의 원래 헤더는 이 블록 위에 그대로 있다(옮기지 않았다).
+#------------------------------------------------------------------
 def render_other_opinions(rec, final):
-    sec = ((rec.get("labels") or {}).get("security") or {})
-    cands = sec.get("candidates") or []
+    cands = security_candidates(rec)
     # 지금 등급과 다른 값을 주장한 후보만 "다른 의견"이다.
     others = [c for c in cands if norm_grade(c.get("value")) != final]
     if not others:
@@ -748,7 +784,7 @@ def render_override_panel(rec, latest, history, ov_path, reviewer, scope="list")
         else:
             append_override(ov_path, file, cur, new_grade, reason.strip(),
                             reviewer.strip(), kind="change" if changed else "confirm",
-                            doc_id=rec.get("doc_id"), key=rec.get("key"))
+                            doc_id=rec.get("doc_id"), doc_hash=rec.get("hash"))
             st.success(f"바뀌었습니다: {GRADE_LABEL[cur]} → {GRADE_LABEL[new_grade]}"
                        if changed else f"확정됨: {GRADE_LABEL[new_grade]}")
             st.rerun()
@@ -1464,7 +1500,7 @@ def render_doctype_panel(rec, latest_dt, history_dt, ov_path, reviewer, tax, sco
     # 엔진이 준 detail 은 개발자용 설명이라 그대로 쓰지 않는다. 대신 "어느
     # 분류끼리 부딪쳤는지"를 이름으로 보여준다 — 검토자에게 필요한 건 그것뿐이다.
     path_by_id = {c.get("dc_id"): (c.get("path") or c.get("dc_id")) for c in candidates}
-    for cf in ((rec.get("labels") or {}).get("doctype") or {}).get("conflicts") or []:
+    for cf in (csorecord.doctype_of(rec) or {}).get("conflicts") or []:
         names = [path_by_id.get(i, i) for i in (cf.get("dc_ids") or [])]
         if not names:
             continue
@@ -1579,26 +1615,21 @@ def render_export_button(df):
 #=> 기준 문서는 원본의 사본(벡터)을 들고 있어서, 원본이 나중에 수정되면 낡은
 #   벡터로 계속 전파하게 된다. 그것을 알아채려면 등록 시점의 지문을 남겨야 한다.
 #    1) 내용 해시는 분류 실행이 --hash 로 이미 구해 둔 값을 그대로 쓴다(공짜다)
-#    2) 크기·수정시각은 사람이 눈으로 확인할 때 쓰는 보조 정보다
+#
+#   [v3 에서 크기·수정시각을 뺀 이유] 원본이 바뀌었는지 보는 코드는
+#   seedstore.check_seeds / sync_with_records 둘뿐이고, 둘 다 해시만 비교한다.
+#   size·mtime 을 읽는 코드는 한 줄도 없었다 — 눈으로 보는 보조 정보였다.
 #
 # -in: rec = 분류 레코드(hash 가 없을 수 있다 — 옛 결과이거나 --hash 없이 돌린 경우)
 #
-# -out: dict = {"hash","size","mtime"} 중 알아낸 것만(아무것도 없으면 빈 dict)
-# -out: error = 없음(파일을 못 읽어도 조용히 건너뛴다)
+# -out: dict = {"hash"} (해시를 모르면 빈 dict)
+# -out: error = 없음
 #------------------------------------------------------------------
 def seed_doc_meta(rec):
     meta = {}
     h = (rec or {}).get("hash")
     if h:
         meta["hash"] = h
-    f = (rec or {}).get("file") or ""
-    try:
-        stt = os.stat(f)
-        meta["size"] = stt.st_size
-        meta["mtime"] = datetime.datetime.fromtimestamp(
-            stt.st_mtime).astimezone().isoformat(timespec="seconds")
-    except OSError:
-        pass          # 원본이 없거나 못 읽으면 지문 없이 등록한다(등록 자체를 막지 않는다)
     return meta
 
 
@@ -1829,7 +1860,8 @@ def count_doctype_seeds(path):
             if not line:
                 continue
             try:
-                dc = (json.loads(line).get("labels") or {}).get("doctype")
+                row = json.loads(line)
+                dc = csorecord.doctype_ids(row) or (row.get("labels") or {}).get("doctype")
             except json.JSONDecodeError:
                 continue
             if dc:
@@ -1886,10 +1918,19 @@ def _sync_seeds_after_run(cfg, grades_path):
 #   txt·md → text, html → html, 나머지는 전용 파서(pdf·hwp·hwpx·doc·docx·
 #   xls·xlsx·ppt·pptx). 여기에 없는 확장자를 넣어도 막지는 않지만, 글을 못 뽑아
 #   '본문 없음'으로 남는다.
+#
+#   [압축 확장자도 넣는다, 2026-09-08] 엔진은 압축을 풀어 내부 문서를 하나씩
+#   분류하지만, 그 전에 이 패턴으로 대상을 고른다 — 압축 확장자가 목록에 없으면
+#   압축파일 자체가 안 걸려 **안에 든 문서가 통째로 빠진다**. 실측에서 압축만
+#   있는 폴더가 0건으로 나왔다. 반대로 압축이 걸리기만 하면 내부 파일은 이
+#   패턴을 거치지 않으므로(이미 '펼쳐진 대상'이다) 안쪽 문서는 그대로 다 분류된다.
+#
 #   [별표를 꼭 붙인다] 패턴은 파일 '이름 전체'와 맞춰 보므로 `.hwp` 라고만 적으면
 #   이름이 정확히 ".hwp" 인 파일만 찾는다 — 한 건도 안 걸린다.
 DEFAULT_GLOB = ("*.txt,*.html,*.md,*.doc,*.docx,*.ppt,*.pptx,"
-                "*.xls,*.xlsx,*.hwp,*.hwpx,*.pdf")
+                "*.xls,*.xlsx,*.hwp,*.hwpx,*.pdf,"
+                # 압축 — tar.gz·tar.bz2·tar.xz 는 뒤 확장자(*.gz·*.bz2·*.xz)로 걸린다.
+                "*.zip,*.7z,*.rar,*.tar,*.tgz,*.gz,*.bz2,*.xz")
 
 
 #------------------------------------------------------------------
@@ -2134,7 +2175,7 @@ def render_run_panel(grades_path, paths=None, tax=None, records=None):
         _base = gerunner.parse_base_cmd(cfg.get("csoclassify_cmd"))
         st.caption("이 버튼이 실행하는 명령 — 명령창에서 그대로 쳐도 결과는 같습니다")
         st.code(" ".join(gerunner.build_classify_args(
-            _base or ["csoclassify"], folder, grades_path, glob=_pat,
+            _base or ["MpowerClassify"], folder, grades_path, glob=_pat,
             extra_args=extra)), language="text")
         st.caption("↳ 위 체크 상자들이 그대로 인자가 됩니다 — `--axis`(한 축만 켤 때) · "
                    "`--taxonomy`·`--doc-rules`(업무분류) · `--doctype-vector-only` · "
@@ -2164,7 +2205,11 @@ def render_run_panel(grades_path, paths=None, tax=None, records=None):
     pattern = st.text_input("파일 종류", value=DEFAULT_GLOB, key="run_pattern",
                             help="쉼표로 나열합니다. 확장자 앞에 `*` 를 꼭 붙이세요 — "
                                  "`*.hwp` 는 되지만 `.hwp` 는 한 건도 안 걸립니다. "
-                                 "전체를 보려면 `*` 하나만 두세요.") or "*"
+                                 "전체를 보려면 `*` 하나만 두세요.\n\n"
+                                 "압축(zip·7z·rar·tar·gz…)을 빼면 **압축 안의 문서가 "
+                                 "통째로 빠집니다** — 압축파일 자체가 대상에 안 걸리기 "
+                                 "때문입니다. 걸리기만 하면 안쪽 문서는 이 패턴과 무관하게 "
+                                 "모두 분류됩니다.") or "*"
     # 별표를 빠뜨린 조각이 있으면 알려 준다 — 조용히 0건이 되는 것을 막는다.
     _bad = glob_missing_star(pattern)
     if _bad:
@@ -2274,7 +2319,7 @@ def render_run_panel(grades_path, paths=None, tax=None, records=None):
 
 #------------------------------------------------------------------
 # 규칙 설정 화면 렌더 (STEP 4 / Phase 0)
-#=> cso_rules.yaml 을 UI에서 편집한다. 기밀사전(키워드)·경로·bulk 임계값을 고치고,
+#=> cso_rule.yaml 을 UI에서 편집한다. 기밀사전(키워드)·경로·bulk 임계값을 고치고,
 #   샘플 텍스트로 미리보기한 뒤, 버전을 자동 상향하며 저장(백업)한다. 정규식 PII 는
 #   위험도가 커서 읽기 전용으로 두고, 패턴은 YAML 직접 편집하도록 안내한다.
 #
@@ -2300,8 +2345,10 @@ def render_rules_editor():
                            min_value=1, value=int(doc.get("defaults", {}).get("bulk_threshold", 5)))
 
     st.markdown("**이 말이 나오면 → 이 등급으로** (단어는 콤마로 구분)")
+    st.caption("**본문 단어**는 문서 안을 보고, **파일명 단어**는 파일 이름만 봅니다. 파일명 칸을 비워 두면 그 규칙은 파일 이름을 보지 않습니다 — 본문 단어를 빌려 쓰지 않습니다. (예: 제품명은 본문에서만 보게 두면, 제품 매뉴얼이 이름 때문에 기밀이 되는 일이 없습니다.)")
     kdf = pd.DataFrame([{"id": k.get("id"), "name": k.get("name"),
                          "terms": ", ".join(k.get("terms") or []),
+                         "filename": ", ".join(k.get("filename") or []),
                          "base_grade": k.get("base_grade"),
                          "seed": bool(k.get("seed_eligible"))} for k in doc.get("keywords", [])])
     kedit = st.data_editor(
@@ -2309,25 +2356,17 @@ def render_rules_editor():
         column_config={
             "id": st.column_config.TextColumn("id"),
             "name": st.column_config.TextColumn("이름"),
-            "terms": st.column_config.TextColumn("단어(콤마 구분)", width="large"),
+            "terms": st.column_config.TextColumn("본문 단어(콤마 구분)", width="large"),
+            "filename": st.column_config.TextColumn("파일명 단어(콤마 구분)", width="medium"),
             "base_grade": st.column_config.SelectboxColumn("등급", options=["C", "S", "O"]),
             "seed": st.column_config.CheckboxColumn("기준 문서 후보"),
         })
 
-    st.markdown("**이 폴더 안이면 → 이 등급으로** (예: /인사/, //hr-server/)")
-    pdf = pd.DataFrame([{"id": p.get("id"), "name": p.get("name"),
-                         "match": ", ".join(p.get("match") or []),
-                         "grade": p.get("grade"),
-                         "seed": bool(p.get("seed_eligible"))} for p in doc.get("paths", [])])
-    pedit = st.data_editor(
-        pdf, num_rows="dynamic", width="stretch", key="path_editor",
-        column_config={
-            "id": st.column_config.TextColumn("id"),
-            "name": st.column_config.TextColumn("이름"),
-            "match": st.column_config.TextColumn("경로 조각(콤마 구분)", width="large"),
-            "grade": st.column_config.SelectboxColumn("등급", options=["C", "S", "O"]),
-            "seed": st.column_config.CheckboxColumn("기준 문서 후보"),
-        })
+    st.info("**폴더(경로)로 등급을 정하던 표는 없어졌습니다.** "
+            "문서가 어디 놓여 있는지는 담당자가 옮기면 바뀌고, 실측에서 경로가 단독으로 "
+            "정한 등급 8건이 전부 오탐이었습니다(제품명이 든 파일 이름·공개 데이터셋 폴더). "
+            "보안 서버처럼 '여기 있는 것은 기본이 기밀'인 대상은 실행할 때 "
+            "`--failsafe C` 로 지정하세요.", icon="ℹ️")
 
     st.markdown("**개인정보가 나오면 → 이 등급으로** (종류별 정책)")
     _labopts = sorted(set(rulesedit.kopii_labels()) |
@@ -2355,12 +2394,11 @@ def render_rules_editor():
 
     # 편집 행(공셀 정리) 준비 — 미리보기·저장 공용.
     krows = kedit.fillna("").to_dict("records")
-    prows = pedit.fillna("").to_dict("records")
     rrows = redit.fillna("").to_dict("records")
 
     with st.expander("확신 계산값 — 읽기 전용"):
         st.caption("확신은 **검토함에 담기는 기준과 정렬**에만 쓰이고 등급 자체는 바꾸지 않습니다. "
-                   "수정하려면 **cso_rules.yaml 을 직접 편집**하세요(이 표는 표기 전용).")
+                   "수정하려면 **cso_rule.yaml 을 직접 편집**하세요(이 표는 표기 전용).")
         conf = doc.get("confidence", {}) or {}
         st.dataframe(pd.DataFrame([{"신호": grp,
                                     "high": (conf.get(grp) or {}).get("high"),
@@ -2401,7 +2439,7 @@ def render_rules_editor():
     sample = st.text_area("샘플 텍스트", value=_pii18_sample, height=320)
     if st.button("미리보기 실행"):
         preview_doc = rulesedit.load_doc(path)      # 원본 사본에 편집 반영(디스크 미변경)
-        rulesedit.apply_all(preview_doc, bulk, krows, prows, rrows)
+        rulesedit.apply_all(preview_doc, bulk, krows, rrows)
         perrs, pwarn = rulesedit.validate_regex_rules(preview_doc)
         if perrs:
             st.error("PII 라벨 오류 — 고친 뒤 다시: " + "; ".join(f"{i}: {m}" for i, m in perrs))
@@ -2422,7 +2460,7 @@ def render_rules_editor():
 
     st.divider()
     if st.button("💾 보안등급 기준 저장", type="primary", key="rules_save"):
-        rulesedit.apply_all(doc, bulk, krows, prows, rrows)
+        rulesedit.apply_all(doc, bulk, krows, rrows)
         errs, warns = rulesedit.validate_regex_rules(doc)
         if errs:
             st.error("저장 취소 — PII 라벨 오류: " + "; ".join(f"{i}: {m}" for i, m in errs))
@@ -2465,7 +2503,7 @@ def default_paths():
         return local if os.path.isfile(local) else os.path.join(policy, name)
 
     # 실행 명령 기본값 = 배포 exe. 아직 없으면 소스 모듈로 폴백한다.
-    exe = os.path.abspath(os.path.join(here, "..", "dist-pkg", "csoclassify.exe"))
+    exe = os.path.abspath(os.path.join(here, "..", "dist-pkg", "MpowerClassify.exe"))
     if os.path.isfile(exe):
         cmd = f'"{exe}"' if " " in exe else exe
         pythonpath = ""
@@ -2478,7 +2516,7 @@ def default_paths():
         "override": os.path.join(here, "cso_override.jsonl"),
         "seed": os.path.join(here, "class_seed.jsonl"),
         "seed_audit": os.path.join(here, "class_seed_audit.jsonl"),
-        "rules": os.path.join(policy, "cso_rules.yaml"),
+        "rules": os.path.join(policy, "cso_rule.yaml"),
         "taxonomy": _pick("doc_taxonomy.yaml"),
         # 분류 체계를 '다시 가져올' 때 읽는 원본 JSON(MpowerV11 내보내기 결과).
         "export_input": _pick("doc_classification_export.json"),
@@ -2666,7 +2704,7 @@ def render_doc_rules_editor(path, tax):
         _base = gerunner.parse_base_cmd(_paths.get("cmd"))
         _opt = ("" if fill_blank else " --no-fill-blank") + (" --sync-enrich" if enrich else "")
         st.caption("이 버튼이 실행하는 명령 — 명령창에서 그대로 쳐도 결과는 같습니다")
-        st.code(" ".join(_base or ["csoclassify"]) + " --sync-doc-rule"
+        st.code(" ".join(_base or ["MpowerClassify"]) + " --sync-doc-rule"
                 + f" --taxonomy {(tax or {}).get('path') or 'doc_taxonomy.yaml'}"
                 + f" --doc-rules {path}{_opt}", language="text")
         st.caption("↳ 위 체크 두 개가 그대로 인자가 됩니다(`--no-fill-blank` · "
@@ -2764,7 +2802,7 @@ def render_settings(paths, tax, records):
         # 그대로 따라 해도 안 맞는다.
         _base = gerunner.parse_base_cmd(paths.get("cmd"))
         st.caption("이 버튼이 실행하는 명령 — 명령창에서 직접 돌려도 결과는 같습니다")
-        st.code(" ".join(_base or ["csoclassify"])
+        st.code(" ".join(_base or ["MpowerClassify"])
                 + f" --export-taxonomy"
                   f" --export-input {paths.get('export_input') or 'doc_classification_export.json'}"
                   f" --taxonomy {paths.get('taxonomy') or 'doc_taxonomy.yaml'}",
@@ -2871,6 +2909,20 @@ def render_seed_screen(tax=None):
         st.success(flash)
 
     seeds = seedstore.load_seeds(seed_path)
+    # 읽다가 건너뛴 줄이 있으면 반드시 알린다. 조용히 넘어가면 기준 문서가
+    # 소리 없이 줄어들고, 사람은 '왜 이 문서가 기준으로 안 먹지'를 알 길이 없다.
+    # 대개는 이 화면보다 새 판으로 쓰인 파일을 옛 판 화면이 읽을 때 생긴다.
+    if seedstore.SKIPPED:
+        _fut = [x for x in seedstore.SKIPPED if x['why'] != 'broken']
+        _brk = len(seedstore.SKIPPED) - len(_fut)
+        _msg = []
+        if _fut:
+            _msg.append(f"이 화면이 모르는 새 형식 {len(_fut)}줄"
+                        f"({', '.join(sorted({x['why'] for x in _fut}))})")
+        if _brk:
+            _msg.append(f"깨진 줄 {_brk}줄")
+        st.warning(f"기준 문서 파일에서 {' · '.join(_msg)} 을 건너뛰었습니다 "
+                   f"— 그만큼은 분류에 쓰이지 않습니다. 파일: {seed_path}")
     render_seed_manager()          # 현황 요약(건수·등급 균형)
 
     st.divider()
@@ -3115,7 +3167,7 @@ def render_seed_edit(seeds, tax, seed_path, audit_path, reviewer):
         for a in seedstore.AXES:
             stt = seedstore.axis_state(e, a)
             if stt and stt != seedstore.STATE_ACTIVE:
-                reason = ((e.get("axes") or {}).get(a) or {}).get("reason")
+                reason = seedstore.hold_reason(e, a)
                 state.append(f"{seedstore.AXIS_LABEL[a]} {W.SEED_STATE.get(stt, stt)}"
                              + (f"({W.SEED_REASON.get(reason, reason)})" if reason else ""))
         rows.append({
@@ -3313,7 +3365,7 @@ def reset_dialog():
         hide_index=True, width="stretch")
 
     st.caption("남는 것 — 소스 코드 · " + " · ".join(k["name"] for k in kept)
-               + " · cso_rules.yaml · doc_rule_template.yaml · synonyms 폴더 · "
+               + " · cso_rule.yaml · doc_rule_template.yaml · synonyms 폴더 · "
                  "화면 설정(settings.yaml)")
 
     # 되돌릴 수 있는 것과 없는 것은 무게가 전혀 다르다. 그 둘을 뭉뚱그려

@@ -4,7 +4,7 @@ tokenizers>=0.15       # 경량 토크나이저 (Rust 백엔드)
 numpy>=1.24            # 벡터 연산/풀링
 
 # --- classify(C/S/O 자동분류) 런타임 의존성 ---
-PyYAML>=6.0            # cso_rules.yaml 규칙셋 로드
+PyYAML>=6.0            # cso_rule.yaml 규칙셋 로드
 ko-pii==1.15.2         # L1 PII 검출 엔진(Marker-Inc-Korea, MIT, 순수 파이썬, 체크섬 내장)
 
 # --- 하이브리드 추출(--hybridparse) 포맷별 파서 (전부 CentOS7/glibc2.17 호환) ---

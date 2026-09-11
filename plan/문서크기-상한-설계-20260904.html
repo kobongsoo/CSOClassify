@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>문서 크기 상한(Size Gate) 설계</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .ok{color:var(--o);font-weight:700}
+  .bad{color:var(--c);font-weight:700}
+  .mid{color:var(--s);font-weight:700}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .danger{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .gate{font-weight:800;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>문서 크기 상한(Size Gate) 설계</h1>
+  <p>MpowerClassify 에는 <b>문서 크기 상한이 없었다</b>. 초대형 문서에서 시간·메모리·IPC 세 방향으로 무너지는 것을 막는 <b>5중 게이트</b> 설계이며, G1~G5 전부 구현되었다. <span class="pill">구현 완료 · 2026-09-04</span></p>
+  <p class="muted" style="margin-top:6px">※ 1·4장은 <b>구현 전 상태</b>를 기록한 것이다(왜 이 게이트가 필요했는지의 근거라 그대로 둔다). 현재 동작은 5·6·9장을 본다.</p>
+  <p class="muted" style="margin-top:8px">작성 2026-09-04 · 대상 <code>csoclassify</code>(Python) / <code>MpowerClassify-rs</code> · 관련 <a href="CSO_HybridParse.html">하이브리드 추출기 설계</a></p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#bg">1. 배경 — 현재 상한 인벤토리</a></li>
+    <li><a href="#evi">2. 실측 근거</a></li>
+    <li><a href="#principle">3. 설계 원칙</a></li>
+    <li><a href="#risk">4. 위험 시나리오 4종</a></li>
+    <li><a href="#gate">5. 게이트 설계 (핵심)</a></li>
+    <li><a href="#point">6. 적용 지점</a></li>
+    <li><a href="#rec">7. 레코드 · 종료코드 변경</a></li>
+    <li><a href="#cfg">8. 설정 · 환경변수</a></li>
+    <li><a href="#matrix">9. 동작 매트릭스</a></li>
+    <li><a href="#test">10. 테스트 계획</a></li>
+    <li><a href="#open">11. 미결정 · 로드맵</a></li>
+  </ul>
+</section>
+
+<!-- 1 -->
+<h2 id="bg"><span class="n">1</span> 배경 — 현재 상한 인벤토리</h2>
+<section class="card">
+  <p>코드 전수 조사 결과, <b>파일 크기로 걸러내거나 자르는 코드가 한 군데도 없다.</b> 존재하는 제약은 아래가 전부이며, 대부분 크기가 아니라 <b>시간·구조</b> 제약이다.</p>
+
+  <div class="scroll"><table>
+    <tr><th>제약</th><th>값</th><th>위치</th><th>성격</th></tr>
+    <tr><td><code>SNF_TIMEOUT</code></td><td>60초 / 1파일</td><td><code>config.py</code></td><td>시간 상한 (크기 아님)</td></tr>
+    <tr><td><code>MAX_MSG</code></td><td>16MB</td><td><code>daemon/ipc.py:12</code></td><td>IPC 메시지 상한</td></tr>
+    <tr><td><code>max_depth</code></td><td>3</td><td><code>extract/archive.py:302</code></td><td>압축 <b>깊이</b>만 — 폭 방향 무방비</td></tr>
+    <tr><td><code>MIN_TEXT_LEN</code></td><td>20자</td><td><code>config.py</code></td><td><b>하한</b> — 스캔본 판별용</td></tr>
+  </table></div>
+
+  <div class="danger">
+    <b>상한이 전혀 없는 항목</b> — 입력 파일 바이트 수 · 추출 텍스트 글자 수 · PDF 페이지 수 · 청크 개수 · 압축 해제 누적 용량 · 전용 파서 실행 시간
+  </div>
+
+  <h3>1-1. 전용 파서에는 타임아웃조차 없다</h3>
+  <p><code>extract/hybrid.py</code> 는 감지된 포맷의 전용 파서를 <b>제한 없이 끝까지</b> 돌린다. PDF 경로(<code>extract/pdf_pdfium.py</code>)는 <code>for page in doc</code> 로 전 페이지를 무제한 순회하며 페이지 텍스트를 리스트에 모두 모은다. snf 는 60초 타임아웃이 있지만 기본값이 <code>DEFAULT_HYBRID_PARSE=True</code> 이므로, <b>기본 경로에는 시간 방어가 없다</b>.</p>
+
+  <h3>1-2. 모든 파서가 스트림을 통째로 메모리에 올린다</h3>
+  <div class="flow">office_legacy.py:73   ole.openstream("WordDocument").read()
+office_ooxml.py:73    z.read("word/document.xml")
+office_ooxml.py:153   ET.fromstring(z.read("xl/sharedStrings.xml"))
+hwp5.py:146           ole.openstream(e).read()
+plaintext.py:32       f.read()
+synap_exe.py:136      f.read()</div>
+  <p class="muted">스트리밍 파싱은 어디에도 없다. 원본 bytes + 추출 str + 청크 리스트 + <code>np.vstack</code> 행렬이 한 시점에 동시에 살아 있다. 특히 xlsx 의 <code>sharedStrings.xml</code> 을 <code>ET.fromstring</code> 으로 통째 파싱하는 경로는 원본 대비 수 배의 메모리를 쓴다.</p>
+
+  <h3>1-3. 하이브리드는 실패 시 같은 파일을 두 번 판다</h3>
+  <p><code>hybrid.py</code> 는 전용 파서를 <code>save_dir=None</code> 으로 돌려보고, 실패하면 snf 로 재시도한다. 초대형 파일은 최악의 경우 <b>전용 파서 풀타임 + snf 60초</b>를 연속으로 소모한다.</p>
+</section>
+
+<!-- 2 -->
+<h2 id="evi"><span class="n">2</span> 실측 근거</h2>
+<section class="card">
+  <h3>2-1. 코퍼스 크기 분포 — <code>D:\분류함</code> 2,254 파일 / 3,749.8MB</h3>
+  <div class="scroll"><table>
+    <tr><th>평균</th><th>p50</th><th>p90</th><th>p95</th><th>p99</th><th>최대</th></tr>
+    <tr><td>1.66MB</td><td><b>0.07MB</b></td><td>3.14MB</td><td>6.15MB</td><td>25.01MB</td><td><b>328.76MB</b></td></tr>
+  </table></div>
+  <p>중앙값이 70KB 인데 최대가 328MB다. <b>분포의 꼬리가 4,000배</b>로 길다 — 평균 기준으로 설계하면 반드시 꼬리에서 터진다.</p>
+
+  <div class="scroll"><table>
+    <tr><th>임계</th><th>해당 건수</th><th>비율</th><th>구성</th></tr>
+    <tr><td>20MB 초과</td><td>33건</td><td>1.46%</td><td>정상 업무문서 다수 포함</td></tr>
+    <tr><td>50MB 초과</td><td>10건</td><td>0.44%</td><td>tsv 9 + <b>pdf 1 (정상 회사소개서)</b></td></tr>
+    <tr><td>100MB 이상</td><td><b>2건</b></td><td>0.09%</td><td>둘 다 학습 코퍼스 tsv (328MB, 100MB)</td></tr>
+  </table></div>
+
+  <h3>2-2. 결정적 반례 — 바이트 크기와 처리 비용은 비례하지 않는다</h3>
+  <div class="scroll"><table>
+    <tr><th>파일</th><th>원본 크기</th><th>페이지</th><th>추출 글자수</th><th>추출 시간</th></tr>
+    <tr><td>[지미션] 회사소개서_2603.pdf</td><td><b>55.3MB</b></td><td>36p</td><td class="bad"><b>343자</b></td><td>0.5초</td></tr>
+    <tr><td>1_AI·빅데이터_통합보고서.pdf</td><td>42.4MB</td><td>445p</td><td>380,130자</td><td>1.7초</td></tr>
+  </table></div>
+
+  <div class="danger">
+    <b>55MB 짜리에서 343자가 나온다.</b> 이미지 위주 회사소개서라 텍스트층이 거의 없다. 여기에 "50MB 초과 스킵" 같은 바이트 게이트를 걸면 <b>정상적인 36페이지 회사소개서를 통째로 놓친다.</b><br>
+    반대로 코퍼스 최대 파일 328MB <code>news_talk_en_ko_train.tsv</code> 는 plaintext 라 <b>328MB ≈ 3억 자</b>가 그대로 PII 정규식과 임베딩으로 들어간다.
+  </div>
+
+  <p><b>결론</b> — 포맷별 압축률 차이가 100배를 넘으므로 <b>원본 바이트는 비용의 대리지표로 부정확하다.</b> 바이트 게이트는 크래시 방지용 안전핀으로만 쓰고, <b>진짜 상한은 추출 후 글자수에 걸어야 한다.</b></p>
+
+  <h3>2-3. 페이지 ↔ 글자수 환산 계수</h3>
+  <p>445p → 380,130자 = <b>페이지당 약 854자</b>. 이 계수로 상한값을 페이지로 환산해 검증한다.</p>
+
+  <h3>2-4. 기존 발표자료 실측(375파일 / 409MB)과의 정합</h3>
+  <ul>
+    <li>최악 케이스 <b>581페이지 PDF 1건 → 7.5초</b> (854자/p 환산 시 약 50만 자)</li>
+    <li><b>룰 스캔이 전체 시간의 66%</b> — "PII 정규식이 대용량 문서 전문을 훑기 때문"</li>
+    <li>평균이 중앙값보다 크게 높음 = "소수의 대용량 문서가 시간을 끈다"</li>
+    <li>같은 자료의 대응 방향: <i>"실시간은 <b>크기 임계</b>를 두고 초과분은 비동기 큐로 이관"</i> → <b>임계값이 있어야 하는데 아직 없다</b>가 현재 상태</li>
+  </ul>
+  <div class="note">추출보다 <b>분류(룰 스캔) 단계가 크기에 더 민감</b>하다. 그래서 게이트의 무게중심도 추출 전이 아니라 <b>추출 후 글자수</b>에 둔다.</div>
+</section>
+
+<!-- 3 -->
+<h2 id="principle"><span class="n">3</span> 설계 원칙</h2>
+<section class="card">
+  <h3>원칙 1 — 바이트 게이트는 안전핀, 글자수 게이트가 본체</h3>
+  <p>2-2 의 반례 때문이다. 바이트 상한은 "명백히 문서가 아닌 것"만 걸러내는 느슨한 값으로 두고, 실제 비용 통제는 <code>clean_text()</code> 이후 글자수로 한다.</p>
+
+  <h3>원칙 2 — 초과 시 <b>스킵이 아니라 절단(truncate)</b> 이 기본</h3>
+  <p><code>cli.py:1573</code> 이 이미 이 원칙을 명문화해 두었다.</p>
+  <div class="note">"못 읽은 문서도 '결과'다 — 레코드를 안 내면 그 문서는 결과에서 통째로 사라져, 화면에는 '18개 중 11건'처럼 조용히 줄어든 숫자만 남는다. <b>무엇이 왜 빠졌는지 알 수 없는 것은 거버넌스 도구에서 가장 나쁜 실패다.</b>"</div>
+  <p>따라서 글자수 초과는 앞부분만 보고 등급을 내되, 레코드에 <b>"일부만 본 판정"임을 반드시 표시</b>한다. 사람이 그 표시를 보고 재검토할 수 있어야 한다.</p>
+
+  <h3>원칙 3 — 기존 설정 관례를 따른다</h3>
+  <p>모든 값은 <code>config.py</code> 에 상수로 두고, <code>MIN_TEXT_LEN</code> 과 동일하게 환경변수로 현장 조정이 가능해야 한다. 코드 곳곳에 숫자를 흩지 않는다.</p>
+
+  <h3>원칙 4 — Rust 판과 값을 일치시킨다</h3>
+  <p><code>EXIT_RULES_INVALID</code> 를 두 구현이 같은 값 4로 맞춘 것과 같은 정신이다. 크기 게이트도 <code>MpowerClassify-rs</code> 와 동일 상수를 공유해야 두 구현의 결과가 갈리지 않는다.</p>
+</section>
+
+<!-- 4 -->
+<h2 id="risk"><span class="n">4</span> 위험 시나리오 4종</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>#</th><th>시나리오</th><th>현재 동작</th><th>영향</th></tr>
+    <tr><td>R1</td><td><b>초대형 PDF</b> (수천 페이지)</td><td>타임아웃 없이 전 페이지 순회</td><td class="bad">무한정 점유 — 배치 전체가 멈춤</td></tr>
+    <tr><td>R2</td><td><b>초대형 텍스트류</b> (328MB tsv)</td><td><code>f.read()</code> 전체 적재 → 3억 자 정규식 스캔</td><td class="bad">메모리 폭발 + 룰 스캔 폭주</td></tr>
+    <tr><td>R3</td><td><b>대형 압축</b> (깊이 1, 폭 무한)</td><td>해제 총량·개수 무제한</td><td class="bad">디스크 고갈 (압축폭탄)</td></tr>
+    <tr><td>R4</td><td><b>16MB IPC 초과</b></td><td><code>ValueError</code> 가 <code>DaemonUnavailable</code> 이 아니라 폴백에 안 걸림</td><td class="mid">그 파일 임베딩이 조용히 실패</td></tr>
+  </table></div>
+
+  <h3>R4 상세 — 조용한 실패 경로</h3>
+  <p><code>cli.py:1396</code> 의 <code>request_embed_text(text, opts)</code> 는 정제 텍스트를 JSON 으로 실어 보낸다. 한글 UTF-8 3바이트 기준 <b>정제 텍스트 약 500만 자에서 16MB를 넘긴다</b>.</p>
+  <div class="flow">send_msg()  →  ValueError("메시지가 너무 큼")
+                     │
+                     └─ cli.py:1397  except DaemonUnavailable   ← 여기 안 걸림
+                                     → 예외 그대로 전파 → 그 파일 임베딩 실패</div>
+  <p>글자수 게이트(G3)를 200만 자로 두면 UTF-8 약 6MB라 <b>이 경로가 구조적으로 발생하지 않는다.</b></p>
+
+  <h3>메모리 실패는 프로세스를 죽이지 않는다 — 더 나쁘다</h3>
+  <p><code>hybrid.py</code> 의 <code>except Exception</code> 이 <code>MemoryError</code> 까지 삼켜 snf 폴백으로 넘어간다(→ 또 메모리를 쓴다). 끝내 실패하면 그 파일만 미분류가 된다. 즉 <b>크래시 대신 조용한 성능 붕괴</b>로 나타나 원인 추적이 어렵다.</p>
+</section>
+
+<!-- 5 -->
+<h2 id="gate"><span class="n">5</span> 게이트 설계 (핵심)</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>게이트</th><th>검사 시점</th><th>대상</th><th>권장값</th><th>초과 시</th><th>막는 위험</th></tr>
+    <tr><td class="gate">G1 <code>MAX_FILE_BYTES</code></td><td>파서 호출 <b>전</b></td><td>원본 바이트</td><td><b>100MB</b></td><td>스킵 + 사유 기록</td><td>R2</td></tr>
+    <tr><td class="gate">G2 <code>MAX_FILE_BYTES_TEXT</code></td><td>파서 호출 <b>전</b></td><td>text 포맷 원본</td><td><b>20MB</b></td><td>스킵 + 사유 기록</td><td>R2</td></tr>
+    <tr><td class="gate">G3 <code>MAX_TEXT_CHARS</code></td><td><code>clean_text()</code> <b>후</b></td><td>정제 글자수</td><td><b>2,000,000</b></td><td class="ok"><b>절단 + 플래그</b></td><td>R1·R4, 룰 스캔 폭주</td></tr>
+    <tr><td class="gate">G4 <code>MAX_ARCHIVE_BYTES</code></td><td>압축 해제 중</td><td>누적 해제량</td><td><b>500MB</b></td><td>해제 중단, 원본 1건 처리</td><td>R3</td></tr>
+    <tr><td class="gate">G5 <code>PARSER_TIMEOUT</code></td><td>전용 파서 실행</td><td>시간</td><td><b>60초</b></td><td>ExtractError → snf 폴백</td><td>R1</td></tr>
+    <tr><td class="muted">(기존) <code>SNF_TIMEOUT</code></td><td>snf 실행</td><td>시간</td><td>60초</td><td>ExtractError</td><td>이미 구현됨</td></tr>
+  </table></div>
+
+  <h3>G1 <code>MAX_FILE_BYTES = 100 * 1024 * 1024</code> — 원본 바이트 안전핀</h3>
+  <p><b>이것이 "TEXT 추출 전 원본 문서의 최대 크기"</b>다. <code>os.path.getsize(path)</code> 를 어떤 파서보다 먼저 검사한다.</p>
+  <ul>
+    <li><b>왜 100MB인가</b> — 2,254건 중 초과는 <b>2건(0.09%)</b>이며 둘 다 문서가 아니라 학습 코퍼스 tsv다. 즉 정상 문서를 한 건도 잃지 않는 값이다.</li>
+    <li><b>50MB는 안 된다</b> — 10건이 걸리는데 그중 55.3MB 회사소개서가 <b>정상 업무문서</b>다(2-2).</li>
+    <li><b>20MB는 확실히 과하다</b> — 33건, 1.46%가 걸린다.</li>
+  </ul>
+  <div class="warn">G1 은 <b>비용 통제 장치가 아니다.</b> 55MB/343자 사례가 보여주듯 바이트로는 비용을 예측할 수 없다. G1 의 역할은 "문서가 아닌 것이 파이프라인에 들어오는 것"을 막는 것뿐이다.</div>
+
+  <h3>G2 <code>MAX_FILE_BYTES_TEXT = 20 * 1024 * 1024</code> — 텍스트류 별도 상한</h3>
+  <p><code>detect_format()</code> 결과가 <code>"text"</code> 인 경우(txt/csv/tsv/json/html)에만 적용한다. 이 포맷군은 <b>바이트 수 = 글자 수</b> 라서 압축률 문제가 없고, 따라서 바이트 게이트가 유일하게 정확한 비용 지표가 된다.</p>
+  <p><code>plaintext.py:32</code> 의 <code>f.read()</code> 가 전체를 메모리에 올리는 지점을 직접 막는다. 328MB tsv 는 여기서 걸린다.</p>
+
+  <h3>G3 <code>MAX_TEXT_CHARS = 2_000_000</code> — 본체 게이트</h3>
+  <p>실제 비용을 지배하는 값이다. 근거 세 가지:</p>
+  <div class="scroll"><table>
+    <tr><th>근거</th><th>계산</th><th>판정</th></tr>
+    <tr><td>페이지 환산</td><td>854자/p → 200만 자 ≈ <b>2,340페이지</b></td><td class="ok">최악 케이스(581p)의 4배 여유 — 정상 문서 절단 위험 없음</td></tr>
+    <tr><td>16MB IPC 벽</td><td>200만 자 × 3바이트(한글 UTF-8) ≈ <b>6MB</b></td><td class="ok">16MB 안에 안전 — R4 구조적 제거</td></tr>
+    <tr><td>룰 스캔 병목</td><td>PII 정규식 대상 길이가 상한을 가짐</td><td class="ok">전체 시간의 66%를 차지하던 항목이 유계가 됨</td></tr>
+  </table></div>
+
+  <div class="note">
+    <b>여기서는 스킵이 아니라 절단이다</b>(원칙 2). 앞 200만 자로 자르고 등급을 내되, 레코드에 <code>text_truncated</code> 를 실어 "일부만 본 판정"임을 남긴다.
+  </div>
+
+  <pre><code>text = clean_text(raw)
+n_orig = len(text)
+truncated = n_orig &gt; config.MAX_TEXT_CHARS
+if truncated:
+    text = text[:config.MAX_TEXT_CHARS]   # 앞부분 우선 — 표지·개요·머리말에 신호가 몰린다</code></pre>
+  <p class="muted">앞부분을 남기는 이유: 보안등급 신호(스탬프·머리말의 "대외비", 표지의 문서 종류)와 업무분류 신호가 문서 앞쪽에 집중되기 때문이다. 뒤쪽을 버려도 등급 판정 손실이 가장 작다.</p>
+
+  <h3>G4 <code>MAX_ARCHIVE_BYTES = 500MB</code> / <code>MAX_ARCHIVE_MEMBERS = 5000</code></h3>
+  <p>현재 <code>archive.py:302</code> 는 <code>max_depth=3</code> 으로 <b>중첩 깊이만</b> 막고 폭 방향(해제 총량·파일 개수)은 무방비다. <b>깊이 1짜리 zip 하나로도 디스크를 채울 수 있다.</b></p>
+  <p><code>_extract_members()</code> 루프에서 누적 바이트와 멤버 수를 세다가 상한을 넘으면 해제를 중단하고, 그 압축을 <b>원본 1건</b>으로 처리한다(기존 "빈 압축/손상 압축" 폴백 경로와 동일하게 동작).</p>
+
+  <h3>G5 <code>PARSER_TIMEOUT = 60</code> — 전용 파서 시간 상한</h3>
+  <p>현재 <b>전혀 없다</b>. snf 는 <code>subprocess</code> 라 <code>timeout=</code> 으로 간단히 걸리지만, 전용 파서는 in-process 호출이라 구조가 다르다. 세 가지 안이 있다(11장 미결정).</p>
+  <div class="scroll"><table>
+    <tr><th>안</th><th>방식</th><th>장점</th><th>단점</th></tr>
+    <tr><td>A</td><td>PDF 페이지 수 상한(<code>MAX_PDF_PAGES</code>)</td><td>단순 · 이식 쉬움</td><td>PDF에만 적용 · 시간 보장 아님</td></tr>
+    <tr><td>B</td><td>페이지 루프에서 경과시간 체크 후 중단</td><td>진짜 시간 상한 · 부분 결과 확보</td><td>포맷별로 각각 손봐야 함</td></tr>
+    <tr><td>C</td><td>파서를 별도 프로세스로 격리</td><td>완전한 격리(메모리 포함)</td><td>구조 변경 큼 · 프로세스 기동 비용</td></tr>
+  </table></div>
+  <p><b>권장: B + A 병행.</b> PDF 는 페이지 루프에 시간 체크를 넣고(B), 동시에 <code>MAX_PDF_PAGES = 3000</code> 을 두어 이중 안전을 만든다. C 는 필요성이 확인되면 그때 간다.</p>
+</section>
+
+<!-- 6 -->
+<h2 id="point"><span class="n">6</span> 적용 지점</h2>
+<section class="card">
+  <div class="flow">collect_files()
+     │
+     ▼
+expand_paths()                       ← G4  해제 누적 바이트/멤버 수
+     │  archive.py:302
+     ▼
+[ 파일 루프  cli.py:1550 ]
+     │
+     ├─ (신규) size_gate(src)        ← G1  원본 바이트 100MB
+     │         detect_format 이 text → G2  20MB
+     │         초과 → ExtractError 계열로 '스킵 레코드' 생성
+     │
+     ├─ extractor.extract(src)       ← G5  전용 파서 타임아웃 / 페이지 상한
+     │         hybrid.py → pdf_pdfium.py 등
+     │
+     ├─ clean_text(raw)              cli.py:1570
+     │
+     ├─ (신규) text_gate(text)       ← G3  200만 자 절단 + 플래그   ★본체
+     │
+     ├─ build_record(path, text, …)  cli.py:1620   PII 정규식 스캔
+     │
+     └─ _embed_text(text, timing)    cli.py:1684 → 데몬 IPC(16MB) 안전</div>
+
+  <div class="scroll"><table>
+    <tr><th>게이트</th><th>파일</th><th>함수 / 위치</th></tr>
+    <tr><td>G1 · G2</td><td><code>extract/hybrid.py</code></td><td><code>extract()</code> 진입부 (또는 <code>_route()</code> 직전)</td></tr>
+    <tr><td>G3</td><td><code>cli.py</code></td><td><code>clean_text()</code> 직후 · <code>build_record()</code> 직전 (1570~1620 사이)</td></tr>
+    <tr><td>G4</td><td><code>extract/archive.py</code></td><td><code>_extract_members()</code> 루프 내부</td></tr>
+    <tr><td>G5</td><td><code>extract/pdf_pdfium.py</code> 외</td><td>페이지 순회 루프</td></tr>
+    <tr><td>공통 상수</td><td><code>config.py</code></td><td><code>MIN_TEXT_LEN</code> 인접 위치</td></tr>
+  </table></div>
+
+  <h3>6-1. Rust 판(<code>MpowerClassify-rs</code>) 적용 지점</h3>
+  <p>두 구현이 같은 문서에서 같은 판정을 내야 하므로(설계 원칙 4), 상수 기본값과 환경변수 이름을 <code>Rust/src/limits.rs</code> 에 1:1로 옮겼다. 한쪽만 값을 고치면 같은 배치에서 결과가 갈린다.</p>
+  <div class="scroll"><table>
+    <tr><th>게이트</th><th>Python</th><th>Rust</th></tr>
+    <tr><td>G1 · G2</td><td><code>extract/base.py: check_size_limit()</code></td><td><code>limits::check_size_limit()</code> → <code>main.rs</code> 추출 직전</td></tr>
+    <tr><td>G3</td><td><code>clean.py: truncate_text()</code></td><td><code>limits::truncate_text()</code> (char 경계 절단)</td></tr>
+    <tr><td>G4</td><td><code>archive.py: _Budget</code></td><td><code>archive.rs: Budget</code> <span class="ok">(2026-09-04 포팅)</span> — 압축 확장을 이 판에도 넣어 상한이 실제로 동작한다. 7z·rar 만 제외</td></tr>
+    <tr><td>G5</td><td><code>base.py: ParserDeadline</code></td><td><code>limits::ParserDeadline</code> (pdf 페이지+시간 · ooxml · xlsx)</td></tr>
+  </table></div>
+  <div class="warn">
+    <b>Rust 판 G3 은 바이트가 아니라 char 경계로 자른다.</b> 파이썬 <code>text[:limit]</code> 은 '글자' 수를 센다. 바이트로 자르면 한글 한 글자가 3바이트라 두 구현의 절단 위치가 어긋나고, 심하면 문자 중간을 잘라 패닉이 난다.
+  </div>
+
+  <div class="warn">
+    <b>G1 을 hybrid.py 에 두는 이유</b> — <code>cli.py</code> 의 분류 루프와 <code>--embed</code> 단독 경로, 데몬 <code>op:"embed"</code> 경로가 모두 추출기를 거친다. 추출기 진입부에 두면 <b>세 경로가 자동으로 같은 상한</b>을 갖는다. 반면 <code>cli.py</code> 에 두면 데몬 경로가 새어나간다.
+  </div>
+</section>
+
+<!-- 7 -->
+<h2 id="rec"><span class="n">7</span> 레코드 · 종료코드 변경</h2>
+<section class="card">
+  <h3>7-1. 절단된 문서의 레코드 (G3)</h3>
+  <pre><code>{
+  "file": "...",
+  "grade": "S",
+  "text_truncated": true,          <span class="cmt">// 신규 — 일부만 보고 낸 판정</span>
+  "text_chars": 2000000,           <span class="cmt">// 신규 — 실제 스캔한 글자수</span>
+  "text_chars_original": 8431022,  <span class="cmt">// 신규 — 절단 전 원래 글자수</span>
+  ...
+}</code></pre>
+  <p>UI 는 <code>text_truncated=true</code> 인 행에 표식을 달아 <b>사람이 재검토할 대상</b>으로 노출한다. 등급 자체는 정상적으로 낸다 — "판정 불가"가 아니라 "부분 판정"이다.</p>
+
+  <h3>7-2. 크기 초과로 스킵된 문서의 레코드 (G1·G2)</h3>
+  <p>기존 <code>_extract_failed_record()</code> 경로를 그대로 재사용한다. 등급 없이(=보류) 사유를 실어 내보내면, 못 읽은 문서와 동일하게 사람이 처리하는 흐름에 올라탄다.</p>
+  <pre><code>{
+  "file": "...",
+  "grade": null,
+  "error": "크기 상한 초과: 328.8MB &gt; 100MB (MAX_FILE_BYTES)",
+  "error_kind": "size_limit",      <span class="cmt">// 신규 — 추출 실패와 구분</span>
+  ...
+}</code></pre>
+  <div class="note"><code>error_kind</code> 를 나누는 이유: "파일이 깨져서 못 읽음"과 "너무 커서 안 읽음"은 <b>운영 대응이 다르다</b>. 후자는 상한을 올리거나 비동기 큐로 넘기면 처리 가능한 문서다.</div>
+
+  <h3>7-2b. 게이트별 관측 수단 <span class="ok">(2026-09-04 보강)</span></h3>
+  <div class="danger">
+    <b>초기 구현의 결함</b> — G4·G5 는 발동해도 <b>로그 파일 한 줄</b>만 남겼다. 압축이 안 펼쳐지면 결과에는 압축파일 1건만 조용히 남아, 내부 문서 수백 건이 통째로 빠진 사실이 어디에도 드러나지 않았다(실측: <code>총 30개</code> → <code>총 1개</code>). 원칙 2("무엇이 왜 빠졌는지 알 수 없는 것이 가장 나쁜 실패")와 정면으로 어긋난 상태였다.
+  </div>
+  <p>모든 게이트가 <b>요약 카운터 · 레코드 표식 · 조치 안내</b> 세 가지를 갖도록 맞췄다.</p>
+  <div class="scroll"><table>
+    <tr><th>게이트</th><th>요약 카운터</th><th>레코드 표식</th><th>조치 안내</th></tr>
+    <tr><td>G1·G2 크기 초과</td><td><code>size_skipped</code></td><td><code>error.kind="size_limit"</code></td><td class="ok">✓</td></tr>
+    <tr><td>G3 본문 절단</td><td><code>text_truncated</code></td><td><code>text_truncated</code> + 글자수 2칸</td><td class="ok">✓</td></tr>
+    <tr><td>G4 압축 미해제</td><td><code>archive_unexpanded</code></td><td><code>archive_unexpanded</code> + 사유</td><td class="ok">✓</td></tr>
+    <tr><td>G5 부분 추출</td><td><code>partial_extract</code></td><td><code>partial_extract_info</code>{reason,unit,read,total}</td><td class="ok">✓</td></tr>
+  </table></div>
+  <p class="muted">G5 표식은 파서(깊은 자리)에서 레코드까지 와야 하는데 <code>extract()</code> 반환형은 문자열 하나다. 반환형을 바꾸면 추출기 11개와 호출부가 전부 바뀌므로, 스레드 로컬 통로(<code>extract/notes.py</code> · <code>limits::notes_*</code>)로 전달한다. 데몬이 요청을 스레드로 받기 때문에 전역 한 칸은 A 문서 표식이 B 결과에 붙는 오염을 낳는다.</p>
+
+  <h3>7-3. 종료코드</h3>
+  <p>기존 <code>EXIT_EXTRACT_FAIL = 1</code> 을 그대로 쓴다. 크기 초과는 추출 실패의 한 종류이며, 배치 스크립트 입장에서 구분이 필요하면 <code>error_kind</code> 로 충분하다. <b>새 종료코드는 만들지 않는다.</b></p>
+
+  <h3>7-4. 요약 카운터</h3>
+  <p><code>counts</code> 옆에 <code>n_size_skipped</code>, <code>n_text_truncated</code> 를 추가해 실행 요약에 찍는다. 운영자가 "이번 배치에서 상한에 걸린 문서가 몇 건인가"를 즉시 알아야 상한값을 조정할 수 있다.</p>
+</section>
+
+<!-- 8 -->
+<h2 id="cfg"><span class="n">8</span> 설정 · 환경변수</h2>
+<section class="card">
+  <pre><code><span class="cmt"># ── 크기 상한(Size Gate) ────────────────────────────────</span>
+<span class="cmt"># [값의 근거] D:\분류함 2,254파일 실측 — p99=25MB, 100MB 이상은 2건(학습 코퍼스 tsv)뿐.</span>
+<span class="cmt">#   50MB 로 낮추면 정상 문서(55.3MB 회사소개서)가 걸리므로 100MB 로 둔다.</span>
+MAX_FILE_BYTES = int(os.environ.get("CSOCLASSIFY_MAX_FILE_BYTES", 100 * 1024 * 1024))
+
+<span class="cmt"># 텍스트 계열(txt/csv/tsv/json/html)은 바이트=글자수라 비용이 그대로 드러난다 → 별도로 낮게.</span>
+MAX_FILE_BYTES_TEXT = int(os.environ.get("CSOCLASSIFY_MAX_FILE_BYTES_TEXT", 20 * 1024 * 1024))
+
+<span class="cmt"># [본체] 정제 텍스트 글자수 상한. 854자/페이지 실측 기준 약 2,340페이지 = 최악 케이스의 4배.</span>
+<span class="cmt">#   한글 UTF-8 3바이트로 약 6MB → 데몬 IPC 상한(16MB) 안에 구조적으로 들어간다.</span>
+MAX_TEXT_CHARS = int(os.environ.get("CSOCLASSIFY_MAX_TEXT_CHARS", 2_000_000))
+
+<span class="cmt"># 압축 1건당 해제 누적 상한(폭 방향 압축폭탄 방어). max_depth 는 깊이만 막는다.</span>
+MAX_ARCHIVE_BYTES   = int(os.environ.get("CSOCLASSIFY_MAX_ARCHIVE_BYTES", 500 * 1024 * 1024))
+MAX_ARCHIVE_MEMBERS = int(os.environ.get("CSOCLASSIFY_MAX_ARCHIVE_MEMBERS", 5000))
+
+<span class="cmt"># 전용 파서 시간 상한(현재 없음). snf 는 SNF_TIMEOUT 으로 이미 보호된다.</span>
+PARSER_TIMEOUT = int(os.environ.get("CSOCLASSIFY_PARSER_TIMEOUT", 60))
+MAX_PDF_PAGES  = int(os.environ.get("CSOCLASSIFY_MAX_PDF_PAGES", 3000))</code></pre>
+
+  <h3>CLI 플래그</h3>
+  <div class="scroll"><table>
+    <tr><th>플래그</th><th>의미</th></tr>
+    <tr><td><code>--max-file-mb N</code></td><td>G1(원본 바이트). 텍스트 상한이 더 크면 같이 내린다</td></tr>
+    <tr><td><code>--max-file-mb-text N</code></td><td>G2(텍스트 계열). 주면 위의 자동 보정보다 우선</td></tr>
+    <tr><td><code>--max-text-chars N</code></td><td>G3(정제 글자수)</td></tr>
+    <tr><td><code>--max-archive-mb N</code></td><td>G4(압축 해제 누적)</td></tr>
+    <tr><td><code>--max-archive-members N</code></td><td>G4(내부 파일 개수)</td></tr>
+    <tr><td><code>--parser-timeout N</code></td><td>G5(파서 시간, 초)</td></tr>
+    <tr><td><code>--max-pdf-pages N</code></td><td>G5(PDF 페이지 수)</td></tr>
+    <tr><td><code>--no-size-limit</code></td><td>모든 게이트 해제 — 조사·디버깅 전용</td></tr>
+  </table></div>
+  <p class="muted">우선순위는 기존 관례와 동일하게 <b>CLI 플래그 &gt; 환경변수 &gt; 코드 기본값</b>. 어느 플래그든 <b>0 이하는 "해제"</b>로 읽는다.</p>
+
+  <h3>8-1. Rust 판 플래그 <span class="ok">(2026-09-04 추가)</span></h3>
+  <p>같은 이름·같은 뜻으로 받는다. 두 판을 같은 명령으로 부르는 호출부가 깨지지 않아야 하기 때문이다.</p>
+  <div class="scroll"><table>
+    <tr><th>플래그</th><th>Python</th><th>Rust</th></tr>
+    <tr><td><code>--max-file-mb</code> · <code>--max-file-mb-text</code></td><td class="ok">✓</td><td class="ok">✓</td></tr>
+    <tr><td><code>--max-text-chars</code></td><td class="ok">✓</td><td class="ok">✓</td></tr>
+    <tr><td><code>--max-pdf-pages</code> · <code>--parser-timeout</code></td><td class="ok">✓</td><td class="ok">✓</td></tr>
+    <tr><td><code>--no-size-limit</code></td><td class="ok">✓</td><td class="ok">✓</td></tr>
+    <tr><td><code>--max-archive-mb</code> · <code>--max-archive-members</code></td><td class="ok">✓</td><td class="ok">✓ <span class="def">(압축 확장 포팅으로 실동작)</span></td></tr>
+  </table></div>
+  <div class="warn">
+    압축 상한 두 개는 2026-09-04 <code>Rust/src/archive.rs</code> 포팅으로 <b>실제로 동작한다</b>. 다만 7z·rar 은 여전히 펼치지 않으며(외부 바이너리 의존 — 단일 바이너리 목표와 충돌), 그 경우 <code>archive_unsupported</code> 표식과 요약 안내로 드러낸다.
+  </div>
+  <p class="muted">Rust 는 CLI 값을 <code>limits::Overrides</code>(OnceLock)에 시작 시 한 번 새기고, 각 getter 가 <b>덮어쓴 값 → 환경변수 → 기본값</b> 순으로 읽는다. 파이썬이 <code>config</code> 모듈 값을 덮어쓰는 것과 같은 구조다 — 상한을 실제로 보는 곳이 CLI 인자를 볼 수 없는 깊은 자리(추출기·PDF 파서)라, 인자로 실어 나르면 함수 시그니처 대여섯 개가 상한 하나 때문에 바뀐다.</p>
+</section>
+
+<!-- 9 -->
+<h2 id="matrix"><span class="n">9</span> 동작 매트릭스</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>입력</th><th>걸리는 게이트</th><th>동작</th><th>레코드</th><th>등급</th></tr>
+    <tr><td>328MB tsv</td><td>G1 · G2</td><td>파서 호출 안 함</td><td><code>error_kind:"size_limit"</code></td><td>보류</td></tr>
+    <tr><td>55MB / 36p / 343자 pdf</td><td class="ok">없음 (통과)</td><td>정상 처리</td><td>정상</td><td>정상</td></tr>
+    <tr><td>445p / 38만 자 pdf</td><td class="ok">없음 (통과)</td><td>정상 처리</td><td>정상</td><td>정상</td></tr>
+    <tr><td>3,000p / 250만 자 pdf</td><td>G3</td><td>앞 200만 자만 스캔</td><td><code>text_truncated:true</code></td><td class="mid">부분 판정</td></tr>
+    <tr><td>10,000p pdf</td><td>G5 → G3</td><td>페이지/시간 상한에서 중단 후 절단</td><td><code>text_truncated:true</code></td><td class="mid">부분 판정</td></tr>
+    <tr><td>2GB 로 부푸는 zip</td><td>G4</td><td>해제 중단</td><td>압축 자체 1건으로 처리</td><td>보류</td></tr>
+    <tr><td>내부에 100MB 파일이 든 zip</td><td>G4 통과 → G1</td><td>해제는 되고 그 멤버만 스킵</td><td>멤버별 <code>size_limit</code></td><td>해당 멤버만 보류</td></tr>
+  </table></div>
+
+  <div class="note">
+    <b>게이트가 서로를 대체하지 않는다.</b> G1 을 통과한 파일이 G3 에 걸릴 수 있고(이미지 없는 대형 PDF), G1 에 걸리는 파일이 G3 에는 안 걸릴 수 있다(이미지 PDF). 그래서 <b>5중 구조가 필요하다.</b>
+  </div>
+</section>
+
+<!-- 10 -->
+<h2 id="test"><span class="n">10</span> 테스트 계획</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>ID</th><th>대상</th><th>검증 내용</th></tr>
+    <tr><td>T1</td><td>G1</td><td>100MB+1 파일 → 파서가 <b>호출되지 않고</b> <code>size_limit</code> 레코드 생성</td></tr>
+    <tr><td>T2</td><td>G1 경계</td><td>정확히 100MB → <b>통과</b>(초과일 때만 차단)</td></tr>
+    <tr><td>T3</td><td>G2</td><td>25MB tsv → 차단 / 25MB pdf → <b>통과</b> (포맷별 분기 검증)</td></tr>
+    <tr><td>T4</td><td>G3</td><td>250만 자 텍스트 → <code>len(text)==2_000_000</code>, <code>text_chars_original==2_500_000</code></td></tr>
+    <tr><td>T5</td><td>G3 무해성</td><td>200만 자 미만 → <code>text_truncated</code> 키가 <b>등장하지 않음</b>(기존 출력 불변)</td></tr>
+    <tr><td>T6</td><td>G3 · IPC</td><td>절단 후 <code>send_msg</code> 페이로드가 항상 16MB 미만임을 단정</td></tr>
+    <tr><td>T7</td><td>G4</td><td>합계 600MB 로 부푸는 zip → 해제 중단 후 원본 1건 폴백</td></tr>
+    <tr><td>T8</td><td>G5</td><td>페이지 상한 초과 PDF → 부분 텍스트 확보 + 정상 종료(예외 아님)</td></tr>
+    <tr><td>T9</td><td>회귀</td><td><code>D:\분류함</code> 전량 재실행 — 게이트 도입 전후 <b>등급 분포가 동일</b>(2건 tsv 제외)</td></tr>
+    <tr><td>T10</td><td>Rust 정합</td><td>동일 입력에 대해 py/rs 두 구현의 <code>text_truncated</code> 판정이 일치</td></tr>
+  </table></div>
+  <p class="note"><b>T9 가 수용 기준의 핵심이다.</b> 이 설계의 성공은 "무엇을 막았는가"가 아니라 <b>"정상 문서 판정을 하나도 바꾸지 않았는가"</b> 로 판정한다. 2-2 의 55MB 회사소개서가 여전히 정상 분류되는지가 단일 최중요 지표다.</p>
+</section>
+
+<!-- 11 -->
+<h2 id="open"><span class="n">11</span> 미결정 · 로드맵</h2>
+<section class="card">
+  <h3>11-1. 미결정 사항</h3>
+  <div class="scroll"><table>
+    <tr><th>#</th><th>쟁점</th><th>선택지</th><th>기울어진 쪽</th></tr>
+    <tr><td>D1</td><td>G5 구현 방식</td><td>A 페이지 상한 / B 루프 시간체크 / C 프로세스 격리</td><td><b>B + A 병행</b></td></tr>
+    <tr><td>D2</td><td>G3 절단 위치</td><td>앞부분 / 앞+뒤 절반씩 / 균등 샘플링</td><td><b>앞부분</b> (등급 신호가 앞에 집중)</td></tr>
+    <tr><td>D3</td><td>G1 초과 문서 후속</td><td>영구 스킵 / 비동기 큐 이관</td><td>발표자료 방향은 <b>비동기 큐</b> — 별도 설계 필요</td></tr>
+    <tr><td>D4</td><td>G2 적용 판정</td><td>확장자 기준 / <code>detect_format()</code> 기준</td><td><b><code>detect_format()</code></b> (확장자 위장 대응)</td></tr>
+  </table></div>
+
+  <h3>11-2. 구현 순서 <span class="ok">— 전 단계 완료(2026-09-04)</span></h3>
+  <div class="scroll"><table>
+    <tr><th>단계</th><th>내용</th><th>비고</th></tr>
+    <tr><td>1</td><td><code>config.py</code> 상수 6종 + 환경변수</td><td class="ok">완료</td></tr>
+    <tr><td>2</td><td><b>G3</b> 절단 + <code>text_truncated</code> 레코드</td><td class="ok">완료 — <code>clean.truncate_text</code> · cli · pipeline</td></tr>
+    <tr><td>3</td><td><b>G1 · G2</b> 사전 게이트 + <code>error.kind</code></td><td class="ok">완료 — <code>base.check_size_limit</code>(hybrid · synap)</td></tr>
+    <tr><td>4</td><td><b>G4</b> 압축 해제 누적 상한</td><td class="ok">완료 — <code>archive._Budget</code>(zip/tar/gz/7z/rar)</td></tr>
+    <tr><td>5</td><td><b>G5</b> 파서 타임아웃 (D1 = B+A 채택)</td><td class="ok">완료 — pdf(페이지+시간) · xlsx · pptx</td></tr>
+    <tr><td>6</td><td>Rust 판 동일 상수 · 관측 · CLI 플래그</td><td class="ok">완료 — <code>Rust/src/limits.rs</code>(G1·G2·G3·G5 + partial_extract + 플래그 5종). G4 는 해당 없음</td></tr>
+  </table></div>
+
+  <div class="warn">
+    <b>2단계만으로도 실질 위험의 대부분이 사라진다.</b> R1(시간)·R2(메모리)·R4(IPC)가 모두 정제 텍스트 길이에서 비용이 결정되기 때문이다. 1~2 단계를 먼저 넣고 실측한 뒤 3~5 를 진행할 것을 권한다.
+  </div>
+</section>
+
+<footer>MpowerClassify · 문서 크기 상한(Size Gate) 설계 · 2026-09-04<br>
+실측 기준 <code>D:\분류함</code> 2,254파일 / 3,749.8MB · 코드 기준 <code>src/csoclassify</code></footer>
+
+</div>
+</body>
+</html>

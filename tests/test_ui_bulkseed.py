@@ -11,7 +11,7 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "ui"))
 
-import seedstore as S     # noqa: E402
+from csoclassify import seedstore as S     # noqa: E402
 import app                # noqa: E402  (main 은 __main__ 가드 안에 있어 import 해도 안 돈다)
 
 
@@ -104,9 +104,9 @@ def test_여러건_한꺼번에_등록(tmp_path):
     assert stats["new"] == 2 and stats["dup"] == 0 and stats["fail"] == 0
     a = S.find_seed(out, "a.doc")
     b = S.find_seed(out, "b.doc")
-    assert a["grade"] == "C" and "doctype" not in a.get("labels", {})
-    assert b["labels"] == {"security": "S", "doctype": ["DC_2"]}
-    assert b["doc"]["hash"] == "h_b.doc"          # 원본 지문이 함께 적힌다
+    assert a["grade"] == "C" and "doctype" not in a
+    assert b["grade"] == "S" and b["doctype"] == ["DC_2"]
+    assert b["hash"] == "h_b.doc"                 # 원본 지문(해시)이 함께 적힌다
     # 감사: 보안 2줄 + 업무분류 1줄
     lines = open(audit, encoding="utf-8").read().strip().splitlines()
     assert len(lines) == 3
@@ -154,7 +154,7 @@ def test_이미_등록된_문서는_갱신되고_옛_분류를_지키다():
     assert stats["update"] == 1 and stats["new"] == 0
     e = S.find_seed(out, "a.doc")
     assert e["grade"] == "C"
-    assert e["labels"]["doctype"] == ["DC_옛것"]
+    assert e["doctype"] == ["DC_옛것"]
 
 
 #------------------------------------------------------------------

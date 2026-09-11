@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
-title CSOClassify PII 검출 테스트
+title MpowerClassify PII 검출 테스트
 
 rem ============================================================
 rem  D:\분류함\PII 의 PII 시험문서를 분류기에 돌려 검출 결과를 본다.
@@ -21,17 +21,17 @@ rem ── 실행파일 찾기 ────────────────�
 rem  Rust 판을 먼저 본다(이 테스트가 검증하려는 대상이 Rust 검출기라서).
 rem  없으면 배포본 파이썬 exe 로 물러선다.
 if not defined CSO_EXE (
-  if exist "%ROOT%\Rust\target\release\csoclassify-rs.exe" (
-    set "CSO_EXE=%ROOT%\Rust\target\release\csoclassify-rs.exe"
-  ) else if exist "%ROOT%\dist-onedir\windows\csoclassify.exe" (
-    set "CSO_EXE=%ROOT%\dist-onedir\windows\csoclassify.exe"
+  if exist "%ROOT%\Rust\target\release\MpowerClassify-rs.exe" (
+    set "CSO_EXE=%ROOT%\Rust\target\release\MpowerClassify-rs.exe"
+  ) else if exist "%ROOT%\dist-onedir\windows\MpowerClassify.exe" (
+    set "CSO_EXE=%ROOT%\dist-onedir\windows\MpowerClassify.exe"
   )
 )
 if not defined CSO_EXE (
   echo [오류] 실행파일을 찾지 못했습니다.
   echo        아래 중 하나를 만들거나, CSO_EXE 환경변수로 경로를 지정하세요.
-  echo          %ROOT%\Rust\target\release\csoclassify-rs.exe
-  echo          %ROOT%\dist-onedir\windows\csoclassify.exe
+  echo          %ROOT%\Rust\target\release\MpowerClassify-rs.exe
+  echo          %ROOT%\dist-onedir\windows\MpowerClassify.exe
   echo.
   echo        Rust 판을 만들려면: cd Rust ^&^& cargo build --release
   goto :끝실패
@@ -44,10 +44,10 @@ if not exist "%CSO_EXE%" (
 rem ── 규칙셋 찾기 ─────────────────────────────────────────────
 rem  규칙이 없으면 PII 유형별 등급을 못 정해 결과가 의미 없어진다.
 if not defined CSO_RULES (
-  if exist "%ROOT%\dist-onedir\windows\cso_rules.yaml" (
-    set "CSO_RULES=%ROOT%\dist-onedir\windows\cso_rules.yaml"
-  ) else if exist "%ROOT%\resources\policy\cso_rules.yaml" (
-    set "CSO_RULES=%ROOT%\resources\policy\cso_rules.yaml"
+  if exist "%ROOT%\dist-onedir\windows\cso_rule.yaml" (
+    set "CSO_RULES=%ROOT%\dist-onedir\windows\cso_rule.yaml"
+  ) else if exist "%ROOT%\resources\policy\cso_rule.yaml" (
+    set "CSO_RULES=%ROOT%\resources\policy\cso_rule.yaml"
   )
 )
 if not exist "%CSO_RULES%" (
@@ -78,7 +78,7 @@ if "%MODE%"=="--dir" set "GLOBOPT=--glob *.txt,*.csv"
 set "OUTFILE=%TEMP%\cso_pii_결과.json"
 
 echo ============================================================
-echo   CSOClassify PII 검출 테스트
+echo   MpowerClassify PII 검출 테스트
 echo ============================================================
 echo   실행파일 : %CSO_EXE%
 echo   규칙셋   : %CSO_RULES%

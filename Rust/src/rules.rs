@@ -1,5 +1,5 @@
 //! 규칙 엔진 (Python classify/{rules,context,fuse}.py 포팅).
-//! 규칙 '데이터'는 cso_rules.yaml 그대로 읽고, 스캔/융합 '로직'만 Rust 로 옮긴다.
+//! 규칙 '데이터'는 cso_rule.yaml 그대로 읽고, 스캔/융합 '로직'만 Rust 로 옮긴다.
 
 use std::collections::HashSet;
 
@@ -125,46 +125,40 @@ fn check_grade_field(item: &Value, field: &'static str, section: &'static str,
     (None, Some(s.to_string()))
 }
 
-/// 등급 생략을 조건부로 허용하는 섹션(paths)용 래퍼.
-/// omit_okay_if 가 지정된 섹션에서 등급이 없거나 null 이면:
-///   · 그 조건 필드가 true → 의도된 형태(등급 없는 acl 규칙)로 보고 통과
-///   · 아니면 V12 위반 — grade 도 acl_restricted 도 없는 경로 규칙은 있으나 마나다
-fn check_grade_field_opt(item: &Value, field: &'static str, section: &'static str,
-                         rule_id: &str, omit_okay_if: Option<&'static str>)
-                         -> (Option<Violation>, Option<String>) {
-    if let Some(cond) = omit_okay_if {
-        let missing = match item.get(field) { None => true, Some(v) => v.is_null() };
-        if missing {
-            if item.get(cond).and_then(|v| v.as_bool()) == Some(true) {
-                return (None, None);
-            }
-            return (Some(Violation {
-                code: "V12", section, rule_id: rule_id.to_string(), field,
-                value: match item.get(field) { Some(v) => show(v), None => "(없음)".into() },
-                detail: format!("등급을 생략하려면 {}: true 여야 합니다(둘 다 없으면 이 규칙은 아무 일도 하지 않습니다)", cond),
-                hint: None,
-            }), None);
-        }
-    }
-    check_grade_field(item, field, section, rule_id)
-}
-
 /// 규칙셋 원본(YAML→Value) 검증. 위반을 '전부' 모아 돌려준다.
 /// 첫 오류에서 멈추지 않는 이유는 관리자가 한 번에 고칠 수 있게 하기 위해서다.
 pub fn validate_rules_data(data: &Value) -> Vec<Violation> {
-    // (섹션 키, 단일등급 필드들, (base, bulk) 쌍, 등급 생략을 허용하는 조건 필드)
-    // — Python 의 _GRADE_SECTIONS 와 동일. paths 만 네 번째가 채워져 있다.
-    const SECTIONS: [(&str, &[&str], Option<(&str, &str)>, Option<&str>); 6] = [
-        ("regex_pii",  &[],        Some(("base_grade", "bulk_grade")), None),
-        ("pii_combos", &["grade"], None,                               None),
-        ("keywords",   &[],        Some(("base_grade", "bulk_grade")), None),
-        ("sensitive",  &["grade"], None,                               None),
-        ("stamps",     &["grade"], None,                               None),
-        ("paths",      &["grade"], None,                               Some("acl_restricted")),
+    // (섹션 키, 단일등급 필드들, (base, bulk) 쌍) — Python 의 _GRADE_SECTIONS 와 동일.
+    // [2026-09-08] paths 섹션이 없어지면서, 그 하나를 위해 있던 '등급 생략 허용'
+    // 자리도 함께 뺐다.
+    const SECTIONS: [(&str, &[&str], Option<(&str, &str)>); 5] = [
+        ("regex_pii",  &[],        Some(("base_grade", "bulk_grade"))),
+        ("pii_combos", &["grade"], None),
+        ("keywords",   &[],        Some(("base_grade", "bulk_grade"))),
+        ("sensitive",  &["grade"], None),
+        ("stamps",     &["grade"], None),
     ];
+
+    // 없어진 최상위 블록 → 사람이 읽을 사유. 이 파서도 모르는 키를 조용히
+    // 무시하므로, 알리지 않으면 배포된 규칙셋에서 등급이 소리 없이 바뀐다.
+    const GONE: [(&str, &str); 1] = [(
+        "paths",
+        "paths 는 더 이상 쓰지 않는 블록입니다(2026-09-08 제거) — \
+이 신호는 동작하지 않으므로 규칙셋에서 지우세요",
+    )];
     let mut out: Vec<Violation> = Vec::new();
 
-    for &(section, single_fields, bulk_pair, omit_okay_if) in SECTIONS.iter() {
+    for &(gone, why) in GONE.iter() {
+        if let Some(v) = data.get(gone) {
+            let empty = v.as_array().map(|a| a.is_empty()).unwrap_or(v.is_null());
+            if !empty {
+                out.push(Violation { code: "V12", section: gone, rule_id: "-".into(),
+                    field: "", value: "(블록)".into(), detail: why.into(), hint: None });
+            }
+        }
+    }
+
+    for &(section, single_fields, bulk_pair) in SECTIONS.iter() {
         let node = match data.get(section) { Some(v) => v, None => continue };
         if node.is_null() { continue; }
         let items = match node.as_array() {
@@ -194,7 +188,7 @@ pub fn validate_rules_data(data: &Value) -> Vec<Violation> {
             }
 
             for &field in single_fields.iter() {
-                if let (Some(v), _) = check_grade_field_opt(item, field, section, &rule_id, omit_okay_if) {
+                if let (Some(v), _) = check_grade_field(item, field, section, &rule_id) {
                     out.push(v);
                 }
             }
@@ -227,7 +221,7 @@ pub fn format_violations(path: &str, violations: &[Violation]) -> String {
     let title = |code: &str| match code {
         "V0" => "[V0] 규칙셋 구조 오류",
         "V5" => "[V5] 정의되지 않은 등급 참조",
-        "V12" => "[V12] 경로 규칙에 grade 도 acl_restricted 도 없음",
+        "V12" => "[V12] 이제 쓰지 않는 블록이 남아 있음",
         _ => "[V6] bulk 상향 규칙 위반 (bulk_grade 가 base_grade 보다 낮음)",
     };
     let grades = GRADES.join(" < ");
@@ -254,7 +248,7 @@ pub fn format_violations(path: &str, violations: &[Violation]) -> String {
     lines.push(format!("    · 등급 값은 {} 중 하나여야 합니다.", GRADES.join("/")));
     // V12 는 '등급을 고치라'는 안내만으로는 해결이 안 되므로 항목을 하나 더 붙인다.
     if violations.iter().any(|v| v.code == "V12") {
-        lines.push("    · 경로 규칙(paths)은 grade 또는 acl_restricted: true 중 하나 이상이 있어야 합니다.".into());
+        lines.push("    · paths: 블록은 2026-09-08 에 없어졌습니다 — 통째로 지우세요. \n경로로 등급을 정하던 자리는 --failsafe 로 대신합니다.".into());
     }
     lines.join("\n")
 }
@@ -305,13 +299,13 @@ fn pick(t: (f64, f64, f64), weight: &str) -> f64 {
 // ---- 규칙 구조체 ----
 pub struct RegexRule { pub id: String, pub name: String, pub label: String, pub base_grade: String, pub bulk_grade: Option<String>, pub bulk_threshold: Option<i64>, pub weight: String, pub seed_eligible: bool }
 pub struct ComboRule { pub id: String, pub name: String, pub all_of: Vec<String>, pub of: Vec<String>, pub min_types: usize, pub grade: String, pub weight: String, pub seed_eligible: bool }
-pub struct KeywordRule { pub id: String, pub name: String, pub terms: Vec<String>, pub exclude: Vec<String>, pub base_grade: String, pub bulk_grade: Option<String>, pub bulk_threshold: Option<i64>, pub weight: String, pub seed_eligible: bool }
+/// 보안등급 키워드 규칙. terms 는 본문에서, filename 은 파일명에서 찾는다.
+/// filename 을 안 적으면 그 규칙은 파일명 신호를 만들지 않는다(2026-09-08) —
+/// terms 로 되돌아가는 폴백을 두지 않는다. 폴백은 '본문 단어가 파일명에 새는'
+/// 오탐을 기본값으로 굳힌다(실측: 파일명 신호 99건 중 79건이 제품명 규칙 하나).
+pub struct KeywordRule { pub id: String, pub name: String, pub terms: Vec<String>, pub filename: Vec<String>, pub exclude: Vec<String>, pub base_grade: String, pub bulk_grade: Option<String>, pub bulk_threshold: Option<i64>, pub weight: String, pub seed_eligible: bool }
 pub struct SensitiveRule { pub id: String, pub name: String, pub category: String, pub terms: Vec<String>, pub exclude: Vec<String>, pub grade: String, pub weight: String, pub seed_eligible: bool }
 pub struct StampRule { pub id: String, pub name: String, pub terms: Vec<String>, pub grade: String, pub weight: String, pub seed_eligible: bool, pub always: bool }
-/// 경로 규칙. grade 는 acl_restricted=true 인 규칙에 한해 None 일 수 있다
-/// (= "이 폴더인 건 분명하지만 등급은 내용을 보고 정하라". 아무 신호도 없을 때만
-///    fuse 가 fail-safe 로 최고 등급을 만든다). 검증 V12 가 둘 중 하나를 강제한다.
-pub struct PathRule { pub id: String, #[allow(dead_code)] pub name: String, pub matches: Vec<String>, pub grade: Option<String>, pub acl_restricted: bool, pub weight: String, pub seed_eligible: bool }
 
 pub struct RuleSet {
     pub version: String,
@@ -323,7 +317,6 @@ pub struct RuleSet {
     pub keyword_rules: Vec<KeywordRule>,
     pub sensitive_rules: Vec<SensitiveRule>,
     pub stamp_rules: Vec<StampRule>,
-    pub path_rules: Vec<PathRule>,
 }
 
 const STAMP_HEAD_CHARS: usize = 400;
@@ -351,7 +344,7 @@ pub(crate) fn strvec(v: &Value, k: &str) -> Vec<String> {
     }).unwrap_or_default()
 }
 
-/// cso_rules.yaml 을 읽어 RuleSet 로. (Python load_rules 대응)
+/// cso_rule.yaml 을 읽어 RuleSet 로. (Python load_rules 대응)
 /// 파싱 직후·객체 생성 전에 등급 값을 검증한다(V5·V6). 하나라도 어긋나면 RuleSet 을
 /// 만들지 않고 Invalid 로 실패한다 — 잘못된 규칙셋으로 절반쯤 분류된 결과가
 /// 만들어지는 쪽이 더 위험하기 때문이다.
@@ -410,7 +403,10 @@ pub fn load_rules(path: &std::path::Path) -> Result<RuleSet, RulesError> {
 
     let keyword_rules = arr("keywords").iter().map(|r| KeywordRule {
         id: s(r, "id", ""), name: s(r, "name", &s(r, "id", "")),
-        terms: strvec(r, "terms"), exclude: strvec(r, "exclude"),
+        terms: strvec(r, "terms"),
+        // 없으면 빈 목록 — 파일명 신호 없음(terms 로 폴백하지 않는다).
+        filename: strvec(r, "filename"),
+        exclude: strvec(r, "exclude"),
         base_grade: s(r, "base_grade", "S"), bulk_grade: os(r, "bulk_grade"),
         bulk_threshold: oi(r, "bulk_threshold"), weight: s(r, "weight", "medium"),
         seed_eligible: b(r, "seed_eligible", false),
@@ -430,20 +426,12 @@ pub fn load_rules(path: &std::path::Path) -> Result<RuleSet, RulesError> {
         always: b(r, "always", false),
     }).collect();
 
-    let path_rules = arr("paths").iter().map(|r| PathRule {
-        id: s(r, "id", ""), name: s(r, "name", &s(r, "id", "")),
-        matches: strvec(r, "match").iter().map(|m| m.replace('\\', "/").to_lowercase()).collect(),
-        // 기본값을 주지 않는다 — 생략/null 이면 None. 허용 여부는 검증(V12)이 판단.
-        grade: os(r, "grade"), acl_restricted: b(r, "acl_restricted", false),
-        weight: s(r, "weight", "high"), seed_eligible: b(r, "seed_eligible", false),
-    }).collect();
-
     let d = data.get("defaults").cloned().unwrap_or(json!({}));
     Ok(RuleSet {
         version: s(&data, "version", "unknown"),
         bulk_threshold: oi(&d, "bulk_threshold").unwrap_or(5),
         case_insensitive: b(&d, "case_insensitive", true),
-        conf, regex_rules, pii_combos, keyword_rules, sensitive_rules, stamp_rules, path_rules,
+        conf, regex_rules, pii_combos, keyword_rules, sensitive_rules, stamp_rules,
     })
 }
 
@@ -498,7 +486,6 @@ pub struct Sig {
     pub grade: Option<Grade>,
     pub confidence: f64,
     pub seed_eligible: bool,
-    pub acl_restricted: bool,
     pub dict: Value,
 }
 
@@ -526,7 +513,7 @@ pub fn scan_text(text: &str, rs: &RuleSet) -> Sig {
             let conf = pick(rs.conf.regex, &rule.weight);
             hits.push((Grade::from_str(&g), conf, rule.seed_eligible, json!({
                 "id": rule.id, "name": rule.name, "layer": "L1",
-                "count": c, "validated": c, "grade": g, "terms": []
+                "count": c, "grade": g, "terms": []
             })));
         }
     }
@@ -558,7 +545,7 @@ pub fn scan_text(text: &str, rs: &RuleSet) -> Sig {
             .map(|(l, c)| json!({ "term": l, "count": c })).collect();
         hits.push((Grade::from_str(&rule.grade), conf, rule.seed_eligible, json!({
             "id": rule.id, "name": rule.name, "layer": "COMBO",
-            "count": matched.len(), "validated": matched.len(), "grade": rule.grade, "terms": terms
+            "count": matched.len(), "grade": rule.grade, "terms": terms
         })));
     }
     // L2: 키워드
@@ -578,7 +565,7 @@ pub fn scan_text(text: &str, rs: &RuleSet) -> Sig {
         let conf = pick(rs.conf.keyword, &rule.weight);
         hits.push((Grade::from_str(&g), conf, rule.seed_eligible, json!({
             "id": rule.id, "name": rule.name, "layer": "L2",
-            "count": total, "validated": 0, "grade": g, "terms": per_term
+            "count": total, "grade": g, "terms": per_term
         })));
     }
 
@@ -603,7 +590,10 @@ pub fn scan_sensitive(text: &str, rs: &RuleSet) -> Sig {
         let conf = pick(rs.conf.sensitive, &rule.weight);
         hits.push((Grade::from_str(&rule.grade), conf, rule.seed_eligible, json!({
             "id": rule.id, "name": rule.name, "category": rule.category,
-            "grade": rule.grade, "count": total, "terms": per_term
+            "grade": rule.grade, "count": total, "terms": per_term,
+            // 이 두 칸은 '규칙별' 값이다. 신호 전체의 confidence/seed_eligible 은
+            // 채택된 히트들의 max/any 라 서로 다를 수 있다 — 파생값이 아니라 근거다.
+            "confidence": round3(conf), "seed_eligible": rule.seed_eligible
         })));
     }
     finalize(hits, "sensitive")
@@ -617,17 +607,25 @@ pub fn scan_stamp(text: &str, rs: &RuleSet) -> Sig {
     for rule in &rs.stamp_rules {
         let mut total = 0u32;
         let mut head = false;
+        // 근거로 남길 문구. 머리에서 걸린 것을 우선하고, 없으면 처음 걸린 것을 쓴다
+        // (파이썬 판 head_term / first_term 과 같은 규칙).
+        let mut head_term: Option<&str> = None;
+        let mut first_term: Option<&str> = None;
         for term in &rule.terms {
             if term.is_empty() { continue; }
             let needle = if ci { term.to_lowercase() } else { term.clone() };
             let c = hay.matches(&needle).count() as u32;
             if c == 0 { continue; }
             total += c;
+            if first_term.is_none() { first_term = Some(term); }
             if !head {
                 if let Some(pos) = hay.find(&needle) {
                     // '머리' 판정은 문자수 기준(byte→char 근사): 앞부분 여부.
                     let char_pos = hay[..pos].chars().count();
-                    if char_pos < STAMP_HEAD_CHARS { head = true; }
+                    if char_pos < STAMP_HEAD_CHARS {
+                        head = true;
+                        head_term = Some(term);
+                    }
                 }
             }
         }
@@ -641,28 +639,14 @@ pub fn scan_stamp(text: &str, rs: &RuleSet) -> Sig {
         let conf = pick(rs.conf.stamp, &rule.weight);
         hits.push((Grade::from_str(&rule.grade), conf, rule.seed_eligible, json!({
             "id": rule.id, "name": rule.name, "grade": rule.grade,
-            "mode": mode, "count": total
+            "mode": mode, "count": total,
+            // 어느 문구가 스탬프였나 — 다른 칸에서 얻을 수 없는 근거다.
+            "term": head_term.or(first_term),
+            // 규칙별 확신·씨앗자격(신호 전체값과 다를 수 있다 — 위 sensitive 참고).
+            "confidence": round3(conf), "seed_eligible": rule.seed_eligible
         })));
     }
     finalize(hits, "stamp")
-}
-
-/// Signal C — 경로.
-pub fn scan_path(file: &str, rs: &RuleSet) -> Sig {
-    let np = file.replace('\\', "/").to_lowercase();
-    for rule in &rs.path_rules {
-        if rule.matches.iter().any(|m| np.contains(m)) {
-            let conf = pick(rs.conf.path, &rule.weight);
-            return Sig {
-                grade: rule.grade.as_deref().and_then(Grade::from_str), confidence: conf,
-                seed_eligible: rule.seed_eligible, acl_restricted: rule.acl_restricted,
-                dict: json!({"grade": rule.grade, "confidence": round3(conf),
-                    "seed_eligible": rule.seed_eligible, "acl_restricted": rule.acl_restricted, "source": rule.id}),
-            };
-        }
-    }
-    Sig { grade: None, confidence: 0.0, seed_eligible: false, acl_restricted: false,
-        dict: json!({"grade": Value::Null, "confidence": 0.0, "seed_eligible": false, "acl_restricted": false, "source": Value::Null}) }
 }
 
 /// Signal D — 파일명(키워드 재사용).
@@ -671,8 +655,11 @@ pub fn scan_filename(file: &str, rs: &RuleSet) -> Sig {
     let mut grades: Vec<Option<Grade>> = vec![];
     let mut hits: Vec<Value> = vec![];
     for rule in &rs.keyword_rules {
+        // [2026-09-08] 파일명에서 찾을 말은 rule.filename 이다. 안 적었으면 이 규칙은
+        // 파일명 신호를 만들지 않는다 — terms 로 되돌아가지 않는다(파이썬 판과 같다).
+        if rule.filename.is_empty() { continue; }
         let ex = exclude_spans(&base, &rule.exclude, true);
-        for term in &rule.terms {
+        for term in &rule.filename {
             if term.is_empty() { continue; }
             if count_outside(&base, &term.to_lowercase(), &ex) > 0 {
                 grades.push(Grade::from_str(&rule.base_grade));
@@ -682,19 +669,19 @@ pub fn scan_filename(file: &str, rs: &RuleSet) -> Sig {
         }
     }
     if hits.is_empty() {
-        return Sig { grade: None, confidence: 0.0, seed_eligible: false, acl_restricted: false,
+        return Sig { grade: None, confidence: 0.0, seed_eligible: false,
             dict: json!({"grade": Value::Null, "confidence": 0.0, "seed_eligible": false, "hits": []}) };
     }
     let final_g = max_grade(grades);
     let conf = rs.conf.name;
-    Sig { grade: final_g, confidence: conf, seed_eligible: false, acl_restricted: false,
+    Sig { grade: final_g, confidence: conf, seed_eligible: false,
         dict: json!({"grade": grade_json(final_g), "confidence": round3(conf), "seed_eligible": false, "hits": hits}) }
 }
 
 /// 히트 목록 → 신호(최고등급·그 등급의 최고신뢰도·seed). hits 리스트가 그대로 dict.hits.
 fn finalize(hits: Vec<(Option<Grade>, f64, bool, Value)>, _kind: &str) -> Sig {
     if hits.is_empty() {
-        return Sig { grade: None, confidence: 0.0, seed_eligible: false, acl_restricted: false,
+        return Sig { grade: None, confidence: 0.0, seed_eligible: false,
             dict: json!({"grade": Value::Null, "confidence": 0.0, "seed_eligible": false, "hits": []}) };
     }
     let final_g = max_grade(hits.iter().map(|h| h.0));
@@ -702,7 +689,7 @@ fn finalize(hits: Vec<(Option<Grade>, f64, bool, Value)>, _kind: &str) -> Sig {
     let confidence = deciding.iter().map(|h| h.1).fold(0.0_f64, f64::max);
     let seed = deciding.iter().any(|h| h.2);
     let hit_json: Vec<Value> = hits.iter().map(|h| h.3.clone()).collect();
-    Sig { grade: final_g, confidence, seed_eligible: seed, acl_restricted: false,
+    Sig { grade: final_g, confidence, seed_eligible: seed,
         dict: json!({"grade": grade_json(final_g), "confidence": round3(confidence), "seed_eligible": seed, "hits": hit_json}) }
 }
 
@@ -712,7 +699,6 @@ pub struct Fused { pub grade: Option<Grade>, pub confidence: f64, pub seed_eligi
 /// 보수적 최댓값 + fail-safe 융합 (Python fuse_signals).
 pub fn fuse(signals: &[(&str, &Sig)], failsafe: Option<&str>) -> Fused {
     let present: Vec<&(&str, &Sig)> = signals.iter().filter(|(_, s)| s.grade.is_some()).collect();
-    let acl = signals.iter().any(|(_, s)| s.acl_restricted);
     if !present.is_empty() {
         let final_g = max_grade(present.iter().map(|(_, s)| s.grade));
         let deciding: Vec<&&(&str, &Sig)> = present.iter().filter(|(_, s)| s.grade == final_g).collect();
@@ -721,12 +707,9 @@ pub fn fuse(signals: &[(&str, &Sig)], failsafe: Option<&str>) -> Fused {
         let decided_by = deciding.iter().map(|(n, _)| n.to_string()).collect();
         return Fused { grade: final_g, confidence, seed_eligible: seed, method: "fusion".into(), decided_by };
     }
-    if acl {
-        // seed_eligible=false — 이 C 는 '내용'이 아니라 '위치'에서 나온 등급이다.
-        // 전파는 내용 벡터끼리 비교하므로, 내용 근거 없는 문서를 씨앗으로 삼으면
-        // 무관한 문서에까지 C 가 번진다. 등급은 주되 퍼뜨리지는 않는다(Python fuse.py 와 동일).
-        return Fused { grade: Some(Grade::C), confidence: 0.70, seed_eligible: false, method: "failsafe_acl".into(), decided_by: vec!["path".into()] };
-    }
+    // [2026-09-08] 경로 신호와 그 fail-safe(failsafe_acl)를 걷어냈다.
+    //   경로가 등급을 내던 자리는 실행할 때 --failsafe 로 대신한다.
+    //   설계: plan/보안등급-신호정리-paths제거-20260908.html
     if let Some(fs) = failsafe {
         if let Some(g) = Grade::from_str(fs) {
             return Fused { grade: Some(g), confidence: 0.0, seed_eligible: false, method: "failsafe_default".into(), decided_by: vec![] };
@@ -737,20 +720,20 @@ pub fn fuse(signals: &[(&str, &Sig)], failsafe: Option<&str>) -> Fused {
 
 pub fn round3(x: f64) -> f64 { (x * 1000.0).round() / 1000.0 }
 
-/// 저장된 신호 dict → 융합용 Sig 복원(grade/confidence/seed_eligible/acl 만 사용).
+/// 저장된 신호 dict → 융합용 Sig 복원(grade/confidence/seed_eligible 만 사용).
 fn sig_from_json(v: &Value) -> Sig {
     Sig {
         grade: v.get("grade").and_then(|g| g.as_str()).and_then(Grade::from_str),
         confidence: v.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0),
         seed_eligible: v.get("seed_eligible").and_then(|b| b.as_bool()).unwrap_or(false),
-        acl_restricted: v.get("acl_restricted").and_then(|b| b.as_bool()).unwrap_or(false),
         dict: Value::Null,
     }
 }
 
 /// [전파] embed 신호를 더해 재융합(Python propagate_records 의 재융합부).
 /// rec 의 저장된 rule/sensitive/stamp/path/name 을 되살려 embed 와 함께 max 융합하고
-/// rec 의 grade/confidence/method/decided_by/seed_eligible/signals.embed 를 갱신한다.
+/// rec["grade"] 와 rec["why"]["security"] 를 통째로 다시 만든다(2026-09-10 — 예전에는 최상위와
+/// labels.security 양쪽에 같은 값을 두 벌 적어야 했고, 한쪽만 갱신하면 어긋났다).
 /// -out: 갱신된 등급.
 pub fn refuse_with_embed(rec: &mut Value, embed_grade: Option<&str>, embed_conf: f64,
                          embed_dict: Value, failsafe: Option<&str>) -> Option<Grade> {
@@ -758,12 +741,12 @@ pub fn refuse_with_embed(rec: &mut Value, embed_grade: Option<&str>, embed_conf:
         grade: embed_grade.and_then(Grade::from_str),
         confidence: embed_conf,
         seed_eligible: false,
-        acl_restricted: false,
         dict: Value::Null,
     };
     // 저장된 신호 복원.
     let empty = Value::Null;
-    let sg = rec.get("signals").cloned().unwrap_or(json!({}));
+    // 새 모양은 security.signals, 옛 결과 파일은 최상위 signals — 둘 다 읽는다.
+    let sg = crate::record::signals(rec).cloned().unwrap_or(json!({}));
     let get = |k: &str| sig_from_json(sg.get(k).unwrap_or(&empty));
     let (rule, sens, stamp, path, name) = (get("rule"), get("sensitive"), get("stamp"), get("path"), get("name"));
     let sigs: [(&str, &Sig); 6] = [
@@ -771,15 +754,64 @@ pub fn refuse_with_embed(rec: &mut Value, embed_grade: Option<&str>, embed_conf:
         ("path", &path), ("name", &name), ("embed", &embed),
     ];
     let fused = fuse(&sigs, failsafe);
+    let mut merged = sg;
+    if let Some(o) = merged.as_object_mut() {
+        o.insert("embed".into(), embed_dict);
+    }
     rec["grade"] = grade_json(fused.grade);
-    rec["confidence"] = json!(round3(fused.confidence));
-    rec["method"] = json!(fused.method);
-    rec["decided_by"] = json!(fused.decided_by);
-    rec["seed_eligible"] = json!(fused.seed_eligible);
-    if let Some(sigs_obj) = rec.get_mut("signals").and_then(|s| s.as_object_mut()) {
-        sigs_obj.insert("embed".into(), embed_dict);
+    if !rec.get("why").map_or(false, |w| w.is_object()) {
+        rec["why"] = json!({});
+    }
+    rec["why"]["security"] = security_axis(&fused, merged);
+    // 옛 레코드를 그대로 받았을 수 있다 — 두 모양이 한 파일에 섞이면 읽는 쪽이
+    // 어느 쪽을 믿어야 할지 알 수 없으므로, 갱신한 김에 옛 칸들을 걷어낸다.
+    if let Some(o) = rec.as_object_mut() {
+        // grade 는 3세대에서 다시 최상위 칸이 됐으므로 지우지 않는다.
+        for k in ["confidence", "method", "decided_by", "seed_eligible", "signals",
+                  "security"] {
+            o.remove(k);
+        }
+        if let Some(l) = o.get_mut("labels").and_then(|l| l.as_object_mut()) {
+            l.remove("security");
+        }
     }
     fused.grade
+}
+
+/// 아무것도 못 찾은 신호(등급도 없고 걸린 규칙도 없는 것)를 빼고 signals 객체를 만든다.
+/// 예전에는 네 신호를 늘 적어, 셋이 {grade:null, hits:[]} 로 "없음"만 말하는 일이 흔했다.
+/// 키가 없는 것이 곧 "그 신호는 아무것도 못 찾았다" 는 뜻이다(Python _nonempty_signals 대응).
+fn nonempty_signals(sigs: &[(&str, &Value)]) -> Value {
+    let mut out = serde_json::Map::new();
+    for (name, d) in sigs {
+        let has_grade = d.get("grade").map_or(false, |g| !g.is_null());
+        let has_hits = d.get("hits").and_then(|h| h.as_array()).map_or(false, |a| !a.is_empty());
+        if has_grade || has_hits {
+            out.insert((*name).to_string(), (*d).clone());
+        }
+    }
+    Value::Object(out)
+}
+
+/// 융합 결과 → 레코드의 `why.security` 칸(Python `_security_axis` 대응).
+///
+/// [2026-09-10 ③] 등급값(grade)은 이 칸에서 뺐다. 판정은 레코드 맨 앞에 한 벌만
+/// 두고(rec["grade"]), 여기에는 그 판정을 뒷받침하는 것만 남긴다.
+///
+/// [2026-09-10] labels 껍데기를 없애고 이 칸을 최상위로 올렸다. 예전에는 똑같은
+/// 값이 최상위(grade/confidence/method/decided_by)와 labels.security 양쪽에 두 벌
+/// 있었고, 전파가 한쪽만 갱신하면 두 값이 어긋날 수 있었다. 한 벌만 두면 어긋날
+/// 자리가 없다. `strategy` 는 뺐다 — 등급 축은 늘 max 고정이라 문서마다 "max"
+/// 라고 적어도 새로 알려 주는 것이 없다.
+pub fn security_axis(fused: &Fused, signals: Value) -> Value {
+    json!({
+        "confidence": round3(fused.confidence),
+        "method": fused.method,
+        "decided_by": fused.decided_by,
+        // 전파(Signal B)의 seed 수집 필터가 바로 읽는다.
+        "seed_eligible": fused.seed_eligible,
+        "signals": signals,
+    })
 }
 
 /// 분류 레코드(JSON) 조립 — Python build_record(rule_only) 대응.
@@ -787,23 +819,25 @@ pub fn build_record(file: &str, text: &str, rs: &RuleSet, failsafe: Option<&str>
     let rule = scan_text(text, rs);
     let sens = scan_sensitive(text, rs);
     let stamp = scan_stamp(text, rs);
-    let path = scan_path(file, rs);
     let name = scan_filename(file, rs);
-    let sigs = [("rule", &rule), ("sensitive", &sens), ("stamp", &stamp), ("path", &path), ("name", &name)];
+    let sigs = [("rule", &rule), ("sensitive", &sens), ("stamp", &stamp), ("name", &name)];
     let fused = fuse(&sigs, failsafe);
+    // 축(security/doctype)을 나란한 두 칸으로 두고, 판정에 안 쓰이는 기록용
+    // 값(버전·시각)은 meta 로 모은다 — 읽는 사람이 "판정"과 "장부"를 헷갈리지
+    // 않게 하려는 것이다(2026-09-10, Python 판과 동일).
     let rec = json!({
         "file": file,
+        // 판정을 맨 앞에 — 사람이 파일을 열면 가장 먼저 보고 싶은 값이다.
         "grade": grade_json(fused.grade),
-        "confidence": round3(fused.confidence),
-        "method": fused.method,
-        "decided_by": fused.decided_by,
-        "seed_eligible": fused.seed_eligible,
-        "signals": {
-            "rule": rule.dict, "sensitive": sens.dict, "stamp": stamp.dict,
-            "path": path.dict, "name": name.dict
-        },
-        "rule_version": rs.version,
-        "ts": Value::Null
+        "why": {"security": security_axis(&fused, nonempty_signals(&[
+            // 아무것도 못 찾은 신호는 적지 않는다 — 없는 키 = 아무것도 못 찾음.
+            ("rule", &rule.dict), ("sensitive", &sens.dict),
+            ("stamp", &stamp.dict), ("name", &name.dict),
+        ]))},
+        // 규칙셋 버전 세 칸은 레코드마다 적지 않는다(2026-09-10). 한 번 실행하면
+        // 모든 줄이 같은 값이라, 결과 파일 맨 앞의 실행 헤더가 한 번만 적는다.
+        // ts 는 줄마다 다를 수 있어(문서 하나를 처리한 시각) 여기 남는다.
+        "meta": {"ts": crate::now_iso()}
     });
     (rec, fused.grade)
 }

@@ -106,7 +106,7 @@
     <li><a href="#prf1">G. 정밀도 · 재현율 · F1 — 앞의 표를 읽는 법</a>
       <span class="def">미탐·오탐이 뜻하는 것 · 예제 계산 · F 표 다시 읽기</span></li>
   </ul>
-  <p class="def" style="margin-top:14px">실행 방법과 인자는 <a href="csoclassify-실행가이드.html">실행 가이드</a>에 있습니다.</p>
+  <p class="def" style="margin-top:14px">실행 방법과 인자는 <a href="MpowerClassify-실행가이드.html">실행 가이드</a>에 있습니다.</p>
 </section>
 
 <h2 id="chg"><span class="n">A</span> 2026-08-31~09-01 변경 정리</h2>
@@ -127,7 +127,7 @@
 
   <h3>A-1. 새로 생긴 것 — 오류 계약</h3>
   <p>다른 프로그램이 이 CLI 를 부를 때, 실패를 <b>사람이 읽는 한 줄</b>이 아니라
-  <b>고유 코드가 붙은 JSON</b> 으로 받게 했습니다. 자세한 규약은 <a href="csoclassify-실행가이드.html#exit">6장</a>에 있습니다.</p>
+  <b>고유 코드가 붙은 JSON</b> 으로 받게 했습니다. 자세한 규약은 <a href="MpowerClassify-실행가이드.html#exit">6장</a>에 있습니다.</p>
   <div class="scroll"><table>
     <tr><th>무엇</th><th>내용</th><th>범위</th></tr>
     <tr><td><span class="chg-n">신규</span> <code>--json-errors</code></td>
@@ -151,9 +151,9 @@
         <td>Rust 판이 키를 <b>사전순</b>으로 내보내던 것을 <b>넣은 차례</b>로 바꿨습니다
             (<code>serde_json preserve_order</code>). 이제 두 판의 출력이
             <b>칸 차례까지 같습니다</b> — 결과 파일을 그대로 견줄 수 있습니다.
-            축약본은 <code>file · hash · grade · doctype · why</code> 차례입니다</td><td>Rust</td></tr>
+            축약본은 <code>file · hash · doc_id · grade · doctype · why</code> 차례입니다 <span class="def">2026-09-07 doc_id 가 grade 앞으로</span></td><td>Rust</td></tr>
     <tr><td><span class="chg-b">변경</span> 결과 레코드 차례</td>
-        <td>전체 레코드도 <b>읽는 차례</b>로 냅니다 — ①무엇을(file·hash) ②어떻게 됐나
+        <td>전체 레코드도 <b>읽는 차례</b>로 냅니다 — ①무엇을(file·hash·doc_id) ②어떻게 됐나
             (grade·doctype·confidence…) ③왜(labels·signals) ④부속(버전·시각).
             <b>업무분류가 최상위로</b> 올라왔습니다(전에는 <code>labels</code> 안에 묻혀 열 번째).
             앞 네 칸이 <code>--simple</code> 과 같아 축약본이 전체의 앞부분이 됩니다</td><td>두 판</td></tr>
@@ -251,7 +251,7 @@
         <td><b><code>--out</code></b> 을 쓰면 stdout 에 상태 줄 하나만 남아 파싱이 가장 단순합니다</td></tr>
     <tr><td>문서를 하나씩 부르고 있다</td>
         <td><b><code>--dir</code> 로 묶어서</b> 부르세요 — 실측 5.7배 차이입니다
-            (<a href="csoclassify-실행가이드.html#start">1장</a>)</td></tr>
+            (<a href="MpowerClassify-실행가이드.html#start">1장</a>)</td></tr>
   </table></div>
 
   <div class="note"><b>검증</b> — 파이썬 <b>520개</b> · Rust <b>137개</b> 테스트가 모두 통과합니다.
@@ -312,7 +312,7 @@
     <tr><td>실행 흔적(상태 줄·오류 로그)</td><td><b>영구</b> <span class="def">최소 정책 개정 주기의 2배</span></td>
         <td>한 줄짜리인데 <b>재현의 열쇠</b>입니다. 지울 이유가 없습니다</td></tr>
     <tr><td class="chg-b">정책 파일 버전별 사본<br>
-            <span class="def">cso_rules.yaml · doc_taxonomy.yaml · doc_rule.yaml</span></td>
+            <span class="def">cso_rule.yaml · doc_taxonomy.yaml · doc_rule.yaml</span></td>
         <td class="chg-b"><b>감사용 파일보다 오래</b></td>
         <td><b>가장 놓치기 쉬운 것</b> — 아래 경고를 보세요</td></tr>
   </table></div>
@@ -321,7 +321,7 @@
   남아 있어야 재현할 수 있습니다. 규칙셋을 고칠 때마다 <b>version 을 올리고 이전 파일을
   따로 보관</b>하세요 — 몇십 KB 짜리 YAML 이고, 이것이 없으면 감사 파일을 아무리 오래
   들고 있어도 "그때 규칙으로는 어땠나"를 확인할 수 없습니다.
-  <span class="def">→ 규칙셋 개정 규약은 <a href="csoclassify-실행가이드.html#seedrule">실행가이드 10장</a></span></div>
+  <span class="def">→ 규칙셋 개정 규약은 <a href="MpowerClassify-실행가이드.html#seedrule">실행가이드 10장</a></span></div>
 
   <h3>B-4. 감사 파일에 무엇이 들어가나 <span class="def">개인정보 취급</span></h3>
   <p>보관 기간을 정하려면 <b>그 파일이 얼마나 민감한지</b>를 알아야 합니다.
@@ -355,7 +355,7 @@ find /audit -name '*.full.jsonl' -mtime +365 -exec gzip -9 {} \;</code></pre>
   감사 파일을 지우고 상태 줄도 없으면 그 실행은 <b>흔적 없이 사라집니다</b>.
   상태 줄을 따로 모아 두는 것을 권합니다(실행마다 한 줄이라 1년치도 몇 MB 입니다).</div>
 <pre><code><span class="cmt">:: 상태 줄만 따로 쌓기 — 실행할 때마다 한 줄씩 이어 붙인다</span>
-csoclassify.exe --dir "D:\collected" --json-errors --simple --nosummary ^
+MpowerClassify.exe --dir "D:\collected" --json-errors --simple --nosummary ^
     --format jsonl --out "D:\audit\%DATE%.jsonl" &gt;&gt; "D:\audit\runs.jsonl"</code></pre>
 </section>
 
@@ -450,11 +450,11 @@ csoclassify.exe --dir "D:\collected" --json-errors --simple --nosummary ^
 dir /b /s "D:\분류함\인사" "D:\분류함\계약" &gt; list.txt
 
 <span class="cmt">:: 한 프로세스로 전부 처리</span>
-csoclassify-rs.exe --files-from list.txt --simple --nosummary --format jsonl --out out.jsonl
-csoclassify.exe    --files-from list.txt --simple --nosummary --format jsonl --out out.jsonl
+MpowerClassify-rs.exe --files-from list.txt --simple --nosummary --format jsonl --out out.jsonl
+MpowerClassify.exe    --files-from list.txt --simple --nosummary --format jsonl --out out.jsonl
 
 <span class="cmt">:: 파이프로 바로 넘기기 (표준입력)</span>
-dir /b /s D:\분류함\*.pdf | csoclassify-rs.exe --files-from - --simple</code></pre>
+dir /b /s D:\분류함\*.pdf | MpowerClassify-rs.exe --files-from - --simple</code></pre>
 
   <h3>C-4. 벤치마크 결과</h3>
   <p><b>대상</b> — <code>D:\분류함</code> 의 문서 1,050건 중 <b>두 판이 모두 추출을 지원하는
@@ -762,9 +762,9 @@ dir /b /s D:\분류함\*.pdf | csoclassify-rs.exe --files-from - --simple</code>
     <tr><td>대상</td><td><code>D:\분류함</code> 문서 <b>986개</b> · 약 1.3GB<br>
       <span class="def">pdf 303 · txt 265 · pptx 117 · doc 87 · docx 55 · ppt 42 · md 36 · hwp 34 ·
       xlsx 26 · hwpx 9 · html 6 · xls 5 · csv 1</span></td></tr>
-    <tr><td>Rust</td><td><code>Rust\target\release\csoclassify-rs.exe</code>
+    <tr><td>Rust</td><td><code>Rust\target\release\MpowerClassify-rs.exe</code>
       <span class="def">(2026-09-02 빌드 — <code>find_bounded</code> 숫자덩어리 건너뛰기 반영)</span></td></tr>
-    <tr><td>Python</td><td><code>dist-onedir\windows\csoclassify.exe</code></td></tr>
+    <tr><td>Python</td><td><code>dist-onedir\windows\MpowerClassify.exe</code></td></tr>
     <tr><td>PII 정답</td><td><b>ko-pii 1.15.2</b> <code>detect_all()</code>
       <span class="def">— 채점 범위는 Rust <code>src/pii.rs</code> 가 포팅한 20라벨</span></td></tr>
     <tr><td>공통 인자</td><td><code>--files-from</code>(동일 목록) <code>--rules</code>(동일 yaml)
@@ -815,7 +815,7 @@ dir /b /s D:\분류함\*.pdf | csoclassify-rs.exe --files-from - --simple</code>
   <p><b>나머지 16개 라벨은 양쪽 다 정밀도·재현율 1.000</b> 입니다.
   전체 재현율은 <b>Rust 99.73%</b> · <b>Python 99.85%</b>.</p>
   <div class="warn"><b>파이썬 제품도 ko-pii 와 같지 않습니다.</b>
-  <code>csoclassify.exe</code> 는 PHONE 을 15건 놓치고 EMAIL 을 2건 더 잡습니다 —
+  <code>MpowerClassify.exe</code> 는 PHONE 을 15건 놓치고 EMAIL 을 2건 더 잡습니다 —
   <code>rules.py</code> 가 속도를 위해 쓰는 부분검출·청킹 최적화(부록 D) 때문으로 보입니다.
   <b>PHONE 에 한해서는 Rust 포팅이 파이썬 제품보다 원본에 더 충실합니다.</b>
   거꾸로 Rust 는 IP 19건·RRN 7건을 놓칩니다. RRN 은 최고 민감도 라벨이라
@@ -832,8 +832,7 @@ dir /b /s D:\분류함\*.pdf | csoclassify-rs.exe --files-from - --simple</code>
   </table>
   <div class="must"><div class="h">이 표를 읽을 때의 함정 — 정답이 파이썬 쪽에서 나왔다</div>
   <p style="margin-bottom:0">정답을 만들려면 텍스트가 있어야 하는데, 그 텍스트를 <b>파이썬 추출기</b>로 뽑았습니다
-  (Rust 는 텍스트 덤프 기능이 없습니다 — <code>--text-only</code>·<code>--save-text</code> 를 인자로 받기만 하고
-  무시합니다). 그래서 이 표는 <b>구조적으로 파이썬에 유리</b>합니다. Rust 의 ADDRESS·URL 손실은
+  (당시 Rust 는 텍스트 덤프 기능이 없었습니다 — <code>--text-only</code>·<code>--save-text</code> 를 인자로 받기만 하고 무시했습니다. <span class="def">2026-09-07 부터 Rust 도 <code>--textsave</code> 로 추출 본문을 남깁니다 — 다만 이 표를 만든 시점의 이야기는 그대로 둡니다</span>). 그래서 이 표는 <b>구조적으로 파이썬에 유리</b>합니다. Rust 의 ADDRESS·URL 손실은
   검출기가 아니라 <b>추출기가 글자를 다르게 뽑은</b> 결과입니다 — (가) 표에서 두 라벨 모두 1.000 인 것이 근거입니다.
   <b>포팅 정확도를 말할 때는 (가), 실사용 체감을 말할 때는 (나)</b> 를 보십시오.</p>
   </div>
@@ -1206,7 +1205,7 @@ FN = 5     (20 − 15)  ← 미탐
   F1 은 검출기끼리 줄 세울 때만 쓰고, <b>라벨별로 나눠 보기 전에는 어떤 평균도 믿지 마십시오.</b></div>
 </section>
 
-<footer>CSOClassify — 부록 <span class="def">최종 갱신 2026-09-03</span><br>
+<footer>MpowerClassify — 부록 <span class="def">최종 갱신 2026-09-03</span><br>
 <span class="def">부록에 해당하는 내용은 이 파일에, 묻고 답한 것은 <a href="Q&amp;A.html">Q&amp;A.html</a> 에 쌓습니다.</span></footer>
 
 </div>

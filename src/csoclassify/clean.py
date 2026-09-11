@@ -58,3 +58,36 @@ def clean_text(text, remove_page_markers=True):
     text = _MULTI_BLANK.sub("\n\n", text)
 
     return text.strip()
+
+
+#------------------------------------------------------------------
+# 글자수 상한 적용 (G3 — 크기 상한의 본체)
+#=> 정제된 본문이 상한보다 길면 "앞부분만" 남기고 잘라 준다. 문서를 버리는 게
+#   아니라 앞부분만 보고 판단하게 하는 것이다. 부른 쪽은 반환된 truncated 를 보고
+#   결과에 '일부만 봤다'는 표식을 달아야 한다.
+#    1) 상한이 없거나(None/0 이하) 본문이 상한 이하면 그대로 돌려준다(무해)
+#    2) 넘으면 앞에서부터 limit 글자만 남긴다
+#
+#   [왜 앞부분인가] 등급을 정하는 신호 — 표지의 문서 종류, 머리말의 '대외비',
+#   결재 스탬프, 업무분류 어휘 — 는 문서 앞쪽에 몰려 있다. 뒤를 버리는 쪽이
+#   판정 손실이 가장 작다.
+#   [왜 자르나] 이 길이가 뒤따르는 PII 정규식 스캔·임베딩 청크 수·데몬 IPC
+#   페이로드 크기를 한꺼번에 결정한다. 여기서 유계로 만들면 셋이 같이 유계가 된다.
+#
+# -in: text  = 정제된 본문(clean_text 결과)
+# -in: limit = 남길 최대 글자수(None 또는 0 이하면 제한 없음)
+#
+# -out: (text, n_orig, truncated) = 잘린(또는 그대로인) 본문, 자르기 전 글자수, 잘렸는지
+# -out: error = 없음 (입력이 None 이면 ("", 0, False))
+#------------------------------------------------------------------
+def truncate_text(text, limit):
+    # 방어적 처리: None 이 들어와도 죽지 않게 빈 문자열과 같은 취급.
+    if not text:
+        return "", 0, False
+
+    n_orig = len(text)
+    # 상한을 끄는 방법을 명시적으로 둔다(--no-size-limit 가 None 을 넘긴다).
+    if not limit or limit <= 0 or n_orig <= limit:
+        return text, n_orig, False
+
+    return text[:limit], n_orig, True

@@ -186,7 +186,7 @@
     <div class="sec-head"><span class="sec-num">02</span><h2>전체 워크플로</h2></div>
     <p>원안의 4단계를 유지하되, <b>규칙 설정을 앞단계(Phase 0)로 분리</b>하고 <b>seed 수집/확정을 명확히 구분</b>했다. Phase 3·4가 정상상태에서 반복되는 루프다.</p>
     <div class="pipe">
-      <div class="stage p0"><span class="tag">Phase 0 — 설정(1회/수시)</span><div class="st">규칙 설정</div><p class="sd">PII 정규식·기밀사전·경로 택소노미·파일명 키워드·임계값을 UI에서 편집 → <code class="inl">cso_rules.yaml</code>(버전 관리)</p></div>
+      <div class="stage p0"><span class="tag">Phase 0 — 설정(1회/수시)</span><div class="st">규칙 설정</div><p class="sd">PII 정규식·기밀사전·경로 택소노미·파일명 키워드·임계값을 UI에서 편집 → <code class="inl">cso_rule.yaml</code>(버전 관리)</p></div>
       <div class="flowline">↓</div>
       <div class="stage p1"><span class="tag">Phase 1 — 수집</span><div class="st">seed 후보 수집</div><p class="sd">폴더 선택 → <code class="inl">csoclassify --classify --with-vector</code> → <code class="inl">cso_result.jsonl</code>(자동 등급 + 벡터)</p></div>
       <div class="flowline">↓</div>
@@ -213,7 +213,7 @@
           <tr><td>분류의 seed 비교</td><td>seed_class와 임베딩 비교</td><td>구현 갱신 필요: 전파가 <b>외부 <code class="inl">--seeds</code></b>를 받도록(현재는 코퍼스 내부 seed 사용)</td></tr>
           <tr><td>등급 결정</td><td>임베딩으로 C/S/O</td><td><b>규칙 우선, 보류만 임베딩 구제</b>(과분류 방지). 단 near-dup(사본)은 예외 상향 옵션</td></tr>
           <tr><td>seed 추가(Phase 4)</td><td>관리자가 선택 추가</td><td><b>near-dup 중복 경고</b>(이미 있는 seed와 코사인≈1이면 정보 없음) + <b>등급별 균형 표시</b></td></tr>
-          <tr><td>실행 방식</td><td>csoclassify.exe 수동</td><td><b>UI에서 실행 트리거</b> — 폴더 선택→진행률→결과 자동 로드(CLI 왕복 제거)</td></tr>
+          <tr><td>실행 방식</td><td>MpowerClassify.exe 수동</td><td><b>UI에서 실행 트리거</b> — 폴더 선택→진행률→결과 자동 로드(CLI 왕복 제거)</td></tr>
           <tr><td>감사</td><td>—</td><td><b>감사 이원화</b>: <code class="inl">cso_override.jsonl</code>(분류 수정) + <code class="inl">class_seed_audit.jsonl</code>(seed 추가·수정·삭제)</td></tr>
         </tbody>
       </table>
@@ -230,7 +230,7 @@
       <table>
         <thead><tr><th>파일</th><th>역할</th><th>쓰는 단계</th><th>수정 정책</th></tr></thead>
         <tbody>
-          <tr><td class="mono">cso_rules.yaml</td><td>PII·사전·경로·파일명·임계값 규칙</td><td>Phase 0</td><td>UI 편집·버전 태그</td></tr>
+          <tr><td class="mono">cso_rule.yaml</td><td>PII·사전·경로·파일명·임계값 규칙</td><td>Phase 0</td><td>UI 편집·버전 태그</td></tr>
           <tr><td class="mono">cso_result.jsonl</td><td>자동 분류 결과(등급+근거+벡터)</td><td>Phase 1·3</td><td>불변(재실행 시 새로 생성)</td></tr>
           <tr><td class="mono">class_seed.jsonl</td><td>큐레이션된 씨앗(등급+벡터+메타)</td><td>Phase 2·4</td><td>추가·수정·삭제(감사)</td></tr>
           <tr><td class="mono">cso_override.jsonl</td><td>분류 수정 이력(append-only)</td><td>Phase 2·3</td><td>덧붙임 전용</td></tr>
@@ -245,7 +245,7 @@
   <span class="st2">"vector"</span>: [0.013, -0.028, ...],  <span class="cm"># 재임베딩 없이 비교에 재사용</span>
   <span class="st2">"source"</span>: <span class="st2">"phase2"</span> | <span class="st2">"phase4"</span> | <span class="st2">"upload"</span>,  <span class="cm"># 승격/직접 업로드 출처</span>
   <span class="st2">"approved_by"</span>: <span class="st2">"홍길동"</span>,
-  <span class="st2">"ts"</span>: <span class="st2">"2026-08-13T09:00:00+09:00"</span>,
+  <span class="st2">"ts"</span>: <span class="st2">"2026-08-13 09:00:00"</span>,
   <span class="st2">"note"</span>: <span class="st2">"대표 급여대장 양식"</span>
 }</pre>
     <div class="note safe"><span class="badge">감사</span><p>원본 <code class="inl">cso_result.jsonl</code>은 절대 수정하지 않는다. 사람의 모든 개입(등급 수정·seed 변경)은 append-only 로그로 남겨 <b>누가·언제·왜</b>를 추적한다.</p></div>
@@ -258,7 +258,7 @@
 
     <h3>(A) 규칙 설정 — Phase 0</h3>
     <div class="mock">
-      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span> 규칙 설정 · cso_rules.yaml</div>
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span> 규칙 설정 · cso_rule.yaml</div>
       <div class="body">
         <div class="mtabs"><span class="mtab on">PII 정규식</span><span class="mtab">기밀사전</span><span class="mtab">경로</span><span class="mtab">파일명</span><span class="mtab">임계값</span></div>
         <div class="mbox solid"><b>기밀사전</b> — 그룹별 단어 편집 (예: 기밀표식=대외비/극비/기밀 → <span class="g c">C</span>)<br>단어 추가/삭제 · 등급·가중치·seed사용 토글 · bulk 임계값</div>
@@ -374,7 +374,7 @@
 
   <footer>
     <span>문서 C·S·O 분류 — 워크플로 &amp; UI/UX 설계</span>
-    <span>CSOClassify/plan · 2026-08-13</span>
+    <span>MpowerClassify/plan · 2026-08-13</span>
   </footer>
 
 </div>

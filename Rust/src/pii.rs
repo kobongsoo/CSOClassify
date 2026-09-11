@@ -1,7 +1,7 @@
 //! PII 검출기 (ko-pii 전면 포팅 — 체크섬·문맥앵커·행정구역 사전·겹침해소 포함).
 //! 구현(20라벨): RRN·FRN·CARD·BUSINESS_REG·CORP_REG·PHONE·EMAIL·ACCOUNT·PASSPORT·IP·URL·
 //!   VEHICLE·NATIONALITY·ADDRESS·DRIVER_LICENSE·MEDICAL_INSURANCE·PRESCRIPTION_ID·EDI_DRUG·
-//!   COURT_CASE·PNU. (CSOClassify 가 cso_rules.yaml 에서 쓰는 라벨 전량.)
+//!   COURT_CASE·PNU. (MpowerClassify 가 cso_rule.yaml 에서 쓰는 라벨 전량.)
 //!
 //! 동작 순서(ko-pii detect_all 동일):
 //!   1) 요청 라벨의 검출기만 실행 → 각자 (span, risk, confidence) 방출

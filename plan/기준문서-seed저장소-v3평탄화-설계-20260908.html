@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기준 문서 저장소 v2→v3 평탄화 설계</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .ok{color:var(--o);font-weight:700}
+  .bad{color:var(--c);font-weight:700}
+  .mid{color:var(--s);font-weight:700}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .danger{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .gate{font-weight:800;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>기준 문서 저장소 평탄화 <span class="kbd">v2 → v3</span></h1>
+  <p><code>class_seed.jsonl</code> 한 줄의 구조를 <b>3겹 중첩에서 한 겹으로</b> 편다.
+  같은 등급이 세 곳에 적히던 것을 한 곳으로 모으고, 아무도 읽지 않는 칸을 걷어낸다.
+  <b>판정 결과는 한 건도 바뀌지 않는다</b> — 저장 모양만 바뀐다.</p>
+  <p class="muted">2026-09-08 · 대상: <code>ui/seedstore.py</code> · <code>ui/app.py</code> ·
+  <code>src/csoclassify/classify/propagate.py</code> · <code>src/csoclassify/classify/seedgen.py</code> ·
+  <code>Rust/src/propagate.rs</code></p>
+  <div class="note" style="margin-top:14px"><b>상태 — 2026-09-08 확정·구현 완료</b>
+  <span class="pill">Q1~Q6 권고안대로</span><br>
+  두 판 모두 고쳤고, <code>class_seed.jsonl</code> 6벌을 v3 로 올렸으며, 테스트
+  <b>642건 전부 통과</b>했습니다(v3 전용 11건 신규). 실측 결과는 §14 에 적었습니다.
+  <b>같은 코퍼스에서 판정이 한 건도 바뀌지 않았습니다.</b></div>
+</header>
+
+<section class="card">
+  <h3>차례</h3>
+  <ul class="toc">
+    <li><a href="#why">1. 왜 바꾸나 — 실측</a></li>
+    <li><a href="#now">2. 지금 구조(v2) 그대로 보기</a></li>
+    <li><a href="#who">3. 누가 이 파일을 읽는가</a></li>
+    <li><a href="#v3">4. v3 스키마</a></li>
+    <li><a href="#drop">5. 빼는 칸과 그 근거</a></li>
+    <li><a href="#state">6. 축 상태(해제·의심)를 어떻게 담나</a></li>
+    <li><a href="#peraxis">7. 축별 승인자·메모를 잃는가</a></li>
+    <li><a href="#map">8. v2 → v3 변환표</a></li>
+    <li><a href="#mig">9. 이행 — 읽기는 둘 다, 쓰기는 v3</a></li>
+    <li><a href="#api">10. seedstore API 는 그대로 둔다</a></li>
+    <li><a href="#engine">11. 엔진(두 판) 변경점</a></li>
+    <li><a href="#check">12. 점검 화면 영향</a></li>
+    <li><a href="#files">13. 배포된 seed 파일 6벌</a></li>
+    <li><a href="#test">14. 테스트</a></li>
+    <li><a href="#back">15. 되돌리기</a></li>
+    <li><a href="#q">16. 남은 결정</a></li>
+  </ul>
+</section>
+
+<h2 id="why"><span class="n">1</span> 왜 바꾸나 — 실측</h2>
+<section class="card">
+  <p>실제 운영 파일 <code>ui/policy/class_seed.jsonl</code>(19행, 173,013 바이트)를 그대로 재어 본 값이다.
+  추측이 아니다.</p>
+
+  <div class="scroll"><table>
+    <tr><th>재어 본 것</th><th>v2</th><th>v3(안)</th><th></th></tr>
+    <tr><td>한 줄의 메타 바이트(벡터 제외)</td><td>평균 <b>663 B</b></td><td>평균 <b>273 B</b></td>
+        <td class="ok">59% 감소</td></tr>
+    <tr><td>중첩 깊이</td><td><b>4단</b>(<code>axes.security.value</code>)</td><td><b>2단</b></td>
+        <td class="ok">한 겹</td></tr>
+    <tr><td>같은 등급이 적히는 곳</td><td><b>3곳</b> — 19행 전부</td><td><b>1곳</b></td>
+        <td class="ok">진실이 하나</td></tr>
+    <tr><td>축별 승인자·메모가 실제로 다른 행</td><td><b>0 / 19</b></td><td>—</td>
+        <td class="muted">쓰이지 않는 유연성</td></tr>
+    <tr><td>축 상태</td><td><code>active</code> 37개 <span class="muted">(전부)</span></td><td>—</td>
+        <td class="muted">해제·의심 0건</td></tr>
+  </table></div>
+
+  <p><b>“같은 등급이 3곳”이 이 설계의 핵심 문제다.</b> 등급 <code>C</code> 하나가
+  <code>grade</code>, <code>labels.security</code>, <code>axes.security.value</code> 세 군데에 적힌다.
+  셋이 어긋나면 어느 것이 참인지 파일만 보고는 알 수 없다.
+  지금은 <code>project()</code> 라는 함수가 저장 직전에 항상 세 곳을 맞춰 주기 때문에 어긋나지 않는다 —
+  <b>즉, 이 구조는 “함수를 반드시 통과해야만 올바른” 파일 형식이다.</b>
+  CLI(<code>--seed-add</code>)나 웹처럼 <b>다른 프로세스가 이 파일을 쓰기 시작하면</b>
+  그 규율을 강제할 방법이 없다. 그래서 지금 편다.</p>
+
+  <div class="note"><b>바뀌지 않는 것</b> — 전파(propagate) 알고리즘, 임계값, 등급 판정,
+  업무분류 부여, 벡터. v3 는 <b>같은 값을 다른 모양으로 적을 뿐</b>이다.
+  이행 뒤 19행 전부에 대해 <b>등급·분류코드가 한 글자도 바뀌지 않음</b>을 §14 에서 확인한다.</div>
+</section>
+
+<h2 id="now"><span class="n">2</span> 지금 구조(v2) 그대로 보기</h2>
+<section class="card">
+  <p>운영 파일의 첫 줄이다(벡터 384개는 <code>…</code> 로 줄였다).</p>
+<pre><code>{
+  "v": 2,
+  "file": "d:/sample/03.○○○규정_12.01.01.doc",
+  "grade": "O",                                <span class="cmt">← 파생값 ①</span>
+  "labels": {
+    "security": "O",                           <span class="cmt">← 파생값 ② (①과 항상 같다)</span>
+    "doctype": ["DC_004_003", "DC_006_002"]    <span class="cmt">← 파생값 ③</span>
+  },
+  "axes": {
+    "security": { "state": "active", "value": "O",   <span class="cmt">← 진실 ①</span>
+                  "source": "phase4", "approved_by": "고봉수",
+                  "ts": "2026-08-28T13:50:19+09:00", "note": "" },
+    "doctype":  { "state": "active", "value": ["DC_004_003","DC_006_002"],  <span class="cmt">← 진실 ③</span>
+                  "source": "phase6", "approved_by": "고봉수",
+                  "ts": "2026-08-28T13:50:19+09:00", "note": "" }
+  },
+  "doc":   { "hash": "2438eafe…", "size": 38400, "mtime": "2022-12-22T12:10:36+09:00" },
+  "embed": { "dim": 384, "ts": "2026-08-28T13:50:19+09:00" },
+  "approved_by": "고봉수",                       <span class="cmt">← 축 기록과 중복</span>
+  "ts": "2026-08-28T13:50:19+09:00",            <span class="cmt">← 축 기록과 중복</span>
+  "vector": [ … 384개 … ]
+}</code></pre>
+  <p>등급 <code>"O"</code> 가 <b>세 번</b>, 승인자 <code>"고봉수"</code> 가 <b>세 번</b>,
+  같은 시각이 <b>다섯 번</b> 적혀 있다.</p>
+</section>
+
+<h2 id="who"><span class="n">3</span> 누가 이 파일을 읽는가</h2>
+<section class="card">
+  <p>평탄화가 안전한지는 <b>읽는 쪽이 무엇을 보느냐</b>로 정해진다. 코드를 찾아 확인했다.</p>
+
+  <div class="scroll"><table>
+    <tr><th>읽는 쪽</th><th>보는 칸</th><th>위치</th></tr>
+    <tr><td>Python 등급 전파</td><td><code>file</code> · <code>grade</code> · <code>vector</code></td>
+        <td><code>classify/propagate.py</code> <code>SeedIndex.from_seed_file</code></td></tr>
+    <tr><td>Python 업무분류 전파</td><td><code>file</code> · <code>labels.doctype</code> · <code>vector</code></td>
+        <td><code>classify/propagate.py</code> <code>DoctypeSeedIndex.from_seed_file</code></td></tr>
+    <tr><td>Rust 등급 전파</td><td><code>file</code> · <code>grade</code> · <code>vector</code></td>
+        <td><code>Rust/src/propagate.rs:40</code></td></tr>
+    <tr><td>Rust 업무분류 전파</td><td><code>file</code> · <code>labels.doctype</code> · <code>vector</code></td>
+        <td><code>Rust/src/propagate.rs:193</code></td></tr>
+    <tr><td>UI 점검(<code>check_seeds</code>)</td><td><code>doc.hash</code> · <code>vector</code> · <code>axes</code></td>
+        <td><code>ui/seedstore.py:914</code></td></tr>
+    <tr><td>UI 화면</td><td><code>axes</code>(접근 함수 경유)</td><td><code>ui/app.py</code> 30여 곳</td></tr>
+  </table></div>
+
+  <div class="note"><b>결정적 사실 — 분류 엔진 네 곳 중 어느 것도 <code>axes</code> 를 읽지 않는다.</b>
+  엔진은 언제나 파생값(<code>grade</code>, <code>labels.doctype</code>)만 본다.
+  <code>axes</code> 는 <b>오직 UI 화면만 쓰는 칸</b>이다.
+  즉 v3 는 “엔진이 이미 읽고 있는 평평한 값을 <b>진실로 승격</b>하고, UI 전용 중첩을 없애는” 일이다.</div>
+
+  <div class="warn"><b>그래서 유일한 엔진 변경점은 하나뿐이다</b> — 업무분류를
+  <code>labels.doctype</code> 이 아니라 <code>doctype</code> 에서 읽게 하는 것. §11 에서 다룬다.</div>
+</section>
+
+<h2 id="v3"><span class="n">4</span> v3 스키마</h2>
+<section class="card">
+  <p>같은 줄을 v3 로 적으면 이렇다.</p>
+<pre><code>{
+  "v": 3,
+  "file": "d:/sample/03.○○○규정_12.01.01.doc",
+  "doc_id": "",                                  <span class="cmt">선택 — 있으면 적는다</span>
+  "hash": "2438eafe…",
+  "grade": "O",
+  "doctype": ["DC_004_003", "DC_006_002"],
+  "source": "phase4",
+  "approved_by": "고봉수",
+  "note": "",
+  "ts": "2026-08-28 13:50:19",
+  "dim": 384,
+  "vector": [ … 384개 … ]
+}</code></pre>
+
+  <div class="scroll"><table>
+    <tr><th>칸</th><th>필수</th><th>형</th><th>뜻</th></tr>
+    <tr><td><code>v</code></td><td>필수</td><td>정수</td><td><code>3</code>. 없으면 옛 행으로 보고 승격</td></tr>
+    <tr><td><code>file</code></td><td>필수</td><td>문자열</td><td>원본 경로(또는 업로드 등록분은 파일 이름만)</td></tr>
+    <tr><td><code>doc_id</code></td><td>선택</td><td>문자열</td><td>외부 시스템의 문서 식별자. 빈 값이면 적지 않는다</td></tr>
+    <tr><td><code>hash</code></td><td>권장</td><td>문자열</td><td>원본 내용 해시(sha256). <b>원본이 바뀌었는지 판정하는 유일한 근거</b></td></tr>
+    <tr><td><code>grade</code></td><td>둘 중 하나</td><td><code>"C"|"S"|"O"</code></td><td>보안등급. 없으면 이 줄은 등급 기준이 아니다</td></tr>
+    <tr><td><code>doctype</code></td><td>둘 중 하나</td><td>문자열 배열</td><td>업무분류 dc_id 목록. 없거나 <code>[]</code> 면 분류 기준이 아니다</td></tr>
+    <tr><td><code>source</code></td><td>선택</td><td>문자열</td><td>어디서 등록됐나 — <code>phase4</code>/<code>phase6</code>/<code>upload</code>/<code>cli</code></td></tr>
+    <tr><td><code>approved_by</code></td><td>권장</td><td>문자열</td><td>확정한 사람</td></tr>
+    <tr><td><code>note</code></td><td>선택</td><td>문자열</td><td>메모. 빈 문자열이면 적지 않는다</td></tr>
+    <tr><td><code>ts</code></td><td>필수</td><td>ISO8601</td><td><b>이 기록</b>을 마지막으로 손댄 시각(원본 수정시각이 아니다)</td></tr>
+    <tr><td><code>dim</code></td><td>선택</td><td>정수</td><td>벡터 차원. 임베딩 모델이 바뀐 흔적을 점검에서 잡는다</td></tr>
+    <tr><td><code>hold</code></td><td>드묾</td><td>객체</td><td>보류된 축(§6). <b>정상 행에는 이 칸이 없다</b></td></tr>
+    <tr><td><code>vector</code></td><td>권장</td><td>실수 배열</td><td>임베딩. 언제나 맨 뒤(사람이 파일을 열었을 때 앞부분을 읽을 수 있게)</td></tr>
+  </table></div>
+
+  <p><b>“둘 중 하나”</b> — <code>grade</code> 와 <code>doctype</code> 이 <b>둘 다 없으면 그 줄은 저장하지 않는다</b>.
+  기준으로 쓸 것이 하나도 없는 줄이기 때문이다(v2 의 <code>keepable_axes()</code> 가 하던 일과 같다).</p>
+</section>
+
+<h2 id="drop"><span class="n">5</span> 빼는 칸과 그 근거</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>빼는 칸</th><th>왜</th><th>잃는 것</th></tr>
+    <tr><td><code>labels.security</code></td><td><code>grade</code> 와 <b>항상 같은 값</b>(19/19). 읽는 코드 없음</td>
+        <td class="ok">없음</td></tr>
+    <tr><td><code>labels.doctype</code></td><td><code>doctype</code> 으로 올린다(이름만 바뀜)</td>
+        <td class="ok">없음 — 엔진 2벌 수정(§11)</td></tr>
+    <tr><td><code>axes.*.value</code></td><td><code>grade</code>·<code>doctype</code> 이 곧 그 값</td>
+        <td class="ok">없음</td></tr>
+    <tr><td><code>axes.*.state</code></td><td>실측 전부 <code>active</code>. 비정상만 <code>hold</code> 로(§6)</td>
+        <td class="ok">없음</td></tr>
+    <tr><td><code>axes.*.approved_by</code>·<code>note</code></td><td>축별로 다른 행 <b>0/19</b>. 줄 단위 칸으로 합침(§7)</td>
+        <td class="mid">축별 분리 — §7 참조</td></tr>
+    <tr><td><code>axes.*.ts</code></td><td>줄의 <code>ts</code> 로 합침. 축별 이력은 <code>class_seed_audit.jsonl</code> 이 갖는다</td>
+        <td class="mid">축별 시각</td></tr>
+    <tr><td><code>doc.size</code></td><td><b>읽는 코드가 한 줄도 없다.</b> 원본이 있으면 언제든 다시 잰다</td>
+        <td class="ok">없음</td></tr>
+    <tr><td><code>doc.mtime</code></td><td>같음 — 변경 판정은 <code>hash</code> 로만 한다</td>
+        <td class="mid">원본의 나이를 눈으로 보던 단서</td></tr>
+    <tr><td><code>embed.ts</code></td><td>줄의 <code>ts</code> 와 실측 동일. <code>dim</code> 만 올린다</td>
+        <td class="ok">없음</td></tr>
+  </table></div>
+
+  <div class="warn"><b><code>doc.mtime</code> 을 빼는 것은 판단이 필요한 항목이었다.</b>
+  <code>mtime</code>(원본이 마지막으로 저장된 때)과 <code>ts</code>(이 기록이 만들어진 때)는
+  <b>주어가 다른 시각</b>이라 서로 대신할 수 없다. 그런데도 빼는 근거는 두 가지다:
+  <br>① <b>판정에 쓰이지 않는다.</b> 원본이 바뀌었는지 보는 코드는
+  <code>check_seeds()</code>·<code>sync_with_records()</code> 둘뿐이고, 둘 다
+  <code>doc.hash</code> 만 비교한다(<code>ui/seedstore.py:933</code>, <code>:1024</code>).
+  <br>② 만든 쪽 주석도 그렇게 적어 두었다 —
+  <code>ui/app.py</code> <code>seed_doc_meta()</code>:
+  <span class="muted">“크기·수정시각은 사람이 눈으로 확인할 때 쓰는 보조 정보다”</span>.
+  <br><b>잃는 것</b>: 원본이 지워진 뒤 “이 기준문서는 몇 년도 문서였나”를 이 파일만 보고는 알 수 없게 된다.
+  다만 그 정보가 필요한 화면이 지금 없고, 필요해지면 <code>ts</code> 와 함께
+  <code>class_seed_audit.jsonl</code> 에 남길 수 있다.</div>
+</section>
+
+<h2 id="state"><span class="n">6</span> 축 상태(해제·의심)를 어떻게 담나</h2>
+<section class="card">
+  <p>여기가 이 설계에서 유일하게 어려운 대목이다. v2 에는 축 상태가 셋 있다.</p>
+  <div class="scroll"><table>
+    <tr><th>상태</th><th>누가 붙이나</th><th>뜻</th><th>실측</th></tr>
+    <tr><td><code>active</code></td><td>사람</td><td>지금 기준으로 쓴다</td><td>37건(전부)</td></tr>
+    <tr><td><code>retired</code></td><td>사람</td><td>이 축은 기준에서 뺀다</td><td>0건</td></tr>
+    <tr><td><code>suspect</code></td><td>시스템</td><td>원본이 바뀌었거나 없어졌다 → 잠시 뺀다.
+      <b>값은 지우지 않는다</b>(사람이 확인해 되살린다)</td><td>0건</td></tr>
+  </table></div>
+
+  <h3>retired 는 “지운다”와 사실상 같다 — 코드로 확인</h3>
+  <p>주석에는 “해제해도 값은 지우지 않는다(되살릴 수 있어야 한다)”라고 적혀 있지만,
+  코드는 그렇게 동작하지 않는다.</p>
+  <ul>
+    <li><code>project()</code> 가 <code>grade</code>·<code>labels</code> 를 지우므로
+      <b>엔진은 그 값을 영영 보지 못한다.</b></li>
+    <li><code>save_seeds()</code> 는 <code>keepable_axes()</code> 가 비면 그 줄을 <b>파일에서 뺀다</b> —
+      두 축을 모두 해제하면 값은 <b>실제로 사라진다</b>.</li>
+    <li><code>set_axis()</code> 는 이전 상태와 무관하게 <code>active</code> 로 덮는다 —
+      <b>retired 가 재등록을 막지도 않는다.</b></li>
+    <li>해제할 때 <code>append_seed_audit(..., before=이전값)</code> 로
+      <b>이전 값이 감사 로그에 남는다</b>(<code>ui/app.py:3086</code>).</li>
+  </ul>
+  <p><b>⇒ v3 에서 retired 는 그 칸을 지운다.</b> 이력은 <code>class_seed_audit.jsonl</code> 이 갖는다.
+  잃는 것이 없고, “값이 남아 있는데 아무도 안 읽는” 유령 칸도 사라진다.</p>
+
+  <h3>suspect 는 값을 보존해야 한다 — <code>hold</code> 칸</h3>
+  <p>suspect 는 다르다. 시스템이 붙이고 사람이 푸는 것이므로 <b>값이 남아야</b> 한다.
+  그런데 v3 는 <code>grade</code> 가 곧 진실이라, 값을 그 자리에 두면 엔진이 그대로 읽어 버린다.
+  그래서 <b>보류된 값은 다른 칸으로 옮긴다</b>.</p>
+<pre><code>{
+  "v": 3, "file": "d:/sample/03.○○○규정_12.01.01.doc",
+  "hash": "2438eafe…",
+  "doctype": ["DC_006_002"],                   <span class="cmt">← 이 축은 살아 있다</span>
+  "hold": {                                    <span class="cmt">← 보안축만 보류됨</span>
+    "grade": { "value": "O", "reason": "stale",
+               "ts": "2026-09-08 10:12:00" }
+  },
+  "approved_by": "고봉수", "ts": "…", "dim": 384, "vector": [ … ]
+}</code></pre>
+  <div class="note"><b>이 방식의 장점 — 엔진을 고칠 필요가 없다.</b>
+  보류되면 <code>grade</code> 칸이 <b>존재하지 않으므로</b> 엔진은 자동으로 그 줄을 등급 기준에서 뺀다
+  (지금 <code>project()</code> 가 하던 일을 <b>키 이름 하나로</b> 대신한다).
+  되살리기는 <code>hold.grade.value</code> 를 <code>grade</code> 로 되돌리고
+  <code>hold</code> 를 지우는 것 — 한 줄이다.
+  <br><b>정상 행에는 <code>hold</code> 칸이 아예 없다.</b> 파일을 열면 이상한 줄만 눈에 띈다.</div>
+
+  <div class="danger"><b>조용히 사라지지 않게 하는 장치</b> — 보류는 “값이 없다”와 모양이 같아지므로,
+  <b>세는 곳이 반드시 있어야 한다</b>. <code>check_seeds()</code> 가
+  <code>hold</code> 가 있는 줄을 <code>suspect</code> 목록으로 세고(지금과 같다),
+  점검 화면이 사유(<code>stale</code>/<code>missing</code>/<code>orphan</code>/<code>dim</code>)와 함께 보여 준다.
+  세지 않으면 “왜 이 기준문서가 안 먹지”를 아무도 알 수 없게 된다.</div>
+
+  <h3>다른 안을 검토한 이유</h3>
+  <div class="scroll"><table>
+    <tr><th>안</th><th>모양</th><th>왜 안 골랐나</th></tr>
+    <tr><td>(가) 상태 칸 두 개</td><td><code>"grade_state":"suspect"</code></td>
+        <td>정상 행 19개 전부에 <code>"active"</code> 가 두 개씩 붙는다 — 평탄화의 목적을 절반 잃는다.
+        엔진도 이 칸을 봐야 해서 두 판 수정이 필요하다</td></tr>
+    <tr><td>(나) 값을 그대로 두고 <code>off:["grade"]</code></td><td><code>"grade":"O","off":["grade"]</code></td>
+        <td><b>엔진이 <code>off</code> 를 안 보면 보류가 무력해진다.</b> 두 판 수정이 필요하고,
+        한쪽만 고쳐지면 <b>Python 과 Rust 결과가 갈린다</b> — 가장 나쁜 종류의 버그</td></tr>
+    <tr><td class="ok">(다) <code>hold</code> 로 옮김</td><td>위 예시</td>
+        <td class="ok"><b>권고.</b> 엔진 수정 0. 값 보존 O. 정상 행은 칸이 늘지 않음</td></tr>
+  </table></div>
+</section>
+
+<h2 id="peraxis"><span class="n">7</span> 축별 승인자·메모를 잃는가</h2>
+<section class="card">
+  <p>v2 는 축마다 <code>approved_by</code>·<code>note</code>·<code>source</code>·<code>ts</code> 를 따로 갖는다.
+  “보안등급은 A 가, 업무분류는 B 가 확정” 같은 경우를 담으려는 설계였다. v3 는 줄 단위로 합친다.</p>
+
+  <div class="scroll"><table>
+    <tr><th>재어 본 것</th><th>결과</th></tr>
+    <tr><td>두 축의 <code>approved_by</code>·<code>note</code> 가 다른 행</td><td><b>0 / 19</b></td></tr>
+    <tr><td>두 축의 <code>ts</code> 가 다른 행</td><td>1 / 19 <span class="muted">— 같은 일괄 등록 중 1초 차이</span></td></tr>
+    <tr><td>화면이 메모를 쓰는 방식</td><td><code>ui/app.py:3088</code> — <b>이미 줄 단위</b>로 쓴다
+        (<code>{**x, "note": …}</code>). 축별 메모는 <b>화면에서 만들 수단이 없다</b></td></tr>
+  </table></div>
+
+  <p><b>즉 축별 분리는 코드가 지원만 하고 아무도 쓰지 않는 유연성이다.</b>
+  <code>source</code> 만 실제로 갈린다(<code>phase4</code> vs <code>phase6</code>) — 그 값은
+  “화면의 어느 단계에서 등록됐나”를 뜻하고, 판정에는 쓰이지 않는다.</p>
+
+  <div class="warn"><b>그래서 무엇을 잃나</b> — 앞으로 두 사람이 서로 다른 축을 확정하는 운영을 하게 되면
+  <b>줄의 <code>approved_by</code> 는 마지막 사람만 남는다</b>. 다만 그 이력은
+  <code>class_seed_audit.jsonl</code> 에 <b>축과 함께</b> 남으므로(<code>axis=</code> 칸이 있다)
+  “누가 무엇을 확정했나”는 추적할 수 있다.
+  화면의 <code>approvers()</code> 함수는 <b>남기되 줄의 <code>approved_by</code> 를 돌려준다</b>
+  (표의 “검토자” 칸이 비지 않는다). 축별 추적이 필요할 때 보는 곳은 감사 로그다.</div>
+  <div class="note"><b>구현하며 정정한 대목</b> <span class="pill">2026-09-08</span> —
+  이 자리에 처음에는 “<code>approvers()</code> 가 감사 로그를 보도록 바꾼다”고 적었지만,
+  그 함수는 줄 하나만 받고 감사 로그 경로를 모른다. 경로를 넘기도록 고치면
+  호출부(<code>ui/app.py:3141</code>)와 화면 표 계산이 파일 입출력을 하게 되는데,
+  <b>표 한 칸을 채우려고 매 줄마다 감사 로그를 읽는 것은 값이 맞지 않는다.</b>
+  그래서 함수는 줄의 값을 돌려주고, 축별 이력은 <b>사람이 변경 이력 화면에서 본다</b>.</div>
+
+  <p><code>source</code> 는 줄 단위로 남기되, 두 축의 값이 다르면 <b>둘을 이어 붙인다</b>:
+  <code>"source": "phase4+phase6"</code>. 뜻을 잃지 않으면서 칸은 하나다.</p>
+</section>
+
+<h2 id="map"><span class="n">8</span> v2 → v3 변환표</h2>
+<section class="card">
+  <p>이 표가 곧 승격 함수 <code>ensure_v3()</code> 의 사양이다.</p>
+  <div class="scroll"><table>
+    <tr><th>v2</th><th>v3</th><th>규칙</th></tr>
+    <tr><td><code>axes.security.value</code> (state=active)</td><td><code>grade</code></td>
+        <td><code>"C"/"S"/"O"</code> 일 때만</td></tr>
+    <tr><td><code>axes.security</code> (state=suspect)</td><td><code>hold.grade</code></td>
+        <td><code>{value, reason, ts}</code></td></tr>
+    <tr><td><code>axes.security</code> (state=retired)</td><td class="muted">버림</td>
+        <td>이력은 감사 로그에</td></tr>
+    <tr><td><code>axes.doctype.value</code> (active)</td><td><code>doctype</code></td>
+        <td>빈 항목 제거, 빈 배열이면 칸 자체를 안 만든다</td></tr>
+    <tr><td><code>axes.doctype</code> (suspect / retired)</td><td><code>hold.doctype</code> / 버림</td><td>위와 같다</td></tr>
+    <tr><td><code>grade</code> · <code>labels.*</code></td><td class="muted">버림</td>
+        <td><code>axes</code> 에서 이미 나왔다. <b>axes 가 없는 옛 행이면 이쪽이 원본</b></td></tr>
+    <tr><td><code>axes.*.approved_by</code></td><td><code>approved_by</code></td>
+        <td>둘이 다르면 <code>security</code> 를 쓰고 감사 로그에 <code>merge</code> 를 남긴다</td></tr>
+    <tr><td><code>axes.*.source</code></td><td><code>source</code></td><td>다르면 <code>+</code> 로 잇는다</td></tr>
+    <tr><td><code>axes.*.note</code> · 줄 <code>note</code></td><td><code>note</code></td>
+        <td>비어 있지 않은 것 중 <b>가장 긴</b> 것 하나</td></tr>
+    <tr><td><code>ts</code> · <code>axes.*.ts</code></td><td><code>ts</code></td><td><b>가장 늦은</b> 시각</td></tr>
+    <tr><td><code>doc.hash</code></td><td><code>hash</code></td><td>그대로</td></tr>
+    <tr><td><code>doc.size</code> · <code>doc.mtime</code></td><td class="muted">버림</td><td>§5</td></tr>
+    <tr><td><code>embed.dim</code></td><td><code>dim</code></td><td>없으면 <code>len(vector)</code></td></tr>
+    <tr><td><code>embed.ts</code> · <code>embed.model</code></td><td class="muted">버림 / <code>model</code></td>
+        <td>실측 <code>model</code> 은 채워진 적이 없다</td></tr>
+    <tr><td><code>vector</code></td><td><code>vector</code></td><td>그대로, 맨 뒤</td></tr>
+    <tr><td class="muted">(없음)</td><td><code>doc_id</code></td><td>v2 에는 없다 — CLI 등록분부터 채운다</td></tr>
+  </table></div>
+  <div class="note"><b>승격은 되돌릴 수 없다(버리는 칸이 있다).</b>
+  그래서 첫 저장 전에 <code>class_seed.jsonl</code> 을
+  <code>class_seed.v2.bak</code> 로 그대로 복사한다 — 코드가 아니라 <b>데이터</b>의 백업이다.</div>
+</section>
+
+<h2 id="mig"><span class="n">9</span> 이행 — 읽기는 둘 다, 쓰기는 v3</h2>
+<section class="card">
+  <p>배포판이 여러 벌(§13) 돌아가는 상황이라, “어느 날 다 같이 바뀐다”는 전제를 세울 수 없다.</p>
+<pre><code>읽기:  v 없음 → v1 로 보고 승격  ┐
+       v == 2  → ensure_v3() 승격 ├→  모든 코드는 v3 모양만 다룬다
+       v == 3  → 그대로            ┘
+       v &gt; 3   → 경고 후 그 줄 건너뜀 (모르는 미래 형식을 추측하지 않는다)
+
+쓰기:  언제나 v3</code></pre>
+  <div class="danger"><b>구판 실행 파일이 v3 파일을 읽으면 어떻게 되나</b> — 이것이 이행의 진짜 위험이다.
+  구판 엔진은 <code>grade</code> 는 읽지만 <code>labels.doctype</code> 이 없으므로
+  <b>업무분류 전파만 조용히 0건이 된다</b>(깨지지 않고 그냥 안 된다).
+  거버넌스 도구에서 가장 나쁜 실패다.
+  <br><b>막는 방법</b>: 신판 <code>--check-seeds</code> 가 파일의 <code>v</code> 를 찍고,
+  구판·신판이 섞인 배포를 <b>§13 의 점검 목록</b>으로 한 번에 확인한 뒤 <b>6벌을 동시에 교체</b>한다.
+  <code>doctype</code> 이 있는 줄을 구판이 읽으면 몇 건이 사라지는지 숫자로 먼저 보고한다.</div>
+</section>
+
+<h2 id="api"><span class="n">10</span> seedstore API 는 그대로 둔다</h2>
+<section class="card">
+  <p><code>ui/app.py</code> 는 <code>seedstore</code> 함수를 60여 곳에서 부른다
+  (<code>axis_value</code> 13, <code>set_axis</code> 7, <code>active_axes</code> 4, <code>axis_state</code> 3 …).
+  <b>화면 코드는 손대지 않는다</b> — 같은 이름의 함수가 v3 를 읽도록 속만 바꾼다.</p>
+<pre><code>def axis_value(entry, axis):
+    <span class="cmt"># v2 때는 axes[axis]["value"] 였다. v3 는 평평한 칸이 곧 값이다.</span>
+    return entry.get("grade") if axis == "security" else (entry.get("doctype") or [])
+
+def axis_state(entry, axis):
+    key = "grade" if axis == "security" else "doctype"
+    if key in (entry.get("hold") or {}):  return STATE_SUSPECT
+    return STATE_ACTIVE if entry.get(key) else STATE_RETIRED</code></pre>
+  <div class="note"><b>왜 접근 함수를 남기나</b> — 화면이 <code>e["grade"]</code> 를 직접 읽기 시작하면
+  다음에 형식을 바꿀 때 또 60곳을 고쳐야 한다. <b>이번 변경이 화면 60곳을 건드리지 않고 끝나는 이유가
+  바로 그 함수들이 있었기 때문</b>이다. 그 이점을 버리지 않는다.</div>
+  <p>사라지는 함수: <code>ensure_v2</code>(→<code>ensure_v3</code>), <code>project</code>(파생값이 없으므로 불필요),
+  <code>_blank_axis</code>, <code>keepable_axes</code>(→ <code>grade</code>·<code>doctype</code> 유무로 판단).</p>
+</section>
+
+<h2 id="engine"><span class="n">11</span> 엔진(두 판) 변경점</h2>
+<section class="card">
+  <p>§3 에서 확인했듯 엔진이 고칠 것은 <b>업무분류를 읽는 자리 한 줄</b>씩이다.</p>
+  <div class="scroll"><table>
+    <tr><th>파일</th><th>지금</th><th>v3</th></tr>
+    <tr><td><code>classify/propagate.py</code> <span class="muted">DoctypeSeedIndex.from_seed_file</span></td>
+        <td><code>(e.get("labels") or {}).get("doctype")</code></td>
+        <td><code>e.get("doctype") or (e.get("labels") or {}).get("doctype")</code></td></tr>
+    <tr><td><code>Rust/src/propagate.rs:203</code></td>
+        <td><code>e.get("labels").and_then(|l| l.get("doctype"))</code></td>
+        <td><code>e.get("doctype").or_else(|| e.get("labels")…)</code></td></tr>
+    <tr><td>등급 쪽 두 곳</td><td><code>e.get("grade")</code></td><td class="ok">변경 없음</td></tr>
+  </table></div>
+  <p><b>새 칸을 먼저 보고, 없으면 옛 칸을 본다</b> — 한 줄짜리 하위호환이다.
+  이렇게 두면 v2 파일도 신판 엔진에서 그대로 돈다(§9 의 반대 방향 위험은 남는다).</p>
+  <div class="warn"><b>두 판을 같은 커밋에서 고친다.</b> 한쪽만 고치면
+  같은 seed 파일로 Python 과 Rust 결과가 갈린다 — 이 프로젝트에서 가장 나쁜 종류의 버그다.
+  §14 의 동등성 테스트가 이것을 막는다.</div>
+</section>
+
+<h2 id="check"><span class="n">12</span> 점검 화면 영향</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>점검 항목</th><th>지금 근거</th><th>v3</th></tr>
+    <tr><td><code>stale</code> 원본이 바뀜</td><td><code>doc.hash</code> ≠ 이번 <code>hash</code></td>
+        <td><code>hash</code> ≠ 이번 <code>hash</code> <span class="ok">동일 판정</span></td></tr>
+    <tr><td><code>missing</code> 원본 없음</td><td><code>os.path.isfile(file)</code></td><td class="ok">그대로</td></tr>
+    <tr><td><code>orphan</code> 없어진 dc_id</td><td><code>axis_value(e,"doctype")</code></td>
+        <td><code>doctype</code> <span class="ok">접근 함수로 동일</span></td></tr>
+    <tr><td><code>novec</code> / <code>dim</code></td><td><code>vector</code> 길이</td><td class="ok">그대로</td></tr>
+    <tr><td><code>conflict</code> 유사한데 등급 다름</td><td><code>grade</code></td><td class="ok">그대로</td></tr>
+    <tr><td><code>suspect</code> 보류</td><td><code>axes.*.state</code></td>
+        <td><code>hold</code> 칸 <span class="ok">사유까지 그대로</span></td></tr>
+  </table></div>
+  <p>여섯 항목 모두 <b>같은 값을 같은 근거로</b> 판정한다. 화면의 숫자가 바뀌면 그것이 곧 버그다.</p>
+</section>
+
+<h2 id="files"><span class="n">13</span> 배포된 seed 파일 6벌</h2>
+<section class="card">
+  <p>지금 이 저장소에 <code>class_seed.jsonl</code> 이 <b>6벌</b> 있다. 모두 같이 다뤄야 한다.</p>
+<pre><code>ui/policy/class_seed.jsonl            ← 운영 원본(19행, 173 KB)
+report/policy/class_seed.jsonl
+dist-onedir/windows/class_seed.jsonl
+dist-onedir/linux/class_seed.jsonl
+Rust/dist-onedir/windows/class_seed.jsonl
+Rust/dist-onedir/linux/class_seed.jsonl</code></pre>
+  <div class="danger"><b>지난번 <code>paths</code> 제거 때 실제로 났던 문제</b> — 정책 파일 9벌 중 6벌이 옛 형식으로
+  남아 새 실행 파일이 거부했다. 그래서 이번에는 <b>빌드 전에 6벌을 세고 <code>v</code> 를 찍어 확인</b>한 뒤
+  배포에 넣는다. 확인 명령은 §14 에 있다.</div>
+</section>
+
+<h2 id="test"><span class="n">14</span> 테스트</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th></th><th>확인할 것</th><th>기준</th></tr>
+    <tr><td>T1</td><td>승격 왕복 — 운영 19행을 v3 로 올린 뒤 <code>grade</code>·<code>doctype</code> 비교</td>
+        <td><b>19행 전부 동일</b>. 한 글자라도 다르면 실패</td></tr>
+    <tr><td>T2</td><td>같은 코퍼스를 v2 seed / v3 seed 로 각각 분류</td>
+        <td>레코드의 <code>grade</code>·<code>labels.doctype</code>·<code>method</code> <b>전건 동일</b></td></tr>
+    <tr><td>T3</td><td>Python 과 Rust 를 v3 seed 로 각각 실행</td>
+        <td>두 판 결과 <b>동일</b>(§11 의 한쪽만 고침을 잡는다)</td></tr>
+    <tr><td>T4</td><td><code>hold</code> 가 붙은 줄</td>
+        <td>엔진이 그 축을 <b>기준으로 쓰지 않는다</b>. 점검 화면 <code>suspect</code> 에 <b>사유와 함께</b> 뜬다</td></tr>
+    <tr><td>T5</td><td>보류 해제(restore)</td><td><code>hold</code> 가 사라지고 값이 제자리로. 감사 로그 1줄</td></tr>
+    <tr><td>T6</td><td>두 축 모두 없는 줄 저장</td><td>파일에 <b>쓰이지 않는다</b></td></tr>
+    <tr><td>T7</td><td><code>v: 4</code> 인 줄이 섞인 파일</td><td>그 줄만 건너뛰고 <b>경고를 출력</b>한다(조용히 넘기지 않는다)</td></tr>
+    <tr><td>T8</td><td>배포 6벌 점검</td>
+        <td><code>for f in $(find . -name class_seed.jsonl); do echo "$f $(head -1 $f | python -c 'import sys,json;print(json.load(sys.stdin)["v"])')"; done</code></td></tr>
+  </table></div>
+
+  <h3>실측 결과 <span class="pill">2026-09-08 실행</span></h3>
+  <div class="scroll"><table>
+    <tr><th></th><th>돌린 것</th><th>결과</th></tr>
+    <tr><td>T1</td><td>운영 19행 v2→v3 승격 후 <code>grade</code>·<code>doctype</code>·<code>hash</code> 대조</td>
+        <td class="ok">19행 전부 동일 · 메타 663 B → 267 B(<b>60% 감소</b>)</td></tr>
+    <tr><td>T2</td><td>같은 코퍼스(문서 18건)를 v2 seed / v3 seed 로 각각 분류</td>
+        <td class="ok"><b>다른 판정 0건</b> · 전파 통계도 동일
+        (<code>seed=21 embed_decided=8</code>, 업무분류 <code>seed=18 기여=11</code>)</td></tr>
+    <tr><td>T3</td><td>Python·Rust 를 v3 seed 로 각각 실행</td>
+        <td class="ok"><b>두 판 결과 동일</b> · v2 seed 로 돌린 두 판과도 동일(4-way 전건 일치)</td></tr>
+    <tr><td>T4~T7</td><td>보류·해제·빈 줄·미래판 — 새 테스트 11건</td>
+        <td class="ok">전부 통과 (<code>tests/test_seed_v3.py</code>)</td></tr>
+    <tr><td>T8</td><td>배포 6벌</td><td class="ok">6벌 전부 <code>v3</code> · 19행 · 등급 19 · 분류 18 (승격 전후 동일)</td></tr>
+    <tr><td>—</td><td>배포본 4벌 재빌드 뒤 같은 코퍼스 실행<br><span class="muted">윈도우 Python·Rust · 리눅스 Python·Rust</span></td><td class="ok"><b>4벌 전건 일치</b> — 네 판 모두 <code>[전파][업무분류] seed=18 embed기여=11</code> · <code>seed=21 전파결정=8</code> · <code>C=9 S=3 O=6 미분류=0</code></td></tr>
+    <tr><td>—</td><td>전체 테스트</td><td class="ok"><b>642건 통과</b>(기존 631 + 신규 11), 실패 0</td></tr>
+    <tr><td>—</td><td>UI 기준 문서 화면</td><td class="ok">총 19건 · 보안 19 · 업무분류 18(둘 다 18) · C 9 / S 4 / O 6 — 정상 표시</td></tr>
+  </table></div>
+</section>
+
+<h2 id="back"><span class="n">15</span> 되돌리기</h2>
+<section class="card">
+  <ul>
+    <li><b>코드</b> — 착수 전 <code>_backup/before-seed-v3-20260908.tgz</code></li>
+    <li><b>데이터</b> — 첫 저장 전 <code>class_seed.v2.bak</code> (6벌 각각). 승격은 칸을 버리므로
+      <b>코드 백업만으로는 못 돌린다</b></li>
+    <li><b>배포</b> — <code>dist-onedir/*</code> 는 기존 <code>_internal.bak</code> 관례 그대로</li>
+  </ul>
+</section>
+
+<h2 id="q"><span class="n">16</span> 결정 <span class="sig">2026-09-08 확정</span></h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th></th><th>물음</th><th>확정 <span class="muted">(권고안 그대로)</span></th></tr>
+    <tr><td>Q1</td><td>보류를 <code>hold</code> 칸으로 옮기는 (다)안이 맞나</td>
+        <td class="ok"><b>그렇다.</b> 엔진 수정이 필요 없고, 정상 행에 칸이 늘지 않는다(§6)</td></tr>
+    <tr><td>Q2</td><td><code>doc.mtime</code>·<code>doc.size</code> 를 정말 버리나</td>
+        <td class="ok"><b>버린다.</b> 읽는 코드가 없다(§5). 필요해지면 감사 로그에 남긴다</td></tr>
+    <tr><td>Q3</td><td>축별 <code>approved_by</code> 분리를 포기하나</td>
+        <td class="ok"><b>포기한다.</b> 실측 0/19. 축별 이력은 감사 로그가 갖는다(§7)</td></tr>
+    <tr><td>Q4</td><td>엔진의 <code>labels.doctype</code> 하위호환을 언제까지 두나</td>
+        <td><b>남긴다</b>(한 줄이다). 지우는 것은 배포 6벌이 전부 v3 가 된 뒤 별건으로</td></tr>
+    <tr><td>Q5</td><td><code>embed.model</code> 을 새로 채우나</td>
+        <td><b>이번엔 안 한다.</b> 엔진이 모델 이름을 아직 알려 주지 않는다 —
+        <code>dim</code> 만으로 모델 교체는 이미 잡힌다</td></tr>
+    <tr><td>Q6</td><td>승격을 <b>자동</b>으로 하나(파일을 열면 다음 저장 때 v3 가 된다)</td>
+        <td><b>자동.</b> 단 <code>class_seed.v2.bak</code> 이 없으면 먼저 만들고,
+        <b>승격했다는 사실을 화면과 감사 로그에 남긴다</b></td></tr>
+  </table></div>
+  <div class="note"><b>다음 순서</b> — v3 가 확정됐으므로
+  <code>--seed-add</code>(<code>plan/기준문서-CLI등록-설계-20260908.html</code>)가
+  <b>어떤 모양으로 쓸지</b>가 정해졌다. CLI 는 이제 <code>project()</code> 같은 함수 규율에
+  기대지 않고 <b>평평한 줄 하나를 그대로 적으면 된다</b> — 그것이 평탄화의 실질적인 목적이었다.</div>
+  <div class="danger"><b>§9 의 위험이 실제로 났다 — 그리고 막았다</b> <span class="pill">2026-09-08 실측</span><br>
+  화면이 실제로 부르는 실행 파일(<code>Rust/dist-onedir/windows/MpowerClassify-rs.exe</code>, 그날 오전 판)에
+  v3 seed 를 물려 돌려 보니 <b>업무분류 전파 줄이 통째로 사라졌다</b>:
+<pre style="margin:8px 0"><code>옛 판 + v3 seed : [전파] seed=21 전파결정=8
+                  <b>← [전파][업무분류] 줄이 없다 (seed 0건, 조용히 아무 일도 안 함)</b>
+새 판 + v3 seed : [전파][업무분류] seed=18 embed기여=11
+                  [전파] seed=21 전파결정=8</code></pre>
+  <b>에러도 경고도 없이</b> 업무분류 기준 18건이 없는 것처럼 동작했다. 윈도우 두 판을
+  새로 빌드해 교체했고, 교체 뒤 다시 재어 정상으로 돌아온 것을 확인했다.</div>
+  <div class="note"><b>배포본 4벌 재빌드 완료</b> <span class="pill">2026-09-08</span> —
+  윈도우(Python·Rust)는 로컬에서, 리눅스(Python·Rust)는 원격 CentOS 7 빌드 서버에서
+  새로 빌드해 교체했다. 리눅스 Rust 는 <code>readelf -d</code> 로 <code>RPATH [$ORIGIN]</code> 을,
+  두 리눅스 산출물은 서버·로컬 <code>sha256</code> 대조로 전송 무결성을 확인했다.
+  <b>네 판이 같은 코퍼스에서 전건 같은 결과를 냈다.</b>
+  <br>정책 파일(<code>cso_rule.yaml</code>·<code>doc_rule.yaml</code>·<code>doc_taxonomy.yaml</code>)과
+  <code>class_seed.jsonl</code>(v3)도 네 폴더에 같은 정본으로 맞췄다.</div>
+  <div class="warn"><b>아직 남은 것</b> —
+  ① 실행가이드·빌드가이드의 seed 스키마 설명은 아직 v2 다.
+  ② <code>dist-pkg/MpowerClassify.exe</code>(화면 설정의 <i>기본값</i>이 가리키는 onefile 판)는
+  8월 15일 빌드 그대로다 — <code>--hash</code>·<code>--taxonomy</code>·<code>--doc-rules</code> 를
+  아예 모르는 옛 판이라 이번 변경과 무관하게 이미 쓸 수 없는 상태다.
+  실제로는 설정에서 <code>Rust/dist-onedir/windows/MpowerClassify-rs.exe</code> 를 쓰고 있다.</div>
+</section>
+
+<footer>
+  MpowerClassify · 기준 문서 저장소 v2→v3 평탄화 설계 · 2026-09-08<br>
+  실측 근거: <code>ui/policy/class_seed.jsonl</code> 19행 · 코드 확인:
+  <code>ui/seedstore.py</code> · <code>ui/app.py</code> ·
+  <code>classify/propagate.py</code> · <code>Rust/src/propagate.rs</code>
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,4 +1,4 @@
-# CSOClassify
+# MpowerClassify
 
 한국어(다국어) **수집 문서를 C/S/O(기밀·민감·공개)로 자동 분류**하는 로컬 CLI 도구입니다.
 사이냅 문서필터(`snf_exe`)로 텍스트를 뽑고(옵션 `--hybridparse` 로 내용 감지 후 포맷별 오픈소스 파서 사용 — 사이냅 불필요),
@@ -7,8 +7,8 @@
 분류가 **기본 동작**이며, 벡터만 필요하면 `--embed` 를 줍니다. 서버·인터넷 없이 로컬에서 동작하고
 PyInstaller `onedir` 로 패키징합니다.
 
-> 상세: [실행 가이드](doc/csoclassify-실행가이드.html) · [규칙셋 필드 레퍼런스](doc/CSO_Rule.html) · [하이브리드 추출 설계](plan/CSO_HybridParse.html) · [설계서](plan/설계서.md)
-> 빌드: [빌드 가이드(Python)](doc/csoclassify-빌드가이드-python.html) · [빌드 가이드(Rust 포팅판)](doc/csoclassify-빌드가이드-rust.html)
+> 상세: [실행 가이드](doc/MpowerClassify-실행가이드.html) · [규칙셋 필드 레퍼런스](doc/CSO_Rule.html) · [하이브리드 추출 설계](plan/CSO_HybridParse.html) · [설계서](plan/설계서.md)
+> 빌드: [빌드 가이드(Python)](doc/MpowerClassify-빌드가이드-python.html) · [빌드 가이드(Rust 포팅판)](doc/MpowerClassify-빌드가이드-rust.html)
 
 ## 빠른 사용
 
@@ -45,7 +45,7 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
   CORP_REG·URL·IP(공개, 대량이면 상향). 검출은 ko-pii(패턴·체크섬·문맥·우회방어 내장)가 담당.
 - **결합식별성(combo)**: 개별론 낮아도 여러 PII가 한 문서에 모이면(결합용이성) 상향 — 예:
   `주민번호+계좌 → C`, `전화·이메일·주소 2종+ → S`. `rule` 신호의 `layer:"COMBO"` 히트로 표시.
-- 정책(유형·키워드·조합·경로·등급)은 모두 `cso_rules.yaml` 또는 UI 규칙설정에서 조정 —
+- 정책(유형·키워드·조합·경로·등급)은 모두 `cso_rule.yaml` 또는 UI 규칙설정에서 조정 —
   필드 의미는 [CSO_Rule.html](doc/CSO_Rule.html) 참조.
 
 > **프라이버시 불변식**: 매칭된 **원문 PII 값은 저장하지 않습니다**(유형 id·건수만).
@@ -78,7 +78,7 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 > **압축파일 자동 확장** — 입력이 압축파일이면 내부 파일을 임시폴더에 풀어 **파일 하나하나를 개별 분류**한다(중첩 압축도 재귀). 지원: **zip · tar · tar.gz · tar.bz2 · tar.xz · gz · bz2 · xz**(stdlib, 무의존) · **7z**(py7zr) · **rar**(번들 unrar). 결과 JSON 은 파일별 레코드의 배열이고 각 레코드 `file` 은 `"<압축경로>/<내부경로>"` 로 표기돼 **어느 내부 파일이 C/S/O 인지** 알 수 있다. 처리 후 임시폴더는 자동 삭제(민감정보 잔존 방지). ※ docx/xlsx/pptx/hwpx 는 내부가 zip 이라도 '문서 1개'로 취급해 펼치지 않는다(내용 감지로 구분).
 >
 > **압축파일 '자체'의 등급(집계)** — 압축은 그 안 파일 중 **가장 높은 위험등급(C>S>O)** 을 자기 등급으로 받는다. 결과에 `"archive": true, "grade": "<최고위험>", "contains": {C,S,O,미분류,total}` 형태의 요약 레코드가 파일별 레코드 뒤에 추가돼, **압축만 봐도 위험도**를 안다. (내부 파일 등급 집계와 별개 레코드라 총계에는 중복 계산되지 않음.)
-| `--rules` | 규칙셋 경로 | exe 옆 `cso_rules.yaml` |
+| `--rules` | 규칙셋 경로 | exe 옆 `cso_rule.yaml` |
 | `--failsafe [등급]` | 어느 신호로도 못 정한 문서의 기본등급(값 생략=S) | 미부여(보류) |
 | `--embed-needed` | **보류·seed 후보**에만 임베딩(확정문서 생략 → 빠름) | — |
 | `--with-vector` | **모든 문서**에 임베딩 | — |
@@ -142,9 +142,9 @@ python scripts/quantize_onnx.py --model e5-small-ko   # int8 경량화(→118MB,
 
 ## 빌드 · 배포 (onedir)
 
-> **처음 빌드한다면 → [빌드 가이드(Python)](doc/csoclassify-빌드가이드-python.html)** — Windows·Linux 전 과정을
+> **처음 빌드한다면 → [빌드 가이드(Python)](doc/MpowerClassify-빌드가이드-python.html)** — Windows·Linux 전 과정을
 > 단계별로(설치·spec 설명·트러블슈팅·복붙용 명령) 정리한 문서입니다. 아래는 요약입니다.
-> Rust 포팅판(`Rust/`)은 [빌드 가이드(Rust)](doc/csoclassify-빌드가이드-rust.html) 를 보세요.
+> Rust 포팅판(`Rust/`)은 [빌드 가이드(Rust)](doc/MpowerClassify-빌드가이드-rust.html) 를 보세요.
 
 정식 배포는 **onedir 2종(Windows·Linux)** 입니다. 실행본체(`csoclassify`)와 파이썬 런타임(`_internal/`)이
 한 폴더에 있고, **규칙셋·모델·사이냅은 그 옆에 외장 리소스**로 둡니다(재빌드 없이 규칙 교체 가능,
@@ -164,7 +164,7 @@ pyinstaller build/csoclassify.spec        # → dist/csoclassify/csoclassify (EL
 ```
 dist-onedir/windows/                    dist-onedir/linux/
 ├─ csoclassify.exe + _internal/         ├─ csoclassify-onedir-linux.tgz  (리눅스에서 tar 풀기: 심볼릭링크 보존)
-├─ cso_rules.yaml                       ├─ cso_rules.yaml
+├─ cso_rule.yaml                       ├─ cso_rule.yaml
 ├─ synap/windows/{snf_exe.exe,          ├─ synap/linux/snf_exe
 │              snf_win.dll}             ├─ models/e5-small-ko/
 └─ models/e5-small-ko/                  └─ README.txt
@@ -180,7 +180,7 @@ dist-onedir/windows/                    dist-onedir/linux/
   `acl_restricted` 둘 다 없음)이 있으면 **문서를 한 건도 읽지 않고** 위반을 전부 모아
   보여 주고 종료(코드 4). 예전에는 이런 값을 조용히 무시해 그 규칙이 판정에서
   빠졌고, 문서가 실제보다 낮은 등급을 받았습니다.
-  배포 전 미리 확인: `csoclassify --check-rules --rules cso_rules.yaml` (문서 불필요)
+  배포 전 미리 확인: `csoclassify --check-rules --rules cso_rule.yaml` (문서 불필요)
 - 경로 규칙(`paths`)은 `acl_restricted: true` 인 경우 `grade` 를 **생략**할 수 있습니다. 그러면
   스스로 등급을 내지 않고, 내용·파일명에서 아무 신호도 없을 때만 fail-safe 로 최고 등급을
   줍니다 — "보안 폴더인데 내용을 못 읽는 파일"이 미분류로 새는 것을 막는 안전망입니다.
@@ -230,7 +230,7 @@ src/csoclassify/
                      + hwp5·hwpx_zip·office_legacy(doc/xls/ppt)·office_ooxml(docx/xlsx/pptx)·pdf_pdfium·plaintext
   embed/            ONNX 임베더(base + onnx_embedder)
   daemon/           상주 데몬(server/client/ipc/registry)
-resources/policy/cso_rules.yaml   C/S/O 규칙셋(외장)
+resources/policy/cso_rule.yaml   C/S/O 규칙셋(외장)
 ui/                 Streamlit 관리자 화면 "문서자동분류"(검토·판단 기준 편집)
 build/*.spec        PyInstaller 스펙
 doc/                실행 가이드 · 규칙셋 레퍼런스 · 빌드 가이드(Python/Rust) · 작업기록 (HTML)

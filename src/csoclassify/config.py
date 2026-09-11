@@ -110,6 +110,47 @@ SNF_TIMEOUT = 60                 # snf_exe 1파일 처리 타임아웃(초)
 MIN_TEXT_LEN = int(os.environ.get("CSOCLASSIFY_MIN_TEXT_LEN", "20"))
 MIN_TEXT_LEN_WARN = MIN_TEXT_LEN     # 옛 이름(하위호환)
 
+# ── 문서 크기 상한(Size Gate) — 설계: plan/문서크기-상한-설계-20260904.html ──
+# [왜 필요한가] 지금까지 이 도구에는 "문서가 너무 크다"를 판단하는 자리가 한 군데도
+#   없었다. 그래서 수천 페이지 PDF 한 건이 배치 전체를 붙잡거나, 328MB 짜리 학습용
+#   tsv 가 통째로 PII 정규식에 들어가는 일을 막을 방법이 없었다.
+# [핵심 원칙] 원본 '바이트 크기'는 비용의 대리지표로 부정확하다. 실측에서 55.3MB
+#   PDF(이미지 위주 회사소개서)의 추출 글자가 343자였다. 바이트로 자르면 정상 문서를
+#   잃는다. 그래서 진짜 상한은 '추출 후 글자수'(MAX_TEXT_CHARS)에 걸고, 바이트 상한은
+#   문서가 아닌 것만 걸러내는 느슨한 안전핀으로 둔다.
+
+# [G1] 추출 '전' 원본 파일 바이트 상한(안전핀).
+#   [값의 근거] D:\분류함 2,254파일 실측 — p99=25MB, 100MB 이상은 2건(둘 다 학습
+#   코퍼스 tsv)뿐이라 정상 문서를 한 건도 잃지 않는다. 50MB 로 낮추면 정상 업무문서인
+#   55.3MB 회사소개서가 걸리므로 낮추면 안 된다.
+MAX_FILE_BYTES = int(os.environ.get("CSOCLASSIFY_MAX_FILE_BYTES", 100 * 1024 * 1024))
+
+# [G2] 텍스트 계열(txt/csv/tsv/json/html) 전용 바이트 상한.
+#   이 포맷군만은 '바이트 수 = 글자 수'라 압축률 문제가 없고, 따라서 바이트가 비용을
+#   정확히 대변한다 → 다른 포맷보다 훨씬 낮게 잡는 것이 맞다.
+MAX_FILE_BYTES_TEXT = int(os.environ.get("CSOCLASSIFY_MAX_FILE_BYTES_TEXT", 20 * 1024 * 1024))
+
+# [G3] 정제 텍스트 글자수 상한 — 다섯 게이트 중 '본체'.
+#   [값의 근거] ① 실측 854자/페이지 기준 약 2,340페이지로, 최악 케이스(581페이지)의
+#   4배라 정상 문서를 자를 위험이 없다. ② 한글 UTF-8 3바이트로 약 6MB → 데몬 IPC
+#   상한(ipc.MAX_MSG=16MB)에 구조적으로 걸리지 않는다. ③ 전체 시간의 66%를 먹던
+#   PII 정규식 스캔의 대상 길이가 여기서 유계가 된다.
+#   [주의] 이 상한을 넘겨도 문서를 버리지 않는다 — 앞부분만 보고 등급을 내되 결과에
+#   '일부만 봤다'는 표식을 단다(cli._apply_text_limit 참고).
+MAX_TEXT_CHARS = int(os.environ.get("CSOCLASSIFY_MAX_TEXT_CHARS", 2_000_000))
+
+# [G4] 압축 1건당 해제 누적 상한 / 내부 파일 개수 상한.
+#   archive.expand_paths 의 max_depth 는 '깊이'만 막는다. 깊이 1짜리 zip 하나로도
+#   디스크를 채울 수 있어(폭 방향 압축폭탄) 총량·개수 상한이 따로 필요하다.
+MAX_ARCHIVE_BYTES = int(os.environ.get("CSOCLASSIFY_MAX_ARCHIVE_BYTES", 500 * 1024 * 1024))
+MAX_ARCHIVE_MEMBERS = int(os.environ.get("CSOCLASSIFY_MAX_ARCHIVE_MEMBERS", 5000))
+
+# [G5] 전용 파서(하이브리드) 시간 상한과 PDF 페이지 상한.
+#   snf 는 subprocess 라 SNF_TIMEOUT 으로 이미 보호되지만, 기본 경로인 자체 파서는
+#   in-process 호출이라 아무 방어가 없다(pdf_pdfium 은 전 페이지를 무제한 순회).
+PARSER_TIMEOUT = int(os.environ.get("CSOCLASSIFY_PARSER_TIMEOUT", 60))
+MAX_PDF_PAGES = int(os.environ.get("CSOCLASSIFY_MAX_PDF_PAGES", 3000))
+
 # 추출 방식 — 설계: doc/CSO_HybridParse.html
 #   [2026-08-26 기본값 변경] 기본이 '자체 파서'(하이브리드)다. 내용 감지로 포맷별
 #   전용 파서를 라우팅한다(pdf→pypdfium2, hwp→HWP5, hwpx→zip/OWPML, doc/ppt→자체파서,
@@ -128,7 +169,7 @@ EXIT_EMBED_FAIL = 2
 EXIT_ARG_ERROR = 3
 # 규칙셋 자체는 찾았지만 내용이 틀린 경우(등급 오타·bulk 역전 등). 배치 스크립트가
 # "파일 없음(3)"과 "내용 오류(4)"를 구분해 대응할 수 있도록 별도 코드를 준다.
-# Rust 판(csoclassify-rs)도 같은 값 4 를 쓴다 — 두 구현의 동작을 일치시킨다.
+# Rust 판(MpowerClassify-rs)도 같은 값 4 를 쓴다 — 두 구현의 동작을 일치시킨다.
 EXIT_RULES_INVALID = 4
 
 

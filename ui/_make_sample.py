@@ -47,16 +47,16 @@ records = [
     rec(r"D:\collected\인사\임직원_명부_2026.docx", "C", 0.85, "fusion", ["rule"],
         {"rule": rule_sig("C", [
             {"id": "rrn", "name": "주민등록번호", "layer": "L1", "count": 5,
-             "validated": 4, "grade": "C", "terms": []},
+             "grade": "C", "terms": []},
             {"id": "phone_mobile", "name": "휴대전화번호", "layer": "L1", "count": 5,
-             "validated": 0, "grade": "S", "terms": []}]),
+             "grade": "S", "terms": []}]),
          "path": path_sig("S", "hr_finance_dir"), "name": name_sig()}, seed=True),
 
     # 2) 대외비 보고서 — 기밀 표식 → C
     rec(r"D:\collected\기획\대외비_사업계획.hwp", "C", 0.85, "fusion", ["rule"],
         {"rule": rule_sig("C", [
             {"id": "mark_confidential", "name": "기밀 표식", "layer": "L2", "count": 3,
-             "validated": 0, "grade": "C", "terms": [{"term": "대외비", "count": 3}]}]),
+             "grade": "C", "terms": [{"term": "대외비", "count": 3}]}]),
          "path": path_sig(), "name": name_sig("C", [
              {"id": "mark_confidential", "name": "기밀 표식", "grade": "C", "term": "대외비"}])}),
 
@@ -72,7 +72,7 @@ records = [
     rec(r"D:\collected\법무\용역계약서_한빛테크.docx", "S", 0.7, "fusion", ["rule", "name"],
         {"rule": rule_sig("S", [
             {"id": "legal_contract", "name": "법무·계약", "layer": "L2", "count": 4,
-             "validated": 0, "grade": "S", "terms": [{"term": "계약서", "count": 4}]}]),
+             "grade": "S", "terms": [{"term": "계약서", "count": 4}]}]),
          "path": path_sig(), "name": name_sig("S", [
              {"id": "legal_contract", "name": "법무·계약", "grade": "S", "term": "계약서"}])}),
 

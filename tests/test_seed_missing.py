@@ -43,7 +43,7 @@ def _run(tmp, doc, extra=()):
                PYTHONPATH=os.path.join(ROOT, "src"),
                PYTHONIOENCODING="utf-8",
                CSOCLASSIFY_POLICY_DIR=str(tmp))
-    rules = os.path.join(ROOT, "resources", "policy", "cso_rules.yaml")
+    rules = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
     return subprocess.run(
         [sys.executable, "-m", "csoclassify", "--file", str(doc),
          "--rules", rules,

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from csoclassify.classify import (
-    load_rules, scan_path, scan_filename, fuse_signals, build_record,
+    load_rules, scan_filename, fuse_signals, build_record,
 )
 
 FIXED_TS = "2026-08-12T10:30:00+09:00"
@@ -30,44 +30,6 @@ def rs():
 
 
 #------------------------------------------------------------------
-# 경로 규칙 로드 확인
-#=> paths 섹션이 실제로 로드됐는지 본다.
-#
-# -in: rs = 규칙셋
-# -out: 없음(assert)
-# -out: error = 실패 시 AssertionError
-#------------------------------------------------------------------
-def test_path_rules_loaded(rs):
-    assert len(rs.path_rules) >= 3
-    assert "secure_server" in {r.id for r in rs.path_rules}
-
-
-#------------------------------------------------------------------
-# 경로 신호(Signal C)
-#=> 기밀 서버=C(+acl), 인사폴더=S, 공개폴더=O, 무매칭=None 을 확인한다.
-#   역슬래시/UNC 도 정규화되어 매칭돼야 한다.
-#
-# -in: rs = 규칙셋
-# -out: 없음(assert)
-# -out: error = 실패 시 AssertionError
-#------------------------------------------------------------------
-def test_scan_path(rs):
-    c = scan_path(r"\\hr-server\share\뭔가.hwp", rs)
-    # 경로규칙의 seed_eligible 은 정책 튜닝값(위치만으로 C인 문서를 내부 seed 로
-    # 쓸지 여부)이라 값 자체는 단정하지 않는다. 등급 C·강한제한(acl)만 검증한다.
-    assert c.grade == "C" and c.acl_restricted is True
-
-    s = scan_path(r"D:\collected\인사\평가.hwp", rs)
-    assert s.grade == "S"
-
-    o = scan_path(r"D:\collected\public\안내.pdf", rs)
-    assert o.grade == "O"
-
-    none = scan_path(r"D:\collected\기타\메모.txt", rs)
-    assert none.grade is None and none.acl_restricted is False
-
-
-#------------------------------------------------------------------
 # 파일명 신호(Signal D)
 #=> 파일명 키워드로 등급이 나오고, seed 로는 쓰지 않는다(항상 False).
 #
@@ -79,8 +41,11 @@ def test_scan_filename(rs):
     c = scan_filename("D:/x/대외비_보고서.hwp", rs)
     assert c.grade == "C" and c.seed_eligible is False
 
+    # [2026-09-08] project_codenames 에는 filename 을 일부러 안 적었다 —
+    # 제품 매뉴얼이 이름에 제품명이 있다는 이유만으로 C 가 되던 오탐의 근원이다.
+    # terms 로 폴백하지 않으므로 이제 신호가 없어야 한다(설계 4장 P2).
     codename = scan_filename("D:/x/엠파워_설치안내.pptx", rs)
-    assert codename.grade == "C"
+    assert codename.grade is None, codename.hits
 
     plain = scan_filename("D:/x/회의록_초안.hwp", rs)
     assert plain.grade is None
@@ -96,8 +61,8 @@ def test_scan_filename(rs):
 #------------------------------------------------------------------
 def test_fuse_max():
     rule = SimpleNamespace(grade="S", confidence=0.9, seed_eligible=True)
-    path = SimpleNamespace(grade="O", confidence=0.9, seed_eligible=True, acl_restricted=False)
-    r = fuse_signals([("rule", rule), ("path", path)])
+    name = SimpleNamespace(grade="O", confidence=0.9, seed_eligible=True)
+    r = fuse_signals([("rule", rule), ("name", name)])
     assert r.grade == "S"
     assert r.decided_by == ["rule"]
     assert r.method == "fusion"
@@ -113,8 +78,8 @@ def test_fuse_max():
 #------------------------------------------------------------------
 def test_fuse_no_downgrade():
     rule = SimpleNamespace(grade="C", confidence=0.85, seed_eligible=True)
-    path = SimpleNamespace(grade="O", confidence=0.9, seed_eligible=True, acl_restricted=False)
-    r = fuse_signals([("rule", rule), ("path", path)])
+    name = SimpleNamespace(grade="O", confidence=0.9, seed_eligible=True)
+    r = fuse_signals([("rule", rule), ("name", name)])
     assert r.grade == "C"
 
 
@@ -129,11 +94,9 @@ def test_fuse_no_downgrade():
 #------------------------------------------------------------------
 def test_fuse_failsafe():
     empty = SimpleNamespace(grade=None, confidence=0.0, seed_eligible=False)
-    acl = SimpleNamespace(grade=None, confidence=0.0, seed_eligible=False, acl_restricted=True)
 
-    r_acl = fuse_signals([("rule", empty), ("path", acl)])
-    assert r_acl.grade == "C" and r_acl.method == "failsafe_acl"
-
+    # [2026-09-08] 경로 fail-safe(failsafe_acl)는 없어졌다. 신호가 하나도 없을 때
+    # 등급을 줄지는 실행할 때 --failsafe 로 정한다(설계 6장).
     r_def = fuse_signals([("rule", empty)], failsafe="S")
     assert r_def.grade == "S" and r_def.method == "failsafe_default"
 
@@ -141,17 +104,3 @@ def test_fuse_failsafe():
     assert r_none.grade is None and r_none.method == "unclassified"
 
 
-#------------------------------------------------------------------
-# 통합 — 경로만으로 등급(내용 무관)
-#=> 본문에 아무 규칙이 안 걸려도 경로가 기밀 서버면 레코드 등급이 C 가 되고,
-#   decided_by 에 path 가 남아야 한다(Signal C 가 단독으로 구제).
-#
-# -in: rs = 규칙셋
-# -out: 없음(assert)
-# -out: error = 실패 시 AssertionError
-#------------------------------------------------------------------
-def test_build_record_path_only(rs):
-    rec = build_record(r"\\hr-server\share\일반메모.txt", "특이사항 없는 내용.", rs, ts=FIXED_TS)
-    assert rec["grade"] == "C"
-    assert "path" in rec["decided_by"]
-    assert rec["signals"]["path"]["acl_restricted"] is True

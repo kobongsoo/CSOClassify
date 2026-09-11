@@ -1,6 +1,6 @@
 #------------------------------------------------------------------
 # CLI 배선 — --export-taxonomy 모드 단위 테스트
-#=> csoclassify.exe --export-taxonomy 가 scripts/export_taxonomy.py 와 같은
+#=> MpowerClassify.exe --export-taxonomy 가 scripts/export_taxonomy.py 와 같은
 #   axes.export_from_mpower_json()/doc_rules.write_scaffold() 를 통해 동작하는지,
 #   그리고 실패 상황(원본 없음·구조 오류·검증 실패)이 올바른 종료코드로
 #   환원되는지 검증한다. 문서 추출·임베딩은 거치지 않는다(입력이 JSON 이라

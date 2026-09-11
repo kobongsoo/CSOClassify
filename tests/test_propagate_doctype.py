@@ -177,6 +177,52 @@ def test_채택된_라벨의_confidence는_min_share_이상(tmp_path):
         assert 0.15 <= v["confidence"] <= 1.0
 
 
+# ── 근거 왕복(signals) ───────────────────────────────────────────
+
+#------------------------------------------------------------------
+# as_dict 로 적은 근거를 다시 읽어 전파를 돌려도 근거가 살아남는다
+#=> 2026-09-10 부터 근거는 signals 한 칸으로 합쳐 적는다. 전파는 레코드를
+#   다시 읽어 병합하므로, 되읽기가 깨지면 전파를 한 번 거친 문서만
+#   "왜 이 라벨인지"를 통째로 잃는다 — 조용히 일어나서 더 나쁘다.
+#------------------------------------------------------------------
+def test_signals_로_적은_근거가_전파_왕복에서_살아남는다():
+    from csoclassify.classify import doctype as DT
+    from csoclassify.classify import doc_rules as D
+    from csoclassify.classify import axes as A
+    from csoclassify.classify.propagate import DoctypeEmbedSignal
+
+    taxonomy = A.Taxonomy("t", "20260824000000", 1, [
+        A.TaxonomyNode(dc_id="CONTRACT", parent=None, order=1, title="계약서", status=1)])
+    drs = D.DocRuleSet(
+        conflict=D.ConflictSpec(strategy="all"), version="doc-test-1",
+        rules=(D.DoctypeRule(id="r", node="CONTRACT", weight="high",
+                             title_terms=("계약서",), terms=("계약서",)),))
+    sig = DT.scan_doctype("계약서\n본 계약서는 유효하다.", "D:/x/용역_계약서.hwp",
+                          drs, taxonomy)
+    written = sig.as_dict()["values"]
+    assert "signals" in written[0] and "evidence" not in written[0]
+
+    # 레코드에 적힌 그 모양 그대로 다시 읽혀 병합에 들어간다.
+    result = DT.merge_embed_candidates(written, DoctypeEmbedSignal(),
+                                       taxonomy, D.ConflictSpec(strategy="all"))
+    again = result.as_dict()["values"][0]
+    assert again["signals"] == written[0]["signals"]
+
+
+#------------------------------------------------------------------
+# 옛 결과 파일(evidence·score_parts 두 칸)도 그대로 읽힌다
+#=> 화면과 전파가 옛 파일을 못 읽으면 그동안 쌓인 이력이 사라진다.
+#------------------------------------------------------------------
+def test_옛_두칸_근거도_읽힌다():
+    from csoclassify.classify import doctype as DT
+
+    ev, parts = DT._split_signals({
+        "evidence": {"title": {"terms": [{"term": "계약서", "count": 1}]}},
+        "score_parts": [{"signal": "title", "c": 0.8}]})
+    assert ev["title"]["terms"][0]["term"] == "계약서"
+    assert parts == [{"signal": "title", "c": 0.8}]
+
+
 # ── merge_embed_candidates (doctype.py) ──────────────────────────
 
 def _mk_taxonomy():
@@ -358,7 +404,12 @@ def test_records_기존_후보에_embed가_추가된다(tmp_path):
         }},
     }]
     out, stats = propagate_doctype_records(records, idx, taxonomy, D.ConflictSpec(strategy="all"))
-    dc_ids = {v["dc_id"] for v in out[0]["labels"]["doctype"]["values"]}
+    # 입력은 옛 모양(labels.doctype)이다 — 옛 결과 파일을 다시 읽어 전파하는 경로.
+    dc_ids = {v["dc_id"] for v in out[0]["why"]["doctype"]["values"]}
     assert dc_ids == {"LEAF1", "LEAF2"}     # 기존 LEAF1 유지 + embed 로 LEAF2 추가
     assert stats["embed_contributed"] == 1
-    assert "doctype_embed" in out[0]["signals"]
+    # [2026-09-10] 전파 신호는 그 축 안에 둔다 — 예전에는 등급 신호들과 같은
+    # signals 상자에 doctype_embed 라는 이름으로 섞여 있어, 축이 둘이라는 사실이
+    # 레코드 모양에서 드러나지 않았다.
+    assert "embed" in out[0]["why"]["doctype"]
+    assert "signals" not in out[0] and "labels" not in out[0]   # 옛 자리는 걷어낸다

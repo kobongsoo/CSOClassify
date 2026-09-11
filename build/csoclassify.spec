@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 #------------------------------------------------------------------
 # PyInstaller 스펙 (onedir, 외장 리소스) — 설계서 §10
-#=> csoclassify.exe(+_internal/)를 만든다. 코드와 ko-pii 사전만 번들하고,
-#   사이냅·임베딩 모델·규칙셋(cso_rules.yaml)은 exe 옆 '외장'으로 둔다(dist-pkg 스타일).
-#   런타임에 resources.py 가 exe 옆(synap/<os>/, models/<name>/, cso_rules.yaml)에서 찾는다.
+#=> MpowerClassify.exe(+_internal/)를 만든다. 코드와 ko-pii 사전만 번들하고,
+#   사이냅·임베딩 모델·규칙셋(cso_rule.yaml)은 exe 옆 '외장'으로 둔다(dist-pkg 스타일).
+#   런타임에 resources.py 가 exe 옆(synap/<os>/, models/<name>/, cso_rule.yaml)에서 찾는다.
 #   빌드:  pyinstaller build/csoclassify.spec  → dist/csoclassify/ (onedir, 빠른 시작)
 #   ※ 리눅스 실행파일은 리눅스에서 빌드해야 한다(PyInstaller 크로스컴파일 불가).
 #------------------------------------------------------------------
@@ -19,7 +19,7 @@ ROOT = os.path.abspath(os.path.join(os.getcwd()))
 entry = os.path.join(ROOT, "src", "csoclassify_launcher.py")
 
 # [외장화] 사이냅·모델·규칙셋은 exe 에 번들하지 않는다(exe 옆 외장 배치). ko-pii 사전만 포함.
-# 런타임 resources.py 가 exe 옆 synap/<os>/·models/<name>/·cso_rules.yaml 을 찾는다.
+# 런타임 resources.py 가 exe 옆 synap/<os>/·models/<name>/·cso_rule.yaml 을 찾는다.
 datas = list(collect_data_files("ko_pii"))
 
 hiddenimports = [
@@ -126,7 +126,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,   # onedir: 바이너리는 아래 COLLECT 로 모음
-    name="csoclassify",
+    name="MpowerClassify",
     console=True,            # CLI 도구이므로 콘솔 유지
     disable_windowed_traceback=False,
     strip=_strip,
@@ -139,5 +139,5 @@ coll = COLLECT(
     a.datas,
     strip=_strip,
     upx=False,
-    name="csoclassify",
+    name="MpowerClassify",
 )

@@ -12,7 +12,11 @@ import re
 import zipfile
 from xml.etree import ElementTree as ET
 
-from .base import TextExtractor, ExtractError
+from ..logsetup import get_logger
+from . import notes
+from .base import TextExtractor, ExtractError, ParserDeadline
+
+log = get_logger(__name__)
 
 # 본문 section/slide/sheet 파일명 매칭용(번호 정렬에 사용).
 _PPTX_SLIDE = re.compile(r"ppt/slides/slide(\d+)\.xml$", re.I)
@@ -60,10 +64,21 @@ class DocxExtractor(TextExtractor):
     #       (표 셀도 내부가 <w:p> 라 같은 순회로 자연스럽게 포함된다)
     #    3) 탭(<w:tab>)은 '\t' 로 반영해 표/열 구분을 살린다
     #
+    #    4) 본문 뒤에 머리말·꼬리말(word/header*.xml · word/footer*.xml)을 잇는다
+    #
+    #   [왜 머리말·꼬리말까지 읽나] 이 도구가 찾는 신호가 바로 거기 있다 —
+    #   '대외비' 스탬프와 회사명은 본문이 아니라 머리말·꼬리말에 찍히는 일이
+    #   훨씬 흔하다. 안 읽으면 그 문서는 스탬프가 없는 것처럼 보인다.
+    #   (실측 d:/sample 의 docx 4건 머리말·꼬리말에 회사명이 들어 있었다.)
+    #
+    #   [왜 본문 뒤인가] 앞 400자(표제부)가 가리키는 범위를 그대로 두기 위해서다.
+    #   머리말을 앞에 붙이면 표제부 규칙이 보던 글자가 통째로 밀려, 이 변경과
+    #   상관없는 문서의 판정까지 흔들린다. Rust 판 docx_text 와 같은 차례다.
+    #
     # -in: input_path = .docx 경로
     # -in: save_dir   = (호환용) 사용 안 함(저장은 상위 HybridExtractor 담당)
     #
-    # -out: text = 본문 텍스트(문단 개행 구분)
+    # -out: text = 본문 텍스트(문단 개행 구분) + 머리말·꼬리말
     # -out: error = 파일없음/ZIP아님/XML손상 시 ExtractError(→ snf 폴백)
     #------------------------------------------------------------------
     def extract(self, input_path, save_dir=None):
@@ -71,6 +86,14 @@ class DocxExtractor(TextExtractor):
             with zipfile.ZipFile(input_path) as z:
                 # 본문 XML. 없으면 docx 로 볼 수 없음 → 실패로 폴백.
                 data = z.read("word/document.xml")
+                # 머리말·꼬리말은 header1.xml, footer2.xml 처럼 번호가 붙어 이름이
+                # 고정이 아니다. 목록을 훑어 모으고, 이름순으로 정렬해 실행마다
+                # 같은 차례가 되게 한다(Rust 판 extras.sort() 와 같은 기준).
+                extras = sorted(
+                    n for n in z.namelist()
+                    if n.endswith(".xml")
+                    and (n.startswith("word/header") or n.startswith("word/footer")))
+                extra_data = [z.read(n) for n in extras]
         except FileNotFoundError:
             raise ExtractError("입력 파일 없음")
         except KeyError:
@@ -84,19 +107,52 @@ class DocxExtractor(TextExtractor):
 
         lines = []
         # 문서 순서대로 문단을 돈다. 표 셀 안의 문단도 이 순회에 포함된다.
+        self._collect_paragraphs(root, lines)
+        # 머리말·꼬리말도 같은 문단 규칙으로 읽는다. 하나가 깨져 있어도 본문까지
+        # 버리지는 않는다 — 부속물 때문에 문서 전체를 못 읽는 것이 더 나쁘다.
+        for blob in extra_data:
+            try:
+                self._collect_paragraphs(ET.fromstring(blob), lines)
+            except ET.ParseError:
+                continue
+        return "\n".join(lines)
+
+    #------------------------------------------------------------------
+    # 한 XML 트리에서 문단 텍스트를 모은다
+    #=> 본문·머리말·꼬리말이 모두 같은 <w:p>/<w:t> 구조라 규칙이 하나뿐이다.
+    #   따로 적으면 한쪽만 고쳐져 두 곳이 어긋난다.
+    #
+    # -in: root  = 파싱된 XML 루트(word/document.xml 또는 header/footer)
+    # -in: lines = 결과를 덧붙일 리스트(제자리에서 늘어난다)
+    #
+    # -out: 없음(lines 에 문단마다 한 줄씩 덧붙인다)
+    # -out: error = 없음
+    #------------------------------------------------------------------
+    @staticmethod
+    def _collect_paragraphs(root, lines):
         for p in root.iter():
             if _local(p.tag) != "p":
                 continue
             buf = []
-            # 이 문단에 속한 텍스트 런/탭을 순서대로 모은다.
-            for e in p.iter():
-                ln = _local(e.tag)
-                if ln == "t":
-                    buf.append(e.text or "")
-                elif ln == "tab":
-                    buf.append("\t")
+            # 이 문단의 '런(<w:r>)' 안에서만 텍스트와 탭을 순서대로 모은다.
+            #
+            # [왜 런 안으로 좁혔나] 예전에는 문단 전체를 p.iter() 로 훑으며 이름이
+            # 'tab' 인 것을 모두 탭 문자로 셌다. 그런데 <w:pPr><w:tabs> 안의 <w:tab>
+            # 은 **탭 정지 위치 '정의'** 이지 본문의 탭 문자가 아니다. 실측에서 한
+            # 문단이 그 정의를 32개 갖고 있었고, 그것이 탭 32개로 새어 들어가
+            # 정제 단계에서 공백 하나로 뭉쳐 문단 앞에 없던 들여쓰기를 만들었다
+            # (' 나. 개정 시행일'). 오류가 안 나서 못 알아챘다.
+            # 진짜 탭 문자는 언제나 런 안의 <w:tab/> 다.
+            for r in p.iter():
+                if _local(r.tag) != "r":
+                    continue
+                for e in r.iter():
+                    ln = _local(e.tag)
+                    if ln == "t":
+                        buf.append(e.text or "")
+                    elif ln == "tab":
+                        buf.append("\t")
             lines.append("".join(buf))
-        return "\n".join(lines)
 
 
 class XlsxExtractor(TextExtractor):
@@ -126,7 +182,17 @@ class XlsxExtractor(TextExtractor):
                 sheets = sorted((n for n in names if _XLSX_SHEET.search(n)),
                                 key=lambda n: _num_key(n, _XLSX_SHEET))
                 out = []
-                for n in sheets:
+                # 시간 상한(G5) — 시트가 많거나 한 장이 거대한 통합문서에서 이 루프가
+                # 무한정 늘어난다. 넘으면 그때까지 읽은 시트까지만 쓴다(예외 아님).
+                deadline = ParserDeadline()
+                for i, n in enumerate(sheets):
+                    if deadline.expired():
+                        log.warning("xlsx 부분 추출 시간 상한(%ss) file=%s sheets=%d/%d",
+                                    deadline.seconds, input_path, i, len(sheets))
+                        # 결과를 보는 사람에게 닿도록 레코드까지 표식을 보낸다.
+                        notes.set_partial(f"시간 상한({deadline.seconds}s)",
+                                          "sheets", i, len(sheets))
+                        break
                     out.extend(self._read_sheet(z.read(n), shared))
                 return "\n".join(out)
         except FileNotFoundError:
@@ -239,7 +305,17 @@ class PptxExtractor(TextExtractor):
                 slides = sorted((n for n in z.namelist() if _PPTX_SLIDE.search(n)),
                                 key=lambda n: _num_key(n, _PPTX_SLIDE))
                 out = []
-                for n in slides:
+                # 시간 상한(G5) — 슬라이드가 수천 장인 발표자료에서 이 루프가 무한정
+                # 늘어난다. 넘으면 그때까지 읽은 슬라이드까지만 쓴다(예외 아님).
+                deadline = ParserDeadline()
+                for i, n in enumerate(slides):
+                    if deadline.expired():
+                        log.warning("pptx 부분 추출 시간 상한(%ss) file=%s slides=%d/%d",
+                                    deadline.seconds, input_path, i, len(slides))
+                        # 결과를 보는 사람에게 닿도록 레코드까지 표식을 보낸다.
+                        notes.set_partial(f"시간 상한({deadline.seconds}s)",
+                                          "slides", i, len(slides))
+                        break
                     out.extend(self._read_slide(z.read(n)))
                 return "\n".join(out)
         except FileNotFoundError:

@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from csoclassify import record
 from csoclassify.classify import SeedIndex, propagate, propagate_records
 
 
@@ -174,8 +175,8 @@ def test_propagate_records_rescue():
     records, stats = propagate_records(recs)
     u1 = next(r for r in records if r["file"] == "u1")
     assert u1["grade"] == "C"
-    assert "embed" in u1["decided_by"]
-    assert u1["seed_eligible"] is False
+    assert "embed" in u1["why"]["security"]["decided_by"]
+    assert u1["why"]["security"]["seed_eligible"] is False
     assert stats["seeds"] == 5
     assert stats["embed_decided"] >= 1
 
@@ -199,7 +200,7 @@ def test_propagate_skips_already_graded():
     records, stats = propagate_records(recs)
     d1 = next(r for r in records if r["file"] == "d1")
     assert d1["grade"] == "S"               # 이미 등급 있어 임베딩이 못 올림(그대로)
-    assert "embed" not in d1["signals"]     # 전파 대상 아님 → embed 신호 없음
+    assert "embed" not in d1["why"]["security"]["signals"]     # 전파 대상 아님 → embed 신호 없음
     assert stats["already_graded"] >= 1
 
 
@@ -254,7 +255,7 @@ def test_propagate_external_seed_index():
     ext = SeedIndex.from_records([
         {"file": "seed_c", "grade": "C", "seed_eligible": True, "vector": [1.0, 0.0, 0.0, 0.0]}])
     records, stats = propagate_records([_boru_rec()], seed_index=ext)
-    assert records[0]["grade"] == "C"     # 외부 seed 로 구제됨
+    assert records[0]["grade"] == "C"   # 외부 seed 로 구제됨
     assert stats["seeds"] == 1
 
 
@@ -296,5 +297,5 @@ def test_propagate_merges_external_and_internal():
 #------------------------------------------------------------------
 def test_propagate_without_seeds_not_rescued():
     records, stats = propagate_records([_boru_rec()])
-    assert records[0]["grade"] is None
+    assert record.grade_of(records[0]) is None
     assert stats["seeds"] == 0

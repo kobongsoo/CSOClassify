@@ -14,6 +14,7 @@
 import datetime
 import json
 
+from csoclassify import record as csorecord
 import docidkey
 import os
 from collections import defaultdict
@@ -31,7 +32,7 @@ import uiwords as W
 # -out: error = 없음
 #------------------------------------------------------------------
 def now_iso():
-    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 #------------------------------------------------------------------
@@ -120,7 +121,7 @@ def append_doctype_override(path, file, doc_id, confirmed, rejected, reason, rev
 # -out: error = 없음
 #------------------------------------------------------------------
 def effective_doctype(rec, latest_dt, tax=None):
-    dt = (rec.get("labels") or {}).get("doctype")
+    dt = csorecord.doctype_of(rec)
     if not dt:
         return [], False
 
@@ -259,6 +260,35 @@ def reason_text(signal, ev):
 
 
 #------------------------------------------------------------------
+# 후보의 근거를 화면이 쓰던 두 조각으로 꺼낸다
+#=> 엔진이 근거를 signals 한 칸에 신호별로 합쳐 준다(2026-09-10).
+#   화면 코드는 예전부터 "무슨 말이 걸렸나(ev)"와 "몇 점인가(parts)"를 따로
+#   다뤄 왔으므로, 여기서 한 번만 갈라 주면 아래 코드를 그대로 쓸 수 있다.
+#   [옛 레코드] signals 가 없으면 예전 두 칸을 그대로 읽는다.
+#
+# -in: cand = 후보 dict
+#
+# -out: (ev, parts) = ({신호이름: 근거dict}, [{"signal":이름,"c":점수}])
+# -out: error = 없음
+#------------------------------------------------------------------
+def _cand_signals(cand):
+    sigs = cand.get("signals")
+    if not isinstance(sigs, dict):
+        return (cand.get("evidence") or {},
+                [p for p in (cand.get("score_parts") or []) if isinstance(p, dict)])
+    ev, parts = {}, []
+    for name, one in sigs.items():
+        one = dict(one or {}) if isinstance(one, dict) else {}
+        c = one.pop("c", None)
+        ev[name] = one
+        # 점수 몫이 없는 신호(전파가 근거만 더한 경우)는 parts 에 넣지 않는다 —
+        # 넣으면 "근거 N가지가 겹쳐" 문장의 N 이 사실과 달라진다.
+        if c is not None:
+            parts.append({"signal": name, "c": c})
+    return ev, parts
+
+
+#------------------------------------------------------------------
 # 후보 하나 → 화면에 그릴 근거 묶음
 #=> "왜 이 분류가 제안됐는가"를 화면이 그대로 찍기만 하면 되도록 정리해 준다.
 #   문장 만들기를 여기 두는 이유는 Streamlit 없이 테스트하기 위해서다.
@@ -268,7 +298,7 @@ def reason_text(signal, ev):
 #    4) 규칙 근거 없이 벡터만으로 뜬 후보는 그 사실을 경고로 남긴다
 #
 # -in: cand = effective_doctype() 이 낸 후보 dict
-#             (evidence·score_parts·stage 는 없을 수도 있다 — 예전 레코드)
+#             (signals·stage 는 없을 수도 있다 — 예전 레코드)
 #
 # -out: dict = {"kind": "manual"|"legacy"|"evidence",
 #               "lines": [{"text","conf"}], "summary": str|None, "warn": str|None}
@@ -276,8 +306,9 @@ def reason_text(signal, ev):
 #------------------------------------------------------------------
 def reason_block(cand):
     cand = cand or {}
-    ev = cand.get("evidence") or {}
-    parts = [p for p in (cand.get("score_parts") or []) if isinstance(p, dict)]
+    # 2026-09-10 부터 근거는 signals 한 칸에 신호별로 합쳐져 온다.
+    # 옛 결과 파일은 evidence·score_parts 두 칸이라 그때는 예전처럼 읽는다.
+    ev, parts = _cand_signals(cand)
 
     # 사람이 직접 고른 분류는 기계 근거가 없다 — 그렇게 말해 준다.
     if "manual" in (cand.get("from") or []):

@@ -342,7 +342,7 @@ if _HAVE_KOPII:
         ("BUSINESS_REG", _p_breg.detect), ("CORP_REG", _p_creg.detect),
         ("DRIVER_LICENSE", _p_dl.detect), ("PASSPORT", _p_pass.detect),
         ("CARD", _p_card.detect), ("MEDICAL_INSURANCE", _p_mi.detect),
-        # 처방전 주의: 검출기는 'PRESCRIPTION_ID' 라벨을 내보내지만 cso_rules.yaml 은
+        # 처방전 주의: 검출기는 'PRESCRIPTION_ID' 라벨을 내보내지만 cso_rule.yaml 은
         # 'PRESCRIPTION' 을 쓴다. 두 별칭 모두 이 검출기를 고르게 하되, 실제 결과는
         # 최종 include 필터에서 라벨 불일치로 걸러진다 → 현재 detect_all 동작(설정상
         # 처방전 0건)과 정확히 일치. (설정 라벨 오타로 보이나, 본 패치는 동작 보존이
@@ -461,7 +461,7 @@ class UnknownGradeError(ValueError):
 
 #------------------------------------------------------------------
 # 규칙셋 검증 실패 예외
-#=> cso_rules.yaml 을 읽는 데는 성공했지만 내용이 규칙에 맞지 않을 때 던진다.
+#=> cso_rule.yaml 을 읽는 데는 성공했지만 내용이 규칙에 맞지 않을 때 던진다.
 #   위반을 '처음 하나에서 멈추지 않고 전부 모아' 담는 게 핵심 — 관리자가 한 번에
 #   고칠 수 있어야 하기 때문이다.
 #
@@ -486,7 +486,7 @@ class RuleSetValidationError(Exception):
         self.violations = list(violations)
         super().__init__(format_violations(path, self.violations))
 
-# weight → 신뢰도 기본값(cso_rules.yaml 의 confidence 블록으로 덮어쓸 수 있음).
+# weight → 신뢰도 기본값(cso_rule.yaml 의 confidence 블록으로 덮어쓸 수 있음).
 # 신뢰도는 '검토 큐' 편입/정렬에만 쓰이고 C/S/O 등급은 바꾸지 않는다.
 _REGEX_CONF = {"high": 0.90, "medium": 0.70, "low": 0.50}
 _KEYWORD_CONF = {"high": 0.85, "medium": 0.70, "low": 0.50}
@@ -498,7 +498,7 @@ _SENSITIVE_CONF = {"high": 0.85, "medium": 0.70, "low": 0.55}
 
 #------------------------------------------------------------------
 # 기본 신뢰도 표(정규식/키워드/경로/파일명)
-#=> cso_rules.yaml 에 confidence 블록이 없을 때 쓰는 폴백. yaml 값이 있으면
+#=> cso_rule.yaml 에 confidence 블록이 없을 때 쓰는 폴백. yaml 값이 있으면
 #   load_rules 가 이 위에 덮어써 RuleSet.confidence 로 담는다.
 #
 # -in: 없음
@@ -525,7 +525,7 @@ def _default_confidence():
 #    3) _GRADE_RANK 로 순위를 매겨 최댓값 선택
 #
 #   [왜 예외인가] 예전에는 모르는 값을 rank -1 로 취급해 그냥 건너뛰었다. 그러면
-#   cso_rules.yaml 에 'base_grade: c' 같은 오타가 있어도 아무 경고 없이 그 규칙만
+#   cso_rule.yaml 에 'base_grade: c' 같은 오타가 있어도 아무 경고 없이 그 규칙만
 #   판정에서 빠져 문서 등급이 실제보다 낮게 나온다. 등급이 낮게 나오는 실패는
 #   보안 사고라, 조용히 넘기는 대신 시끄럽게 멈추는 쪽이 안전하다.
 #   규칙셋은 load_rules 에서 미리 검증하므로, 정상 경로에서는 이 예외가 나지 않는다.
@@ -554,7 +554,7 @@ def max_grade(grades, where=None):
 
 #------------------------------------------------------------------
 # 스캔 기본값 묶음
-#=> cso_rules.yaml 의 defaults 블록을 담는다. 개별 규칙이 값을 지정하지 않았을 때
+#=> cso_rule.yaml 의 defaults 블록을 담는다. 개별 규칙이 값을 지정하지 않았을 때
 #   여기 값을 대신 쓴다.
 #
 # -필드: bulk_threshold  = 이 건수 이상이면 bulk_grade 로 상향(명단/대장 정황)
@@ -612,6 +612,11 @@ class KeywordRule:
     id: str
     name: str
     terms: tuple
+    # 파일명에서 찾을 말. 본문(terms)과 **따로** 적는다 — 안 적으면 이 규칙은
+    # 파일명 신호를 만들지 않는다(2026-09-08, 설계 4장 P2). terms 로 되돌아가는
+    # 폴백을 두지 않는 이유: 폴백은 '본문 단어가 파일명에 새는' 지금의 오탐을
+    # 기본값으로 굳힌다(실측: 파일명 신호 99건 중 79건이 제품명 규칙 하나였다).
+    filename: tuple = ()
     exclude: tuple = ()
     base_grade: str = "S"
     bulk_grade: str = None
@@ -706,35 +711,8 @@ class StampRule:
 
 
 #------------------------------------------------------------------
-# 경로 규칙 1개(Signal C)
-#=> "파일 경로에 이 조각이 있으면 이 등급" 매핑. 텍스트를 열지 않는 출처 대용 신호.
-#
-# -필드: id            = 규칙 식별자 (예: "secure_server")
-# -필드: name          = 사람이 읽는 이름
-# -필드: matches       = 부분일치 조각들(로드 시 '/' 정규화 + 소문자화)
-# -필드: grade         = 매칭 시 부여 등급. acl_restricted=True 인 규칙에 한해 None 가능
-#                       (None = "이 폴더인 건 분명하지만 등급은 내용을 보고 정하라")
-# -필드: acl_restricted = True 면 강한 제한 표식. 내용·파일명 어디서도 신호가 없으면
-#                       fail-safe 로 최고 등급을 준다(fuse.fuse_signals 의 failsafe_acl)
-# -필드: weight        = 신뢰도 가중
-# -필드: seed_eligible = 전파 seed 승격 가능 여부
-#------------------------------------------------------------------
-@dataclass(frozen=True)
-class PathRule:
-    id: str
-    name: str
-    matches: tuple
-    # 기본값을 None 으로 둔다. 예전에는 "S" 였는데, 그 탓에 grade 를 생략한 규칙이
-    # 조용히 S 가 되어 'acl_restricted 만 있는 규칙'을 아예 표현할 수 없었다.
-    grade: str = None
-    acl_restricted: bool = False
-    weight: str = "high"
-    seed_eligible: bool = False
-
-
-#------------------------------------------------------------------
 # 규칙셋 전체
-#=> 로드된 cso_rules.yaml 을 통째로 담는 컨테이너. 스캔 함수에 넘겨 쓴다.
+#=> 로드된 cso_rule.yaml 을 통째로 담는 컨테이너. 스캔 함수에 넘겨 쓴다.
 #
 # -필드: version       = 규칙셋 버전 문자열(감사용, 결과에 기록)
 # -필드: defaults      = Defaults(기본 임계값 등)
@@ -743,7 +721,6 @@ class PathRule:
 # -필드: keyword_rules  = KeywordRule 리스트(L2)
 # -필드: sensitive_rules = SensitiveRule 리스트(Signal F, 법상 민감정보군)
 # -필드: stamp_rules    = StampRule 리스트(Signal E, 보안분류 스탬프)
-# -필드: path_rules     = PathRule 리스트(Signal C, 경로 택소노미)
 # -필드: confidence     = weight→신뢰도 표({regex/keyword/sensitive/stamp/path:{high/med/low}, name:float})
 #------------------------------------------------------------------
 @dataclass(frozen=True)
@@ -755,7 +732,6 @@ class RuleSet:
     keyword_rules: list = field(default_factory=list)
     sensitive_rules: list = field(default_factory=list)
     stamp_rules: list = field(default_factory=list)
-    path_rules: list = field(default_factory=list)
     confidence: dict = field(default_factory=_default_confidence)
 
 
@@ -767,7 +743,12 @@ class RuleSet:
 # -필드: name            = 규칙 이름
 # -필드: layer           = "L1"(정규식) | "L2"(키워드)
 # -필드: count           = 인정된 매칭 건수(문맥·검증 통과분)
-# -필드: validated_count = 체크섬까지 통과한 건수(키워드는 0)
+#
+#   [2026-09-10 validated_count 제거] "체크섬까지 통과한 건수"를 따로 실었지만,
+#   값이 언제나 L1=count · L2=0 둘 중 하나였다 — layer 만 보면 아는 값이다.
+#   ko-pii 가 체크섬 탈락분을 빼고 건수를 주므로 '일부만 통과'가 나올 경로가
+#   없었는데, 받는 쪽이 "validated < count 면 의심스러운 검출"로 읽으면 영영
+#   오지 않을 조건을 기다리게 된다. 읽는 코드도 없어 칸째 뺐다.
 # -필드: grade           = 이 규칙이 기여한 등급(상향 반영)
 # -필드: seed_eligible   = 이 히트가 전파 seed 로 쓸 만큼 신뢰되는가
 # -필드: confidence      = 이 히트의 신뢰도(0~1)
@@ -780,7 +761,6 @@ class RuleHit:
     name: str
     layer: str
     count: int
-    validated_count: int
     grade: str
     seed_eligible: bool
     confidence: float
@@ -824,7 +804,6 @@ class GradeSignal:
                     "name": h.name,
                     "layer": h.layer,
                     "count": h.count,
-                    "validated": h.validated_count,
                     "grade": h.grade,
                     # 어떤 단어가 걸렸는지(키워드만). PII 정규식은 항상 빈 목록.
                     "terms": [{"term": t, "count": c} for t, c in h.terms],
@@ -1007,8 +986,8 @@ def _kopii_counts(text, labels):
 #------------------------------------------------------------------
 # PII(L1) 스캔 — ko-pii 건수 → RuleHit 목록
 #=> 활성 PII 유형들을 ko-pii 로 한 번에 검출하고, 유형별로 등급 정책을 적용해
-#   RuleHit 를 만든다. ko-pii 가 이미 체크섬·문맥으로 검증한 검출이므로 별도 검증
-#   단계는 없고, validated_count 는 count 와 같게 둔다.
+#   RuleHit 를 만든다. ko-pii 가 이미 체크섬·문맥으로 검증한 검출이므로 별도
+#   검증 단계는 없다 — 여기 오는 건수는 전부 검증을 통과한 것이다.
 #
 # -in: text        = 스캔 대상 텍스트
 # -in: regex_rules = PII 유형 규칙(RegexRule) 목록
@@ -1030,14 +1009,22 @@ def _scan_pii(text, regex_rules, defaults, conf_map=None):
 
     counts = _kopii_counts(text, by_label.keys())
     hits = []
-    for label, count in counts.items():
-        rule = by_label.get(label)
-        if not rule or count <= 0:
+    # [히트 차례] 규칙셋(cso_rule.yaml)에 적힌 차례를 따른다.
+    #   예전에는 counts 를 그대로 돌아 ko-pii 가 '검출한 차례'(대략 문서에 나온
+    #   차례)로 담겼다. 그건 우리가 정한 규칙이 아니라 라이브러리 내부 사정이라,
+    #   ko-pii 를 판올림하면 판정이 그대로여도 모든 레코드의 히트 차례가 조용히
+    #   바뀐다. 또 Rust 판은 규칙 차례로 담고 있어 두 판의 결과 파일을 그대로
+    #   견줄 수 없었다(2026-09-10 실측: 11개 문서 중 6개에서 차례가 어긋났다).
+    #   규칙셋 차례는 정책을 쓴 사람이 정한 것이고 두 판이 같은 파일을 읽으므로,
+    #   같은 차례가 '우연'이 아니라 '구조'로 보장된다.
+    for rule in regex_rules:
+        count = counts.get(rule.label, 0)
+        if count <= 0 or by_label.get(rule.label) is not rule:
             continue
         grade = _escalate_grade(rule, count, defaults)
         hits.append(RuleHit(
             rule_id=rule.id, name=rule.name, layer="L1",
-            count=count, validated_count=count,   # ko-pii 검출 = 검증 완료로 취급
+            count=count,
             grade=grade, seed_eligible=rule.seed_eligible,
             confidence=conf_map.get(rule.weight, 0.6),
         ))
@@ -1098,7 +1085,7 @@ def _combo_hits(counts, combo_rules, conf_map=None):
         comps = tuple(sorted(matched.items()))
         hits.append(RuleHit(
             rule_id=rule.id, name=rule.name, layer="COMBO",
-            count=len(comps), validated_count=len(comps),
+            count=len(comps),
             grade=rule.grade, seed_eligible=rule.seed_eligible,
             confidence=conf_map.get(rule.weight, 0.8),
             terms=comps,
@@ -1201,7 +1188,7 @@ def _scan_keyword(text, rule, defaults, conf_map=None):
     conf = conf_map.get(rule.weight, 0.6)
     return RuleHit(
         rule_id=rule.id, name=rule.name, layer="L2",
-        count=total, validated_count=0,
+        count=total,
         grade=grade, seed_eligible=rule.seed_eligible, confidence=conf,
         terms=tuple(per_term),
     )
@@ -1215,7 +1202,7 @@ def _scan_keyword(text, rule, defaults, conf_map=None):
 #    3) 히트가 있으면 max_grade 로 최종 등급, 그 등급을 만든 히트들의
 #       최고 신뢰도·seed 여부를 뽑아 담는다
 #
-# -in: text    = CSOClassify 가 추출·정제한 문서 텍스트
+# -in: text    = MpowerClassify 가 추출·정제한 문서 텍스트
 # -in: ruleset = load_rules() 로 만든 RuleSet
 #
 # -out: GradeSignal = 규칙 기반 등급 신호(근거 hits 포함, 원문 없음)
@@ -1303,7 +1290,7 @@ class StampSignal:
 #   [프라이버시] 표식 문구는 정책 키워드라 원문 PII 가 아니다 → term 을 근거로 남겨도 안전.
 #   [융합] 결과는 build_record 에서 다른 신호와 함께 max 융합되어 '상향 전용'으로 기여한다.
 #
-# -in: text    = CSOClassify 가 추출·정제한 문서 텍스트
+# -in: text    = MpowerClassify 가 추출·정제한 문서 텍스트
 # -in: ruleset = load_rules() 로 만든 RuleSet(stamp_rules 사용)
 #
 # -out: StampSignal = 스탬프 기반 등급 신호(근거 hits 포함)
@@ -1424,7 +1411,7 @@ class SensitiveSignal:
 #   [프라이버시] 근거로 남기는 건 정책 키워드(단어)와 범주·건수뿐 — 원문 PII 아님.
 #   [융합] build_record 에서 다른 신호와 max 융합되어 '상향 전용'으로 기여한다.
 #
-# -in: text    = CSOClassify 가 추출·정제한 문서 텍스트
+# -in: text    = MpowerClassify 가 추출·정제한 문서 텍스트
 # -in: ruleset = load_rules() 로 만든 RuleSet(sensitive_rules 사용)
 #
 # -out: SensitiveSignal = 민감정보 기반 등급 신호(근거 hits 포함)
@@ -1555,29 +1542,60 @@ def collect_pii(text, ruleset):
     return out
 
 
+# 보안등급 규칙셋 파일 이름. 업무분류(doc_rule.yaml)와 짝을 맞춰 단수형으로
+# 바꿨다(2026-09-08). 옛 이름도 당분간 받는다 — 이미 배포된 폴더에는 옛 이름
+# 파일이 그대로 있고, 그것 때문에 "규칙셋을 찾을 수 없습니다"로 죽으면 안 된다.
+RULES_NAME = "cso_rule.yaml"
+RULES_NAME_OLD = "cso_rules.yaml"
+
+
+#------------------------------------------------------------------
+# 규칙셋 파일 한 개 고르기 — 새 이름 우선, 없으면 옛 이름
+#=> 한 폴더 안에서 새 이름을 먼저 보고, 없을 때만 옛 이름을 쓴다. 옛 이름을
+#   썼으면 화면에 한 줄 알린다 — 조용히 쓰면 "언제까지 이대로 두어도 되나"를
+#   아무도 모르고, 어느 날 지원이 끊길 때 갑자기 멈춘다.
+#
+# -in: folder = 찾아볼 폴더
+#
+# -out: path = 실제로 있는 파일 경로. 둘 다 없으면 '새 이름' 경로
+#              (호출부의 오류 메시지가 새 이름을 가리키게 하려는 것)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _pick_rules_file(folder):
+    new = os.path.join(folder, RULES_NAME)
+    if os.path.isfile(new):
+        return new
+    old = os.path.join(folder, RULES_NAME_OLD)
+    if os.path.isfile(old):
+        print(f"[MpowerClassify] {RULES_NAME_OLD} 은 옛 이름입니다 — "
+              f"{RULES_NAME} 로 바꿔 두세요(지금은 그대로 씁니다).", file=sys.stderr)
+        return old
+    return new
+
+
 #------------------------------------------------------------------
 # 기본 규칙셋 파일 경로
-#=> cso_rules.yaml 의 위치를 정한다. 규칙셋은 exe 에 내장하지 않고 '외장 파일'로
+#=> cso_rule.yaml 의 위치를 정한다. 규칙셋은 exe 에 내장하지 않고 '외장 파일'로
 #   두어(exe 옆) 재빌드 없이 규칙만 교체·배포할 수 있게 한다.
-#    1) 환경변수 CSOCLASSIFY_POLICY_DIR 이 있으면 그 폴더의 cso_rules.yaml
-#    2) exe 로 실행 중이면 exe 실행 경로(exe 옆)의 cso_rules.yaml  ← 기본(외장)
-#    3) 소스(개발) 실행이면 트리의 resources/policy/cso_rules.yaml
+#    1) 환경변수 CSOCLASSIFY_POLICY_DIR 이 있으면 그 폴더의 cso_rule.yaml
+#    2) exe 로 실행 중이면 exe 실행 경로(exe 옆)의 cso_rule.yaml  ← 기본(외장)
+#    3) 소스(개발) 실행이면 트리의 resources/policy/cso_rule.yaml
 #
 # -in: 없음
 #
-# -out: path = cso_rules.yaml 절대경로(존재 여부는 확인 안 함 — 없으면 load_rules 가
+# -out: path = cso_rule.yaml 절대경로(존재 여부는 확인 안 함 — 없으면 load_rules 가
 #              FileNotFoundError 로 그 경로를 알려 준다)
 # -out: error = 없음
 #------------------------------------------------------------------
 def default_rules_path():
     env = os.environ.get("CSOCLASSIFY_POLICY_DIR")
     if env:
-        return os.path.join(env, "cso_rules.yaml")
+        return _pick_rules_file(env)
     # exe(PyInstaller) 로 얼린 실행: 내장 번들 대신 'exe 옆'의 외장 규칙셋을 쓴다.
     if getattr(sys, "frozen", False):
-        return os.path.join(exe_dir(), "cso_rules.yaml")
-    # 소스(개발) 실행: 저장소 트리의 resources/policy/cso_rules.yaml.
-    return resource_path("policy", "cso_rules.yaml")
+        return _pick_rules_file(exe_dir())
+    # 소스(개발) 실행: 저장소 트리의 resources/policy/cso_rule.yaml.
+    return _pick_rules_file(os.path.dirname(resource_path("policy", RULES_NAME)))
 
 
 #------------------------------------------------------------------
@@ -1610,20 +1628,23 @@ def default_seed_path():
 # ────────────────────────────────────────────────────────────────────────
 
 # 등급 필드가 어느 섹션의 어느 키에 있는지 정의.
-#   (YAML 섹션 키, 단일등급 필드들, (base 필드, bulk 필드) 또는 None,
-#    등급 생략을 허용해 주는 조건 필드 또는 None)
+#   (YAML 섹션 키, 단일등급 필드들, (base 필드, bulk 필드) 또는 None)
 # bulk 쌍이 있는 섹션만 V6(상향 방향) 검사를 한다.
-# paths 만 네 번째 자리가 채워져 있다 — "acl_restricted: true 인 경로 규칙은 grade 를
-# 생략할 수 있다"는 뜻이다. 그 규칙은 등급을 스스로 내지 않고, 내용·파일명 어디서도
-# 신호가 없을 때만 fail-safe 로 최고 등급을 만든다(fuse 의 failsafe_acl 경로).
+# [2026-09-08] paths 섹션이 없어지면서, 그 하나를 위해 있던 '등급 생략 허용'
+# 자리(네 번째 칸)도 함께 뺐다 — 쓰는 데가 없는 장치를 남겨 두면 다음 사람이
+# '이건 언제 쓰나'를 되짚어야 한다.
 _GRADE_SECTIONS = (
-    ("regex_pii",  (),         ("base_grade", "bulk_grade"), None),
-    ("pii_combos", ("grade",), None,                         None),
-    ("keywords",   (),         ("base_grade", "bulk_grade"), None),
-    ("sensitive",  ("grade",), None,                         None),
-    ("stamps",     ("grade",), None,                         None),
-    ("paths",      ("grade",), None,                         "acl_restricted"),
+    ("regex_pii",  (),         ("base_grade", "bulk_grade")),
+    ("pii_combos", ("grade",), None),
+    ("keywords",   (),         ("base_grade", "bulk_grade")),
+    ("sensitive",  ("grade",), None),
+    ("stamps",     ("grade",), None),
 )
+
+# 없어진 최상위 블록 → 사람이 읽을 사유. 조용히 무시하지 않으려고 표로 둔다.
+_GONE_SECTIONS = {
+    "paths": "paths 는 더 이상 쓰지 않는 블록입니다(2026-09-08 제거) — 이 신호는 동작하지 않으므로 규칙셋에서 지우세요",
+}
 
 # "키가 아예 없음"과 "키는 있는데 값이 비었음(null)"을 구분하기 위한 표식.
 #   키가 없으면 로더가 기본값을 넣으므로 정상, null 이면 관리자의 실수다.
@@ -1730,23 +1751,12 @@ def _violation(code, section, rule_id, field, value, detail):
 # -in: field       = 볼 필드명
 # -in: section     = 섹션 키(메시지용)
 # -in: rule_id     = 규칙 id(메시지용)
-# -in: omit_okay_if = 이 불리언 필드가 True 면 등급 생략/null 을 허용한다(없으면 None).
-#                    paths 의 "acl_restricted" 가 유일한 사용처
 #
 # -out: (violation, grade) = 위반 dict 또는 None, 그리고 검증을 통과한 등급 값(아니면 None)
 # -out: error = 없음
 #------------------------------------------------------------------
-def _check_grade_field(item, field, section, rule_id, omit_okay_if=None):
+def _check_grade_field(item, field, section, rule_id):
     value = item.get(field, _ABSENT)
-    # 생략(또는 null)을 조건부로 허용하는 섹션 — 현재는 paths 뿐.
-    if omit_okay_if is not None and (value is _ABSENT or value is None):
-        if item.get(omit_okay_if) is True:
-            # 등급 없이 acl_restricted 만 있는 규칙 → 의도된 형태. 등급은 None 으로 둔다.
-            return None, None
-        return _violation(
-            "V12", section, rule_id, field, value,
-            f"등급을 생략하려면 {omit_okay_if}: true 여야 합니다"
-            f"(둘 다 없으면 이 규칙은 아무 일도 하지 않습니다)"), None
     # 키 자체가 없으면 로더 기본값(항상 유효)이 쓰인다 → 검사할 것이 없다.
     if value is _ABSENT:
         return None, None
@@ -1766,12 +1776,12 @@ def _check_grade_field(item, field, section, rule_id, omit_okay_if=None):
 #   첫 오류에서 멈추지 않는 이유는 관리자가 한 번에 고칠 수 있게 하기 위해서다.
 #    1) 섹션마다 항목을 돌며 등급 필드를 검사(V5)
 #    2) base/bulk 쌍이 있으면 bulk 가 base 보다 낮지 않은지 검사(V6)
-#    3) paths 는 grade 를 생략할 수 있는 대신, 그럴 땐 acl_restricted: true 여야 한다(V12)
+#    3) 이제 안 쓰는 blocks(paths)가 남아 있으면 알린다(V12)
 #
-#   [V12 가 필요한 이유] 경로 규칙이 grade 도 acl_restricted 도 없으면 그 규칙은
-#   매칭돼도 아무 등급을 만들지 않는다 — 즉 있으나 마나다. 예전에는 grade 를 생략하면
-#   조용히 S 가 됐는데, 그건 관리자가 적지도 않은 등급을 시스템이 지어내는 것이라
-#   더 나빴다. 이제는 둘 중 하나를 반드시 적게 한다.
+#   [V12 의 뜻이 바뀌었다, 2026-09-08] 예전에는 '경로 규칙에 grade 도
+#   acl_restricted 도 없다'는 검사였다. 경로 신호를 걷어내면서, 같은 번호를
+#   '경로 블록이 아직 남아 있다'는 안내로 쓴다. 이 파서는 모르는 최상위 키를
+#   조용히 무시하므로, 알리지 않으면 배포된 규칙셋에서 등급이 소리 없이 바뀐다.
 #
 #   [V6 가 필요한 이유] bulk_grade 는 "대량 검출 시 등급을 올린다"는 설계다.
 #   그런데 base=S, bulk=O 처럼 거꾸로 적으면 주민번호가 많이 나올수록 등급이
@@ -1790,7 +1800,14 @@ def validate_rules_data(data):
     violations = []
     data = data or {}
 
-    for section, single_fields, bulk_pair, omit_okay_if in _GRADE_SECTIONS:
+    # [2026-09-08] 없어진 블록이 남아 있으면 알린다. 이 파서는 모르는 최상위 키를
+    # 조용히 무시하므로, 이게 없으면 '경로로 C 가 붙던 문서'가 아무 말 없이
+    # 등급을 잃는다 — 배포된 규칙셋 3벌에 실제로 paths: 가 들어 있다.
+    for gone, why in _GONE_SECTIONS.items():
+        if data.get(gone):
+            violations.append(_violation("V12", gone, "-", None, "(블록)", why))
+
+    for section, single_fields, bulk_pair in _GRADE_SECTIONS:
         items = data.get(section) or []
         # 섹션이 리스트가 아니면(예: 들여쓰기 실수로 dict 가 됨) 순회 자체가 무의미하다.
         if not isinstance(items, list):
@@ -1809,8 +1826,7 @@ def validate_rules_data(data):
                 continue
 
             for field in single_fields:
-                v, _ = _check_grade_field(item, field, section, rule_id,
-                                          omit_okay_if=omit_okay_if)
+                v, _ = _check_grade_field(item, field, section, rule_id)
                 if v:
                     violations.append(v)
 
@@ -1850,7 +1866,7 @@ def format_violations(path, violations):
         "V0": "[V0] 규칙셋 구조 오류",
         "V5": "[V5] 정의되지 않은 등급 참조",
         "V6": "[V6] bulk 상향 규칙 위반 (bulk_grade 가 base_grade 보다 낮음)",
-        "V12": "[V12] 경로 규칙에 grade 도 acl_restricted 도 없음",
+        "V12": "[V12] 이제 쓰지 않는 블록이 남아 있음",
     }
     lines = [
         f"[규칙셋 오류] {path} — 검증 실패 {len(violations)}건. 분류를 시작하지 않았습니다.",
@@ -1873,19 +1889,19 @@ def format_violations(path, violations):
         lines.append("")
     lines.append(f"  고치는 법: {path} 를 열어 위 항목을 고치세요.")
     lines.append(f"    · 등급 값은 {'/'.join(GRADES)} 중 하나여야 합니다.")
-    # V12 는 '등급을 고치라'는 안내만으로는 해결이 안 되므로 항목을 하나 더 붙인다.
+    # V12 는 '등급을 고치라'가 아니라 '지우라'는 안내라 따로 한 줄 붙인다.
     if any(v["code"] == "V12" for v in violations):
-        lines.append("    · 경로 규칙(paths)은 grade 또는 acl_restricted: true 중 "
-                     "하나 이상이 있어야 합니다.")
+        lines.append("    · paths: 블록은 2026-09-08 에 없어졌습니다 — 통째로 지우세요. "
+                     "경로로 등급을 정하던 자리는 --failsafe 로 대신합니다.")
     return "\n".join(lines)
 
 
 #------------------------------------------------------------------
 # 규칙셋 로드(YAML → RuleSet)
-#=> cso_rules.yaml 을 읽어 RuleSet 을 만든다. 경로를 안 주면 default_rules_path().
+#=> cso_rule.yaml 을 읽어 RuleSet 을 만든다. 경로를 안 주면 default_rules_path().
 #    1) YAML 파싱 → defaults 블록 해석
 #    2) regex_pii 각 항목을 (ko-pii 라벨 기반) RegexRule 로
-#    3) keywords 각 항목을 KeywordRule 로, paths 를 PathRule 로
+#    3) keywords 각 항목을 KeywordRule 로
 #    4) 등급 값 검증(V5·V6) — 하나라도 어긋나면 RuleSet 을 만들지 않고 실패
 #
 #   [4단계를 왜 로드에 붙였나] 규칙셋이 잘못된 채로 스캔이 시작되면, 절반쯤
@@ -1906,8 +1922,8 @@ def load_rules(path=None, validate=True):
     # 둬야 하는지 알려 주는 친절한 오류로 바꿔, 사용자가 바로 조치할 수 있게 한다.
     if not os.path.isfile(path):
         raise FileNotFoundError(
-            f"규칙셋(cso_rules.yaml)을 찾을 수 없습니다: {path}\n"
-            f"  · exe 와 같은 폴더에 cso_rules.yaml 을 두거나,\n"
+            f"규칙셋(cso_rule.yaml)을 찾을 수 없습니다: {path}\n"
+            f"  · exe 와 같은 폴더에 cso_rule.yaml 을 두거나,\n"
             f"  · --rules <파일경로> 로 지정하거나,\n"
             f"  · 환경변수 CSOCLASSIFY_POLICY_DIR 로 폴더를 지정하세요."
         )
@@ -1975,6 +1991,8 @@ def load_rules(path=None, validate=True):
             id=r["id"],
             name=r.get("name", r["id"]),
             terms=tuple(r.get("terms") or []),
+            # 없으면 빈 튜플 — '파일명 신호 없음'이 된다(terms 로 폴백하지 않는다).
+            filename=tuple(r.get("filename") or []),
             exclude=tuple(r.get("exclude") or []),
             base_grade=r.get("base_grade", "S"),
             bulk_grade=r.get("bulk_grade"),
@@ -2008,23 +2026,6 @@ def load_rules(path=None, validate=True):
             always=bool(r.get("always", False)),
         ))
 
-    path_rules = []
-    for r in data.get("paths", []) or []:
-        path_rules.append(PathRule(
-            id=r["id"],
-            name=r.get("name", r["id"]),
-            # 경로 매칭은 구분자 정규화('/')+소문자로 일관되게 비교하도록 미리 변환.
-            matches=tuple(
-                m.replace("\\", "/").lower() for m in (r.get("match") or [])
-            ),
-            # 기본값을 주지 않는다 — 생략/null 이면 None(등급 없음)이 되고,
-            # 그것이 허용되는지는 검증(V12)이 acl_restricted 와 함께 판단한다.
-            grade=r.get("grade"),
-            acl_restricted=bool(r.get("acl_restricted", False)),
-            weight=r.get("weight", "high"),
-            seed_eligible=bool(r.get("seed_eligible", False)),
-        ))
-
     return RuleSet(
         version=str(data.get("version", "unknown")),
         defaults=defaults,
@@ -2033,6 +2034,5 @@ def load_rules(path=None, validate=True):
         keyword_rules=keyword_rules,
         sensitive_rules=sensitive_rules,
         stamp_rules=stamp_rules,
-        path_rules=path_rules,
         confidence=confidence,
     )

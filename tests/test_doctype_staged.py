@@ -117,51 +117,6 @@ def test_첫줄이_제목이_아닌_포맷은_title신호를_건너뛴다(ext, e
 # ── 서식 필드어(form) ────────────────────────────────────────────
 
 #------------------------------------------------------------------
-# any_of + min_types — 종수를 채워야 성립한다
-#------------------------------------------------------------------
-def test_form_any_of는_서로_다른_항목_종수를_센다():
-    form = D.FormSpec(any_of=("일시", "장소", "참석", "안건"), min_types=3)
-    rule = D.DoctypeRule(id="r", node="MINUTES", form=form,
-                         head_terms=("회의",), head_chars=100)
-    tax, rs = mk_taxonomy(), mk_set([rule])
-
-    ok = DT.scan_doctype("회의 결과\n일시: 3/1\n장소: 본사\n참석: 홍길동", "D:/x/a.hwp", rs, tax)
-    assert "form" in ok.values[0]["from"]
-
-    # 같은 단어가 여러 번 나와도 '종수'는 1 이라 성립하지 않는다.
-    ng = DT.scan_doctype("회의 결과\n일시: 3/1 일시 일시 일시", "D:/x/a.hwp", rs, tax)
-    assert "form" not in ng.values[0]["from"]
-
-
-#------------------------------------------------------------------
-# all_of — 하나라도 빠지면 성립하지 않는다
-#------------------------------------------------------------------
-def test_form_all_of는_전부_있어야_성립한다():
-    form = D.FormSpec(all_of=("갑", "을", "계약기간"))
-    rule = D.DoctypeRule(id="r", node="CONTRACT", form=form, filename=("계약",))
-    tax, rs = mk_taxonomy(), mk_set([rule])
-
-    ok = DT.scan_doctype("갑과 을은 계약기간 동안", "D:/x/계약_a.hwp", rs, tax)
-    assert "form" in ok.values[0]["from"]
-
-    ng = DT.scan_doctype("갑과 을은 협의한다", "D:/x/계약_a.hwp", rs, tax)
-    assert "form" not in ng.values[0]["from"]
-
-
-#------------------------------------------------------------------
-# 빈 form 블록은 "항상 성립"이 되면 안 된다
-#=> 조건이 하나도 없으면 로더가 None 으로 접고, 스캔은 신호를 만들지 않는다.
-#------------------------------------------------------------------
-def test_빈_form은_신호를_만들지_않는다():
-    assert D._parse_form({}) is None
-    assert D._parse_form({"any_of": ["a", "b"]}) is None      # min_types 없음
-    ok, matched = DT._match_form("무슨 글이든", None, ())
-    assert ok is False and matched == []
-
-
-# ── 본문 격하 · 단독 채택 금지 (8-4) ──────────────────────────────
-
-#------------------------------------------------------------------
 # staged 모드에서 본문 단어만으로는 후보가 되지 않는다 (P1 해소의 핵심)
 #=> 이게 없으면 신뢰도를 아무리 낮춰도 conflict: all 에서 약한 후보가 남는다.
 #------------------------------------------------------------------
@@ -169,16 +124,6 @@ def test_staged에서_본문만으로는_후보가_되지_않는다():
     rule = D.DoctypeRule(id="r", node="MINUTES", terms=("회의",))
     sig = DT.scan_doctype("올해 사업계획을 논의한 회의 내용을 정리한다.",
                           "D:/x/사업계획서.hwp", mk_set([rule]), mk_taxonomy())
-    assert sig.values == ()
-
-
-#------------------------------------------------------------------
-# 구조 신호도 단독으로는 후보가 되지 않는다
-#------------------------------------------------------------------
-def test_structure만으로는_후보가_되지_않는다():
-    rule = D.DoctypeRule(id="r", node="CONTRACT", structure=(r"제\d+조",))
-    sig = DT.scan_doctype("제1조 목적 ... 제2조 범위", "D:/x/사내문서.hwp",
-                          mk_set([rule]), mk_taxonomy())
     assert sig.values == ()
 
 
@@ -304,11 +249,16 @@ def test_근거블록이_남는다():
 
     assert d["stage"] == "rule"
     assert set(d["from"]) == {"title", "body", "name"}
-    assert d["evidence"]["title"]["terms"] == [{"term": "회의록", "count": 1}]
-    assert d["evidence"]["body"]["total"] == 3   # "회의록" 안의 "회의" 도 센다
-    assert d["evidence"]["name"]["terms"] == ["회의록"]
-    signals = {p["signal"] for p in d["score_parts"]}
-    assert signals == {"title", "body", "name"}
+    # [2026-09-10] evidence 와 score_parts 를 signals 한 칸으로 합쳤다 —
+    # 둘 다 열쇠가 '신호 이름'이라 읽는 쪽이 매번 이름으로 맞춰 붙여야 했다.
+    # 검사 의도(어느 신호가 무엇을 근거로, 몇 점으로 걸렸나)는 그대로다.
+    assert d["signals"]["title"]["terms"] == [{"term": "회의록", "count": 1}]
+    assert d["signals"]["body"]["total"] == 3   # "회의록" 안의 "회의" 도 센다
+    assert d["signals"]["name"]["terms"] == ["회의록"]
+    assert set(d["signals"]) == {"title", "body", "name"}
+    # 점수 몫(c)도 같은 덩어리 안에 있다 — 따로 짜맞출 것이 없다.
+    assert all(isinstance(v.get("c"), float) for v in d["signals"].values())
+    assert "evidence" not in d and "score_parts" not in d
 
 
 #------------------------------------------------------------------

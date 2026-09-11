@@ -7,7 +7,7 @@
 #      폴더의 snf_exe.exe 를 참조하면 정리 레이스로 사라져 실패한다(실측 확인).
 #      → 사이냅 바이너리를 exe 옆(안정 경로)에 두면 데몬이 안전하게 참조한다.
 #    - 모델(대용량)도 exe 밖에 두어 매 실행 temp 해제 비용을 없앤다.
-#   배포 구성: csoclassify.exe + synap/{snf_exe.exe, snf_win.dll} + e5-small-ko.tar.xz
+#   배포 구성: MpowerClassify.exe + synap/{snf_exe.exe, snf_win.dll} + e5-small-ko.tar.xz
 #   런타임이 사이냅은 exe 옆에서, 모델은 tar.xz 를 최초 1회 캐시에 풀어 사용한다.
 #   빌드:  pyinstaller build/csoclassify-onefile.spec
 #------------------------------------------------------------------
@@ -23,9 +23,9 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 ROOT = os.path.abspath(os.path.join(os.getcwd()))
 entry = os.path.join(ROOT, "src", "csoclassify_launcher.py")
 
-# [규칙셋 외장화, 2026-08] 사이냅·모델뿐 아니라 C/S/O 규칙셋(cso_rules.yaml)도
+# [규칙셋 외장화, 2026-08] 사이냅·모델뿐 아니라 C/S/O 규칙셋(cso_rule.yaml)도
 # exe 에 내장하지 않는다. 런타임에 default_rules_path() 가 'exe 옆'(exe_dir)의 외장
-# cso_rules.yaml 을 읽으므로, 재빌드 없이 규칙만 교체·배포할 수 있다(배포 시 exe 옆에 둔다).
+# cso_rule.yaml 을 읽으므로, 재빌드 없이 규칙만 교체·배포할 수 있다(배포 시 exe 옆에 둔다).
 datas = list(collect_data_files("ko_pii"))   # ko-pii 사전(.txt.gz 등)만 번들
 
 # classify(분류) 의존성(yaml/ko-pii)과 서브모듈을 명시해 지연 import 누락을 막는다.
@@ -83,7 +83,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="csoclassify",
+    name="MpowerClassify",
     console=True,
     strip=_strip,        # 리눅스: 심볼 제거로 감량
     upx=False,           # UPX 는 DLL 호환/백신 오탐 이슈로 기본 off

@@ -285,7 +285,13 @@ def test_규칙0건이면_doctype키는_있고_값은_빈다(tmp_path):
     sig = scan_doctype("계약서 내용", "계약서.txt", DR.seed_only_ruleset(), tax)
     d = sig.as_dict()
     # 규칙이 없으니 본문에 "계약서"가 있어도 못 맞힌다 — 그래도 키(=축이 돌았다)는 남는다.
-    assert d["values"] == [] and d["strategy"] == "all" and d["truncated"] == 0
+    assert d["values"] == []
+    # [2026-09-10] 값이 하나뿐이던 칸을 걷어냈다. 잘리지도 부딪치지도 않았으면
+    # 그 칸은 아예 없다 — '없음 = 기본'이 규약이다. strategy 는 --conflict 로
+    # 덮어썼을 때만 실린다(여기서는 안 덮어썼다).
+    assert "status" not in d
+    assert "truncated" not in d and "conflicts" not in d
+    assert "strategy" not in d
 
 
 #------------------------------------------------------------------

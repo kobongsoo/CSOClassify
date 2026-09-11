@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CSOClassify 작업 기록 · 2026-08-14</title>
+<title>MpowerClassify 작업 기록 · 2026-08-14</title>
 <style>
   :root{
     --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
@@ -70,7 +70,7 @@
 <div class="wrap">
 
 <header class="hero">
-  <h1>CSOClassify 작업 기록</h1>
+  <h1>MpowerClassify 작업 기록</h1>
   <p>2026-08-14 세션 · 성능 최적화 · 로깅/출력 개선 · 규칙셋 외장화 · 크로스플랫폼(리눅스) 빌드 · onedir 기본 배포</p>
 </header>
 
@@ -118,7 +118,7 @@
 
 <h2 id="bug"><span class="n">2</span> 처방전 라벨 버그 + 회귀 테스트</h2>
 <section class="card">
-  <p><b>발견</b>: <code>cso_rules.yaml</code>의 처방전 라벨이 <code>PRESCRIPTION</code>인데 ko-pii 검출기는 <code>PRESCRIPTION_ID</code>를 내보내 <b>처방전이 한 건도 검출되지 않던 상태</b>. 라벨을 <code>PRESCRIPTION_ID</code>로 수정.</p>
+  <p><b>발견</b>: <code>cso_rule.yaml</code>의 처방전 라벨이 <code>PRESCRIPTION</code>인데 ko-pii 검출기는 <code>PRESCRIPTION_ID</code>를 내보내 <b>처방전이 한 건도 검출되지 않던 상태</b>. 라벨을 <code>PRESCRIPTION_ID</code>로 수정.</p>
   <p><b>회귀 테스트 6건 추가</b>(<code>tests/test_rules.py</code> 15→21 pass): 처방전 검출/anchor, <b>규칙 라벨 == 검출기 라벨</b> 구조 가드(이런 오타 재발 차단), <code>_detect_subset == detect_all</code> 동일성, 주소 프리필터 미탐0·게이트 동일성.</p>
 </section>
 
@@ -144,7 +144,7 @@
 
 <h2 id="ext"><span class="n">5</span> 규칙셋 외장화</h2>
 <section class="card">
-  <p>C/S/O 규칙셋(<code>cso_rules.yaml</code>)을 exe에 <b>내장하지 않고</b> exe 옆 외장 파일로 배포 → <b>재빌드 없이 규칙 교체</b>. 우선순위: <code>CSOCLASSIFY_POLICY_DIR</code> &gt; <code>--rules</code> &gt; exe 옆.</p>
+  <p>C/S/O 규칙셋(<code>cso_rule.yaml</code>)을 exe에 <b>내장하지 않고</b> exe 옆 외장 파일로 배포 → <b>재빌드 없이 규칙 교체</b>. 우선순위: <code>CSOCLASSIFY_POLICY_DIR</code> &gt; <code>--rules</code> &gt; exe 옆.</p>
   <ul>
     <li><code>default_rules_path()</code>: frozen(exe) → exe 옆 / 소스 → <code>resources/policy</code></li>
     <li>두 spec에서 정책 번들 제거</li>
@@ -182,14 +182,14 @@
     <tr><td>onefile</td><td><code>dist-pkg/</code></td><td>단일 exe</td><td>~4.6초</td></tr>
   </table></div>
 <div class="tree">dist-onedir/                          dist-pkg/  (onefile, 정리됨)
-├─ windows/                           ├─ csoclassify.exe            <span class="cmt"># Windows</span>
-│  ├─ csoclassify.exe + _internal/    ├─ csoclassify_linux.exe      <span class="cmt"># Linux(143MB)</span>
-│  ├─ cso_rules.yaml                  ├─ cso_rules.yaml
+├─ windows/                           ├─ MpowerClassify.exe            <span class="cmt"># Windows</span>
+│  ├─ MpowerClassify.exe + _internal/    ├─ MpowerClassify_linux.exe      <span class="cmt"># Linux(143MB)</span>
+│  ├─ cso_rule.yaml                  ├─ cso_rule.yaml
 │  ├─ synap/windows/                  ├─ e5-small-ko.tar.xz
 │  └─ models/e5-small-ko/             ├─ synap/{windows,linux}/
 └─ linux/                             └─ 샘플.hwp · 사용법.txt · 문서_임베딩_테스트.bat
    ├─ csoclassify-onedir-linux.tgz    <span class="cmt"># 리눅스에서 tar 풀기(심볼릭링크 보존)</span>
-   ├─ cso_rules.yaml · synap/linux/
+   ├─ cso_rule.yaml · synap/linux/
    ├─ models/e5-small-ko/
    └─ README.txt</div>
   <div class="warn"><b>리눅스 주의</b> — <code>csoclassify-onedir-linux.tgz</code>는 <b>반드시 리눅스에서</b> 풀 것(Windows에서 풀면 <code>_internal</code>의 .so 심볼릭링크가 깨짐). 푼 뒤 <code>chmod +x csoclassify synap/linux/snf_exe</code>. 외장 <code>snf_exe</code>는 복사 시 실행권한이 사라지므로 반드시 <code>chmod +x</code>.</div>
@@ -207,11 +207,11 @@
     <tr><td><code>src/csoclassify/extract/synap_exe.py</code></td><td>추출 실패 진단(rc/상태/stdout·stderr)·ExtractError 사유만</td></tr>
     <tr><td><code>src/csoclassify/resources.py</code></td><td><code>synap_exe_name/synap_os_subdir/synap_exe_path</code> 플랫폼 분기</td></tr>
     <tr><td><code>src/csoclassify/logsetup.py</code></td><td>실행 구분선</td></tr>
-    <tr><td><code>resources/policy/cso_rules.yaml</code></td><td>처방전 <code>PRESCRIPTION_ID</code> · <b>URL·IP 규칙 추가</b>(20종)<span class="muted">〔08-15〕</span></td></tr>
+    <tr><td><code>resources/policy/cso_rule.yaml</code></td><td>처방전 <code>PRESCRIPTION_ID</code> · <b>URL·IP 규칙 추가</b>(20종)<span class="muted">〔08-15〕</span></td></tr>
     <tr><td><code>build/csoclassify.spec</code> (onedir)</td><td>외장화(모델·사이냅 번들 제거)·리눅스 대응(numpy/libstdc++/strip)</td></tr>
     <tr><td><code>build/csoclassify-onefile.spec</code></td><td>규칙셋 외장·리눅스 대응·슬림화</td></tr>
     <tr><td><code>tests/test_rules.py</code></td><td>회귀 테스트 15→21<span class="muted"> → 24(2026-08-15 청킹 3건)</span></td></tr>
-    <tr><td>문서</td><td><code>README.md</code>(리눅스 빌드 §4C·배포 구조) · <code>plan/설계서.md</code>(§12 항목13~15) · <code>doc/csoclassify-실행가이드.html</code>(대시·json·외장·출력예시)</td></tr>
+    <tr><td>문서</td><td><code>README.md</code>(리눅스 빌드 §4C·배포 구조) · <code>plan/설계서.md</code>(§12 항목13~15) · <code>doc/MpowerClassify-실행가이드.html</code>(대시·json·외장·출력예시)</td></tr>
     <tr><td>배포 폴더</td><td><code>dist-onedir/{windows,linux}</code> 신설 · <code>dist-pkg</code> 정리 · <code>synap/{windows,linux}</code> 재구성 · <b>4개 배포본 재빌드</b>(win·linux × onefile·onedir, URL/IP+<code>--with-pii</code> 반영)<span class="muted">〔08-15〕</span></td></tr>
   </table></div>
 </section>
@@ -229,11 +229,11 @@
 <h2 id="pii2"><span class="n">10</span> PII 유형 확장(URL·IP) + 원문값 출력 옵션 <span class="muted" style="font-size:14px">(2026-08-15)</span></h2>
 <section class="card">
   <h3>① URL·IP 검출 추가 (18종 → 20종)</h3>
-  <p>ko-pii 의 <code>url</code>·<code>ip</code> 검출기를 활성 PII 에 추가. <code>cso_rules.yaml</code> 에 <code>URL</code>·<code>IP</code> 규칙(네트워크 식별자 → base_grade <span class="tag o">O</span>·대량이면 S), <code>rules.py</code> 의 라벨→검출기 맵에도 등록. 실측: <code>url</code>·<code>ip</code>·<code>email</code> 정상 검출.</p>
+  <p>ko-pii 의 <code>url</code>·<code>ip</code> 검출기를 활성 PII 에 추가. <code>cso_rule.yaml</code> 에 <code>URL</code>·<code>IP</code> 규칙(네트워크 식별자 → base_grade <span class="tag o">O</span>·대량이면 S), <code>rules.py</code> 의 라벨→검출기 맵에도 등록. 실측: <code>url</code>·<code>ip</code>·<code>email</code> 정상 검출.</p>
   <h3>② 검출 원문 PII 출력 옵션 <code>--with-pii</code></h3>
   <p>이 도구의 핵심 원칙은 "<b>원문 PII 값 미저장</b>"(기본은 유형+건수만). 사용자가 <code>--with-pii</code> 로 <b>명시 요청</b>할 때만 검출된 원문 값을 결과의 <code>pii</code> 필드에 싣는다.</p>
   <div class="warn"><b>프라이버시 설계</b> — 기본 off. 원문 PII 는 <b><code>--out</code> 파일에만</b> 남고 <b>로그엔 절대 안 남는다</b>(<code>_loggable_record</code> 가 <code>[pii N detected]</code> 로 가림). 결과 파일 취급 주의.</div>
-<pre><code>csoclassify.exe --classify --with-pii --file "문서.hwp" --out result.json
+<pre><code>MpowerClassify.exe --classify --with-pii --file "문서.hwp" --out result.json
 ──
 "pii": [
   { "label": "RRN",  "value": "900101-1234568",      "start": 7,  "end": 21 },
@@ -242,7 +242,7 @@
   <p class="muted">구현: <code>rules.collect_pii()</code> · <code>engine.build_record(with_pii=)</code> · cli <code>--with-pii</code> · <code>_loggable_record</code> 가림. 회귀 테스트 <b>24종 통과</b>. <b>4개 배포본 모두 재빌드</b>(Windows·Linux × onefile·onedir), 규칙셋(URL/IP)은 외장이라 각 배포 폴더에 복사.</p>
 </section>
 
-<footer>CSOClassify — 수집문서 C/S/O 자동분류 도구 · 작업 기록 (2026-08-14 · 개정 2026-08-15)</footer>
+<footer>MpowerClassify — 수집문서 C/S/O 자동분류 도구 · 작업 기록 (2026-08-14 · 개정 2026-08-15)</footer>
 
 </div>
 </body>

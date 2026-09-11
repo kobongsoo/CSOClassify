@@ -209,8 +209,11 @@ def test_hybrid_routing_by_detect(tmp_path):
 def test_hybrid_primary(tmp_path):
     p = tmp_path / "d.docx"; _make_ooxml(p, "docx")
     snf = FakeSnf()
-    hyb = HybridExtractor(engines={"docx": FakeEngine("본문A")}, snf=snf)
-    assert hyb.extract(str(p)) == "본문A"
+    # 본문은 MIN_TEXT_LEN(기본 20자)보다 길어야 한다 — 그보다 짧으면 프로젝트
+    # 자신의 정의로 "본문 없음"이라, 1차가 성공했다고 볼 수 없어 폴백이 걸린다
+    # (그 동작은 test_hybrid_short_falls_back 이 따로 지킨다).
+    hyb = HybridExtractor(engines={"docx": FakeEngine("본문A 이 문서는 정상적인 분량의 본문을 가진 시험용 문서입니다.")}, snf=snf)
+    assert hyb.extract(str(p)) == "본문A 이 문서는 정상적인 분량의 본문을 가진 시험용 문서입니다."
     assert snf.called is False
 
 
@@ -256,9 +259,44 @@ def test_hybrid_unsupported_type(tmp_path):
 # save_dir 은 승자 텍스트 1개만 저장
 #------------------------------------------------------------------
 def test_hybrid_save_once(tmp_path):
-    p = tmp_path / "s.hwpx"; _make_hwpx(p, ["저장대상"])
+    p = tmp_path / "s.hwpx"; _make_hwpx(p, ["저장대상 이 문서는 정상적인 분량의 본문을 가진 시험용 문서입니다."])
     save_dir = tmp_path / "kept"
     hyb = HybridExtractor(engines={"hwpx": HwpxZipExtractor()}, snf=FakeSnf())
     hyb.extract(str(p), save_dir=str(save_dir))
     kept = list(save_dir.glob("*.txt"))
     assert len(kept) == 1 and "저장대상" in kept[0].read_text(encoding="utf-8")
+
+
+#------------------------------------------------------------------
+# 1차가 '본문 없음' 수준이면 snf 로 넘긴다
+#=> 예전에는 완전히 빈 문자열일 때만 폴백했다. 그래서 전용 파서가 장식기호 몇 개를
+#   돌려주면 그것을 성공으로 받아들이고 snf 를 써 보지도 않아, snf 는 읽을 수 있는
+#   문서가 미분류로 나갔다(실측: 스캔성 PDF 1건이 이 경우였다).
+#
+# -in: tmp_path = pytest 임시 폴더
+# -out: 없음(단언)
+# -out: error = 폴백이 안 걸리면 AssertionError
+#------------------------------------------------------------------
+def test_hybrid_short_falls_back(tmp_path):
+    p = tmp_path / "d.docx"; _make_ooxml(p, "docx")
+    snf = FakeSnf("사이냅이 제대로 읽어 낸 충분한 길이의 본문입니다.")
+    # 장식기호 몇 개 = MIN_TEXT_LEN 미만 → '성공'으로 보지 않는다
+    hyb = HybridExtractor(engines={"docx": FakeEngine("〮 ∽ …")}, snf=snf)
+    assert hyb.extract(str(p)) == "사이냅이 제대로 읽어 낸 충분한 길이의 본문입니다."
+    assert snf.called is True
+
+
+#------------------------------------------------------------------
+# 마지막 엔진까지 짧으면 실패가 아니라 '가장 긴 결과'를 돌려준다
+#=> 문서가 원래 짧을 수도 있다. 그런 문서를 ExtractError 로 바꾸면 예전에 성공하던
+#   것이 실패가 되는 회귀다. 분류 쪽이 같은 임계로 '본문 없음' 표식을 달아 준다.
+#
+# -in: tmp_path = pytest 임시 폴더
+# -out: 없음(단언)
+# -out: error = 예외가 나거나 결과가 비면 AssertionError
+#------------------------------------------------------------------
+def test_hybrid_all_short_returns_longest(tmp_path):
+    p = tmp_path / "d.docx"; _make_ooxml(p, "docx")
+    snf = FakeSnf("짧다")
+    hyb = HybridExtractor(engines={"docx": FakeEngine("조금 더 긴 쪽")}, snf=snf)
+    assert hyb.extract(str(p)) == "조금 더 긴 쪽"

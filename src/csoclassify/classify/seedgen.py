@@ -17,7 +17,30 @@
 
 import json
 import os
+import datetime
 from collections import Counter
+
+from .. import record
+from .. import seedstore
+
+# 이 명령이 만든 씨앗임을 나타내는 출처 표시. merge_into 가 '갈아 끼울 대상'을
+# 고를 때 쓰는 유일한 기준이라, 이 문자열을 바꾸면 지난 회차 씨앗이 안 지워진다.
+SEED_SOURCE = "make-doctype-seeds"
+
+
+#------------------------------------------------------------------
+# 현재 시각 ISO 문자열
+#=> 씨앗 줄에 '언제 만들어졌나'를 남긴다. UI 의 seedstore.now_iso 와 같은
+#   모양이어야 한다 — 같은 파일에 두 도구가 쓰는데 시각 표기가 다르면
+#   사람이 정렬해 볼 수 없다.
+#
+# -in: 없음
+#
+# -out: str = 예 "2026-09-08T14:00:00+09:00"
+# -out: error = 없음
+#------------------------------------------------------------------
+def _now_iso():
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 # 벡터에서 온 후보는 씨앗이 될 수 없다(10-4). 신호원에 이것이 섞이면 탈락.
 _EMBED_SOURCES = frozenset({"embed"})
@@ -113,6 +136,8 @@ def candidate_ok(cand, taxonomy, t_seed, min_sources=DEFAULT_MIN_SOURCES):
 #
 #   [정렬] 신뢰도 높은 순으로 담는다. 상한에 걸려 잘릴 때 확실한 것이 남는다.
 #
+# -in: reviewer    = 검토자 이름(--seed-reviewer). 주면 approved_by 에 남는다.
+#                    안 주면 비워 둔다 — 없는 사람 이름을 지어내지 않는다
 # -in: records     = build_record 결과 리스트(vector·labels.doctype 를 본다)
 # -in: taxonomy    = axes.Taxonomy
 # -in: t_seed      = 씨앗 채택 최소 신뢰도(기본 0.85 — Defaults.t_seed)
@@ -129,12 +154,12 @@ def candidate_ok(cand, taxonomy, t_seed, min_sources=DEFAULT_MIN_SOURCES):
 def select_doctype_seeds(records, taxonomy, t_seed=0.85,
                          min_chars=DEFAULT_MIN_CHARS, per_dir=DEFAULT_PER_DIR,
                          per_node=DEFAULT_PER_NODE,
-                         min_sources=DEFAULT_MIN_SOURCES):
+                         min_sources=DEFAULT_MIN_SOURCES, reviewer=""):
     reasons = Counter()
     picked = []
 
     for rec in records or ():
-        dt = (rec.get("labels") or {}).get("doctype")
+        dt = record.doctype_of(rec)
         if not dt:
             reasons["업무분류축꺼짐"] += 1
             continue
@@ -181,8 +206,24 @@ def select_doctype_seeds(records, taxonomy, t_seed=0.85,
             continue
         per_dir_n[d] += 1
         per_node_n[dc_id] += 1
-        seeds.append({"file": f, "labels": {"doctype": [dc_id]},
-                      "vector": list(rec["vector"])})
+        # 스키마 v3(평평한 한 줄) — UI 가 쓰는 class_seed.jsonl 과 같은 모양이다.
+        # 예전에는 여기만 v1 모양으로 써서, 같은 파일에 두 가지 판이 섞였다.
+        row = {"v": 3, "file": f, "doctype": [dc_id],
+               "source": SEED_SOURCE, "ts": _now_iso(),
+               "dim": len(rec["vector"]), "engine": seedstore.ENGINE,
+               "vector": list(rec["vector"])}
+        # 원본 지문은 v3 에서 '원본이 바뀌었나'를 보는 유일한 근거다. 분류가 이미
+        # 구해 둔 값이 있으면 그대로 옮긴다 — 없으면 지어내지 않고 비워 둔다
+        # (--hash 없이 돌린 결과에는 없다. 그 줄은 stale 판정에서 조용히 넘어간다).
+        if rec.get("hash"):
+            row["hash"] = rec["hash"]
+        # 문서 ID 는 sfile_id 로 채워진 것만 싣는다 — 폴백(content)은 hash 앞 40자라
+        # 새 정보가 없고, 외부 문서 ID 처럼 생긴 값이 흘러가면 같은 문서가 두 건이 된다.
+        if rec.get("doc_id") and rec.get("doc_id_source") == "sfile_id":
+            row["doc_id"] = rec["doc_id"]
+        if reviewer:
+            row["approved_by"] = reviewer
+        seeds.append(row)
 
     stats = {"입력": len(records or ()), "채택": len(seeds),
              "탈락사유": dict(reasons), "노드별": dict(per_node_n)}
@@ -218,40 +259,42 @@ def write_seed_file(seeds, path):
 #=> security seed가 이미 들어 있는 class_seed.jsonl 을 그대로 살리면서 doctype
 #   씨앗만 갈아 끼운다. 같은 파일을 두 축이 나눠 쓰는 규약(설계서 5-4)이라,
 #   통째로 덮어쓰면 보안등급 전파가 조용히 죽는다.
-#    1) 기존 줄을 읽어 doctype 씨앗(labels.doctype 이 있는 줄)만 걷어낸다
-#    2) 나머지(security seed)는 순서 그대로 남긴다
-#    3) 새 doctype seed를 뒤에 붙인다
+#    1) 기존 줄을 읽어 '지난 회차에 이 명령이 만든 씨앗'만 걷어낸다
+#    2) 나머지(보안등급 씨앗 · 사람이 넣은 업무분류 씨앗)는 그대로 남긴다
+#    3) 새 doctype seed를 뒤에 붙이고 seedstore 로 저장한다
+#
+#   [무엇을 걷어내나 — 2026-09-08 고침]
+#   예전에는 "doctype 이 있는 줄"을 전부 걷어냈다. 그러면 사람이 화면에서 확정한
+#   업무분류 씨앗까지 함께 사라진다. 운영 파일로 실측했더니 doctype 이 있는 18행
+#   전부가 사람이 넣은 것이었다 — 이 명령을 한 번 돌리면 18행이 말없이 지워지는
+#   상태였다. 이제 source 에 이 명령의 이름이 든 줄만 걷어낸다.
+#
+#   [왜 seedstore 로 쓰나] 화면·CLI 가 각자 파일을 쓰면 모양이 갈리고, 어느 쪽이
+#   맞는지 아무도 모르게 된다. 저장은 한 곳(save_seeds)만 한다 — 원자적 교체와
+#   잠금도 그 안에 들어 있어 함께 얻는다.
 #
 # -in: seeds = 새로 넣을 doctype seed 리스트
 # -in: path  = class_seed.jsonl 경로(없으면 새로 만든다)
 #
-# -out: dict = {"기존유지": n, "이전doctype제거": n, "신규": n}
+# -out: dict = {"기존유지": n, "이전doctype제거": n, "신규": n,
+#               "출처없는업무분류": n}  ← 출처를 몰라 못 지운 옛 줄(호출부가 알린다)
 # -out: error = 쓰기 실패 시 예외 전파. 깨진 줄은 조용히 버린다
 #------------------------------------------------------------------
 def merge_into(seeds, path):
-    keep, dropped = [], 0
-    if path and os.path.isfile(path):
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    e = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if (e.get("labels") or {}).get("doctype"):
-                    dropped += 1      # 이전 회차의 doctype 씨앗 — 새 것으로 갈아 끼운다
-                else:
-                    keep.append(e)
-
-    d = os.path.dirname(os.path.abspath(path))
-    if d:
-        os.makedirs(d, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        for e in keep:
-            f.write(json.dumps(e, ensure_ascii=False) + "\n")
-        for s in seeds:
-            f.write(json.dumps(s, ensure_ascii=False) + "\n")
-            
-    return {"기존유지": len(keep), "이전doctype제거": dropped, "신규": len(seeds)}
+    # 읽기~쓰기 전체를 잠근다 — 읽고 나서 남이 쓴 뒤 우리가 덮으면 그 등록이 사라진다.
+    with seedstore.seed_lock(path):
+        keep, dropped, orphan = [], 0, 0
+        for e in seedstore.load_seeds(path):
+            if SEED_SOURCE in str(e.get("source") or ""):
+                dropped += 1      # 지난 회차에 이 명령이 만든 씨앗 — 갈아 끼운다
+            else:
+                # 출처가 없는데 업무분류를 들고 있는 줄 — 2026-09-08 이전 판이
+                # 만든 씨앗일 수도, 사람이 넣은 것일 수도 있다. 구분할 방법이
+                # 없으므로 지우지 않는다(사람 것을 지우는 쪽이 훨씬 나쁘다).
+                # 다만 조용히 쌓이면 안 되므로 몇 건인지 세어 호출부가 알린다.
+                if e.get("doctype") and not e.get("source"):
+                    orphan += 1
+                keep.append(e)
+        n = seedstore.save_seeds(path, keep + list(seeds))
+    return {"기존유지": len(keep), "이전doctype제거": dropped, "신규": n - len(keep),
+            "출처없는업무분류": orphan}

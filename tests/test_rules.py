@@ -23,7 +23,7 @@ VALID_PRESCRIPTION = "202403150001"
 
 #------------------------------------------------------------------
 # 규칙셋 로드 픽스처
-#=> 기본 cso_rules.yaml 을 한 번 로드해 모든 테스트가 공유한다.
+#=> 기본 cso_rule.yaml 을 한 번 로드해 모든 테스트가 공유한다.
 #
 # -in: 없음
 # -out: RuleSet
@@ -91,7 +91,9 @@ def test_valid_rrn_single_S(rs):
     sig = R.scan_text(f"직원 정보: 주민등록번호 {VALID_RRN}", rs)
     assert sig.grade == "S"
     rrn_hit = next(h for h in sig.hits if h.rule_id == "rrn")
-    assert rrn_hit.validated_count == 1
+    # ko-pii 가 체크섬을 이미 통과시킨 검출이라 건수가 곧 유효 건수다
+    # (2026-09-10 에 validated_count 칸을 없앴다 — 늘 count 와 같아 정보가 없었다).
+    assert rrn_hit.count == 1
     assert rrn_hit.seed_eligible is True
 
 
@@ -148,7 +150,7 @@ def test_credit_card_luhn(rs):
 #------------------------------------------------------------------
 # 처방전 발행번호 검출 → C (라벨 오타 회귀 방지)
 #=> 유효 형식(키워드 anchor + 12자리 발행번호)의 처방전이 실제로 검출되고 C 로
-#   잡히는지 확인한다. 과거 cso_rules.yaml 이 검출기 라벨(PRESCRIPTION_ID)과 다른
+#   잡히는지 확인한다. 과거 cso_rule.yaml 이 검출기 라벨(PRESCRIPTION_ID)과 다른
 #   'PRESCRIPTION' 을 써서 한 건도 안 잡히던 회귀를 이 테스트가 막는다.
 #
 # -in: rs = 규칙셋
@@ -179,7 +181,7 @@ def test_prescription_needs_keyword_anchor(rs):
 
 #------------------------------------------------------------------
 # 규칙 라벨 == 검출기 라벨 (구조적 회귀 가드)
-#=> cso_rules.yaml 의 각 PII 규칙 label 이 ko-pii 검출기가 실제로 내보내는 라벨과
+#=> cso_rule.yaml 의 각 PII 규칙 label 이 ko-pii 검출기가 실제로 내보내는 라벨과
 #   일치하는지 검사한다. 처방전 오타(PRESCRIPTION vs PRESCRIPTION_ID)처럼 "설정과
 #   엔진 라벨이 어긋나 조용히 미검출되는" 부류의 버그를 일반적으로 차단한다.
 #   _detect_subset 이 아는 라벨(_MAPPED_LABELS)에 규칙 label 이 모두 들어 있어야
@@ -644,8 +646,8 @@ def test_stamp_fusion_upgrades(rs):
     # 내용/파일명/경로에 아무 등급 근거가 없고, 오직 머리 스탬프만 있는 문서.
     rec = build_record("D:/tmp/무제.txt", "극비\n\n일반적인 서술 문장입니다.", rs, ts="T")
     assert rec["grade"] == "C"
-    assert "stamp" in rec["decided_by"]
-    assert rec["signals"]["stamp"]["grade"] == "C"
+    assert "stamp" in rec["why"]["security"]["decided_by"]
+    assert rec["why"]["security"]["signals"]["stamp"]["grade"] == "C"
 
 
 #------------------------------------------------------------------
@@ -829,8 +831,8 @@ def test_sensitive_fusion_decides(rs):
     from csoclassify.classify import build_record
     rec = build_record("D:/tmp/무제.txt", "환자 진단서 및 투약내역을 첨부합니다.", rs, ts="T")
     assert rec["grade"] == "C"
-    assert "sensitive" in rec["decided_by"]
-    assert rec["signals"]["sensitive"]["grade"] == "C"
+    assert "sensitive" in rec["why"]["security"]["decided_by"]
+    assert rec["why"]["security"]["signals"]["sensitive"]["grade"] == "C"
 
 
 #------------------------------------------------------------------

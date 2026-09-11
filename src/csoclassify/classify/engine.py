@@ -7,17 +7,22 @@
 #   [경계] 경로/ACL(Signal C)·임베딩 전파(Signal B)는 아직 없다 → 이 레코드는
 #   그 신호들이 붙으면 fuse 단계에서 상향될 수 있는 "1차 등급"이다.
 #
-#   [업무분류 동시 계산] doc_rules/taxonomy 를 함께 주면 labels.doctype 도 더한다
-#   (둘 다 없으면 labels.doctype 키 자체를 생략 — 설계서 4-6: "빈 목록이 아니라
-#   키 자체가 없다"). 기존 최상위 grade/confidence/method/decided_by/seed_eligible
-#   필드는 labels.security 의 값을 그대로 복사해 유지한다(7-2 하위호환).
+#   [업무분류 동시 계산] doc_rules/taxonomy 를 함께 주면 doctype 축도 더한다
+#   (둘 다 없으면 doctype 키 자체를 생략 — 설계서 4-6: "빈 목록이 아니라
+#   키 자체가 없다").
+#
+#   [2026-09-10 레코드 평탄화] labels 껍데기를 없애고 security·doctype 을 최상위
+#   나란한 두 칸으로 올렸다. 예전에는 같은 값이 최상위와 labels.security 양쪽에
+#   두 벌 있었고, 전파가 한쪽만 갱신하면 어긋날 수 있었다. 버전·시각은 meta 로
+#   모았다 — '판정'과 '장부'를 눈으로 가르기 위해서다.
 #------------------------------------------------------------------
 
 import datetime
 from types import SimpleNamespace
 
+from .. import record
 from .rules import scan_text, scan_stamp, scan_sensitive, collect_pii
-from .context import scan_path, scan_filename
+from .context import scan_filename
 from .fuse import fuse_signals
 from .propagate import SeedIndex, propagate, propagate_doctype
 from .doctype import scan_doctype, merge_embed_candidates
@@ -35,45 +40,100 @@ from .doctype import scan_doctype, merge_embed_candidates
 #------------------------------------------------------------------
 def now_iso():
     # astimezone() 로 로컬 타임존 오프셋을 붙여, 나중에 시점 비교가 명확하게 한다.
-    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 #------------------------------------------------------------------
-# labels.security 조립
-#=> fuse_signals 결과(FusionResult)와 이미 만든 signals dict 로부터, 설계서
-#   7-1 의 labels.security 모양을 만든다. security 축은 항상 conflict:max
-#   고정이라 strategy 는 상수로 적는다(3-1). candidates 는 signals 에서 등급이
-#   있는 것만 다시 추려 만든다 — fuse_signals 를 다시 부르지 않고도 같은 정보를
-#   얻을 수 있어(신호 dict 는 이미 등급별로 나뉘어 있으므로) 중복 계산이 없다.
+# security(등급) 축 조립
+#=> fuse_signals 결과(FusionResult)로부터 레코드의 security 칸을 만든다.
+#
+#   [2026-09-10 ①] candidates 를 뺐다 — signals 에서 "등급이 있는 것만" 추린
+#   값이라 같은 내용을 두 번 적는 것이었다. 화면의 '다른 의견' 표시는
+#   signals 를 직접 읽어 만든다(ui/app.py::render_other_opinions).
+#
+#   [2026-09-10 ②] labels 껍데기를 없애고 이 칸을 최상위로 올렸다. 예전에는
+#   똑같은 값이 최상위(grade/confidence/method/decided_by)와 labels.security
+#   양쪽에 두 벌 있었고, 전파가 한쪽만 갱신하면 두 값이 어긋날 수 있었다.
+#   한 벌만 두면 어긋날 자리가 없다.
+#   value → grade 로 이름을 바꿨다(최상위에서 쓰던 이름을 그대로 쓴다).
+#   strategy 는 뺐다 — 등급 축은 늘 max(가장 민감한 등급 채택) 고정이라
+#   문서마다 "max" 라고 적어도 새로 알려 주는 것이 없다.
+#
+#   [2026-09-10 ③] 등급값(grade)을 이 칸에서 뺐다. 판정은 레코드 맨 앞에
+#   한 벌만 두고(rec["grade"]), 여기에는 그 판정을 뒷받침하는 것만 남긴다.
+#   같은 값이 두 군데 있으면 한쪽만 갱신되는 사고가 가능해진다 — 3단계에서
+#   없앤 구조가 바로 그것이었다.
 #
 # -in: fused   = fuse.FusionResult(fuse_signals 반환값)
-# -in: signals = rec["signals"] (이미 .as_dict() 된 신호 dict 들의 맵)
+# -in: signals = 이 문서의 신호별 근거 dict(그대로 이 칸 안에 넣는다)
 #
-# -out: dict = {value, confidence, strategy, method, decided_by, candidates}
+# -out: dict = {confidence, method, decided_by, seed_eligible, signals}
 # -out: error = 없음
 #------------------------------------------------------------------
-def _security_label(fused, signals):
+def _security_axis(fused, signals):
     return {
-        "value": fused.grade,
         "confidence": round(fused.confidence, 3),
-        "strategy": "max",
         "method": fused.method,
         "decided_by": list(fused.decided_by),
-        "candidates": [
-            {"value": s["grade"], "confidence": s.get("confidence", 0.0), "from": name}
-            for name, s in signals.items() if s.get("grade") is not None
-        ],
+        # 전파(Signal B)의 seed 수집 필터가 바로 읽는다.
+        "seed_eligible": fused.seed_eligible,
+        "signals": signals,
     }
 
 
 #------------------------------------------------------------------
-# labels.doctype 부착(있을 때만)
+# 옛 모양의 칸 걷어내기
+#=> 전파는 예전에 만든 결과 파일을 다시 읽어 돌릴 수 있다. 그때 새 칸(security·
+#   doctype)만 채우고 옛 칸을 남겨 두면 한 레코드 안에 두 판의 답이 공존한다 —
+#   읽는 쪽이 어느 쪽을 믿어야 할지 알 수 없고, 그 어긋남은 조용히 생긴다.
+#   그래서 갱신을 끝낸 레코드에서는 옛 자리를 지운다.
+#
+# -in: rec = 갱신을 마친 레코드(제자리에서 고친다)
+#
+# -out: 없음
+# -out: error = 없음
+#------------------------------------------------------------------
+def _drop_legacy(rec):
+    # grade 는 3세대에서 다시 최상위 칸이 됐으므로 지우지 않는다.
+    for k in ("confidence", "method", "decided_by", "seed_eligible", "signals",
+              "security"):
+        rec.pop(k, None)
+    labels = rec.get("labels")
+    if isinstance(labels, dict):
+        labels.pop("security", None)
+        labels.pop("doctype", None)
+        if not labels:
+            rec.pop("labels", None)
+
+
+#------------------------------------------------------------------
+# 아무것도 못 찾은 신호 걷어내기
+#=> 등급도 못 정하고 걸린 규칙도 없는 신호는 "없음"이라는 말만 차지한다.
+#   키가 없는 것이 곧 "그 신호는 아무것도 못 찾았다" 는 뜻이다.
+#
+#   [왜 안전한가] 이 값을 읽는 곳은 전부 .get()/키 존재 확인을 거친다 —
+#   재융합(propagate)은 `if name in sig` 로 거르고, --simple-why 는
+#   `if not val.get("grade"): continue` 로 건너뛴다. 빈 신호는 융합에
+#   기여하는 바가 없어, 빠져도 판정이 달라지지 않는다.
+#
+# -in: sigs = {신호이름: as_dict() 결과}
+#
+# -out: dict = 등급이 있거나 걸린 규칙이 있는 신호만 남긴 새 dict
+# -out: error = 없음
+#------------------------------------------------------------------
+def _nonempty_signals(sigs):
+    return {n: s for n, s in sigs.items()
+            if s.get("grade") is not None or s.get("hits")}
+
+
+#------------------------------------------------------------------
+# doctype 축 부착(있을 때만)
 #=> doc_rules 와 taxonomy 가 '둘 다' 있어야 doctype 축을 계산한다(설계서
 #   4-6·3-3 — 규칙은 있는데 어휘가 없거나 그 반대면 뜻이 완성되지 않는다).
-#   하나라도 없으면 아무것도 하지 않는다 — labels 에 "doctype" 키 자체가
+#   하나라도 없으면 아무것도 하지 않는다 — 레코드에 "doctype" 키 자체가
 #   생기지 않아야 "축을 안 씀"과 "분류 못 함"이 구분된다(4-6).
 #
-# -in: rec       = 지금까지 조립한 레코드 dict(labels.security 까지 채워진 상태)
+# -in: rec       = 지금까지 조립한 레코드 dict(security 축까지 채워진 상태)
 # -in: text      = 정제된 문서 텍스트
 # -in: file      = 파일 경로
 # -in: doc_rules = doc_rules.DocRuleSet | None
@@ -88,9 +148,9 @@ def _attach_doctype(rec, text, file, doc_rules, taxonomy):
 
     # doc_rule.yaml 파일에 설정값을 읽어와서 스캔함.
     sig = scan_doctype(text, file, doc_rules, taxonomy)
-    rec["labels"]["doctype"] = sig.as_dict()
-    rec["doctype_rule_version"] = doc_rules.version
-    rec["taxonomy_version"] = taxonomy.exported_at
+    # 상세는 why 안에. 맨 앞의 dc_id 목록은 출력 직전에 여기서 뽑아 만든다
+    # (전파가 후보를 더할 수 있어, 지금 만들어 두면 어긋난다).
+    rec.setdefault("why", {})["doctype"] = sig.as_dict()
 
 
 #------------------------------------------------------------------
@@ -105,7 +165,7 @@ def _attach_doctype(rec, text, file, doc_rules, taxonomy):
 #   [경계] 임베딩 전파(Signal B)는 아직 없다 → 붙으면 fuse 후보로 추가만 하면 된다.
 #
 # -in: file     = 문서 경로(식별 + 경로/파일명 신호의 입력)
-# -in: text     = CSOClassify 가 추출·정제한 텍스트(규칙 스캔 입력)
+# -in: text     = MpowerClassify 가 추출·정제한 텍스트(규칙 스캔 입력)
 # -in: ruleset  = load_rules() 로 만든 RuleSet
 # -in: ts       = 레코드 시각 문자열(없으면 None 으로 둠 — 테스트 결정성 위해 주입식)
 # -in: failsafe = 어떤 신호도 없을 때 부여할 기본등급("S"/"C" 등, 없으면 None)
@@ -115,12 +175,15 @@ def _attach_doctype(rec, text, file, doc_rules, taxonomy):
 #                      규칙 신호를 아예 돌리지 않고 '보류(grade=None)' 레코드만 만든다
 #                      → 등급은 이후 임베딩 전파(propagate_records)가 seed 비교로 정한다.
 # -in: doc_rules = doc_rules.DocRuleSet | None. taxonomy 와 '둘 다' 주면 doctype 축을
-#                  함께 계산한다(하나라도 없으면 labels.doctype 키 자체를 생략, 설계서 4-6)
+#                  함께 계산한다(하나라도 없으면 doctype 키 자체를 생략, 설계서 4-6)
 # -in: taxonomy  = axes.Taxonomy | None
 #
-# -out: dict = {file, grade, confidence, method, decided_by, seed_eligible,
-#               labels:{security[, doctype]}, signals:{rule,sensitive,stamp,path,name[,embed]},
-#               [vector,] rule_version, [doctype_rule_version, taxonomy_version,] ts}
+# -out: dict = {file,
+#               security:{grade, confidence, method, decided_by, seed_eligible,
+#                         signals:{rule,sensitive,stamp,name[,embed]}},
+#               [doctype:{status, strategy, values, …},]
+#               [vector,] meta:{rule_version[, doctype_rule_version,
+#                               taxonomy_version], ts}}
 # -out: error = 없음 (스캔·융합은 예외를 내지 않음)
 #------------------------------------------------------------------
 def build_record(file, text, ruleset, ts=None, failsafe=None, vector=None, embed_sig=None,
@@ -131,56 +194,58 @@ def build_record(file, text, ruleset, ts=None, failsafe=None, vector=None, embed
     # 서로 다른 계산량·목적을 가지므로 한쪽을 껐다고 다른 쪽도 꺼질 이유가 없다).
     if not rules_enabled:
         rec = {
-            "file": file, "grade": None, "confidence": 0.0,
-            "method": "unclassified", "decided_by": [], "seed_eligible": False,
-            "signals": {}, "rule_version": ruleset.version, "ts": ts,
+            "file": file,
+            "grade": None,
+            "why": {"security": {
+                "confidence": 0.0, "method": "unclassified",
+                "decided_by": [], "seed_eligible": False, "signals": {},
+            }},
+            "meta": {"ts": ts},
         }
         if vector is not None:
             rec["vector"] = list(vector)
-        rec["labels"] = {"security": {
-            "value": None, "confidence": 0.0, "strategy": "max",
-            "method": "unclassified", "decided_by": [], "candidates": [],
-        }}
         _attach_doctype(rec, text, file, doc_rules, taxonomy)
         return rec
 
-    # cso_rules.yaml 기반으로 문서text를 스캔한다.
+    # cso_rule.yaml 기반으로 문서text를 스캔한다.
     rule_sig = scan_text(text, ruleset)       # Signal A (내용)
     sens_sig = scan_sensitive(text, ruleset)  # Signal F (법상 민감정보군)
     stamp_sig = scan_stamp(text, ruleset)     # Signal E (보안분류 스탬프)
-    path_sig = scan_path(file, ruleset)       # Signal C (경로)
     name_sig = scan_filename(file, ruleset)   # Signal D (파일명)
 
     # 이름표를 붙여 융합에 넘긴다(어떤 신호가 결정했는지 추적하기 위해).
     signals = [("rule", rule_sig), ("sensitive", sens_sig), ("stamp", stamp_sig),
-               ("path", path_sig), ("name", name_sig)]
+               ("name", name_sig)]
     if embed_sig is not None:
         # embed 는 그냥 후보로 추가만 하면, 융합이 max 라 자동으로 "상향 전용"이 된다.
         signals.append(("embed", embed_sig))
     fused = fuse_signals(signals, failsafe=failsafe)
 
+    # 아무것도 못 찾은 신호는 적지 않는다(2026-09-10). 예전에는 네 신호를
+    # 늘 적어, 셋이 {grade:null, hits:[]} 로 "없음"만 말하는 일이 흔했다.
+    # 없는 키 = 그 신호가 아무것도 못 찾음. 읽는 쪽은 전부 .get() 이라 안전하다.
+    sigs = _nonempty_signals({
+        "rule": rule_sig.as_dict(),
+        "sensitive": sens_sig.as_dict(),
+        "stamp": stamp_sig.as_dict(),
+        "name": name_sig.as_dict(),
+    })
+    if embed_sig is not None:
+        sigs["embed"] = embed_sig.as_dict()
+
+    # 축(security/doctype)을 나란한 두 칸으로 두고, 판정에 안 쓰이는 기록용
+    # 값(버전·시각)은 meta 로 모은다 — 읽는 사람이 "판정"과 "장부"를 헷갈리지
+    # 않게 하려는 것이다(2026-09-10).
     rec = {
         "file": file,
+        # 판정을 맨 앞에 — 사람이 파일을 열면 가장 먼저 보고 싶은 값이다.
         "grade": fused.grade,
-        "confidence": round(fused.confidence, 3),
-        "method": fused.method,
-        "decided_by": fused.decided_by,
-        # 전파(Signal B)의 seed 수집 필터로 바로 쓰도록 최상위에도 노출.
-        "seed_eligible": fused.seed_eligible,
-        "signals": {
-            "rule": rule_sig.as_dict(),
-            "sensitive": sens_sig.as_dict(),
-            "stamp": stamp_sig.as_dict(),
-            "path": path_sig.as_dict(),
-            "name": name_sig.as_dict(),
-        },
-        "rule_version": ruleset.version,
-        "ts": ts,
+        "why": {"security": _security_axis(fused, sigs)},
+        # 규칙셋 버전 세 칸은 레코드마다 적지 않는다(2026-09-10). 한 번 실행하면
+        # 모든 줄이 같은 값이라, 결과 파일 맨 앞의 실행 헤더가 한 번만 적는다.
+        # ts 는 줄마다 다를 수 있어(문서 하나를 처리한 시각) 여기 남는다.
+        "meta": {"ts": ts},
     }
-    if embed_sig is not None:
-        rec["signals"]["embed"] = embed_sig.as_dict()
-    # embed 까지 반영된 signals 로 candidates 를 만들어야 하므로 여기서 조립한다.
-    rec["labels"] = {"security": _security_label(fused, rec["signals"])}
 
     # 업무분류 룰 분류 수행
     #=>doc_rules.yaml 이용해 어무 1차분류 수행
@@ -202,9 +267,9 @@ def build_record(file, text, ruleset, ts=None, failsafe=None, vector=None, embed
 #=> 1차 분류 레코드의 signals[name] dict 를 fuse_signals 가 읽을 수 있는 최소
 #   속성 객체로 되살린다(재융합 때 사용).
 #
-# -in: d = 신호 dict (grade/confidence/seed_eligible/(acl_restricted))
+# -in: d = 신호 dict (grade/confidence/seed_eligible)
 #
-# -out: SimpleNamespace = .grade/.confidence/.seed_eligible/.acl_restricted
+# -out: SimpleNamespace = .grade/.confidence/.seed_eligible
 # -out: error = 없음
 #------------------------------------------------------------------
 def _ns_from_signal(d):
@@ -212,7 +277,6 @@ def _ns_from_signal(d):
         grade=d.get("grade"),
         confidence=d.get("confidence", 0.0),
         seed_eligible=d.get("seed_eligible", False),
-        acl_restricted=d.get("acl_restricted", False),
     )
 
 
@@ -255,8 +319,14 @@ def propagate_records(records, seed_index=None, failsafe=None, **kw):
              "embed_decided": 0, "still_unclassified": 0, "no_vector": 0}
 
     for rec in records:
+        # 새 모양은 why.security, 옛 결과 파일은 최상위/labels — 둘 다 읽는다.
+        if "security" not in rec.get("why", {}):
+            old = record.security_of(rec)
+            rec["grade"] = old.pop("grade", None)
+            rec.setdefault("why", {})["security"] = old
+        sec = rec["why"]["security"]
         # 이미 등급이 확정된 문서는 전파 대상이 아니다 → 그대로 둔다(과분류 방지).
-        if rec.get("grade") is not None:
+        if record.grade_of(rec) is not None:
             stats["already_graded"] += 1
             continue
 
@@ -267,23 +337,23 @@ def propagate_records(records, seed_index=None, failsafe=None, **kw):
             continue
 
         esig = propagate(vec, seeds, **kw)
-        sig = rec.setdefault("signals", {})
+        sig = sec.setdefault("signals", {})
         sig["embed"] = esig.as_dict()
 
         # 저장된 rule/sensitive/stamp/path/name 신호를 되살려 embed 와 함께 재융합.
         parts = [(name, _ns_from_signal(sig[name]))
-                 for name in ("rule", "sensitive", "stamp", "path", "name") if name in sig]
+                 for name in ("rule", "sensitive", "stamp", "name") if name in sig]
         parts.append(("embed", esig))
         fused = fuse_signals(parts, failsafe=failsafe)
 
+        # 등급 축을 통째로 다시 만든다 — 예전에는 최상위와 labels.security
+        # 양쪽에 같은 값을 두 벌 적어야 했고, 한쪽만 갱신하면 어긋났다.
+        # 이제 한 벌뿐이라 어긋날 자리가 없다(2026-09-10).
         rec["grade"] = fused.grade
-        rec["confidence"] = round(fused.confidence, 3)
-        rec["method"] = fused.method
-        rec["decided_by"] = fused.decided_by
-        rec["seed_eligible"] = fused.seed_eligible
-        # labels.security 는 embed 가 반영된 signals 로 다시 만들어야 하므로, 재융합
-        # 때마다 다시 조립한다(labels 자체가 없던 옛 레코드 입력도 setdefault 로 흡수).
-        rec.setdefault("labels", {})["security"] = _security_label(fused, sig)
+        rec["why"]["security"] = _security_axis(fused, sig)
+        # 옛 레코드를 그대로 받았을 수 있다 — 두 모양이 한 파일에 섞이면 읽는
+        # 쪽이 어느 쪽을 믿어야 할지 알 수 없으므로, 갱신한 김에 옛 칸을 걷어낸다.
+        _drop_legacy(rec)
 
         if "embed" in fused.decided_by:
             stats["embed_decided"] += 1
@@ -328,8 +398,8 @@ def propagate_doctype_records(records, dt_seeds, taxonomy, conflict,
              "embed_contributed": 0, "no_vector": 0, "axis_off": 0}
 
     for rec in records:
-        labels = rec.get("labels") or {}
-        if "doctype" not in labels:
+        dt = record.doctype_of(rec)
+        if dt is None:
             stats["axis_off"] += 1
             continue
 
@@ -339,12 +409,18 @@ def propagate_doctype_records(records, dt_seeds, taxonomy, conflict,
             continue
 
         esig = propagate_doctype(vec, dt_seeds, **kw)
-        rec.setdefault("signals", {})["doctype_embed"] = esig.as_dict()
 
-        existing = labels["doctype"].get("values") or []
+        existing = dt.get("values") or []
         merged_signal = merge_embed_candidates(existing, esig, taxonomy, conflict,
                                                embed_cap=embed_cap)
-        rec["labels"]["doctype"] = merged_signal.as_dict()
+        merged = merged_signal.as_dict()
+        # 전파 신호는 그 축 안에 둔다 — 예전에는 등급 신호들과 같은 signals
+        # 상자에 doctype_embed 라는 이름으로 섞여 있어, 축이 둘이라는 사실이
+        # 레코드 모양에서 드러나지 않았다(2026-09-10).
+        merged["embed"] = esig.as_dict()
+        rec.setdefault("why", {})["doctype"] = merged
+        rec.pop("doctype", None)      # 옛 세대가 여기에 두던 자리
+        _drop_legacy(rec)
 
         if any("embed" in v["from"] for v in merged_signal.values):
             stats["embed_contributed"] += 1

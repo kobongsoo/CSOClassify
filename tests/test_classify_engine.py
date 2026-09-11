@@ -38,12 +38,15 @@ def rs():
 def test_record_confidential(rs):
     rec = build_record("D:/x/보고서.hwp", "본 문서는 대외비입니다.", rs, ts=FIXED_TS)
     assert rec["grade"] == "C"
-    assert rec["method"] == "fusion"
-    assert "rule" in rec["decided_by"]
-    assert rec["seed_eligible"] is True
-    assert rec["signals"]["rule"]["grade"] == "C"
-    assert rec["rule_version"].startswith("cso-")
-    assert rec["ts"] == FIXED_TS
+    assert rec["why"]["security"]["method"] == "fusion"
+    assert "rule" in rec["why"]["security"]["decided_by"]
+    assert rec["why"]["security"]["seed_eligible"] is True
+    assert rec["why"]["security"]["signals"]["rule"]["grade"] == "C"
+    # [2026-09-10 오후] 규칙셋 버전은 레코드마다 적지 않는다 — 한 번 실행하면
+    # 모든 줄이 같은 값이라 결과 파일 맨 앞의 실행 헤더가 한 번만 적는다.
+    # 레코드에 남는 것은 ts 뿐이다.
+    assert "rule_version" not in rec["meta"]
+    assert rec["meta"]["ts"] == FIXED_TS
     assert rec["file"] == "D:/x/보고서.hwp"
 
 
@@ -58,8 +61,8 @@ def test_record_confidential(rs):
 def test_record_no_hit(rs):
     rec = build_record("a.txt", "다음 주 회식 장소 안내드립니다.", rs, ts=FIXED_TS)
     assert rec["grade"] is None
-    assert rec["method"] == "unclassified"
-    assert rec["seed_eligible"] is False
+    assert rec["why"]["security"]["method"] == "unclassified"
+    assert rec["why"]["security"]["seed_eligible"] is False
 
 
 #------------------------------------------------------------------
@@ -73,7 +76,7 @@ def test_record_no_hit(rs):
 def test_record_failsafe(rs):
     rec = build_record("a.txt", "특이사항 없는 일반 안내문.", rs, ts=FIXED_TS, failsafe="S")
     assert rec["grade"] == "S"
-    assert rec["method"] == "failsafe_default"
+    assert rec["why"]["security"]["method"] == "failsafe_default"
 
 
 #------------------------------------------------------------------
@@ -101,11 +104,11 @@ def test_build_record_rules_disabled(rs):
     rec = build_record("D:/x/비밀.hwp", f"대외비 주민등록번호 {VALID_RRN}", rs,
                        ts=FIXED_TS, rules_enabled=False, vector=[0.1, 0.2, 0.3])
     assert rec["grade"] is None
-    assert rec["method"] == "unclassified"
-    assert rec["decided_by"] == []
-    assert rec["signals"] == {}           # 규칙 신호를 하나도 안 담는다
+    assert rec["why"]["security"]["method"] == "unclassified"
+    assert rec["why"]["security"]["decided_by"] == []
+    assert rec["why"]["security"]["signals"] == {}           # 규칙 신호를 하나도 안 담는다
     assert rec["vector"] == [0.1, 0.2, 0.3]
-    assert rec["ts"] == FIXED_TS
+    assert rec["meta"]["ts"] == FIXED_TS
 
 
 #------------------------------------------------------------------
@@ -124,5 +127,5 @@ def test_vector_only_propagate_assigns_grade(rs):
     assert pending["grade"] is None
     recs, stats = propagate_records([pending], seed_index=seed)
     assert recs[0]["grade"] == "C"
-    assert "embed" in recs[0]["decided_by"]
+    assert "embed" in recs[0]["why"]["security"]["decided_by"]
     assert stats["embed_decided"] == 1

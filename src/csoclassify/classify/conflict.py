@@ -17,7 +17,7 @@ from dataclasses import dataclass
 #------------------------------------------------------------------
 # max 전략 결과
 #=> 서열이 있는 축(현재 security)에서, 후보 중 가장 서열이 높은 값 하나를
-#   고른 결과. cso_rules.yaml 기반 fuse.py 의 FusionResult 가 이 결과를
+#   고른 결과. cso_rule.yaml 기반 fuse.py 의 FusionResult 가 이 결과를
 #   감싸 최종 레코드를 만든다.
 #
 # -필드: value      = 채택된 값(예: "C"). 후보가 하나도 없으면 None

@@ -260,8 +260,8 @@
       <p><b>초기 문서엔 출처기반을 쓰지 않는다.</b> Zone.Identifier는 사내·USB·로컬 파일엔 없고 <b>저장소로 수집(복사)하는 행위가 오히려 벗겨낸다</b>. 저장소 볼륨의 $MFT는 "저장소에서 생성됨"만 말할 뿐 원본 머신의 MFT는 손에 없으며, 브라우저 DB는 과거분을 못 덮는다.</p>
     </div>
 
-    <h3>재정의 — 비율을 뒤집고, CSOClassify 인덱싱에 인라인</h3>
-    <p>정상상태가 "출처 우선, 내용은 예외"라면, 부트스트랩은 <b>"내용·맥락 우선, 출처는 보너스"</b> 로 뒤집는다. 그리고 이 일회성 분류를 <b>CSOClassify 인덱싱 단계 안에 붙인다</b> — 텍스트와 벡터가 이미 그 자리에서 생성되므로 분류 신호가 사실상 공짜로 딸려온다.</p>
+    <h3>재정의 — 비율을 뒤집고, MpowerClassify 인덱싱에 인라인</h3>
+    <p>정상상태가 "출처 우선, 내용은 예외"라면, 부트스트랩은 <b>"내용·맥락 우선, 출처는 보너스"</b> 로 뒤집는다. 그리고 이 일회성 분류를 <b>MpowerClassify 인덱싱 단계 안에 붙인다</b> — 텍스트와 벡터가 이미 그 자리에서 생성되므로 분류 신호가 사실상 공짜로 딸려온다.</p>
     <pre>문서 → [사이냅] 텍스트 → <span class="kw">┌─</span> 분류신호 추출(경로·PII·키워드)  <span class="kw">┐</span>
                           <span class="kw">│</span>                                  <span class="kw">├→</span> 등급라벨 → 인덱싱(등급태그)
         [ONNX] 벡터 <span class="kw">──────┴─</span> 임베딩 라벨 전파 <span class="kw">───────────────┘</span></pre>
@@ -273,8 +273,8 @@
         <tbody>
           <tr><td class="mono">B1</td><td>컨테이너/경로 택소노미 — 수집원 폴더·파일서버 <b>ACL</b>·소유자 SID·기존 DRM 태그</td><td>✕</td><td><b>★★★</b> 원본 경로를 기록했다면 최고의 "출처 대용"</td></tr>
           <tr><td class="mono">B2</td><td>파일명·확장자·문서 속성 패턴 (<code class="inl">계약서_</code>, <code class="inl">대외비</code>, 작성자)</td><td>✕</td><td>★★☆</td></tr>
-          <tr><td class="mono">B3</td><td>내용 규칙 스캔 — <b>CSOClassify가 이미 뽑은 텍스트</b>에 정규식·기밀 사전 적용</td><td>이미 추출됨</td><td><b>★★★</b> 어차피 임베딩하려 연 텍스트 → 무겁지 않다</td></tr>
-          <tr><td class="mono">B4</td><td>임베딩 라벨 전파 — <b>CSOClassify 벡터</b>로 seed→미분류 준지도 전파</td><td>✕</td><td><b>★★★</b> 초기 코퍼스의 주 엔진</td></tr>
+          <tr><td class="mono">B3</td><td>내용 규칙 스캔 — <b>MpowerClassify가 이미 뽑은 텍스트</b>에 정규식·기밀 사전 적용</td><td>이미 추출됨</td><td><b>★★★</b> 어차피 임베딩하려 연 텍스트 → 무겁지 않다</td></tr>
+          <tr><td class="mono">B4</td><td>임베딩 라벨 전파 — <b>MpowerClassify 벡터</b>로 seed→미분류 준지도 전파</td><td>✕</td><td><b>★★★</b> 초기 코퍼스의 주 엔진</td></tr>
         </tbody>
       </table>
     </div>
@@ -481,7 +481,7 @@
 
   <footer>
     <span>출처 기반 · 2단계 하이브리드 자동 등급화 — 상세설계</span>
-    <span>CSOClassify/plan · 2026-08-12</span>
+    <span>MpowerClassify/plan · 2026-08-12</span>
   </footer>
 
 </div>

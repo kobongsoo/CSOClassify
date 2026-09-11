@@ -158,12 +158,12 @@ def exe_dir():
 #
 # -in: local_dir = 모델 폴더명
 #
-# -out: dir = %LOCALAPPDATA%/CSOClassify/models/<local_dir> (없으면 홈 아래 대체)
+# -out: dir = %LOCALAPPDATA%/MpowerClassify/models/<local_dir> (없으면 홈 아래 대체)
 # -out: error = 없음
 #------------------------------------------------------------------
 def model_cache_dir(local_dir):
     base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".csoclassify")
-    return os.path.join(base, "CSOClassify", "models", local_dir)
+    return os.path.join(base, "MpowerClassify", "models", local_dir)
 
 
 #------------------------------------------------------------------

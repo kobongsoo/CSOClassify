@@ -26,7 +26,7 @@ from .conflict import resolve_max
 # -필드: grade         = 최종 등급(C/S/O) 또는 None(미분류)
 # -필드: confidence    = 최종 등급을 만든 신호들의 최고 신뢰도
 # -필드: seed_eligible = 이 문서를 전파 seed 로 승격해도 되는가
-# -필드: method        = 결정 방식("fusion"|"failsafe_acl"|"failsafe_default"|"unclassified")
+# -필드: method        = 결정 방식("fusion"|"failsafe_default"|"unclassified")
 # -필드: decided_by    = 최종 등급을 만든 신호 이름들(예: ["rule"], ["path","name"])
 #------------------------------------------------------------------
 @dataclass(frozen=True)
@@ -44,7 +44,6 @@ class FusionResult:
 #    1) 등급이 있는 신호만 후보 dict 로 바꾼다({value, confidence, from})
 #    2) 있으면 conflict.resolve_max(max_grade) 로 최종등급 채택 → 그 등급을
 #       만든 신호(decided_by)들 중에서만 seed_eligible 을 다시 찾는다
-#    3) 없고 acl_restricted 면 fail-safe 로 C(강한 제한은 내용 몰라도 기밀 취급)
 #       ↳ 이 분기는 '등급을 내지 않는 경로 규칙'(grade 생략 + acl_restricted: true)이
 #         있어야 도달한다. 그런 규칙을 쓰지 않으면 예전처럼 실행되지 않는다.
 #    4) 그것도 아니고 failsafe 지정 시 그 등급(예: S), 아니면 미분류(None)
@@ -66,9 +65,6 @@ def fuse_signals(signals, failsafe=None):
         {"value": s.grade, "confidence": s.confidence, "from": name}
         for name, s in signals if getattr(s, "grade", None)
     ]
-    # 경로 신호 중 강한 제한 표식이 하나라도 있는지(내용 없이도 C 근거).
-    acl = any(getattr(s, "acl_restricted", False) for _, s in signals)
-
     if candidates:
         res = resolve_max(candidates, max_fn=max_grade)
         # 최종 등급을 실제로 만든(=decided_by) 신호만 다시 찾아 seed 자격을 본다.
@@ -78,13 +74,10 @@ def fuse_signals(signals, failsafe=None):
         return FusionResult(res.value, res.confidence, seed_eligible, "fusion",
                             list(res.decided_by))
 
-    # 신호는 없지만 강한 제한 경로 → 보수적으로 C.
-    #   seed_eligible=False 인 이유: 이 C 는 '내용'이 아니라 '위치'에서 나온 등급이다.
-    #   전파(Signal B)는 문서 '내용' 벡터끼리 비교하므로, 내용 근거가 없는 문서를
-    #   씨앗으로 삼으면 무관한 문서에까지 C 가 번진다. 등급은 보수적으로 주되,
-    #   그 등급을 남에게 퍼뜨리지는 않는다.
-    if acl:
-        return FusionResult("C", 0.70, False, "failsafe_acl", ["path"])
+    # [2026-09-08] 경로 신호(Signal C)와 그 fail-safe(failsafe_acl)를 걷어냈다.
+    #   경로가 등급을 내던 자리는 실행할 때 --failsafe 로 대신한다.
+    #   설계: plan/보안등급-신호정리-paths제거-20260908.html 6장
+    #   (그 안의 빈틈 — '못 읽은 문서'에는 --failsafe 가 적용되지 않는다 — 도 거기 적혀 있다.)
 
     # 아무 근거도 없음 → 지정된 안전측 기본값 또는 미분류.
     if failsafe:

@@ -265,7 +265,10 @@ class OnnxEmbedder(Embedder):
             return [v.tolist() for v in out], len(chunks)
 
         # 문서벡터: 청크 평균 후 (옵션) 정규화.
+        # => 1개 평균벡터를 만듬.(실제 출력 벡터임.)
         doc = mat.mean(axis=0)
+
+        # L2 정규화 시킴.
         if normalize:
             doc = self._l2(doc)
         return doc.tolist(), len(chunks)

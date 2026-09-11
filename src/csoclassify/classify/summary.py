@@ -11,11 +11,13 @@
 
 from collections import Counter, defaultdict
 
+from .. import record
+
 
 #------------------------------------------------------------------
 # 레코드 하나의 보안등급 값
-#=> labels.security.value 를 우선하고, labels 자체가 없는 옛 레코드(하위호환)
-#   는 최상위 grade 필드로 대체한다.
+#=> 새 모양(security.grade)과 옛 모양(labels.security.value / 최상위 grade)을
+#   record.grade_of() 가 한 자리에서 흡수한다.
 #
 # -in: rec = 분류 레코드 dict
 #
@@ -23,10 +25,7 @@ from collections import Counter, defaultdict
 # -out: error = 없음
 #------------------------------------------------------------------
 def _security_value(rec):
-    labels = rec.get("labels")
-    if labels is not None:
-        return labels.get("security", {}).get("value")
-    return rec.get("grade")
+    return record.grade_of(rec)
 
 
 #------------------------------------------------------------------
@@ -49,12 +48,12 @@ def _summarize_security(records):
 
 #------------------------------------------------------------------
 # 업무분류 집계 줄들
-#=> doctype 축이 이 배치에서 전혀 안 돌았으면(레코드 어디에도 labels.doctype
-#   키가 없으면) None 을 돌려 요약에서 이 섹션 자체를 뺀다(설계서 4-6 —
+#=> doctype 축이 이 배치에서 전혀 안 돌았으면(레코드 어디에도 doctype
+#   칸이 없으면) None 을 돌려 요약에서 이 섹션 자체를 뺀다(설계서 4-6 —
 #   "축을 안 씀"은 "미분류"와 다르다). 돌았으면 뿌리 분류(최상위 카테고리)별로
 #   묶어 롤업하고, 그 안에서 실제로 걸린 노드별 건수를 괄호로 덧붙인다
 #   (설계서 7-3 — "트리 축은 상위 노드로 롤업해 보여준다").
-#    1) labels.doctype 이 있는 레코드만 대상으로 한다
+#    1) doctype 축이 돌아간 레코드만 대상으로 한다
 #    2) values 가 비어 있으면 그 레코드는 "미분류"
 #    3) values 가 있으면 각 후보의 path 에서 첫 조각(뿌리)·마지막 조각(실제
 #       걸린 노드 이름)을 뽑아 뿌리별·노드별로 센다
@@ -68,8 +67,7 @@ def _summarize_security(records):
 # -out: error = 없음
 #------------------------------------------------------------------
 def _summarize_doctype(records):
-    with_axis = [rec for rec in records
-                if isinstance(rec.get("labels"), dict) and "doctype" in rec["labels"]]
+    with_axis = [rec for rec in records if record.doctype_of(rec) is not None]
     if not with_axis:
         return None
 
@@ -79,7 +77,7 @@ def _summarize_doctype(records):
     total_hits = 0
 
     for rec in with_axis:
-        values = rec["labels"]["doctype"].get("values") or []
+        values = record.doctype_values(rec)
         if not values:
             unclassified += 1
             continue

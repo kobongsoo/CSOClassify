@@ -153,7 +153,7 @@ def apply_rows(doc, rows):
 #------------------------------------------------------------------
 # doc_rule.yaml 저장(.bak 백업 후 덮어쓰기)
 #=> 규칙을 잘못 고쳐 자동분류가 망가졌을 때 되돌릴 수 있게, 저장 전에 원본을
-#   .bak 으로 복사한다(cso_rules.yaml 을 다루는 rulesedit 와 같은 방식).
+#   .bak 으로 복사한다(cso_rule.yaml 을 다루는 rulesedit 와 같은 방식).
 #
 # -in: path = doc_rule.yaml 경로
 # -in: doc  = 저장할 dict

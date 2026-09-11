@@ -7,10 +7,12 @@
 //! [재설계 1단계 반영] 내용 신호를 위치별로 쪼개고 점수를 누적한다.
 //!   · title     : 첫 비어있지 않은 줄       — 가장 강한 증거
 //!   · head      : 앞 head_chars 자(표제부)  — 강한 증거
-//!   · form      : 서식 필드어 세트          — 강한 증거
-//!   · structure : 구조 정규식               — 보조(단독 채택 불가)
 //!   · body      : 문서 전체 terms           — 약한 증거(단독 채택 불가)
-//!   · name/path : 파일명·경로               — 중간 증거
+//!   · name      : 파일명                    — 중간 증거
+//!
+//! [2026-09-07 제거] form·structure·path 세 신호는 규칙이 그 필드를 한 번도
+//! 채우지 않아 실제로 돌지 않았다. 도는 코드와 안 도는 코드가 섞이면 읽는
+//! 사람이 매번 되짚어야 해서 걷어냈다(파이썬 판과 함께).
 //! 결합은 noisy-OR(1 - Π(1-c))라 근거가 쌓일수록 점수가 오른다.
 //!
 //! [scoring 모드] defaults.scoring 이
@@ -26,7 +28,7 @@ use serde_json::{json, Map, Value};
 
 use crate::axes::Taxonomy;
 use crate::conflict::resolve_doctype;
-use crate::doc_rules::{ConflictSpec, Defaults, DocRuleSet, DoctypeRule, FormSpec};
+use crate::doc_rules::{ConflictSpec, Defaults, DocRuleSet, DoctypeRule};
 use crate::rules::{count_outside, exclude_spans};
 
 // ── legacy 모드 신뢰도(종전 값 그대로) ───────────────────────────────
@@ -35,40 +37,92 @@ use crate::rules::{count_outside, exclude_spans};
 fn pick_keyword(weight: &str) -> f64 {
     match weight { "high" => 0.85, "low" => 0.50, _ => 0.70 }
 }
-fn pick_path_legacy(weight: &str) -> f64 {
-    match weight { "high" => 0.90, "low" => 0.50, _ => 0.70 }
-}
 const DT_NAME_CONF: f64 = 0.60;
 
 // ── staged 모드 신호별 신뢰도(재설계 8-2, 실측 전 잠정치) ─────────────
-// 상대 순서(title ≳ head ≳ form > path ≳ name > body ≳ structure)가 핵심이며,
+// 상대 순서(title ≳ head > name > body)가 핵심이며,
 // 절대값은 검증셋 측정 후 재보정 대상이다. Python _SIG_CONF 와 같은 값.
 fn sig_conf(signal: &str, weight: &str) -> f64 {
     match (signal, weight) {
         ("title", "high") => 0.80, ("title", "low") => 0.50, ("title", _) => 0.65,
         ("head", "high") => 0.70, ("head", "low") => 0.40, ("head", _) => 0.55,
-        ("form", "high") => 0.65, ("form", "low") => 0.35, ("form", _) => 0.50,
-        ("structure", _) => 0.20,
         ("body", "high") => 0.25, ("body", "low") => 0.10, ("body", _) => 0.15,
         ("name", _) => 0.30,
-        ("path", "high") => 0.40, ("path", "low") => 0.20, ("path", _) => 0.30,
         _ => 0.30,
     }
+}
+
+/// 신호 하나의 등급별 신뢰도. doc_rule.yaml 의 `signals:` 한 칸에 대응한다.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cell {
+    pub high: f64,
+    pub medium: f64,
+    pub low: f64,
+}
+
+/// 신호 이름 → 등급별 신뢰도. 정책 파일이 `signals:` 를 적었을 때만 만들어진다.
+pub type SignalTable = std::collections::BTreeMap<String, Cell>;
+
+/// 정책 파일(signals:)에서 값을 바꿀 수 있는 신호 — 이것이 전부다.
+/// 차례는 판별력이 센 것부터 — 오류 문구에 이 차례 그대로 나간다.
+pub const SIGNAL_NAMES: [&str; 4] = ["title", "head", "body", "name"];
+
+
+
+/// name 은 규칙의 weight 를 보지 않고 medium 칸만 쓴다(scan_rule 참고).
+/// 그래서 high 를 다르게 적어도 효과가 없다 — 정책 파일 검증에서 막는다.
+pub const FLAT_SIGNALS: [&str; 1] = ["name"];
+
+//------------------------------------------------------------------
+// 신호 하나의 코드 기본값
+//=> 정책 파일이 일부 칸만 적어도 되게 하려면(예: title 만 올리기) 나머지를
+//   채울 기본값이 필요하다. 파서(doc_rules)와 채점이 같은 값을 보게 한다.
+//
+// -in: signal = 신호 이름
+//
+// -out: Cell = 그 신호의 high/medium/low 기본값(모르는 이름이면 0.30 셋)
+// -out: error = 없음
+//------------------------------------------------------------------
+pub fn default_cell(signal: &str) -> Cell {
+    Cell {
+        high: sig_conf(signal, "high"),
+        medium: sig_conf(signal, "medium"),
+        low: sig_conf(signal, "low"),
+    }
+}
+
+//------------------------------------------------------------------
+// 이번 판정에 쓸 신호 신뢰도 하나
+//=> 정책 파일의 signals: 표가 있으면 그 값을, 없으면 코드 기본값을 쓴다.
+//   표에 그 신호가 없을 수도 있으므로(부분만 적은 경우) 한 칸씩 되돌아본다.
+//
+// -in: tbl    = doc_rule.yaml 의 signals: 표(없으면 None)
+// -in: signal = 신호 이름
+// -in: weight = 규칙의 weight("high"|"medium"|"low")
+//
+// -out: f64 = 신뢰도
+// -out: error = 없음
+//------------------------------------------------------------------
+fn sig_conf_of(tbl: Option<&SignalTable>, signal: &str, weight: &str) -> f64 {
+    if let Some(c) = tbl.and_then(|t| t.get(signal)) {
+        return match weight {
+            "high" => c.high,
+            "low" => c.low,
+            _ => c.medium,
+        };
+    }
+    sig_conf(signal, weight)
 }
 
 /// 이 신호들은 단독으로 후보를 만들지 못한다(재설계 8-4). 반드시 다른 신호와
 /// 결합해야 한다 — 이 규칙이 없으면 신뢰도를 아무리 낮춰도 conflict: all 에서
 /// 약한 후보가 그대로 남아 P1(본문 단어 1건 = 확정)이 재발한다.
-const WEAK_ONLY: [&str; 2] = ["structure", "body"];
+const WEAK_ONLY: [&str; 1] = ["body"];
 
 /// 첫 줄이 제목이 아닌 포맷 — title 신호를 건너뛴다(재설계 6-3, 실측 근거).
 ///   .ppt       : 첫 줄이 제목인 비율 16.7%(도형 순서가 시각 순서와 다름)
 ///   .xls/.xlsx : 50%(첫 행이 데이터 행이라 제목 개념이 없음)
 const TITLE_UNSAFE_EXTS: [&str; 3] = ["ppt", "xls", "xlsx"];
-
-fn norm_path(s: &str) -> String {
-    s.replace('\\', "/").to_lowercase()
-}
 
 /// 첫 비어있지 않은 줄. 실측(354건)에서 개행이 없는 문서는 0건이었고 첫 줄
 /// 길이 중앙값은 13자, 60자 이하가 91% 였다.
@@ -163,62 +217,6 @@ fn find_terms(scope: &str, terms: &[String], exclude: &[String], compact: bool)
     hits
 }
 
-/// 서식 필드어 세트 판정(재설계 7장). 문서종류명이 아니라 '그 양식에만 있는
-/// 항목명'의 조합을 본다 — 회의록 본문에 "계약서"가 언급될 수는 있어도
-/// 갑·을·제O조·계약기간이 함께 나오지는 않는다.
-/// 탐색 범위는 문서 전체다 — 필드어는 종류명과 달리 다른 문서에 우연히 함께
-/// 등장하지 않으므로 범위를 좁힐 이유가 없다.
-fn match_form(text: &str, form: Option<&FormSpec>, exclude: &[String]) -> (bool, Vec<String>) {
-    let form = match form {
-        Some(f) if f.usable() => f,
-        _ => return (false, vec![]),
-    };
-    if text.is_empty() {
-        return (false, vec![]);
-    }
-    let hay = text.to_lowercase();
-    let ex = exclude_spans(&hay, exclude, true);
-    let present = |item: &String| -> bool {
-        !item.is_empty() && count_term(&hay, &item.to_lowercase(), &ex) > 0
-    };
-
-    let mut matched = vec![];
-    if !form.all_of.is_empty() {
-        if form.all_of.iter().any(|x| !present(x)) {
-            return (false, vec![]);
-        }
-        matched.extend(form.all_of.iter().cloned());
-    }
-    if !form.any_of.is_empty() && form.min_types > 0 {
-        // '건수'가 아니라 '서로 다른 항목의 종수'를 센다 — 같은 단어가 여러 번
-        // 나오는 것은 서식의 증거가 아니다.
-        let found: Vec<String> = form.any_of.iter().filter(|x| present(x)).cloned().collect();
-        if found.len() < form.min_types {
-            return (false, vec![]);
-        }
-        matched.extend(found);
-    }
-    (true, matched)
-}
-
-/// 구조 신호 판정. "제N조"·서명란처럼 어휘가 아닌 문서 골격을 정규식으로 잡는다.
-/// 컴파일 실패 패턴은 조용히 건너뛴다 — 로드 단계(T22)에서 이미 막았다.
-fn match_structure(text: &str, patterns: &[String]) -> Vec<String> {
-    if patterns.is_empty() || text.is_empty() {
-        return vec![];
-    }
-    let mut hits = vec![];
-    for p in patterns {
-        let pat = format!("(?i){}", p);
-        if let Ok(re) = Regex::new(&pat) {
-            if re.is_match(text) {
-                hits.push(p.clone());
-            }
-        }
-    }
-    hits
-}
-
 /// 파일명 매칭. 파일명은 짧고 의도적으로 붙인 이름이라 우연 일치가 드물어
 /// 재설계에서도 매칭 로직을 유지한다(비중만 재조정).
 fn match_filename(file: &str, rule: &DoctypeRule) -> Vec<(String, u32)> {
@@ -228,12 +226,6 @@ fn match_filename(file: &str, rule: &DoctypeRule) -> Vec<(String, u32)> {
         return vec![];
     }
     find_terms(base, &rule.filename, &rule.exclude, true)
-}
-
-/// 경로 매칭(이미 로드 시점에 정규화됨). security 의 path_rules 와 달리 "첫
-/// 매칭에서 멈추는" 정책이 없다 — 노드마다 독립 판단이다.
-fn match_paths(np: &str, rule: &DoctypeRule) -> Vec<String> {
-    rule.paths.iter().filter(|p| np.contains(p.as_str())).cloned().collect()
 }
 
 /// noisy-OR 결합(재설계 8-1). score = 1 - Π(1-cᵢ).
@@ -287,8 +279,9 @@ fn terms_json(hits: &[(String, u32)]) -> Value {
 /// 규칙 1개 스캔 — 신호원 수집 + 점수화(핵심).
 /// scoring 모드에 따라 결합 방식이 달라진다. 근거(evidence)는 두 모드 모두
 /// 남긴다 — 근거 미보존 해소는 계측의 전제조건이라 모드와 무관하게 필요하다.
-fn scan_rule(text: &str, file: &str, np: &str, rule: &DoctypeRule,
-             defaults: &Defaults, allow_title: bool) -> Option<ScanHit> {
+fn scan_rule(text: &str, file: &str, rule: &DoctypeRule,
+             defaults: &Defaults, allow_title: bool,
+             tbl: Option<&SignalTable>) -> Option<ScanHit> {
     let staged = defaults.scoring == "staged";
     let mut evidence = Map::new();
     let mut parts: Vec<(String, f64)> = vec![];
@@ -298,7 +291,7 @@ fn scan_rule(text: &str, file: &str, np: &str, rule: &DoctypeRule,
         let hits = find_terms(first_line(text), &rule.title_terms, &rule.exclude, true);
         if !hits.is_empty() {
             evidence.insert("title".into(), json!({ "terms": terms_json(&hits) }));
-            parts.push(("title".into(), sig_conf("title", &rule.weight)));
+            parts.push(("title".into(), sig_conf_of(tbl, "title", &rule.weight)));
         }
     }
 
@@ -310,27 +303,8 @@ fn scan_rule(text: &str, file: &str, np: &str, rule: &DoctypeRule,
         if !hits.is_empty() {
             evidence.insert("head".into(),
                 json!({ "terms": terms_json(&hits), "window": n }));
-            parts.push(("head".into(), sig_conf("head", &rule.weight)));
+            parts.push(("head".into(), sig_conf_of(tbl, "head", &rule.weight)));
         }
-    }
-
-    // form: 서식 필드어 세트
-    let (form_ok, form_matched) = match_form(text, rule.form.as_ref(), &rule.exclude);
-    if form_ok {
-        let (all_of, min_types) = match rule.form.as_ref() {
-            Some(f) => (f.all_of.clone(), f.min_types),
-            None => (vec![], 0),
-        };
-        evidence.insert("form".into(),
-            json!({ "matched": form_matched, "all_of": all_of, "min_types": min_types }));
-        parts.push(("form".into(), sig_conf("form", &rule.weight)));
-    }
-
-    // structure: 구조 정규식
-    let st = match_structure(text, &rule.structure);
-    if !st.is_empty() {
-        evidence.insert("structure".into(), json!({ "matched": st }));
-        parts.push(("structure".into(), sig_conf("structure", &rule.weight)));
     }
 
     // body: 문서 전체 terms
@@ -341,7 +315,7 @@ fn scan_rule(text: &str, file: &str, np: &str, rule: &DoctypeRule,
         let need_d = thr_min_distinct(rule, defaults);
         let need_c = thr_min_count(rule, defaults);
         if !hits.is_empty() && distinct >= need_d && total >= need_c {
-            let conf = if staged { sig_conf("body", &rule.weight) } else { pick_keyword(&rule.weight) };
+            let conf = if staged { sig_conf_of(tbl, "body", &rule.weight) } else { pick_keyword(&rule.weight) };
             evidence.insert("body".into(), json!({
                 "terms": terms_json(&hits), "distinct": distinct, "total": total,
                 "min_distinct": need_d, "min_count": need_c,
@@ -353,19 +327,12 @@ fn scan_rule(text: &str, file: &str, np: &str, rule: &DoctypeRule,
     // name: 파일명
     let nm = match_filename(file, rule);
     if !nm.is_empty() {
-        let conf = if staged { sig_conf("name", &rule.weight) } else { DT_NAME_CONF };
+        let conf = if staged { sig_conf_of(tbl, "name", &rule.weight) } else { DT_NAME_CONF };
         let words: Vec<String> = nm.iter().map(|(t, _c)| t.clone()).collect();
         evidence.insert("name".into(), json!({ "terms": words }));
         parts.push(("name".into(), conf));
     }
 
-    // path: 폴더 경로
-    let ph = match_paths(np, rule);
-    if !ph.is_empty() {
-        let conf = if staged { sig_conf("path", &rule.weight) } else { pick_path_legacy(&rule.weight) };
-        evidence.insert("path".into(), json!({ "matched": ph }));
-        parts.push(("path".into(), conf));
-    }
 
     if parts.is_empty() {
         return None;
@@ -436,6 +403,68 @@ impl Candidate {
     }
 }
 
+/// 근거 두 칸(evidence·score_parts)을 신호별 한 덩어리로 합친다(Python _merge_signals 대응).
+///
+/// 예전에는 후보 하나에 근거가 두 군데로 흩어져 있었다 —
+///   evidence    = {"head": {무슨 말이 몇 번}, ...}
+///   score_parts = [("head", 0.55), ...]
+/// 둘 다 열쇠가 '신호 이름'으로 같아서, 읽는 쪽은 매번 {이름:점수} 표를 만들어
+/// 이름으로 맞춰 붙여야 했다(화면이 실제로 그렇게 했다).
+///
+/// [c 가 없을 수 있다] 전파(embed)가 이미 있는 후보에 근거만 더하는 경로가 있다.
+/// 그런 신호는 "c" 키를 만들지 않는다 — 0.0 으로 채우면 "0점 기여"라는 없는
+/// 사실을 말하게 된다.
+///
+/// 순서는 evidence 가 만들어진 순서(title→head→body→name→embed)를 그대로 따른다.
+fn merge_signals(evidence: &Map<String, Value>, parts: &[(String, f64)]) -> Map<String, Value> {
+    let mut out = Map::new();
+    for (name, block) in evidence.iter() {
+        let mut one = Map::new();
+        // 점수를 앞에 둔다 — "얼마나 셌나"를 먼저 읽고 "왜"를 뒤에 읽는다.
+        if let Some((_, c)) = parts.iter().find(|(s, _)| s == name) {
+            one.insert("c".into(), json!(round3(*c)));
+        }
+        if let Some(o) = block.as_object() {
+            for (k, val) in o.iter() { one.insert(k.clone(), val.clone()); }
+        }
+        out.insert(name.clone(), Value::Object(one));
+    }
+    // 근거 없이 점수만 있는 신호는 없어야 하지만, 있으면 잃지 않고 담는다.
+    for (name, c) in parts.iter() {
+        if !out.contains_key(name) {
+            out.insert(name.clone(), json!({ "c": round3(*c) }));
+        }
+    }
+    out
+}
+
+/// 합쳐진 signals 를 다시 evidence·score_parts 로 되돌린다(Python _split_signals 대응).
+/// 엔진 속 계산은 여전히 두 칸으로 다룬다 — 레코드에 적는 모양만 바꿨기 때문이다.
+/// [옛 레코드] signals 가 없으면 예전 두 칸을 그대로 읽는다.
+pub fn split_signals(c: &Value) -> (Map<String, Value>, Vec<(String, f64)>) {
+    let sigs = match c.get("signals").and_then(|x| x.as_object()) {
+        Some(m) => m,
+        None => {
+            let ev = c.get("evidence").and_then(|x| x.as_object()).cloned().unwrap_or_default();
+            let parts = c.get("score_parts").and_then(|x| x.as_array())
+                .map(|a| a.iter().filter_map(|p| {
+                    Some((p.get("signal")?.as_str()?.to_string(), p.get("c")?.as_f64()?))
+                }).collect())
+                .unwrap_or_default();
+            return (ev, parts);
+        }
+    };
+    let (mut evidence, mut parts) = (Map::new(), vec![]);
+    for (name, one) in sigs.iter() {
+        let mut block = one.as_object().cloned().unwrap_or_default();
+        if let Some(c) = block.remove("c").and_then(|x| x.as_f64()) {
+            parts.push((name.clone(), c));
+        }
+        evidence.insert(name.clone(), Value::Object(block));
+    }
+    (evidence, parts)
+}
+
 /// doctype 축 최종 결과(labels.doctype).
 pub struct DoctypeSignal {
     pub values: Vec<Candidate>,
@@ -452,7 +481,7 @@ impl DoctypeSignal {
     /// [프라이버시] evidence 에는 규칙에 정의된 단어와 건수만 담는다 —
     /// 문서 원문 조각(스니펫)은 절대 넣지 않는다.
     pub fn as_dict(&self) -> Value {
-        json!({
+        let mut out = json!({
             "values": self.values.iter().map(|v| {
                 let mut m = Map::new();
                 m.insert("dc_id".into(), json!(v.dc_id));
@@ -460,26 +489,35 @@ impl DoctypeSignal {
                 m.insert("path_ids".into(), json!(v.path_ids));
                 m.insert("confidence".into(), json!(round3(v.confidence)));
                 m.insert("from".into(), json!(v.from));
-                // 아래 세 칸은 없으면 키 자체를 만들지 않는다 — 소비자가
+                // 아래 두 칸은 없으면 키 자체를 만들지 않는다 — 소비자가
                 // "안 씀"과 "비었음"을 구분할 수 있어야 한다.
                 if !v.stage.is_empty() {
                     m.insert("stage".into(), json!(v.stage));
                 }
-                if !v.evidence.is_empty() {
-                    m.insert("evidence".into(), Value::Object(v.evidence.clone()));
-                }
-                if !v.score_parts.is_empty() {
-                    m.insert("score_parts".into(), Value::Array(v.score_parts.iter()
-                        .map(|(s, c)| json!({ "signal": s, "c": round3(*c) }))
-                        .collect()));
+                let sigs = merge_signals(&v.evidence, &v.score_parts);
+                if !sigs.is_empty() {
+                    m.insert("signals".into(), Value::Object(sigs));
                 }
                 Value::Object(m)
             }).collect::<Vec<_>>(),
-            "strategy": self.strategy,
-            "status": self.status,
-            "truncated": self.truncated,
-            "conflicts": self.conflicts,
-        })
+        });
+        // [2026-09-10] 값이 하나뿐이던 칸들을 걷어냈다(파이썬 판과 같은 규칙).
+        //  · status  : 엔진은 "proposed" 말고 다른 값을 낼 수 없다. 확정은 검토
+        //    화면의 몫이고 그 결정은 cso_override.jsonl 에 쌓인다.
+        //  · truncated: 안 잘렸으면 0이다. 없으면 '아무것도 안 잘림'이고,
+        //    **잘렸을 때는 반드시 보인다** — 무엇이 왜 빠졌는지는 숨기면 안 된다.
+        //  · conflicts: 비었으면 적지 않는다(같은 이유).
+        //  · strategy : 규칙 파일 값을 그대로 옮기던 칸이라, 새 정보는 '실행 시
+        //    --conflict 로 덮어썼다'는 사실뿐이다. 그때만 main 이 각인한다.
+        if let Some(m) = out.as_object_mut() {
+            if self.truncated > 0 {
+                m.insert("truncated".into(), json!(self.truncated));
+            }
+            if !self.conflicts.is_empty() {
+                m.insert("conflicts".into(), json!(self.conflicts));
+            }
+        }
+        out
     }
 }
 
@@ -564,13 +602,15 @@ fn finalize(merged: HashMap<String, Merged>, taxonomy: &Taxonomy, conflict: &Con
 /// 최종 DoctypeSignal 을 만든다.
 pub fn scan_doctype(text: &str, file: &str, doc_rule_set: &DocRuleSet, taxonomy: &Taxonomy)
                     -> DoctypeSignal {
-    let np = norm_path(file);
     let defaults = &doc_rule_set.defaults;
     let allow_title = title_allowed(file);
+    // 신호별 신뢰도는 정책 파일에서 덮어쓸 수 있다(doc_rule.yaml 의 signals:).
+    // 없으면 None 이라 scan_rule 이 코드 기본값으로 돈다.
+    let tbl = doc_rule_set.signals.as_ref();
     let mut merged: HashMap<String, Merged> = HashMap::new();
 
     for rule in doc_rule_set.active_rules() {
-        let hit = match scan_rule(text, file, &np, rule, defaults, allow_title) {
+        let hit = match scan_rule(text, file, rule, defaults, allow_title, tbl) {
             Some(h) => h,
             None => continue,
         };
@@ -603,9 +643,16 @@ pub fn scan_doctype(text: &str, file: &str, doc_rule_set: &DocRuleSet, taxonomy:
 /// -in: existing     = 병합 전 최종 후보(scan_doctype 결과의 values)
 /// -in: embed_values = propagate::propagate_doctype() 이 찾은 (dc_id, confidence) 목록
 /// -in: embed_cap    = 벡터 단독 후보 신뢰도 상한. None 이면 상한 없음(종전 동작)
+/// -in: embed_meta   = (판정 방법, 1등 유사도) — 근거 칸에 그대로 적는다
+///
+/// [embed_meta 를 왜 받나] 근거 칸에 `share` 만 적고 있었다. 파이썬은 같은 자리에
+/// `method`(dup_inherit/knn_vote)와 `top_sim` 까지 적는다. 이 둘이 없으면 "사본을
+/// 그대로 물려받은 것"과 "이웃 여럿이 투표한 것"이 결과에서 구분되지 않아, 검토
+/// 화면에서 같은 0.9 를 놓고 얼마나 믿을지 판단할 근거가 사라진다.
 pub fn merge_embed_candidates(existing: &[Candidate], embed_values: &[(String, f64)],
                               taxonomy: &Taxonomy, conflict: &ConflictSpec,
-                              embed_cap: Option<f64>) -> DoctypeSignal {
+                              embed_cap: Option<f64>,
+                              embed_meta: (&str, f64)) -> DoctypeSignal {
     let mut merged: HashMap<String, Merged> = HashMap::new();
     for v in existing {
         merged.insert(v.dc_id.clone(), Merged {
@@ -615,6 +662,13 @@ pub fn merge_embed_candidates(existing: &[Candidate], embed_values: &[(String, f
             parts: v.score_parts.clone(),
         });
     }
+    // 근거 칸의 모양은 파이썬 merge_embed_candidates 의 ev_block 과 키 순서까지 같다.
+    let (embed_method, embed_top_sim) = embed_meta;
+    let ev_block = |conf: f64| json!({
+        "method": embed_method,
+        "top_sim": round3(embed_top_sim),
+        "share": round3(conf),
+    });
     for (dc_id, conf) in embed_values {
         if taxonomy.get(dc_id).is_none() {
             continue; // 삭제된 노드를 가리키는 낡은 seed — 조용히 무시
@@ -622,7 +676,7 @@ pub fn merge_embed_candidates(existing: &[Candidate], embed_values: &[(String, f
         match merged.get_mut(dc_id) {
             Some(entry) => {
                 entry.from.insert("embed".into());
-                entry.evidence.insert("embed".into(), json!({ "share": round3(*conf) }));
+                entry.evidence.insert("embed".into(), ev_block(*conf));
                 if *conf > entry.confidence {
                     entry.confidence = *conf;
                 }
@@ -631,7 +685,7 @@ pub fn merge_embed_candidates(existing: &[Candidate], embed_values: &[(String, f
                 // 벡터 단독 후보 — 상한을 건다.
                 let capped = match embed_cap { Some(c) => conf.min(c), None => *conf };
                 let mut ev = Map::new();
-                ev.insert("embed".into(), json!({ "share": round3(*conf) }));
+                ev.insert("embed".into(), ev_block(*conf));
                 merged.insert(dc_id.clone(), Merged {
                     confidence: capped,
                     from: HashSet::from(["embed".to_string()]),
@@ -648,7 +702,7 @@ pub fn merge_embed_candidates(existing: &[Candidate], embed_values: &[(String, f
 mod tests {
     use super::*;
     use crate::axes::load_taxonomy;
-    use crate::doc_rules::{Defaults, FormSpec};
+    use crate::doc_rules::Defaults;
 
     // cargo test 는 기본적으로 테스트를 여러 스레드에서 병렬 실행한다. 임시파일
     // 이름이 겹치면 한 스레드의 remove_file 이 다른 스레드의 read 보다 먼저
@@ -681,9 +735,9 @@ mod tests {
         DoctypeRule {
             id: id.into(), node: node.into(), weight: weight.into(),
             title_terms: vec![], head_terms: vec![], head_chars: None,
-            form: None, structure: vec![], terms: vec![],
+            terms: vec![],
             min_distinct: None, min_count: None,
-            exclude: vec![], filename: vec![], paths: vec![], active: true,
+            exclude: vec![], filename: vec![], active: true,
         }
     }
 
@@ -692,12 +746,11 @@ mod tests {
     }
 
     fn rule(id: &str, node: &str, weight: &str, terms: &[&str], exclude: &[&str],
-            filename: &[&str], paths: &[&str]) -> DoctypeRule {
+            filename: &[&str]) -> DoctypeRule {
         let mut r = blank(id, node, weight);
         r.terms = sv(terms);
         r.exclude = sv(exclude);
         r.filename = sv(filename);
-        r.paths = sv(paths);
         r
     }
 
@@ -706,6 +759,8 @@ mod tests {
             conflict: ConflictSpec { strategy: "all".into(), n: None, min_confidence: None },
             defaults,
             embed: crate::doc_rules::EmbedSpec::default(),
+            // 이 시험들은 코드 기본값으로 도는 것을 확인한다(정책 파일 미개입).
+            signals: None,
             version: "t".into(),
             rules,
             warnings: vec![],
@@ -718,11 +773,11 @@ mod tests {
 
     fn mk_ruleset() -> DocRuleSet {
         mk_set(vec![
-            rule("dt_contract", "CONTRACT", "high", &["계약서", "용역계약", "갑과 을"], &["계약서 양식"], &["계약서"], &[]),
-            rule("dt_proposal", "PROPOSAL", "high", &["제안서", "제안 내용"], &[], &["제안서"], &[]),
-            rule("dt_reqspec", "REQSPEC", "high", &["요구사항정의서", "요구사항 명세"], &[], &[], &[]),
-            rule("dt_design", "DESIGN", "medium", &["설계문서"], &[], &[], &[]),
-            rule("dt_legal_root", "LEGAL", "low", &["법무"], &[], &[], &[]),
+            rule("dt_contract", "CONTRACT", "high", &["계약서", "용역계약", "갑과 을"], &["계약서 양식"], &["계약서"]),
+            rule("dt_proposal", "PROPOSAL", "high", &["제안서", "제안 내용"], &[], &["제안서"]),
+            rule("dt_reqspec", "REQSPEC", "high", &["요구사항정의서", "요구사항 명세"], &[], &[]),
+            rule("dt_design", "DESIGN", "medium", &["설계문서"], &[], &[]),
+            rule("dt_legal_root", "LEGAL", "low", &["법무"], &[], &[]),
         ], Defaults::default())
     }
 
@@ -759,7 +814,7 @@ mod tests {
 
     #[test]
     fn legacy는_본문_1건으로_히트하고_종전_신뢰도를_쓴다() {
-        let rs = mk_set(vec![rule("r", "CONTRACT", "medium", &["계약서"], &[], &[], &[])],
+        let rs = mk_set(vec![rule("r", "CONTRACT", "medium", &["계약서"], &[], &[])],
                         Defaults::default());
         let sig = scan_doctype("계약서 한 번 언급", "D:/x/문서.hwp", &rs, &mk_taxonomy());
         assert_eq!(sig.values.len(), 1);
@@ -768,7 +823,7 @@ mod tests {
 
     #[test]
     fn legacy의_결합은_max다() {
-        let rs = mk_set(vec![rule("r", "CONTRACT", "medium", &["계약서"], &[], &["계약서"], &[])],
+        let rs = mk_set(vec![rule("r", "CONTRACT", "medium", &["계약서"], &[], &["계약서"])],
                         Defaults::default());
         let sig = scan_doctype("계약서", "D:/x/계약서.hwp", &rs, &mk_taxonomy());
         // body(0.70) 와 name(0.60) 중 큰 값. 가산이면 0.70 을 넘었을 것이다.
@@ -776,15 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn paths_매칭() {
-        let rs = mk_set(vec![rule("dt_contract", "CONTRACT", "medium", &[], &[], &[], &["/법무/", "/계약/"])],
-                        Defaults::default());
-        let sig = scan_doctype("", "D:/collected/법무/무제.docx", &rs, &mk_taxonomy());
-        assert_eq!(sig.values.len(), 1);
-        assert_eq!(sig.values[0].from, vec!["path".to_string()]);
-    }
-
-    #[test]
+        #[test]
     fn 조상_자손_동시매칭시_자손만_남는다() {
         let sig = scan_doctype("이 문서는 설계문서 중 요구사항정의서에 해당한다.", "D:/x/문서.hwp",
                                &mk_ruleset(), &mk_taxonomy());
@@ -817,21 +864,13 @@ mod tests {
 
     #[test]
     fn staged에서_본문만으로는_후보가_되지_않는다() {
-        let rs = mk_set(vec![rule("r", "CONTRACT", "medium", &["계약서"], &[], &[], &[])], staged());
+        let rs = mk_set(vec![rule("r", "CONTRACT", "medium", &["계약서"], &[], &[])], staged());
         let sig = scan_doctype("이 문서는 계약서를 첨부합니다.", "D:/x/공문.hwp", &rs, &mk_taxonomy());
         assert!(sig.values.is_empty());
     }
 
     #[test]
-    fn structure만으로는_후보가_되지_않는다() {
-        let mut r = blank("r", "CONTRACT", "medium");
-        r.structure = sv(&[r"제\d+조"]);
-        let sig = scan_doctype("제1조 목적 제2조 범위", "D:/x/문서.hwp",
-                               &mk_set(vec![r], staged()), &mk_taxonomy());
-        assert!(sig.values.is_empty());
-    }
-
-    #[test]
+        #[test]
     fn 표제부_밖의_언급은_head신호가_아니다() {
         let mut r = blank("r", "CONTRACT", "medium");
         r.head_terms = sv(&["계약서"]);
@@ -885,18 +924,7 @@ mod tests {
     }
 
     #[test]
-    fn form_any_of는_서로_다른_항목_종수를_센다() {
-        let mut r = blank("r", "CONTRACT", "medium");
-        r.form = Some(FormSpec { all_of: vec![], any_of: sv(&["갑", "을", "계약기간"]), min_types: 2 });
-        r.filename = sv(&["문서"]);
-        let t = mk_taxonomy();
-        let ok = scan_doctype("갑과 을은 합의한다", "D:/x/문서.hwp", &mk_set(vec![r.clone()], staged()), &t);
-        assert!(ok.values[0].from.contains(&"form".to_string()));
-        let ng = scan_doctype("갑 갑 갑 갑", "D:/x/문서.hwp", &mk_set(vec![r], staged()), &t);
-        assert!(!ng.values[0].from.contains(&"form".to_string()));
-    }
-
-    #[test]
+        #[test]
     fn 근거가_쌓이면_점수가_오른다() {
         let t = mk_taxonomy();
         let mut one = blank("r", "CONTRACT", "medium");
@@ -950,8 +978,40 @@ mod tests {
         let d = sig.as_dict();
         let v = &d["values"][0];
         assert_eq!(v["stage"], "rule");
-        assert!(v["evidence"]["title"]["terms"][0]["term"] == "계약서");
-        assert!(v["score_parts"].as_array().unwrap().len() == 3);
+        // [2026-09-10] evidence 와 score_parts 를 signals 한 칸으로 합쳤다 —
+        // 둘 다 열쇠가 '신호 이름'이라 읽는 쪽이 매번 이름으로 맞춰 붙여야 했다.
+        // 검사 의도(어느 신호가 무엇을 근거로, 몇 점으로 걸렸나)는 그대로다.
+        assert!(v["signals"]["title"]["terms"][0]["term"] == "계약서");
+        let sigs = v["signals"].as_object().unwrap();
+        assert!(sigs.len() == 3);
+        // 점수 몫(c)도 같은 덩어리 안에 있다 — 따로 짜맞출 것이 없다.
+        assert!(sigs.values().all(|x| x.get("c").is_some()));
+        assert!(v.get("evidence").is_none() && v.get("score_parts").is_none());
+    }
+
+    /// signals 로 적힌 근거를 되읽으면 엔진 속 두 칸이 그대로 복원된다.
+    /// 이게 깨지면 전파를 한 번 거친 문서가 "왜 이 라벨인지"를 통째로 잃는다.
+    #[test]
+    fn split_signals는_합친_근거를_되돌린다() {
+        let c = json!({"signals": {
+            "title": {"c": 0.65, "terms": [{"term": "규정", "count": 1}]},
+            "embed": {"method": "knn_vote", "top_sim": 0.88}}});
+        let (ev, parts) = split_signals(&c);
+        assert_eq!(ev["title"]["terms"][0]["term"], "규정");
+        assert!(ev["title"].get("c").is_none());          // c 는 근거가 아니다
+        assert_eq!(ev["embed"]["method"], "knn_vote");
+        // 점수 몫이 없는 신호(embed)는 parts 에 들어가지 않는다.
+        assert_eq!(parts, vec![("title".to_string(), 0.65)]);
+    }
+
+    /// 옛 결과 파일(evidence·score_parts 두 칸)도 그대로 읽힌다.
+    #[test]
+    fn split_signals는_옛_두칸도_읽는다() {
+        let c = json!({"evidence": {"title": {"terms": []}},
+                       "score_parts": [{"signal": "title", "c": 0.8}]});
+        let (ev, parts) = split_signals(&c);
+        assert!(ev.contains_key("title"));
+        assert_eq!(parts, vec![("title".to_string(), 0.8)]);
     }
 
     // ── embed 병합 ────────────────────────────────────────────────────
@@ -962,7 +1022,8 @@ mod tests {
         let conflict = ConflictSpec::default();
         let existing = vec![Candidate::bare("CONTRACT".into(), t.path("CONTRACT").unwrap(),
                                             t.path_ids("CONTRACT").unwrap(), 0.8, vec!["body".into()])];
-        let sig = merge_embed_candidates(&existing, &[("PROPOSAL".to_string(), 0.4)], &t, &conflict, None);
+        let sig = merge_embed_candidates(&existing, &[("PROPOSAL".to_string(), 0.4)], &t, &conflict, None,
+                                       ("knn_vote", 0.8));
         let mut ids: Vec<&str> = sig.values.iter().map(|v| v.dc_id.as_str()).collect();
         ids.sort();
         assert_eq!(ids, vec!["CONTRACT", "PROPOSAL"]);
@@ -977,18 +1038,28 @@ mod tests {
         let existing = vec![Candidate::bare("CONTRACT".into(), t.path("CONTRACT").unwrap(),
                                             t.path_ids("CONTRACT").unwrap(), 0.5, vec!["body".into()])];
         let sig = merge_embed_candidates(&existing, &[("CONTRACT".to_string(), 0.9)],
-                                         &t, &ConflictSpec::default(), None);
+                                         &t, &ConflictSpec::default(), None,
+                                         ("dup_inherit", 0.97));
         assert_eq!(sig.values.len(), 1);
         assert_eq!(sig.values[0].confidence, 0.9);
         assert_eq!(sig.values[0].stage, "both");
+        // 근거 칸은 파이썬과 같은 세 칸(method/top_sim/share)이어야 한다.
+        let ev = &sig.values[0].evidence["embed"];
+        assert_eq!(ev["method"], "dup_inherit");
+        assert_eq!(ev["top_sim"], 0.97);
+        assert_eq!(ev["share"], 0.9);
     }
 
     #[test]
     fn 벡터_단독_후보는_상한을_넘지_못한다() {
         let t = mk_taxonomy();
         let sig = merge_embed_candidates(&[], &[("CONTRACT".to_string(), 0.95)],
-                                         &t, &ConflictSpec::default(), Some(0.65));
+                                         &t, &ConflictSpec::default(), Some(0.65),
+                                         ("knn_vote", 0.88));
         assert!((sig.values[0].confidence - 0.65).abs() < 1e-9);
+        // 상한은 confidence 에만 걸린다 — share 는 원래 득표율 그대로(파이썬과 동일).
+        assert_eq!(sig.values[0].evidence["embed"]["share"], 0.95);
+        assert_eq!(sig.values[0].evidence["embed"]["method"], "knn_vote");
     }
 
     #[test]
@@ -997,7 +1068,8 @@ mod tests {
         let existing = vec![Candidate::bare("CONTRACT".into(), t.path("CONTRACT").unwrap(),
                                             t.path_ids("CONTRACT").unwrap(), 0.8, vec!["body".into()])];
         let sig = merge_embed_candidates(&existing, &[("LEGAL".to_string(), 0.4)],
-                                         &t, &ConflictSpec::default(), None);
+                                         &t, &ConflictSpec::default(), None,
+                                         ("knn_vote", 0.75));
         let ids: Vec<&str> = sig.values.iter().map(|v| v.dc_id.as_str()).collect();
         assert_eq!(ids, vec!["CONTRACT"]);
     }
@@ -1006,7 +1078,8 @@ mod tests {
     fn taxonomy에_없는_embed_후보는_무시() {
         let t = mk_taxonomy();
         let sig = merge_embed_candidates(&[], &[("삭제된노드".to_string(), 0.9)],
-                                         &t, &ConflictSpec::default(), None);
+                                         &t, &ConflictSpec::default(), None,
+                                         ("dup_inherit", 0.99));
         assert!(sig.values.is_empty());
     }
 
@@ -1024,7 +1097,8 @@ mod tests {
     fn 규칙0건이어도_embed후보는_라벨이_된다() {
         let t = mk_taxonomy();
         let drs = crate::doc_rules::DocRuleSet::seed_only();
-        let sig = merge_embed_candidates(&[], &[("REQSPEC".to_string(), 0.8)], &t, &drs.conflict, None);
+        let sig = merge_embed_candidates(&[], &[("REQSPEC".to_string(), 0.8)], &t, &drs.conflict, None,
+                                       ("knn_vote", 0.82));
         assert_eq!(sig.values.len(), 1);
         assert_eq!(sig.values[0].path, "기술/개발 > 설계문서 > 요구사항정의서");
         assert_eq!(sig.values[0].from, vec!["embed".to_string()]);

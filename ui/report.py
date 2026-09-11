@@ -6,6 +6,8 @@
 
 from collections import Counter
 
+from csoclassify import record as csorecord
+
 import numpy as np
 
 
@@ -88,8 +90,10 @@ def near_dups(items, threshold=0.97, cap=3000):
 def decided_by_counts(records):
     c = Counter()
     for r in records:
-        db = r.get("decided_by") or []
-        if not db or r.get("grade") is None:
+        # 새 모양은 security 칸, 옛 결과 파일은 최상위 — record 가 흡수한다.
+        sec = csorecord.security_of(r)
+        db = sec.get("decided_by") or []
+        if not db or sec.get("grade") is None:
             c["미분류/보류"] += 1
         else:
             for s in db:

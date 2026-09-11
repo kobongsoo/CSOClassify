@@ -48,7 +48,7 @@ def make_ui(root):
 
     # policy 의 자산(남길 것)
     (pol / "doc_classification_export.json").write_text("{}", encoding="utf-8")
-    (pol / "cso_rules.yaml").write_text("rules", encoding="utf-8")
+    (pol / "cso_rule.yaml").write_text("rules", encoding="utf-8")
     (pol / "doc_rule_template.yaml").write_text("tpl", encoding="utf-8")
     (syn / "doc_synonyms.core.yaml").write_text("syn", encoding="utf-8")
 
@@ -91,7 +91,7 @@ def test_소스와_자산은_건드리지_않는다(tmp_path):
     names = {t["name"] for t in targets}
     for safe in ("app.py", "seedstore.py", "app.py.bak-dtev", "실행.bat",
                  "requirements.txt", "settings.yaml",
-                 "doc_classification_export.json", "cso_rules.yaml",
+                 "doc_classification_export.json", "cso_rule.yaml",
                  "doc_rule_template.yaml", "doc_synonyms.core.yaml",
                  "class_seed.jsonl.bak-20260828"):
         assert safe not in names, f"{safe} 를 지우려 한다"

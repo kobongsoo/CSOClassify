@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>csoclassify-rs 빌드 가이드 (Windows · Linux)</title>
+<title>MpowerClassify-rs 빌드 가이드 (Windows · Linux)</title>
 <style>
   :root{
     --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
@@ -82,8 +82,8 @@
 <div class="wrap">
 
 <header class="hero">
-  <h1>csoclassify-rs 빌드 가이드</h1>
-  <p>Rust 소스(<code>CSOClassify\Rust\</code>)에서 <b>Windows</b>·<b>Linux</b> 배포본을 만드는 전 과정 — 처음 해보는 사람 기준으로 한 줄씩</p>
+  <h1>MpowerClassify-rs 빌드 가이드</h1>
+  <p>Rust 소스(<code>MpowerClassify\Rust\</code>)에서 <b>Windows</b>·<b>Linux</b> 배포본을 만드는 전 과정 — 처음 해보는 사람 기준으로 한 줄씩</p>
 </header>
 
 <section class="card">
@@ -104,21 +104,21 @@
 
 <h2 id="what"><span class="n">1</span> 무엇을 만드는가</h2>
 <section class="card">
-  <p><code>D:\Project\CSOClassify\Rust\</code> 의 Rust 소스를 컴파일해서 <b>그 자체로 돌아가는 폴더 하나</b>를 만듭니다.
+  <p><code>D:\Project\MpowerClassify\Rust\</code> 의 Rust 소스를 컴파일해서 <b>그 자체로 돌아가는 폴더 하나</b>를 만듭니다.
   이 폴더를 통째로 복사하면 어느 PC/서버에서든 별도 설치 없이 실행됩니다.</p>
 
   <div class="note"><b>왜 파일 하나가 아니라 폴더인가?</b><br>
-  실행파일 자체는 5MB로 작지만 <b>임베딩 모델(129MB)</b>·<b>ONNX Runtime</b>·<b>pdfium(PDF 추출)</b> 은
+  실행파일 자체는 7.5MB로 작지만 <b>임베딩 모델(129MB)</b>·<b>ONNX Runtime</b>·<b>pdfium(PDF 추출)</b> 은
   실행파일 안에 넣지 <b>않고</b> 옆에 파일로 둡니다. 그래야 ① 실행파일이 작고 ② 규칙셋
-  (<code>cso_rules.yaml</code>)을 재빌드 없이 교체할 수 있고 ③ PDF·임베딩을 안 쓰면 그 파일들을 빼도 됩니다.
+  (<code>cso_rule.yaml</code>)을 재빌드 없이 교체할 수 있고 ③ PDF·임베딩을 안 쓰면 그 파일들을 빼도 됩니다.
   프로그램은 <b>자기 실행파일이 있는 폴더</b>에서 이 파일들을 찾습니다.</div>
 
   <h3>완성된 배포본 구조</h3>
   <div class="two">
     <div>
       <p><b>Windows</b><span class="os">Rust\dist-onedir\windows\</span></p>
-<div class="tree">csoclassify-rs.exe                  <span class="cmt">5.3MB 실행 본체</span>
-cso_rules.yaml                      <span class="cmt">보안등급 규칙셋(외장)</span>
+<div class="tree">MpowerClassify-rs.exe                  <span class="cmt">7.5MB 실행 본체</span>
+cso_rule.yaml                      <span class="cmt">보안등급 규칙셋(외장)</span>
 doc_taxonomy.yaml                   <span class="cmt">업무분류 체계 스냅샷(외장)</span>
 doc_rule.yaml                       <span class="cmt">업무분류 규칙셋(외장)</span>
 class_seed.jsonl                      <span class="cmt">전파 기준 seed</span>
@@ -132,14 +132,14 @@ models\e5-small-ko\                 <span class="cmt">129MB 모델+토크나이�
    ├ tokenizer.json
    └ tokenizer_config.json
 README.txt</div>
-      <p class="def">합계 약 158MB<br>
-      배포용으로 묶은 <code>csoclassify-rs-windows.zip</code>(91MB)이
+      <p class="def">합계 약 160MB<br>
+      배포용으로 묶은 <code>MpowerClassify-rs-windows.zip</code>(91MB)이
       상위 <code>Rust\dist-onedir\</code> 에 함께 있습니다 → <a href="#win">3-6</a></p>
     </div>
     <div>
       <p><b>Linux</b><span class="os">Rust/dist-onedir/linux/</span></p>
-<div class="tree">csoclassify-rs                      <span class="cmt">5.4MB 실행 본체(ELF)</span>
-cso_rules.yaml                      <span class="cmt">보안등급 규칙셋(외장)</span>
+<div class="tree">MpowerClassify-rs                      <span class="cmt">7.4MB 실행 본체(ELF)</span>
+cso_rule.yaml                      <span class="cmt">보안등급 규칙셋(외장)</span>
 doc_taxonomy.yaml                   <span class="cmt">업무분류 체계 스냅샷(외장)</span>
 doc_rule.yaml                       <span class="cmt">업무분류 규칙셋(외장)</span>
 class_seed.jsonl                      <span class="cmt">전파 기준 seed</span>
@@ -150,8 +150,8 @@ libstdc++.so.6                      <span class="cmt">2MB   ★CentOS7 필수</s
 libgcc_s.so.1                       <span class="cmt">0.6MB ★CentOS7 필수</span>
 models/e5-small-ko/                 <span class="cmt">129MB 모델+토크나이저</span>
 README.txt</div>
-      <p class="def">합계 약 171MB · ★ 는 <a href="#trouble">7-①</a> 참고<br>
-      배포용으로 묶은 <code>csoclassify-rs-linux.tgz</code>(94MB)가
+      <p class="def">합계 약 184MB · ★ 는 <a href="#trouble">7-①</a> 참고<br>
+      배포용으로 묶은 <code>MpowerClassify-rs-linux.tgz</code>(94MB)가
       상위 <code>Rust\dist-onedir\</code> 에 함께 있습니다 → <a href="#linux">4-6</a></p>
     </div>
   </div>
@@ -159,7 +159,7 @@ README.txt</div>
   <h3>참고 — 파일이 없으면 어떻게 되나</h3>
   <div class="scroll"><table>
     <tr><th>빠진 파일</th><th>결과</th></tr>
-    <tr><td><code>cso_rules.yaml</code></td><td><b>실행 불가</b> — <code>--rules</code> 로 경로를 주거나 exe 옆에 있어야 함</td></tr>
+    <tr><td><code>cso_rule.yaml</code></td><td><b>실행 불가</b> — <code>--rules</code> 로 경로를 주거나 exe 옆에 있어야 함</td></tr>
     <tr><td>모델 / onnxruntime</td><td>임베딩 전파를 <b>조용히 생략</b>하고 규칙 결과만 출력. <code>--rule-only</code> 는 정상 동작</td></tr>
     <tr><td><code>doc_taxonomy.yaml</code></td><td>업무분류(doctype) 축이 <b>조용히 꺼지고</b> 보안등급만 판정. <code>--axis doctype</code> 을 명시하면 종료코드 4</td></tr>
     <tr><td><code>doc_rule.yaml</code></td><td>축은 켜진 채 <b>'seed 전파 전용'</b>으로 동작 — 규칙 대신 <code>class_seed.jsonl</code> 과의 임베딩 유사도로 분류. seed 도 없으면 업무분류가 <b>전부 미분류</b>(오류 아님) <span class="def">2026-08-25 변경</span></td></tr>
@@ -177,8 +177,9 @@ README.txt</div>
     <tr><td>C/C++ 컴파일러</td><td>Visual Studio Build Tools<br>(C++ 데스크톱 개발 워크로드)</td><td><code>gcc</code> (이미 있음)</td></tr>
     <tr><td>OS</td><td>Windows 10/11 x64</td><td>CentOS 7.9 / glibc 2.17 / x86_64</td></tr>
     <tr><td>인터넷</td><td>필요 <span class="def">(crates.io 에서 의존 크레이트 다운로드)</span></td><td>필요 <span class="def">(확인됨)</span></td></tr>
+    <tr><td>C 컴파일러</td><td colspan="2"><b>불필요</b> <span class="def">— 압축 해제 의존(<code>tar</code>·<code>bzip2-rs</code>·<code>lzma-rs</code>·<code>sevenz-rust2</code>·<code>rars</code>)과 시각 의존(<code>chrono</code>)이 전부 순수 Rust 라 <code>cc</code> 를 부르지 않습니다. CentOS 7 에서도 추가 개발도구 없이 빌드됩니다.</span></td></tr>
     <tr><td>디스크</td><td>약 3GB <span class="def">(빌드 캐시 <code>target\</code> 포함)</span></td><td>약 3GB</td></tr>
-    <tr><td>빌드 시간</td><td>첫 빌드 3~5분 / 재빌드 수 초</td><td>첫 빌드 약 1분 30초 <span class="def">(32코어)</span></td></tr>
+    <tr><td>빌드 시간</td><td>첫 빌드 5~8분 / 재빌드 수 초</td><td>첫 빌드 약 2분 <span class="def">(32코어)</span></td></tr>
   </table></div>
 
   <div class="warn"><b>Q. Windows 에서 리눅스용을 한 번에 만들 수는 없나요?</b><br>
@@ -213,7 +214,7 @@ rustc 1.98.0 (88d9e12ae 2026-08-18)</code></pre></div>
 
   <div class="step">
     <h4><span class="num">2</span> 소스 폴더로 이동</h4>
-<pre><code>cd /d D:\Project\CSOClassify\Rust</code></pre>
+<pre><code>cd /d D:\Project\MpowerClassify\Rust</code></pre>
     <p class="def"><code>Cargo.toml</code> 이 있는 폴더여야 합니다(<code>dir Cargo.toml</code> 로 확인).
     <code>Cargo.toml</code> 은 “이 프로그램이 어떤 라이브러리를 쓰는지” 적어둔 목록표입니다.</p>
   </div>
@@ -223,7 +224,7 @@ rustc 1.98.0 (88d9e12ae 2026-08-18)</code></pre></div>
 <pre><code>cargo build --release</code></pre>
     <p>처음에는 인터넷에서 의존 라이브러리를 내려받느라 <b>3~5분</b> 걸립니다. 마지막 줄이</p>
 <pre><code>    Finished `release` profile [optimized] target(s) in 3m 12s</code></pre>
-    <p>이면 성공이고, 결과물은 <code>Rust\target\release\csoclassify-rs.exe</code> 입니다.</p>
+    <p>이면 성공이고, 결과물은 <code>Rust\target\release\MpowerClassify-rs.exe</code> 입니다.</p>
     <div class="note"><code>warning:</code> 줄이 여러 개 나오는 것은 <b>정상</b>입니다(안 쓰는 함수 안내).
     <code>error:</code> 가 없고 <code>Finished</code> 가 나오면 성공입니다.</div>
     <p class="def"><code>--release</code> 를 빼면 최적화가 없는 디버그 빌드(느리고 큼)가 <code>target\debug\</code> 에 생깁니다. 배포용은 반드시 <code>--release</code>.</p>
@@ -232,16 +233,18 @@ rustc 1.98.0 (88d9e12ae 2026-08-18)</code></pre></div>
   <div class="step">
     <h4><span class="num">4</span> 배포본 폴더에 조립</h4>
     <p>빌드된 exe 하나만으로는 임베딩·PDF 가 동작하지 않습니다. 아래처럼 <b>자산을 한 폴더에 모읍니다</b>.</p>
-<pre><code>cd /d D:\Project\CSOClassify\Rust
+<pre><code>cd /d D:\Project\MpowerClassify\Rust
 mkdir dist-onedir\windows\models 2&gt;nul
 
 <span class="cmt">:: (1) 방금 빌드한 실행파일</span>
-copy /Y target\release\csoclassify-rs.exe dist-onedir\windows\
+copy /Y target\release\MpowerClassify-rs.exe dist-onedir\windows\
 
 <span class="cmt">:: (2) 규칙셋 · 전파 seed</span>
-copy /Y ..\resources\policy\cso_rules.yaml  dist-onedir\windows\
-copy /Y ..\resources\policy\doc_taxonomy.yaml dist-onedir\windows\
-copy /Y ..\resources\policy\doc_rule.yaml dist-onedir\windows\
+copy /Y ..\resources\policy\cso_rule.yaml  dist-onedir\windows\
+<span class="cmt">:: 업무분류 두 파일은 ..\ui\policy 가 갱신되는 쪽이다(--export-taxonomy · --sync-doc-rule 산출물).</span>
+<span class="cmt">:: 파이썬 빌드가이드 4장 '정책 파일 정본 확인' 을 먼저 읽고 최신본이 있는 쪽에서 복사할 것.</span>
+copy /Y ..\ui\policy\doc_taxonomy.yaml dist-onedir\windows\
+copy /Y ..\ui\policy\doc_rule.yaml dist-onedir\windows\
 copy /Y ..\ui\policy\class_seed.jsonl dist-onedir\windows\
 
 <span class="cmt">:: (3) ONNX Runtime · pdfium — 파이썬 배포본 _internal 에서 그대로 재사용</span>
@@ -258,9 +261,9 @@ xcopy /E /I /Y ..\resources\models\e5-small-ko dist-onedir\windows\models\e5-sma
 
   <div class="step">
     <h4><span class="num">5</span> 동작 확인</h4>
-<pre><code>cd /d D:\Project\CSOClassify\Rust\dist-onedir\windows
-csoclassify-rs.exe --help
-csoclassify-rs.exe --file "샘플.txt" --rules cso_rules.yaml</code></pre>
+<pre><code>cd /d D:\Project\MpowerClassify\Rust\dist-onedir\windows
+MpowerClassify-rs.exe --help
+MpowerClassify-rs.exe --file "샘플.txt" --rules cso_rule.yaml</code></pre>
     <p>자세한 확인 항목은 <a href="#verify">6장</a>을 보세요.</p>
   </div>
 
@@ -273,17 +276,17 @@ csoclassify-rs.exe --file "샘플.txt" --rules cso_rules.yaml</code></pre>
 $stage = "$env:TEMP\csopkg"
 Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $stage | Out-Null
-Copy-Item -Recurse "D:\Project\CSOClassify\Rust\dist-onedir\windows" "$stage\csoclassify-rs-windows"
+Copy-Item -Recurse "D:\Project\MpowerClassify\Rust\dist-onedir\windows" "$stage\MpowerClassify-rs-windows"
 
-$out = "D:\Project\CSOClassify\Rust\dist-onedir\csoclassify-rs-windows.zip"
+$out = "D:\Project\MpowerClassify\Rust\dist-onedir\MpowerClassify-rs-windows.zip"
 if (Test-Path $out) { Remove-Item -Force $out }
-Compress-Archive -Path "$stage\csoclassify-rs-windows" -DestinationPath $out -CompressionLevel Optimal
+Compress-Archive -Path "$stage\MpowerClassify-rs-windows" -DestinationPath $out -CompressionLevel Optimal
 
 Get-Item $out | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
 (Get-FileHash $out -Algorithm SHA256).Hash          <span class="cmt"># 전달 후 대조용</span></code></pre>
     <p class="def">158MB → 약 91MB 로 줄어듭니다. <code>Compress-Archive</code> 는 Windows 에 기본 내장이라 별도 프로그램이 필요 없습니다.</p>
 
-    <p><b>내용 확인</b> — 최상위가 <code>csoclassify-rs-windows\</code> 하나여야 합니다.</p>
+    <p><b>내용 확인</b> — 최상위가 <code>MpowerClassify-rs-windows\</code> 하나여야 합니다.</p>
 <pre><code>Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($out)
 $zip.Entries | Select-Object FullName, Length | Format-Table -AutoSize
@@ -291,14 +294,14 @@ $zip.Dispose()</code></pre>
 
     <div class="ok"><b>받는 쪽에서는 이것만 하면 됩니다.</b>
     <ol style="margin:6px 0 0">
-      <li>zip 우클릭 → <b>압축 풀기</b> (또는 <code>tar -xf csoclassify-rs-windows.zip</code>)</li>
-      <li>생긴 <code>csoclassify-rs-windows\</code> 폴더로 들어가 주소창에 <span class="kbd">cmd</span> 입력</li>
-      <li><code>csoclassify-rs.exe --help</code></li>
+      <li>zip 우클릭 → <b>압축 풀기</b> (또는 <code>tar -xf MpowerClassify-rs-windows.zip</code>)</li>
+      <li>생긴 <code>MpowerClassify-rs-windows\</code> 폴더로 들어가 주소창에 <span class="kbd">cmd</span> 입력</li>
+      <li><code>MpowerClassify-rs.exe --help</code></li>
     </ol></div>
 
     <div class="warn"><b>메일·웹으로 받은 zip 이 이상하게 동작한다면</b> — Windows 가 “다른 컴퓨터에서 온 파일”로
     표시(Mark of the Web)해 DLL 로딩이 막히는 경우가 있습니다. <b>압축을 풀기 전에</b> 차단을 해제하세요.
-<pre style="margin:8px 0 0"><code>Unblock-File .\csoclassify-rs-windows.zip</code></pre>
+<pre style="margin:8px 0 0"><code>Unblock-File .\MpowerClassify-rs-windows.zip</code></pre>
     <span class="def">또는 zip 우클릭 → 속성 → 아래쪽 ‘차단 해제’ 체크 → 확인</span></div>
 
     <p class="def"><b>왜 <code>Compress-Archive -Path windows</code> 로 바로 안 만드나?</b> 그렇게 하면 압축을 풀었을 때
@@ -309,11 +312,19 @@ $zip.Dispose()</code></pre>
 
 
 <h2 id="linux"><span class="n">4</span> Linux 배포본 만들기</h2>
+<div class="note"><b>스크립트로 하세요</b> <span class="pill">2026-09-11</span> —
+아래 절차는 <code>scripts/build/linux-build.sh</code> 가 그대로 합니다(소스 전송 → 원격 빌드 →
+내려받기). <b>실패하면 그 자리에서 멈추고</b>, 내려받기가 실패하면 옛 배포본을 되돌립니다.
+서버에서 도는 쪽은 <code>scripts/build/linux-remote.sh</code> 입니다 — RPATH 각인과 모델 포함을
+빌드 직후에 확인하므로, 예전처럼 '모델 없는 배포본'이 조용히 나가지 않습니다.
+<pre><code>bash scripts/build/linux-build.sh        <span class="cmt"># 두 판 다</span>
+bash scripts/build/linux-build.sh rust  <span class="cmt"># 한 판만</span></code></pre></div>
+
 <section class="card">
   <p>리눅스 배포본은 <b>리눅스 서버에서 빌드</b>한 뒤, 나온 바이너리만 Windows 로 내려받아
   <code>Rust\dist-onedir\linux\</code> 에 모읍니다. 무거운 모델·규칙셋은 이미 Windows 에 있으므로 다시 받을 필요가 없습니다.</p>
 
-  <h3>접속 정보 <span class="def">(<code>CSOClassify\.env_vllm</code>)</span></h3>
+  <h3>접속 정보 <span class="def">(<code>MpowerClassify\.env_vllm</code>)</span></h3>
   <div class="scroll"><table>
     <tr><th>서버</th><td><code>10.10.4.10</code> (포트 22) · 호스트명 <code>devgpu</code></td></tr>
     <tr><th>계정</th><td><code>mpower</code></td></tr>
@@ -328,8 +339,11 @@ $zip.Dispose()</code></pre>
   <div class="step">
     <h4><span class="num">1</span> 소스를 압축해서 서버로 보내기</h4>
     <p>Git Bash(또는 WSL) 에서 실행합니다. <code>target/</code>(빌드 캐시)은 보내지 않습니다 — 서버에서 새로 만듭니다.</p>
-<pre><code>cd /d/Project/CSOClassify/Rust
-tar -czf /tmp/rustsrc.tgz Cargo.toml Cargo.lock src resources README.md
+<pre><code>cd /d/Project/MpowerClassify/Rust
+tar -czf /tmp/rustsrc.tgz Cargo.toml Cargo.lock build.rs src resources tests README.md
+<span class="cmt"># build.rs 는 pdfium 자동 복사, tests 는 골든 정답표(pii_golden.json 등)를 담는다.</span>
+<span class="cmt"># 둘 다 빠뜨리면 빌드는 되지만 pdfium 이 안 붙고 cargo test 가 8건 실패한다.</span>
+<span class="cmt"># src 에는 2026-09-08 부터 seedstore.rs · seedcli.rs 가 함께 들어간다(--seed-add).</span>
 
 <span class="cmt"># 서버에 작업 폴더 만들고 업로드</span>
 plink -batch -ssh -l mpower -pw '&lt;비밀번호&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build"
@@ -365,8 +379,8 @@ cargo build --release</code></pre>
     이 옵션을 빼면 CentOS 7 에서 <code>CXXABI_1.3.8 not found</code> 오류가 납니다(<a href="#trouble">7-①</a>).</div>
 
     <p>1분 30초 정도 뒤 <code>Finished `release` profile</code> 이 나오면 성공입니다. 확인:</p>
-<pre><code>ls -la target/release/csoclassify-rs
-readelf -d target/release/csoclassify-rs | grep -i rpath</code></pre>
+<pre><code>ls -la target/release/MpowerClassify-rs
+readelf -d target/release/MpowerClassify-rs | grep -i rpath</code></pre>
     <div class="ok"><code>0x…(RPATH)  Library rpath: [$ORIGIN]</code> 이 보이면 제대로 새겨진 것입니다.</div>
   </div>
 
@@ -381,7 +395,7 @@ L=/MOCOMSYS/anaconda3/envs/bong/lib
 rm -rf $D &amp;&amp; mkdir -p $D/models
 
 <span class="cmt"># (1) 실행파일</span>
-cp $B/target/release/csoclassify-rs $D/ &amp;&amp; chmod +x $D/csoclassify-rs
+cp $B/target/release/MpowerClassify-rs $D/ &amp;&amp; chmod +x $D/MpowerClassify-rs
 
 <span class="cmt"># (2) ONNX Runtime — 반드시 'libonnxruntime.so' 이름으로 (버전 숫자 제거)</span>
 cp $CONDA/onnxruntime/capi/libonnxruntime.so.1.26.0            $D/libonnxruntime.so
@@ -401,7 +415,7 @@ cp -r /MOCOMSYS/.csoclassify/CSOClassify/models/e5-small-ko $D/models/
 chmod -R u+rwX,go+rX $D/models
 
 <span class="cmt"># (6) ★ 규칙셋·분류체계·seed·README — 1단계에서 assets/ 로 함께 올려 둔 것</span>
-cp $B/assets/cso_rules.yaml $B/assets/doc_taxonomy.yaml $B/assets/doc_rule.yaml \
+cp $B/assets/cso_rule.yaml $B/assets/doc_taxonomy.yaml $B/assets/doc_rule.yaml \
    $B/assets/class_seed.jsonl $B/assets/README.txt $D/
 
 ls -la $D</code></pre>
@@ -412,22 +426,23 @@ ls -la $D</code></pre>
     1단계에서 아래를 함께 올려 두세요.</div>
 <pre><code><span class="cmt"># Windows(Git Bash) — 1단계에 같이</span>
 plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build/assets"
-cd /d/Project/CSOClassify
-pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rules.yaml resources/policy/doc_taxonomy.yaml \
-     resources/policy/doc_rule.yaml Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
+cd /d/Project/MpowerClassify
+<span class="cmt"># 업무분류 두 파일은 ui/policy 가 갱신되는 쪽 — 파이썬 빌드가이드 4장 '정책 파일 정본 확인' 참고</span>
+pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rule.yaml ui/policy/doc_taxonomy.yaml \
+     ui/policy/doc_rule.yaml Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
      mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/assets/</code></pre>
   </div>
 
   <div class="step">
     <h4><span class="num">4</span> 서버에서 동작 확인</h4>
 <pre><code>cd /MOCOMSYS/dev/bong/cso_rust_build/dist-onedir/linux
-./csoclassify-rs --help
+./MpowerClassify-rs --help
 
 <span class="cmt"># 규칙만 (임베딩·PDF 없이도 동작해야 함)</span>
-./csoclassify-rs --dir /tmp/csotest --rules cso_rules.yaml --rule-only --simple --nosummary --format jsonl
+./MpowerClassify-rs --dir /tmp/csotest --rules cso_rule.yaml --rule-only --simple --nosummary --format jsonl
 
 <span class="cmt"># 기본 모드 = 규칙 + 임베딩 전파 (여기가 .so 로딩 확인 지점)</span>
-./csoclassify-rs --dir /tmp/csotest --rules cso_rules.yaml --simple --nosummary --format jsonl</code></pre>
+./MpowerClassify-rs --dir /tmp/csotest --rules cso_rule.yaml --simple --nosummary --format jsonl</code></pre>
     <div class="ok">기본 모드에서 <code>[전파] seed=70 전파결정=0 미분류잔여=0</code> 같은 줄이 뜨면
     <b>ONNX Runtime 이 정상 로드</b>된 것입니다.</div>
     <div class="bad">여기서 <code>CXXABI_1.3.8 not found</code> 가 나오면 2단계 <code>RUSTFLAGS</code> 를 빠뜨렸거나
@@ -437,21 +452,21 @@ pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rules.yaml resources/policy
   <div class="step">
     <h4><span class="num">5</span> Windows 로 내려받아 최종 배포본 완성</h4>
     <p>서버에서 만든 것 중 <b>바이너리 6개만</b> 내려받고, 모델·규칙셋은 Windows 쪽 것을 복사합니다(같은 파일).</p>
-<pre><code>cd /d/Project/CSOClassify/Rust/dist-onedir/linux
+<pre><code>cd /d/Project/MpowerClassify/Rust/dist-onedir/linux
 R=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir/linux
 
-for f in csoclassify-rs libonnxruntime.so libonnxruntime_providers_shared.so \
+for f in MpowerClassify-rs libonnxruntime.so libonnxruntime_providers_shared.so \
          libpdfium.so libstdc++.so.6 libgcc_s.so.1; do
   pscp -batch -q -pw '&lt;비밀번호&gt;' "mpower@10.10.4.10:$R/$f" .
 done
 
 <span class="cmt"># 규칙셋·seed·모델은 Windows 배포본에서 그대로 복사(OS 무관 동일 파일)</span>
-cd /d/Project/CSOClassify/Rust/dist-onedir
-cp windows/cso_rules.yaml windows/doc_taxonomy.yaml windows/doc_rule.yaml windows/class_seed.jsonl linux/
+cd /d/Project/MpowerClassify/Rust/dist-onedir
+cp windows/cso_rule.yaml windows/doc_taxonomy.yaml windows/doc_rule.yaml windows/class_seed.jsonl linux/
 mkdir -p linux/models
 cp -r windows/models/e5-small-ko linux/models/</code></pre>
     <div class="warn"><b>실행권한은 Windows 를 거치면 사라집니다.</b> 이 폴더를 리눅스로 옮긴 뒤 반드시
-    <code>chmod +x csoclassify-rs</code> 를 실행해야 합니다. 배포본의 <code>README.txt</code> 에도 적어두었습니다.
+    <code>chmod +x MpowerClassify-rs</code> 를 실행해야 합니다. 배포본의 <code>README.txt</code> 에도 적어두었습니다.
     <br>이게 번거로우면 다음 6단계처럼 <b><code>.tgz</code> 로 묶어 전달</b>하세요 — 권한이 그대로 보존됩니다.</div>
   </div>
 
@@ -462,33 +477,33 @@ cp -r windows/models/e5-small-ko linux/models/</code></pre>
 <pre><code><span class="cmt"># 서버에서 — 배포용 이름의 폴더로 복사한 뒤 묶는다 (-a 로 권한 보존)</span>
 B=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir
 rm -rf /tmp/pkg &amp;&amp; mkdir -p /tmp/pkg
-cp -a $B/linux /tmp/pkg/csoclassify-rs-linux
-chmod +x /tmp/pkg/csoclassify-rs-linux/csoclassify-rs
+cp -a $B/linux /tmp/pkg/MpowerClassify-rs-linux
+chmod +x /tmp/pkg/MpowerClassify-rs-linux/MpowerClassify-rs
 
 cd /tmp/pkg
-tar czf /tmp/csoclassify-rs-linux.tgz csoclassify-rs-linux
-ls -lh /tmp/csoclassify-rs-linux.tgz          <span class="cmt"># 약 95MB</span>
+tar czf /tmp/MpowerClassify-rs-linux.tgz MpowerClassify-rs-linux
+ls -lh /tmp/MpowerClassify-rs-linux.tgz          <span class="cmt"># 약 95MB</span>
 
-<span class="cmt"># 권한이 제대로 들어갔는지 목록으로 확인 — csoclassify-rs 가 -rwx… 여야 한다</span>
-tar tzvf /tmp/csoclassify-rs-linux.tgz</code></pre>
+<span class="cmt"># 권한이 제대로 들어갔는지 목록으로 확인 — MpowerClassify-rs 가 -rwx… 여야 한다</span>
+tar tzvf /tmp/MpowerClassify-rs-linux.tgz</code></pre>
 <pre><code><span class="cmt"># Windows(Git Bash) 로 내려받기 — 배포본 폴더 안에 둔다(구버전이 있으면 덮어쓴다)</span>
-cd /d/Project/CSOClassify/Rust/dist-onedir/linux
-pscp -batch -q -pw '&lt;비밀번호&gt;' mpower@10.10.4.10:/tmp/csoclassify-rs-linux.tgz .
+cd /d/Project/MpowerClassify/Rust/dist-onedir/linux
+pscp -batch -q -pw '&lt;비밀번호&gt;' mpower@10.10.4.10:/tmp/MpowerClassify-rs-linux.tgz .
 
 <span class="cmt"># 전송 중 깨지지 않았는지 해시 대조(양쪽 값이 같아야 함)</span>
-sha256sum csoclassify-rs-linux.tgz</code></pre>
+sha256sum MpowerClassify-rs-linux.tgz</code></pre>
     <div class="warn"><b>tgz 를 두는 자리를 한 곳으로 고정하세요.</b>
     <code>Rust/dist-onedir/</code> 와 <code>Rust/dist-onedir/linux/</code> 양쪽에 tgz 가 생기면
     <b>어느 것이 최신인지 알 수 없어</b> 구버전을 배포하게 됩니다.
     이 문서는 <code>Rust/dist-onedir/linux/</code> 를 기준으로 합니다 — 파이썬 판
     (<code>dist-onedir/linux/csoclassify-onedir-linux.tgz</code>) 과 같은 구조입니다.</div>
     <div class="ok"><b>받는 쪽(배포 대상 리눅스)에서는 이것만 하면 됩니다.</b>
-<pre style="margin:8px 0 0"><code>tar xzf csoclassify-rs-linux.tgz
-cd csoclassify-rs-linux
-./csoclassify-rs --help          <span class="cmt"># chmod 불필요</span></code></pre></div>
+<pre style="margin:8px 0 0"><code>tar xzf MpowerClassify-rs-linux.tgz
+cd MpowerClassify-rs-linux
+./MpowerClassify-rs --help          <span class="cmt"># chmod 불필요</span></code></pre></div>
     <div class="note"><b><code>cp -a</code> 를 쓰는 이유</b> — 그냥 <code>cp -r</code> 이면 권한·타임스탬프가 새로 매겨집니다.
     <code>-a</code>(archive)는 실행권한을 그대로 복사합니다. 또 <code>tar</code> 는 <b>폴더 이름째</b> 묶이므로,
-    받는 쪽에서 풀었을 때 이름이 <code>csoclassify-rs-linux/</code> 가 되도록 미리 그 이름으로 복사해 둡니다.</div>
+    받는 쪽에서 풀었을 때 이름이 <code>MpowerClassify-rs-linux/</code> 가 되도록 미리 그 이름으로 복사해 둡니다.</div>
     <p class="def">Rust 판은 심볼릭 링크가 없어서 폴더 복사 + <code>chmod</code> 로도 충분합니다.
     (파이썬 판은 <code>_internal</code> 안 심볼릭 링크 때문에 <b>반드시</b> tgz 여야 합니다.)</p>
   </div>
@@ -525,13 +540,13 @@ cd csoclassify-rs-linux
     <tr>
       <td>임베딩 모델</td>
       <td colspan="2"><code>models/e5-small-ko/</code> <span class="def">(OS 무관 동일 파일)</span></td>
-      <td><code>CSOClassify\resources\models\e5-small-ko\</code><br>
+      <td><code>MpowerClassify\resources\models\e5-small-ko\</code><br>
           <span class="def">저장소에는 용량 때문에 없을 수 있음 → <code>python scripts/export_onnx.py --model e5-small-ko</code> 로 재생성(인터넷 필요)</span></td>
     </tr>
     <tr>
       <td>규칙셋 · seed</td>
-      <td colspan="2"><code>cso_rules.yaml</code> · <code>doc_taxonomy.yaml</code> · <code>doc_rule.yaml</code> · <code>class_seed.jsonl</code> <span class="def">(OS 무관)</span></td>
-      <td><code>CSOClassify\resources\policy\cso_rules.yaml</code><br>seed 는 기존 배포본에서 복사</td>
+      <td colspan="2"><code>cso_rule.yaml</code> · <code>doc_taxonomy.yaml</code> · <code>doc_rule.yaml</code> · <code>class_seed.jsonl</code> <span class="def">(OS 무관)</span></td>
+      <td><code>MpowerClassify\resources\policy\cso_rule.yaml</code><br>seed 는 기존 배포본에서 복사</td>
     </tr>
   </table></div>
 
@@ -541,24 +556,76 @@ cd csoclassify-rs-linux
     <tr><td><code>CSO_MODEL</code></td><td>임베딩 모델 폴더</td><td>실행파일 옆 <code>models/e5-small-ko/</code></td></tr>
     <tr><td><code>ORT_DYLIB_PATH</code></td><td>ONNX Runtime 라이브러리 파일</td><td>실행파일 옆 <code>onnxruntime.dll</code> / <code>libonnxruntime.so</code></td></tr>
     <tr><td><code>CSO_PDFIUM</code></td><td>pdfium 라이브러리 파일</td><td>실행파일 옆 <code>pdfium.dll</code> / <code>libpdfium.so</code> → 시스템</td></tr>
-    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>규칙셋 폴더</td><td>실행파일 옆 <code>cso_rules.yaml</code></td></tr>
+    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>규칙셋 폴더</td><td>실행파일 옆 <code>cso_rule.yaml</code></td></tr>
   </table></div>
 </section>
 
 
 <h2 id="verify"><span class="n">6</span> 배포본 동작 확인</h2>
 <section class="card">
-  <p>아래 4가지가 모두 통과하면 배포본이 완성된 것입니다.</p>
+  <p>아래 5가지가 모두 통과하면 배포본이 완성된 것입니다.</p>
   <div class="scroll"><table>
     <tr><th>#</th><th>확인 항목</th><th>명령</th><th>성공 신호</th></tr>
-    <tr><td>1</td><td>실행파일이 뜨는가</td><td><code>csoclassify-rs --help</code></td><td>옵션 목록 출력</td></tr>
+    <tr><td>1</td><td>실행파일이 뜨는가</td><td><code>MpowerClassify-rs --help</code></td><td>옵션 목록 출력</td></tr>
     <tr><td>2</td><td>규칙 엔진<br><span class="def">(규칙셋 로드)</span></td><td><code>… --rule-only --simple --format jsonl</code></td><td><code>{"file":…,"grade":"C"}</code> 형태 JSON</td></tr>
     <tr><td>3</td><td>임베딩<br><span class="def">(ORT + 모델 로드)</span></td><td><code>… --simple --format jsonl</code> <span class="def">(기본 모드)</span></td><td><code>[전파] seed=NN 전파결정=…</code> 줄이 뜸</td></tr>
     <tr><td>4</td><td>PDF 추출<br><span class="def">(pdfium 로드)</span></td><td>PDF 가 든 폴더에 <code>--dir</code> 실행</td><td>PDF 에 <code>grade</code>·<code>signals.rule.hits</code> 가 채워짐</td></tr>
     <tr><td>5</td><td>구형 OLE 추출<br><span class="def">(자체 CFB 파서)</span> <span class="def">2026-08-26 추가</span></td>
         <td>구형 <code>.doc</code>/<code>.xls</code>/<code>.ppt</code>/<code>.hwp</code> 가 든 폴더에 <code>--dir</code> 실행</td>
         <td>요약 줄의 <code>추출실패=0</code><br><span class="def">Rust 판은 사이냅을 아예 쓰지 않습니다</span></td></tr>
-  </table></div>
+    <tr><td>6</td><td>압축 확장<br><span class="def">(zip·tar·gz·bz2·xz·7z·rar)</span> <span class="def">2026-09-07 추가</span></td>
+        <td>압축파일이 든 폴더에 <code>--dir</code> 실행</td>
+        <td>요약 줄에 <code>압축 N건</code> 이 뜨고 <b>내부 문서가 각각</b> 세어짐<br><span class="def">압축 1개가 결과 1건이 아니라 내부 문서 수만큼 나와야 정상</span><br><span class="def">업무분류 축을 켰다면 집계 레코드에 <code>contains_doctype</code> 분포가 함께 있어야 정상</span></td></tr>
+    <tr><td>8</td><td>추출 본문 보존(<code>--textsave</code>)<br><span class="def">2026-09-07 추가</span></td>
+        <td><code>--textsave &lt;빈 폴더&gt;</code> 를 주고 실행</td>
+        <td>폴더에 <code>&lt;hash&gt;.txt</code> · <code>_index.jsonl</code> · <code>_README.md</code> 가 생기고 요약에 <code>텍스트저장=N</code><br><span class="def">폴더가 비어 있으면 옛 빌드입니다 — 예전 판은 이 옵션을 <b>삼키고 아무 일도 안 했습니다</b></span></td></tr>
+    <tr><td>7</td><td>레코드 시각(<code>ts</code>)<br><span class="def">(로컬 타임존 인식)</span> <span class="def">2026-09-07 추가</span></td>
+        <td>아무 결과나 한 줄 열어 <code>ts</code> 를 봅니다</td>
+        <td><code>"ts":"2026-09-07 14:11:45"</code> 처럼 <b>초 단위</b> <span class="def">(2026-09-10 부터 이 모양)</span><br><span class="def"><code>null</code> 이면 옛 빌드입니다. <code>Z</code> 로 끝나거나 밀리초가 붙으면 파이썬 판과 모양이 갈립니다</span></td></tr>
+      <tr><td>5</td><td><b>기준 문서 등록</b> <span class="def">2026-09-08 추가</span></td>
+        <td><code>MpowerClassify-rs --seed-add 샘플.txt --seed-grade C<br>&nbsp;&nbsp;--seed-reviewer "확인"</code></td>
+        <td><b>stdout 에 <code>{"v":3,…,"engine":"rust",…}</code> 한 줄</b><br>
+            <span class="def">검토자를 빼면 <code>bad_args</code>·종료코드 3 이 나와야 정상입니다.
+            <code>engine</code> 이 <code>"rust"</code> 인지 꼭 보세요 — 파이썬 판과
+            같은 파일에 쓰므로, 어느 판이 만든 벡터인지가 이 칸에만 남습니다</span></td></tr>
+</table></div>
+
+  <div class="note"><b>압축 확장에 관해 알아둘 것</b> <span class="def">2026-09-07</span><br>
+  이 판은 압축 1개를 내부 문서 N건으로 펼쳐 <b>파일별로 등급</b>을 매기고, 압축 자체에는 내부 최고 위험을 매긴 집계 레코드(<code>archive: true</code>)를 덧붙입니다.
+  <br><br><b>업무분류 축을 함께 켜면</b> — 같은 집계 레코드에 <code>contains_doctype</code> 이 붙습니다(<code>{"DC_001_001":2, "DC_003_002":1, "unclassified":1}</code>). 등급은 <code>C&gt;S&gt;O</code> 서열이 있어 <b>최고 위험 하나</b>로 롤업되지만, 업무분류는 서열이 없고 한 문서가 여러 라벨을 가질 수 있어 대표를 고르면 반드시 무언가를 버립니다 — 그래서 고르지 않고 <b>건수 분포</b>를 그대로 싣습니다. 그래서 다중 라벨 문서 때문에 <b>분포의 합계가 <code>contains.total</code> 보다 클 수 있고</b>, 축을 안 쓴 실행에서는 <b>키 자체가 없습니다</b>("분류 못 함"과 "축을 안 씀"의 구분). 두 판이 <b>같은 모양·같은 값</b>을 내야 하므로 빌드 뒤 대조 지점으로 씁니다 (<code>--doctype</code> 을 켜고 압축을 하나 넣어 <code>contains_doctype</code> 을 비교).
+  <br>지원: <b>zip · tar(+gz/bz2/xz) · gz · bz2 · xz · 7z · rar</b>. 새로 들어간 의존(<code>tar</code>·<code>bzip2-rs</code>·<code>lzma-rs</code>·<code>sevenz-rust2</code>·<code>rars</code>)은 <b>전부 순수 Rust</b>라 C 컴파일러가 필요 없습니다 — 정적 단일 바이너리 목표와 CentOS 7 빌드가 그대로 유지됩니다.
+  <br><br><b>못 하는 것 두 가지</b>(둘 다 결과에 표식이 남으므로 조용히 빠지지 않습니다):
+  <ul>
+    <li><b>분할 볼륨</b>(<code>.7z.001</code>·<code>.z01</code>·<code>.partN.rar</code> 등) — 조각을 잇지 않습니다. <b>파이썬 판도 zip·tar·7z 는 마찬가지</b>라(라이브러리 차원 미지원) 두 판이 같은 수준입니다. 결과에 <code>kind=split_volume</code> 과 "파일이 깨진 것이 아닙니다" 안내가 나갑니다.</li>
+    <li><b>rar 하드링크·심볼릭링크</b> — 파일로 내놓지 않습니다. 원본은 그대로 분류되고 '같은 내용의 다른 이름'만 빠집니다. 요약에 <code>압축 일부 누락</code> 으로 뜹니다.</li>
+  </ul>
+  <b>rar 을 <code>rars</code> 로 고른 이유</b> — 다른 길인 <code>unrar</code> 크레이트는 UnRAR <b>C 소스를 빌드에 포함</b>해 C 컴파일이 생기고(CentOS 7 빌드가 까다로워집니다) 라이선스 조건을 상용 배포 관점에서 따로 확인해야 합니다. <code>rars</code> 는 순수 Rust(MIT/Apache-2.0)라 둘 다 피합니다.
+  <br>넣기 전에 참조 구현(번들 <code>unrar.exe</code>)과 RAR 픽스처 177개를 바이트 단위로 대조했습니다 — 단일 아카이브 131건 기준 <b>판정 일치 95.4%</b>, <b>참조가 푸는데 rars 가 못 푼 경우 0건</b>, 손상 입력 117건에서 <b>패닉·멈춤 0건</b>. 실제 분류 대조에서는 파이썬 판과 공통 554건의 <b>등급이 100% 일치</b>했고, 차이 7건은 정확히 위 두 한계(분할 2 · 하드링크 3 · 심볼릭 2)였습니다.</div>
+
+  <div class="note"><b>보안등급 신호가 4개로 정리됐습니다</b> <span class="def">2026-09-08</span><br>
+  <code>rule</code>(본문) · <code>sensitive</code> · <code>stamp</code> · <code>name</code>(파일명) 넷입니다. <b>경로(<code>paths</code>) 신호는 걷어냈습니다</b> — 실측(레코드 3,715건)에서 경로가 단독으로 정한 등급 <b>8건이 전부 오탐</b>이었고(제품명이 든 파일 이름·공개 데이터셋 폴더), <code>acl_restricted</code> fail-safe 는 <b>0건</b> 걸렸습니다.
+  <br>파일명 신호는 이제 규칙의 <b><code>filename</code> 목록</b>을 봅니다 — 본문용 <code>terms</code> 를 빌려 쓰지 않습니다. 안 적은 규칙은 파일 이름을 보지 않습니다.
+  <br><br><b>빌드 뒤 확인</b> — ① <code>--check-rules</code> 요약에 <code>paths=</code> 칸이 <b>없어야</b> 합니다(<code>regex_pii=20 · pii_combos=5 · keywords=9 · sensitive=7 · stamps=3</code>). ② 옛 <code>paths:</code> 가 남은 규칙셋을 넣으면 <b>V12 로 거절</b>되어야 합니다(두 판 같은 문구). ③ 같은 문서·같은 규칙셋으로 두 판을 돌려 <b>등급이 같은지</b> 봅니다.
+  <br><b class="bad">주의</b> — 배포본 폴더의 <code>cso_rule.yaml</code> 도 함께 바꿔야 합니다. 옛 <code>paths:</code> 가 남아 있으면 새 exe 가 <b>V12 로 막혀 실행되지 않습니다</b>.
+  <br><b>빌드 관점에서 달라진 것은 없습니다</b> — 새 의존이 없습니다.</div>
+
+  <div class="note"><b>업무분류 신호가 4개로 정리됐습니다</b> <span class="def">2026-09-07</span><br>
+  <code>title</code> · <code>head</code> · <code>body</code> · <code>name</code> 넷입니다. 설계에 있던 <code>form</code>·<code>path</code>·<code>structure</code> 는 <b>어느 규칙도 그 필드를
+  채우지 않아 한 번도 돌지 않아서</b> 두 판에서 함께 걷어냈습니다. 걷어내기 전후로 실제 문서의
+  <b>판정값은 바뀌지 않았습니다</b>(같은 문서 0.906 → 0.906).
+  <br><br><b>신호별 신뢰도를 <code>doc_rule.yaml</code> 에서 바꿀 수 있습니다</b> — <code>signals:</code> 블록입니다. 예전에는 소스에 박혀 있어 값 하나 바꾸려면 <b>두 판을 고치고 exe 4개를 다시 빌드</b>해야 했습니다. 이제 재빌드가 필요 없습니다.
+  <br><b>빌드 뒤 확인</b> — 두 판이 같은 표를 읽어야 하므로, 같은 문서·같은 <code>doc_rule.yaml</code> 로 돌려 <code>labels.doctype[].confidence</code> 가 <b>소수점까지 같은지</b> 봅니다. 여기가 갈리면 오류도 경고도 없이 결과만 달라져 가장 알아채기 어렵습니다.
+  <br><b>빌드 관점에서 달라진 것은 없습니다</b> — 새 의존이 없습니다.</div>
+
+  <div class="note"><b><code>--textsave</code> — 이 판도 추출 본문을 남깁니다</b> <span class="def">2026-09-07</span><br>
+  이 판은 그동안 <code>--save-text</code> 를 <b>인자로 받아 삼키고 아무 일도 하지 않았습니다</b>. 오류도 경고도 없이 정상 종료하고 폴더는 비어 있어서, 쓰는 사람이 "저장했는데 왜 없지"를 혼자 헤맸습니다. <b>기능 없음보다 나쁜, 조용한 실패</b>였습니다. 이제 파이썬 판과 같은 규칙으로 실제로 남깁니다 — 같은 파일명(<code>&lt;sha256&gt;.txt</code>) · 같은 색인 칸 · 같은 레코드 표식(<code>text_saved</code>).
+  <br><br><b>빌드 관점에서 달라진 것은 없습니다</b> — 새 의존이 없습니다(<code>src/textsave.rs</code> 한 파일이 늘었을 뿐이고 표준 라이브러리만 씁니다).
+  <br><b>주의</b> — 저장되는 것은 원본이 아니라 <b>추출한 본문</b>이고 두 판은 파서가 다릅니다. <b>두 판이 같은 폴더를 쓰면 안 됩니다</b>(같은 이름인데 내용이 다르면 덮지 않고 <code>저장실패</code> 로 알립니다). 검증할 때도 판마다 폴더를 나누세요.</div>
+
+  <div class="note"><b><code>ts</code> — 레코드 시각을 이 판도 채웁니다</b> <span class="def">2026-09-07</span><br>
+  이 판은 그동안 모든 레코드의 <code>ts</code> 를 <code>null</code> 로 두었습니다. 파이썬 판은 채우고 있었으므로 <b>두 판의 결과를 같은 표에 놓고 비교할 때 이 필드만 어긋났습니다</b>. 이제 같은 모양으로 냅니다 — ISO-8601 <b>초 단위 + 로컬 타임존 오프셋</b>(<code>2026-09-07T14:11:45+09:00</code>), UTC 라도 <code>Z</code> 가 아니라 <code>+00:00</code>. 정상 판정·추출 실패·보류·압축 집계까지 <b>모든 줄</b>에 붙습니다.
+  <br><br><b>빌드 관점에서 달라진 것</b> — 로컬 타임존을 알아야 해서 <code>chrono</code> 의존이 하나 늘었습니다. 의존 트리는 <code>num-traits</code>(+빌드용 <code>autocfg</code>)와 윈도우 전용 <code>windows-link</code> 뿐이고 <b><code>cc</code> 가 없습니다</b> — "C 컴파일러 불필요 · 정적 단일 바이너리 · CentOS 7" 조건은 그대로입니다. 확인은 <code>cargo tree -p chrono --depth 2</code> 로 합니다.
+  <br><b>주의</b> — 이 변경 <b>이전에 나온 결과 파일</b>에는 <code>"ts": null</code> 이 들어 있습니다. 그건 고장이 아니라 옛 빌드의 산출물입니다.</div>
 
   <div class="ok"><b>실측 결과 (2026-08-24 빌드)</b><br>
   Windows·Linux 두 배포본 모두 1~4 전부 통과.
@@ -568,31 +635,31 @@ cd csoclassify-rs-linux
   <h3>기준값 — <code>d:\sample</code> 18건 <span class="def">2026-08-26 측정</span></h3>
   <p>빌드가 제대로 됐는지 가장 빠르게 보는 방법은 <b>같은 폴더를 파이썬 판과 함께 돌려 숫자가 같은지</b>
   보는 것입니다. 샘플 18건 중 7건이 구형 <code>.doc</code> 라 추출기 문제가 바로 드러납니다.</p>
-<pre><code>csoclassify-rs --dir /tmp/csosample --rules cso_rules.yaml --rule-only --simple --format jsonl
+<pre><code>MpowerClassify-rs --dir /tmp/csosample --rules cso_rule.yaml --rule-only --simple --format jsonl
 
 [summary] 총 18개 / 검출 10, C=7 S=3 O=0 미분류=8 추출실패=0, 총시간=139.4ms
 [summary][업무분류] 인사/총무 1 (교육자료 1) / 미분류 17</code></pre>
   <div class="scroll"><table>
     <tr><th>엔진</th><th>사이냅</th><th>결과</th></tr>
-    <tr><td>Rust <code>csoclassify-rs</code> <span class="def">Windows·Linux 동일</span></td><td>안 씀</td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
+    <tr><td>Rust <code>MpowerClassify-rs</code> <span class="def">Windows·Linux 동일</span></td><td>안 씀</td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
     <tr><td>Windows Python</td><td>있음</td><td>검출 10, C=7 S=3 O=0</td></tr>
     <tr><td>Linux Python</td><td><b>없음</b> + <code>--hybridparse</code></td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
   </table></div>
   <div class="note">Rust 판은 구형 OLE 를 <b>CFB 컨테이너를 직접 열어</b> 판정·추출합니다
   (<code>src/ole.rs</code>·<code>src/office_legacy.rs</code>·<code>src/xls.rs</code>·<code>src/hwp5.rs</code>).
   파이썬 쪽 <code>detect.py</code> 의 OLE 매직 판정 버그
-  (<a href="csoclassify-빌드가이드-python.html#trouble">파이썬 가이드 8-⑧</a>) 와 <b>무관</b>합니다 —
+  (<a href="MpowerClassify-빌드가이드-python.html#trouble">파이썬 가이드 8-⑧</a>) 와 <b>무관</b>합니다 —
   그 수정 때문에 Rust 를 재빌드할 필요는 없습니다.</div>
 
   <h3>자주 쓰는 실행 예</h3>
 <pre><code><span class="cmt"># 폴더 전체를 분류해 파일로 저장 (가장 많이 쓰는 형태)</span>
-csoclassify-rs --dir "D:\분류함" --rules cso_rules.yaml --simple --nosummary --format jsonl --out result.jsonl
+MpowerClassify-rs --dir "D:\분류함" --rules cso_rule.yaml --simple --nosummary --format jsonl --out result.jsonl
 
 <span class="cmt"># 규칙만 — 임베딩 없이 가장 빠르게</span>
-csoclassify-rs --dir "D:\분류함" --rules cso_rules.yaml --rule-only
+MpowerClassify-rs --dir "D:\분류함" --rules cso_rule.yaml --rule-only
 
 <span class="cmt"># 파일 1개</span>
-csoclassify-rs --file "a.docx" --rules cso_rules.yaml</code></pre>
+MpowerClassify-rs --file "a.docx" --rules cso_rule.yaml</code></pre>
 </section>
 
 
@@ -613,11 +680,11 @@ An error occurred while attempting to load the ONNX Runtime binary at
   </ol>
   <div class="note"><code>--disable-new-dtags</code> 를 빼면 RUNPATH 가 생기는데, RUNPATH 는
   <b>간접 의존(라이브러리가 부르는 라이브러리)</b>에는 적용되지 않아 이 오류가 그대로 납니다. 반드시 함께 주세요.</div>
-  <p class="def">확인: <code>readelf -d csoclassify-rs | grep -i rpath</code> → <code>(RPATH) … [$ORIGIN]</code></p>
+  <p class="def">확인: <code>readelf -d MpowerClassify-rs | grep -i rpath</code> → <code>(RPATH) … [$ORIGIN]</code></p>
 
   <h3>② <code>Permission denied</code> <span class="os">Linux</span></h3>
   <p>Windows 를 거쳐 복사하면 실행권한이 사라집니다.</p>
-<pre><code>chmod +x csoclassify-rs</code></pre>
+<pre><code>chmod +x MpowerClassify-rs</code></pre>
 
   <h3>③ 임베딩이 조용히 동작하지 않음 <span class="os">공통</span></h3>
   <p>기본 모드로 돌렸는데 <code>[전파] …</code> 줄이 안 뜨면, 모델·런타임을 못 찾아 <b>전파를 생략</b>한 것입니다(오류 없이 넘어갑니다).</p>
@@ -650,41 +717,46 @@ An error occurred while attempting to load the ONNX Runtime binary at
 <section class="card">
 
   <h3>A. Windows 전체 <span class="def">(cmd)</span></h3>
-<pre><code>cd /d D:\Project\CSOClassify\Rust
+<pre><code>cd /d D:\Project\MpowerClassify\Rust
 cargo build --release
 
 mkdir dist-onedir\windows\models 2&gt;nul
-copy /Y target\release\csoclassify-rs.exe  dist-onedir\windows\
-copy /Y ..\resources\policy\cso_rules.yaml dist-onedir\windows\
-copy /Y ..\resources\policy\doc_taxonomy.yaml dist-onedir\windows\
-copy /Y ..\resources\policy\doc_rule.yaml dist-onedir\windows\
+copy /Y target\release\MpowerClassify-rs.exe  dist-onedir\windows\
+copy /Y ..\resources\policy\cso_rule.yaml dist-onedir\windows\
+<span class="cmt">:: 업무분류 두 파일은 ..\ui\policy 가 갱신되는 쪽 — 파이썬 빌드가이드 4장 '정책 파일 정본 확인' 참고</span>
+copy /Y ..\ui\policy\doc_taxonomy.yaml dist-onedir\windows\
+copy /Y ..\ui\policy\doc_rule.yaml dist-onedir\windows\
 copy /Y ..\ui\policy\class_seed.jsonl dist-onedir\windows\
 copy /Y ..\dist-onedir\windows\_internal\onnxruntime\capi\onnxruntime.dll                  dist-onedir\windows\
 copy /Y ..\dist-onedir\windows\_internal\onnxruntime\capi\onnxruntime_providers_shared.dll dist-onedir\windows\
 copy /Y ..\dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll                          dist-onedir\windows\
 xcopy /E /I /Y ..\resources\models\e5-small-ko dist-onedir\windows\models\e5-small-ko
 
-dist-onedir\windows\csoclassify-rs.exe --help</code></pre>
+dist-onedir\windows\MpowerClassify-rs.exe --help</code></pre>
   <p class="def">배포용 zip 까지 만들려면 (PowerShell):</p>
 <pre><code>$stage = "$env:TEMP\csopkg"
 Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $stage | Out-Null
-Copy-Item -Recurse "D:\Project\CSOClassify\Rust\dist-onedir\windows" "$stage\csoclassify-rs-windows"
-$out = "D:\Project\CSOClassify\Rust\dist-onedir\csoclassify-rs-windows.zip"
+Copy-Item -Recurse "D:\Project\MpowerClassify\Rust\dist-onedir\windows" "$stage\MpowerClassify-rs-windows"
+$out = "D:\Project\MpowerClassify\Rust\dist-onedir\MpowerClassify-rs-windows.zip"
 if (Test-Path $out) { Remove-Item -Force $out }
-Compress-Archive -Path "$stage\csoclassify-rs-windows" -DestinationPath $out -CompressionLevel Optimal
+Compress-Archive -Path "$stage\MpowerClassify-rs-windows" -DestinationPath $out -CompressionLevel Optimal
 (Get-FileHash $out -Algorithm SHA256).Hash</code></pre>
 
   <h3>B. Linux 전체 <span class="def">(1) Windows(Git Bash) 에서 업로드</span></h3>
-<pre><code>cd /d/Project/CSOClassify/Rust
-tar -czf /tmp/rustsrc.tgz Cargo.toml Cargo.lock src resources README.md
+<pre><code>cd /d/Project/MpowerClassify/Rust
+tar -czf /tmp/rustsrc.tgz Cargo.toml Cargo.lock build.rs src resources tests README.md
+<span class="cmt"># build.rs 는 pdfium 자동 복사, tests 는 골든 정답표(pii_golden.json 등)를 담는다.</span>
+<span class="cmt"># 둘 다 빠뜨리면 빌드는 되지만 pdfium 이 안 붙고 cargo test 가 8건 실패한다.</span>
+<span class="cmt"># src 에는 2026-09-08 부터 seedstore.rs · seedcli.rs 가 함께 들어간다(--seed-add).</span>
 plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build/assets"
 pscp  -batch -pw '&lt;PW&gt;' /tmp/rustsrc.tgz mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/
 
 <span class="cmt"># ★ 규칙셋·분류체계·seed·README 도 함께 — 이게 있어야 tgz 가 완전해진다(4-3 경고)</span>
-cd /d/Project/CSOClassify
-pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rules.yaml resources/policy/doc_taxonomy.yaml \
-     resources/policy/doc_rule.yaml Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
+cd /d/Project/MpowerClassify
+<span class="cmt"># 업무분류 두 파일은 ui/policy 가 갱신되는 쪽 — 파이썬 빌드가이드 4장 '정책 파일 정본 확인' 참고</span>
+pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rule.yaml ui/policy/doc_taxonomy.yaml \
+     ui/policy/doc_rule.yaml Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
      mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/assets/</code></pre>
 
   <h3><span class="def">(2) 서버에서 빌드 + 조립</span></h3>
@@ -699,7 +771,7 @@ export RUSTFLAGS='-C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,--disable-new-d
 cargo build --release
 
 rm -rf $D &amp;&amp; mkdir -p $D/models
-cp $B/target/release/csoclassify-rs $D/ &amp;&amp; chmod +x $D/csoclassify-rs
+cp $B/target/release/MpowerClassify-rs $D/ &amp;&amp; chmod +x $D/MpowerClassify-rs
 cp $CONDA/onnxruntime/capi/libonnxruntime.so.1.26.0           $D/libonnxruntime.so
 cp $CONDA/onnxruntime/capi/libonnxruntime_providers_shared.so $D/
 cp $CONDA/pypdfium2_raw/libpdfium.so                          $D/
@@ -709,44 +781,44 @@ strip --strip-unneeded $D/libstdc++.so.6
 chmod +x $D/*.so $D/*.so.*
 cp -r /MOCOMSYS/.csoclassify/CSOClassify/models/e5-small-ko $D/models/
 chmod -R u+rwX,go+rX $D/models
-cp $B/assets/cso_rules.yaml $B/assets/doc_taxonomy.yaml $B/assets/doc_rule.yaml \
+cp $B/assets/cso_rule.yaml $B/assets/doc_taxonomy.yaml $B/assets/doc_rule.yaml \
    $B/assets/class_seed.jsonl $B/assets/README.txt $D/
 ls -la $D
 
 <span class="cmt"># 검증 — RPATH 가 새겨졌는지, 구형 .doc 가 추출되는지</span>
-readelf -d $B/target/release/csoclassify-rs | grep -i rpath   <span class="cmt"># [$ORIGIN] 이어야 함</span>
-cd $D &amp;&amp; ./csoclassify-rs --dir /경로/샘플 --rules cso_rules.yaml --rule-only --simple --format jsonl \
+readelf -d $B/target/release/MpowerClassify-rs | grep -i rpath   <span class="cmt"># [$ORIGIN] 이어야 함</span>
+cd $D &amp;&amp; ./MpowerClassify-rs --dir /경로/샘플 --rules cso_rule.yaml --rule-only --simple --format jsonl \
   | grep summary                                              <span class="cmt"># 추출실패=0 이어야 함</span></code></pre>
 
   <h3><span class="def">(3) Windows 로 내려받아 마무리</span></h3>
-<pre><code>cd /d/Project/CSOClassify/Rust/dist-onedir/linux
+<pre><code>cd /d/Project/MpowerClassify/Rust/dist-onedir/linux
 R=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir/linux
-for f in csoclassify-rs libonnxruntime.so libonnxruntime_providers_shared.so \
+for f in MpowerClassify-rs libonnxruntime.so libonnxruntime_providers_shared.so \
          libpdfium.so libstdc++.so.6 libgcc_s.so.1; do
   pscp -batch -q -pw '&lt;PW&gt;' "mpower@10.10.4.10:$R/$f" .
 done
 
 cd ..
-cp windows/cso_rules.yaml windows/doc_taxonomy.yaml windows/doc_rule.yaml windows/class_seed.jsonl linux/
+cp windows/cso_rule.yaml windows/doc_taxonomy.yaml windows/doc_rule.yaml windows/class_seed.jsonl linux/
 mkdir -p linux/models &amp;&amp; cp -r windows/models/e5-small-ko linux/models/</code></pre>
 
   <h3><span class="def">(4) tgz 로 묶어 내려받기 — 권장 배포 형태</span></h3>
 <pre><code><span class="cmt"># 서버에서</span>
 B=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir
 rm -rf /tmp/pkg &amp;&amp; mkdir -p /tmp/pkg
-cp -a $B/linux /tmp/pkg/csoclassify-rs-linux
-chmod +x /tmp/pkg/csoclassify-rs-linux/csoclassify-rs
-cd /tmp/pkg &amp;&amp; tar czf /tmp/csoclassify-rs-linux.tgz csoclassify-rs-linux
-tar tzvf /tmp/csoclassify-rs-linux.tgz | head</code></pre>
+cp -a $B/linux /tmp/pkg/MpowerClassify-rs-linux
+chmod +x /tmp/pkg/MpowerClassify-rs-linux/MpowerClassify-rs
+cd /tmp/pkg &amp;&amp; tar czf /tmp/MpowerClassify-rs-linux.tgz MpowerClassify-rs-linux
+tar tzvf /tmp/MpowerClassify-rs-linux.tgz | head</code></pre>
 <pre><code><span class="cmt"># Windows(Git Bash) 에서</span>
-cd /d/Project/CSOClassify/Rust/dist-onedir/linux
-pscp -batch -q -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-rs-linux.tgz .
-sha256sum csoclassify-rs-linux.tgz     <span class="cmt"># 서버 값과 대조</span></code></pre>
+cd /d/Project/MpowerClassify/Rust/dist-onedir/linux
+pscp -batch -q -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/MpowerClassify-rs-linux.tgz .
+sha256sum MpowerClassify-rs-linux.tgz     <span class="cmt"># 서버 값과 대조</span></code></pre>
 
   <h3><span class="def">(5) 배포 대상 리눅스에서 설치</span></h3>
-<pre><code>tar xzf csoclassify-rs-linux.tgz
-cd csoclassify-rs-linux
-./csoclassify-rs --help                <span class="cmt"># chmod 불필요 — 권한이 보존됨</span></code></pre>
+<pre><code>tar xzf MpowerClassify-rs-linux.tgz
+cd MpowerClassify-rs-linux
+./MpowerClassify-rs --help                <span class="cmt"># chmod 불필요 — 권한이 보존됨</span></code></pre>
 
   <div class="note"><b>다음에 소스만 고쳤을 때</b>는 위 과정을 다 할 필요 없이,
   Windows 는 <code>cargo build --release</code> + exe 복사,
@@ -764,8 +836,8 @@ cd csoclassify-rs-linux
 
   <div class="note"><b>한 줄 요약</b><br>
   VS Code 확장 <b><code>rust-lang.rust-analyzer</code></b> 하나만 깔고,
-  폴더를 <b><code>D:\Project\CSOClassify\Rust</code></b> 로 열면 끝입니다.
-  (상위 <code>CSOClassify</code> 폴더로 열면 <code>Cargo.toml</code> 을 못 찾아 동작하지 않습니다 → <a href="#ra-multi">9-4</a>)</div>
+  폴더를 <b><code>D:\Project\MpowerClassify\Rust</code></b> 로 열면 끝입니다.
+  (상위 <code>MpowerClassify</code> 폴더로 열면 <code>Cargo.toml</code> 을 못 찾아 동작하지 않습니다 → <a href="#ra-multi">9-4</a>)</div>
 
   <h3 id="ra-install">9-1. 설치 <span class="pill">인터넷 되는 PC</span></h3>
 
@@ -790,7 +862,7 @@ cd csoclassify-rs-linux
   <div class="step">
     <h4><span class="num">3</span> 폴더 열기 — <b>가장 많이 틀리는 부분</b></h4>
     <p>VS Code 에서 <b>File → Open Folder…</b> 로
-    <code>D:\Project\CSOClassify\<b>Rust</b></code> 를 엽니다.
+    <code>D:\Project\MpowerClassify\<b>Rust</b></code> 를 엽니다.
     <b>연 폴더 바로 밑에 <code>Cargo.toml</code> 이 보여야</b> 정상입니다.</p>
     <p class="def">파이썬 코드까지 한 창에서 같이 보고 싶다면 → <a href="#ra-multi">9-4</a>.</p>
   </div>
@@ -856,10 +928,10 @@ cd csoclassify-rs-linux
 
   <h3 id="ra-multi">9-4. 파이썬 코드와 같이 보고 싶다면 (멀티 루트)</h3>
   <p>이 저장소는 <b>루트가 파이썬</b>이고 Rust 는 <code>Rust\</code> 하위에 있습니다.
-  상위 <code>CSOClassify</code> 폴더를 그냥 열면 rust-analyzer 가 <code>Cargo.toml</code> 을 찾지 못합니다. 방법은 두 가지:</p>
+  상위 <code>MpowerClassify</code> 폴더를 그냥 열면 rust-analyzer 가 <code>Cargo.toml</code> 을 찾지 못합니다. 방법은 두 가지:</p>
   <ul>
     <li><b>(권장) 워크스페이스 파일</b> — <code>File → Add Folder to Workspace…</code> 로
-      <code>CSOClassify</code> 와 <code>CSOClassify\Rust</code> 를 둘 다 추가하고
+      <code>MpowerClassify</code> 와 <code>MpowerClassify\Rust</code> 를 둘 다 추가하고
       <code>.code-workspace</code> 로 저장합니다. 각 폴더가 독립 루트가 되어 rust-analyzer 가 <code>Rust</code> 쪽을 정상 인식합니다.</li>
     <li><b>수동 지정</b> — 상위 폴더의 <code>.vscode\settings.json</code> 에:
 <pre><code>{ "rust-analyzer.linkedProjects": ["Rust/Cargo.toml"] }</code></pre>
@@ -870,7 +942,7 @@ cd csoclassify-rs-linux
   <div class="scroll"><table>
     <tr><th>증상</th><th>원인 / 해결</th></tr>
     <tr><td>① <code>failed to discover<br>workspace</code></td>
-      <td>연 폴더 밑에 <code>Cargo.toml</code> 이 없습니다. 폴더를 <code>...\CSOClassify\Rust</code> 로 다시 열거나
+      <td>연 폴더 밑에 <code>Cargo.toml</code> 이 없습니다. 폴더를 <code>...\MpowerClassify\Rust</code> 로 다시 열거나
         <code>linkedProjects</code> 를 지정 → <a href="#ra-multi">9-4</a></td></tr>
     <tr><td>② 자동완성·타입이 전혀 안 뜸<br>(빨간 줄만 잔뜩)</td>
       <td>첫 인덱싱이 아직 안 끝난 것입니다. 상태바 진행 표시가 사라질 때까지 대기.
@@ -910,7 +982,7 @@ cd csoclassify-rs-linux
 
 
 <footer>
-  CSOClassify · csoclassify-rs 빌드 가이드 — 2026-08-26 기준<br>
+  MpowerClassify · MpowerClassify-rs 빌드 가이드 — 2026-08-26 기준<br>
   빌드 확인: Windows rustc 1.98.0 (MSVC) · Linux rustc 1.95.0 (CentOS 7.9, glibc 2.17, x86_64-unknown-linux-gnu)<br>
   <span class="def">2026-08-26 변경 — 구형 OLE 추출 확인 항목(6장 #5)과 3엔진 기준값 추가.
   조립 단계에 규칙셋·분류체계 복사(4-3 (6)) 명시, tgz 보관 위치를

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CSOClassify(원본·Python) 빌드 가이드 (Windows · Linux)</title>
+<title>MpowerClassify(원본·Python) 빌드 가이드 (Windows · Linux)</title>
 <style>
   :root{
     --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
@@ -80,8 +80,8 @@
 <div class="wrap">
 
 <header class="hero">
-  <h1>CSOClassify (원본 · Python) 빌드 가이드</h1>
-  <p>파이썬 소스(<code>CSOClassify\src\</code>)를 <b>PyInstaller</b> 로 묶어 <b>Windows</b>·<b>Linux</b> 배포본을 만드는 전 과정</p>
+  <h1>MpowerClassify (원본 · Python) 빌드 가이드</h1>
+  <p>파이썬 소스(<code>MpowerClassify\src\</code>)를 <b>PyInstaller</b> 로 묶어 <b>Windows</b>·<b>Linux</b> 배포본을 만드는 전 과정</p>
 </header>
 
 <section class="card">
@@ -97,15 +97,15 @@
     <li><a href="#trouble">8. 자주 나는 오류와 해결</a></li>
     <li><a href="#script">9. 부록 — 복붙용 전체 명령</a></li>
   </ul>
-  <div class="note">Rust 포팅판(<code>csoclassify-rs</code>) 빌드는 별도 문서
-  <a href="csoclassify-빌드가이드-rust.html">csoclassify-빌드가이드-rust.html</a> 를 보세요.
+  <div class="note">Rust 포팅판(<code>MpowerClassify-rs</code>) 빌드는 별도 문서
+  <a href="MpowerClassify-빌드가이드-rust.html">MpowerClassify-빌드가이드-rust.html</a> 를 보세요.
   두 문서는 같은 순서로 구성돼 있어 비교해서 읽을 수 있습니다.</div>
 </section>
 
 
 <h2 id="what"><span class="n">1</span> 무엇을 만드는가</h2>
 <section class="card">
-  <p>파이썬으로 짠 CSOClassify 를 <b>파이썬이 설치돼 있지 않은 PC/서버에서도 돌아가는 폴더</b>로 만듭니다.
+  <p>파이썬으로 짠 MpowerClassify 를 <b>파이썬이 설치돼 있지 않은 PC/서버에서도 돌아가는 폴더</b>로 만듭니다.
   PyInstaller 가 파이썬 인터프리터와 필요한 라이브러리를 전부 <code>_internal\</code> 폴더에 담아줍니다.</p>
 
   <div class="note"><b>onedir 방식을 쓰는 이유</b><br>
@@ -118,9 +118,9 @@
   <div class="two">
     <div>
       <p><b>Windows</b><span class="os">dist-onedir\windows\</span></p>
-<div class="tree">csoclassify.exe            <span class="cmt">실행 본체</span>
+<div class="tree">MpowerClassify.exe            <span class="cmt">실행 본체</span>
 _internal\                 <span class="cmt">파이썬 런타임 + 라이브러리</span>
-cso_rules.yaml             <span class="cmt">보안등급 규칙셋(외장)</span>
+cso_rule.yaml             <span class="cmt">보안등급 규칙셋(외장)</span>
 doc_taxonomy.yaml          <span class="cmt">업무분류 체계 스냅샷(외장)</span>
 doc_rule.yaml              <span class="cmt">업무분류 규칙셋(외장)</span>
 class_seed.jsonl             <span class="cmt">전파 기준 seed</span>
@@ -132,8 +132,8 @@ synap\windows\
     </div>
     <div>
       <p><b>Linux</b><span class="os">dist-onedir/linux/</span></p>
-<div class="tree">csoclassify-onedir-linux.tgz  <span class="cmt">실행본체+_internal 압축</span>
-cso_rules.yaml                <span class="cmt">보안등급 규칙셋(외장)</span>
+<div class="tree">MpowerClassify-onedir-linux.tgz  <span class="cmt">실행본체+_internal 압축</span>
+cso_rule.yaml                <span class="cmt">보안등급 규칙셋(외장)</span>
 doc_taxonomy.yaml             <span class="cmt">업무분류 체계 스냅샷(외장)</span>
 doc_rule.yaml                 <span class="cmt">업무분류 규칙셋(외장)</span>
 class_seed.jsonl                <span class="cmt">전파 기준 seed</span>
@@ -152,7 +152,7 @@ README.txt</div>
   <h3>“외장 리소스” 개념</h3>
   <p>규칙셋·모델·사이냅 추출기는 exe 안에 넣지 <b>않고</b> 실행파일 옆에 둡니다. 이유는 세 가지입니다.</p>
   <ul>
-    <li><b>규칙 교체가 자유롭다</b> — <code>cso_rules.yaml</code> 만 바꾸면 재빌드 없이 정책 변경</li>
+    <li><b>규칙 교체가 자유롭다</b> — <code>cso_rule.yaml</code> 만 바꾸면 재빌드 없이 정책 변경</li>
     <li><b>기동이 빠르다</b> — 모델(129MB)을 매번 압축 해제하지 않음</li>
     <li><b>라이선스 분리</b> — 사이냅 문서필터는 상용 컴포넌트라 별도 배포</li>
   </ul>
@@ -186,7 +186,7 @@ README.txt</div>
     <tr><td><code>onnxruntime</code></td><td>임베딩 모델 CPU 추론</td></tr>
     <tr><td><code>tokenizers</code></td><td>경량 토크나이저</td></tr>
     <tr><td><code>numpy</code></td><td>벡터 연산·풀링</td></tr>
-    <tr><td><code>PyYAML</code></td><td><code>cso_rules.yaml</code> 규칙셋 로드</td></tr>
+    <tr><td><code>PyYAML</code></td><td><code>cso_rule.yaml</code> 규칙셋 로드</td></tr>
     <tr><td><code>ko-pii==1.15.2</code></td><td>L1 PII 검출 엔진 <span class="def">(버전 고정 — 검출 결과가 바뀌면 등급이 달라짐)</span></td></tr>
     <tr><td><code>olefile</code> · <code>pypdfium2</code> · <code>xlrd</code></td><td>하이브리드 추출(<code>--hybridparse</code>) — hwp5/구형 doc·ppt, PDF, 구형 xls</td></tr>
     <tr><td><code>py7zr</code> · <code>rarfile</code></td><td>압축파일 확장(7z / rar)</td></tr>
@@ -198,6 +198,18 @@ README.txt</div>
 
 
 <h2 id="win"><span class="n">3</span> Windows 배포본 만들기</h2>
+<div class="note"><b>스크립트로 하세요</b> <span class="pill">2026-09-11</span> —
+아래 절차는 손으로 쳐도 되지만, <b>중간에 실패하면 그 다음 줄이 그대로 실행됩니다</b>.
+실제로 2026-09-11 배포 때 <code>_internal</code> 이름 바꾸기가 파일 잠김으로 실패했는데
+다음 줄의 <code>rm</code> 이 그대로 돌아, 배포 폴더에 파이썬 런타임이 잠깐 사라졌습니다.
+그래서 절차를 스크립트로 옮겼습니다 — <b>실패하면 그 자리에서 멈추고, 갈아 끼우다 실패하면
+옛것을 되돌립니다.</b>
+<pre><code><span class="cmt">:: Git Bash · 프로젝트 최상위에서</span>
+bash scripts/build/win-deploy.sh            <span class="cmt">:: 두 판 다(빌드 → 배포 → 두 판 교차검증)</span>
+bash scripts/build/win-deploy.sh python     <span class="cmt">:: 한 판만</span>
+bash scripts/build/linux-build.sh           <span class="cmt">:: 리눅스(소스 전송 → 원격 빌드 → 내려받기)</span></code></pre>
+스크립트가 하는 일은 아래 절차와 같습니다. 무엇이 왜 필요한지는 계속 아래를 보세요.</div>
+
 <section class="card">
 
   <div class="step">
@@ -212,7 +224,7 @@ README.txt</div>
   <div class="step">
     <h4><span class="num">2</span> 가상환경 만들고 라이브러리 설치</h4>
     <p>가상환경(venv)은 “이 프로젝트 전용 파이썬 방”입니다. 다른 프로젝트 라이브러리와 섞이지 않게 해줍니다.</p>
-<pre><code>cd /d D:\Project\CSOClassify
+<pre><code>cd /d D:\Project\MpowerClassify
 
 python -m venv .venv
 .venv\Scripts\activate
@@ -226,15 +238,15 @@ pip install -r requirements.txt</code></pre>
 
   <div class="step">
     <h4><span class="num">3</span> 빌드</h4>
-    <p><b>반드시 프로젝트 최상위 폴더</b>(<code>D:\Project\CSOClassify</code>)에서 실행합니다.
+    <p><b>반드시 프로젝트 최상위 폴더</b>(<code>D:\Project\MpowerClassify</code>)에서 실행합니다.
     spec 파일이 <code>os.getcwd()</code> 를 기준으로 <code>src\</code> 를 찾기 때문입니다.</p>
-<pre><code>cd /d D:\Project\CSOClassify
+<pre><code>cd /d D:\Project\MpowerClassify
 pyinstaller build\csoclassify.spec</code></pre>
     <p>2~4분 뒤 마지막에</p>
 <pre><code>INFO: Building COLLECT COLLECT-00.toc completed successfully.</code></pre>
-    <p>가 나오면 성공. 결과물은 <code>dist\csoclassify\</code> 입니다.</p>
-<div class="tree">dist\csoclassify\
-   ├ csoclassify.exe      <span class="cmt">실행 본체</span>
+    <p>가 나오면 성공. 결과물은 <code>dist\MpowerClassify\</code> 입니다.</p>
+<div class="tree">dist\MpowerClassify\
+   ├ MpowerClassify.exe      <span class="cmt">실행 본체</span>
    └ _internal\           <span class="cmt">파이썬 런타임 + 라이브러리 (약 115MB)</span></div>
     <div class="note"><code>WARNING:</code> 줄은 대부분 무시해도 됩니다. 중요한 것은 <b>맨 마지막에
     <code>completed successfully</code> 가 나오는지</b>와, 7장의 실행 테스트가 통과하는지입니다.</div>
@@ -243,15 +255,18 @@ pyinstaller build\csoclassify.spec</code></pre>
   <div class="step">
     <h4><span class="num">4</span> 배포본 폴더에 조립</h4>
     <p>빌드 결과에 <b>외장 리소스</b>를 붙여야 완성입니다.</p>
-<pre><code>cd /d D:\Project\CSOClassify
+<pre><code>cd /d D:\Project\MpowerClassify
 
 <span class="cmt">:: (1) 실행본체 + 런타임</span>
-xcopy /E /I /Y dist\csoclassify  dist-onedir\windows
+xcopy /E /I /Y dist\MpowerClassify  dist-onedir\windows
 
 <span class="cmt">:: (2) 규칙셋(보안등급 · 업무분류) · 전파 seed</span>
-copy /Y resources\policy\cso_rules.yaml dist-onedir\windows\
-copy /Y resources\policy\doc_taxonomy.yaml dist-onedir\windows\
-copy /Y resources\policy\doc_rule.yaml dist-onedir\windows\
+<span class="cmt">::   [먼저 확인] 업무분류 두 파일은 정본이 두 곳으로 갈려 있다 — 아래 빨간 박스를</span>
+<span class="cmt">::   반드시 읽고 '최신본이 있는 쪽'에서 복사한다. 그냥 따라 치면 규칙이 뒤로 밀린다.</span>
+copy /Y resources\policy\cso_rule.yaml dist-onedir\windows\
+<span class="cmt">::   업무분류 체계·규칙은 ui\policy 가 갱신되는 쪽이다(--export-taxonomy · --sync-doc-rule 산출물)</span>
+copy /Y ui\policy\doc_taxonomy.yaml dist-onedir\windows\
+copy /Y ui\policy\doc_rule.yaml dist-onedir\windows\
 <span class="cmt">::   전파 seed 는 UI 가 관리하는 ui\policy 가 정본이다(resources\policy 에는 없다)</span>
 copy /Y ui\policy\class_seed.jsonl dist-onedir\windows\
 
@@ -262,6 +277,42 @@ xcopy /E /I /Y resources\models\e5-small-ko dist-onedir\windows\models\e5-small-
 xcopy /E /I /Y ..\MpowerAI_v10\pympower_ext\common\filter4-v4.29.0-windows_64bit_VC9\v4  dist-onedir\windows\synap\windows</code></pre>
     <p class="def">사이냅(<code>snf_exe.exe</code>, <code>snf_win.dll</code>)은 <code>--hybridparse</code> 를 쓰면
     폴백 용도로만 필요합니다. 없어도 대부분의 포맷은 오픈소스 파서로 처리됩니다.</p>
+
+    <div class="warn"><b>정책 파일 정본 확인 — 복사 전에 반드시</b> <span class="def">2026-09-04 추가</span>
+    <br><br>
+    업무분류 두 파일(<code>doc_rule.yaml</code> · <code>doc_taxonomy.yaml</code>)은 <b>정본이 두 곳으로
+    갈려 있습니다</b>. 어느 쪽이 최신인지는 <b>누가 무엇을 마지막에 돌렸느냐에 따라 바뀝니다</b>.
+    <ul>
+      <li><code>ui\policy\</code> — <code>--export-taxonomy</code>(분류체계 다시 가져오기)와
+          <code>--sync-doc-rule</code>(규칙 동기화)이 <b>실제로 써 넣는 곳</b>입니다.
+          갱신될 때 <code>.bak-YYYYMMDD</code> 를 같이 남깁니다.</li>
+      <li><code>resources\policy\</code> — 패키지가 들고 다니는 <b>기본값</b>이며,
+          소스로 실행할 때(<code>resource_path("policy", …)</code>) 읽는 자리입니다.</li>
+    </ul>
+    둘 사이를 맞춰 주는 자동 동기화가 <b>없습니다</b>. 그래서 <b>예전 문서대로
+    <code>resources\policy</code> 에서만 복사하면 규칙이 조용히 뒤로 밀립니다</b> —
+    2026-09-04 실측에서 <code>resources\policy\doc_rule.yaml</code> 은 9/1 판 1,151줄,
+    <code>ui\policy\doc_rule.yaml</code> 은 9/4 판 <b>1,237줄</b>이었습니다.
+    그대로 따랐으면 <b>업무분류 규칙 86줄이 배포본에서 사라졌을 것</b>입니다.
+    오류도 경고도 나지 않고 분류 정확도만 떨어지므로 원인을 찾기 어렵습니다.
+    <br><br>
+    <b>복사 전에 이 명령으로 두 곳을 비교하고, 최신·큰 쪽을 쓰십시오.</b>
+<pre><code>cd /d D:\Project\MpowerClassify
+for %F in (doc_rule.yaml doc_taxonomy.yaml) do @(
+  for %D in (resources\policy ui\policy) do @dir /-c "%D\%F" | findstr /R "%F"
+)</code></pre>
+    <span class="cmt">(Git Bash 라면: <code>ls -la resources/policy/doc_rule.yaml ui/policy/doc_rule.yaml</code>)</span>
+    <br><br>
+    배포한 뒤에는 <b>배포본에 실린 값이 맞는지</b> 결과로 한 번 더 확인하십시오 —
+    레코드의 <code>doctype_rule_version</code> 과 요약의 업무분류 롤업이 기대한 규칙판과
+    맞는지 보면 됩니다.
+    <br><br>
+    <span class="bad">미해결 —</span> 정본이 갈린 것 자체가 문제입니다. UI 화면
+    (<code>ui\app.py::default_paths()</code>)은 <code>ui\doc_rule.yaml</code>(=<code>ui</code> 바로 아래)을
+    먼저 찾고 없으면 <code>resources\policy</code> 를 보는데, 실제 파일은
+    <code>ui\policy\</code> 에 있어 <b>화면이 보는 파일과 배포에 싣는 파일이 서로 다릅니다</b>.
+    한 곳으로 합치는 것이 맞고, 그 전까지는 위 확인 절차가 유일한 방어선입니다.
+    </div>
     <div class="warn"><b>seed 를 빠뜨리면 조용히 정확도가 깎입니다</b> —
     <code>class_seed.jsonl</code> 이 없으면 오류가 나지 않고 <b>전파(Signal B)만 통째로 꺼집니다</b>.
     규칙이 못 정한 문서가 구제받지 못하고 등급 없이(<code>null</code>) 나가는데,
@@ -279,9 +330,9 @@ xcopy /E /I /Y ..\MpowerAI_v10\pympower_ext\common\filter4-v4.29.0-windows_64bit
 
   <div class="step">
     <h4><span class="num">5</span> 동작 확인</h4>
-<pre><code>cd /d D:\Project\CSOClassify\dist-onedir\windows
-csoclassify.exe --help
-csoclassify.exe --file "샘플.hwp"</code></pre>
+<pre><code>cd /d D:\Project\MpowerClassify\dist-onedir\windows
+MpowerClassify.exe --help
+MpowerClassify.exe --file "샘플.hwp"</code></pre>
     <p>첫 실행은 모델을 메모리에 올리느라 수십 초 걸릴 수 있습니다(정상). 자세한 확인은 <a href="#verify">7장</a>.</p>
   </div>
 </section>
@@ -291,7 +342,7 @@ csoclassify.exe --file "샘플.hwp"</code></pre>
 <section class="card">
   <p>리눅스 배포본은 <b>리눅스 서버에서 빌드</b>하고, 결과를 <code>.tgz</code> 로 묶어 Windows 로 내려받습니다.</p>
 
-  <h3>접속 정보 <span class="def">(<code>CSOClassify\.env_vllm</code>)</span></h3>
+  <h3>접속 정보 <span class="def">(<code>MpowerClassify\.env_vllm</code>)</span></h3>
   <div class="scroll"><table>
     <tr><th>서버</th><td><code>10.10.4.10</code> (포트 22) · 호스트명 <code>devgpu</code></td></tr>
     <tr><th>계정</th><td><code>mpower</code></td></tr>
@@ -304,7 +355,7 @@ csoclassify.exe --file "샘플.hwp"</code></pre>
   <div class="step">
     <h4><span class="num">1</span> 소스를 압축해서 서버로 보내기</h4>
     <p>보낼 것은 <b>소스와 spec 뿐</b>입니다. 모델(129MB)·사이냅은 서버에 이미 있거나 별도로 배치합니다.</p>
-<pre><code>cd /d/Project/CSOClassify
+<pre><code>cd /d/Project/MpowerClassify
 tar -czf /tmp/cso_src.tgz src build requirements.txt
 
 plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/.csoclassify/build_slim"
@@ -333,9 +384,9 @@ tar xzf cso_src.tgz</code></pre>
     <h4><span class="num">3</span> 빌드</h4>
 <pre><code>cd /MOCOMSYS/.csoclassify/build_slim
 pyinstaller build/csoclassify.spec 2&gt;&amp;1 | tee build.log</code></pre>
-    <p>결과물은 <code>dist/csoclassify/</code> 입니다.</p>
-<pre><code>ls -la dist/csoclassify/
-<span class="cmt"># csoclassify (약 8.3MB, ELF) + _internal/</span></code></pre>
+    <p>결과물은 <code>dist/MpowerClassify/</code> 입니다.</p>
+<pre><code>ls -la dist/MpowerClassify/
+<span class="cmt"># MpowerClassify (약 8.5MB, ELF) + _internal/</span></code></pre>
     <div class="note"><b>venv 로 빌드한다면</b> — <code>--system-site-packages</code> venv 에서는
     <code>sys.prefix/lib</code> 에 <code>libstdc++.so.6</code> 가 없습니다. 이때는 conda 라이브러리 경로를 직접 알려줍니다.
 <pre style="margin:8px 0 0"><code>export CSO_EXTRA_LIBDIR=/MOCOMSYS/anaconda3/envs/bong/lib
@@ -344,9 +395,9 @@ pyinstaller build/csoclassify.spec</code></pre></div>
 
   <div class="step">
     <h4><span class="num">4</span> 서버에서 동작 확인</h4>
-<pre><code>cd /MOCOMSYS/.csoclassify/build_slim/dist/csoclassify
-./csoclassify --help
-./csoclassify --classify --file /tmp/샘플.txt --rules /경로/cso_rules.yaml</code></pre>
+<pre><code>cd /MOCOMSYS/.csoclassify/build_slim/dist/MpowerClassify
+./MpowerClassify --help
+./MpowerClassify --classify --file /tmp/샘플.txt --rules /경로/cso_rule.yaml</code></pre>
     <div class="bad"><code>ImportError: … CXXABI_1.3.9 not found</code> 가 나오면
     <code>_internal/libstdc++.so.6</code> 가 안 들어간 것입니다 → <a href="#trouble">8-①</a></div>
   </div>
@@ -356,11 +407,11 @@ pyinstaller build/csoclassify.spec</code></pre></div>
     <p>심볼릭 링크와 실행권한을 보존하려면 <b>반드시 리눅스에서 tar 로 묶어야</b> 합니다.</p>
 <pre><code><span class="cmt"># 서버에서</span>
 cd /MOCOMSYS/.csoclassify/build_slim/dist
-tar czf /tmp/csoclassify-onedir-linux.tgz csoclassify
-ls -lh /tmp/csoclassify-onedir-linux.tgz     <span class="cmt"># 약 52MB</span></code></pre>
+tar czf /tmp/MpowerClassify-onedir-linux.tgz MpowerClassify
+ls -lh /tmp/MpowerClassify-onedir-linux.tgz     <span class="cmt"># 약 52MB</span></code></pre>
 <pre><code><span class="cmt"># Windows(Git Bash) 에서 내려받기</span>
-cd /d/Project/CSOClassify/dist-onedir/linux
-pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-onedir-linux.tgz .</code></pre>
+cd /d/Project/MpowerClassify/dist-onedir/linux
+pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/MpowerClassify-onedir-linux.tgz .</code></pre>
     <div class="warn"><b>이 tgz 를 Windows 에서 풀지 마세요.</b> <code>_internal</code> 안의 심볼릭 링크가 깨져
     리눅스에서 실행이 안 됩니다. 배포 대상 리눅스로 옮긴 뒤 그곳에서 <code>tar xzf</code> 하세요.</div>
   </div>
@@ -368,9 +419,10 @@ pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-onedir-linux.tgz
   <div class="step">
     <h4><span class="num">6</span> 외장 리소스 붙이기</h4>
     <p>tgz 옆에 규칙셋·모델·사이냅(리눅스용)을 둡니다. 모델·규칙셋은 <b>OS 무관 동일 파일</b>이라 Windows 쪽에서 복사하면 됩니다.</p>
-<pre><code>cd /d/Project/CSOClassify/dist-onedir/linux
-cp ../../resources/policy/cso_rules.yaml .
-cp ../../resources/policy/doc_taxonomy.yaml ../../resources/policy/doc_rule.yaml .
+<pre><code>cd /d/Project/MpowerClassify/dist-onedir/linux
+cp ../../resources/policy/cso_rule.yaml .
+<span class="cmt"># 업무분류 두 파일은 ui/policy 가 갱신되는 쪽 — 4장 '정책 파일 정본 확인' 참고</span>
+cp ../../ui/policy/doc_taxonomy.yaml ../../ui/policy/doc_rule.yaml .
 cp ../windows/class_seed.jsonl .
 mkdir -p models synap/linux
 cp -r ../../resources/models/e5-small-ko models/
@@ -380,12 +432,12 @@ cp ../../resources/synap/linux/snf_exe synap/linux/</code></pre>
   <div class="step">
     <h4><span class="num">7</span> 배포 대상 리눅스에서 설치</h4>
 <pre><code>cd &lt;복사한 폴더&gt;
-tar xzf csoclassify-onedir-linux.tgz          <span class="cmt"># 심볼릭링크·권한 복원</span>
-chmod +x csoclassify synap/linux/snf_exe
-./csoclassify --classify --file "문서.pdf"</code></pre>
-    <p class="def">tgz 를 풀면 <code>csoclassify/</code> 폴더가 생깁니다. 실행파일이 외장 리소스를
-    <b>자기 옆</b>에서 찾으므로, <code>cso_rules.yaml</code>·<code>models/</code>·<code>synap/</code> 을
-    <code>csoclassify/</code> 안으로 옮기거나 <code>--rules</code>/환경변수로 경로를 지정하세요.</p>
+tar xzf MpowerClassify-onedir-linux.tgz          <span class="cmt"># 심볼릭링크·권한 복원</span>
+chmod +x MpowerClassify synap/linux/snf_exe
+./MpowerClassify --classify --file "문서.pdf"</code></pre>
+    <p class="def">tgz 를 풀면 <code>MpowerClassify/</code> 폴더가 생깁니다. 실행파일이 외장 리소스를
+    <b>자기 옆</b>에서 찾으므로, <code>cso_rule.yaml</code>·<code>models/</code>·<code>synap/</code> 을
+    <code>MpowerClassify/</code> 안으로 옮기거나 <code>--rules</code>/환경변수로 경로를 지정하세요.</p>
   </div>
 </section>
 
@@ -396,18 +448,18 @@ chmod +x csoclassify synap/linux/snf_exe
     <tr><th>자산</th><th>배포본 위치</th><th>출처 / 만드는 법</th></tr>
     <tr>
       <td>규칙셋</td>
-      <td><code>cso_rules.yaml</code></td>
-      <td><code>resources\policy\cso_rules.yaml</code> — 텍스트 파일이라 <b>배포 후에도 편집 가능</b></td>
+      <td><code>cso_rule.yaml</code></td>
+      <td><code>resources\policy\cso_rule.yaml</code> — 텍스트 파일이라 <b>배포 후에도 편집 가능</b></td>
     </tr>
     <tr>
       <td>업무분류 체계</td>
       <td><code>doc_taxonomy.yaml</code></td>
-      <td><code>resources\policy\doc_taxonomy.yaml</code> — <code>csoclassify.exe --export-taxonomy</code> 로 DOC_CLASSIFICATION 에서 내보냄. <b>없으면 업무분류 축이 꺼지고 보안등급만 판정</b></td>
+      <td><code>ui\policy\doc_taxonomy.yaml</code> — <code>MpowerClassify.exe --export-taxonomy</code> 로 DOC_CLASSIFICATION 에서 내보냄(<b>산출 위치가 여기다</b> — <code>resources\policy</code> 는 패키지 기본값이라 뒤처질 수 있다). <b>없으면 업무분류 축이 꺼지고 보안등급만 판정</b></td>
     </tr>
     <tr>
       <td>업무분류 규칙셋</td>
       <td><code>doc_rule.yaml</code></td>
-      <td><code>resources\policy\doc_rule.yaml</code> — <code>--export-taxonomy --scaffold-doc-rule</code> 로 골격 생성 후 손으로 키워드를 채움. <b>없어도 축은 돌지만</b> 규칙 대신 <code>class_seed.jsonl</code> 전파로만 분류(seed 도 없으면 전부 미분류) <span class="def">2026-08-25 변경</span></td>
+      <td><code>ui\policy\doc_rule.yaml</code> — <code>--export-taxonomy --scaffold-doc-rule</code> 로 골격 생성 후 손으로 키워드를 채우고 <code>--sync-doc-rule</code> 로 갱신한다(<b>산출 위치가 여기다</b>). <b>없어도 축은 돌지만</b> 규칙 대신 <code>class_seed.jsonl</code> 전파로만 분류(seed 도 없으면 전부 미분류) <span class="def">2026-08-25 변경</span></td>
     </tr>
     <tr>
       <td>전파 seed</td>
@@ -436,9 +488,33 @@ python scripts/quantize_onnx.py --model e5-small-ko</code></pre>
       <td>unrar <span class="def">(선택)</span></td>
       <td><code>_internal/</code> 안에 자동 포함</td>
       <td><code>build\vendor\unrar.exe</code> / <code>build\vendor\unrar</code> 에 두면 spec 이 자동으로 번들.
-        RAR 은 독점 포맷이라 순수 파이썬 해제기가 없습니다</td>
+        RAR 은 독점 포맷이라 순수 파이썬 해제기가 없습니다.
+        <b>빠뜨리면 rar 이 조용히 안 풀립니다</b> — 실측에서 번들 없이 돌렸더니
+        <code>RarCannotExec: Cannot find working tool</code> 로 <b>62건</b>이 실패했는데,
+        결과에는 그 압축이 '못 읽은 파일 1건'으로만 남았습니다.
+        <span class="def">2026-09-07 부터 이 실패도 요약에 <code>압축 확장 실패</code> 로 떠서 눈치채기 쉬워졌습니다</span></td>
     </tr>
   </table></div>
+
+  <div class="note"><b>압축 확장 — Rust 판과 무엇이 다른가</b> <span class="def">2026-09-07</span><br>
+  두 판 모두 압축 1개를 내부 문서 N건으로 펼쳐 <b>파일별로 등급</b>을 매기고,
+  압축 자체에는 내부 최고 위험을 매긴 집계 레코드(<code>archive: true</code>)를 덧붙입니다.
+  <br><br><b>업무분류 축을 함께 켜면</b> — 같은 집계 레코드에 <code>contains_doctype</code> 이 붙습니다(<code>{"DC_001_001":2, "DC_003_002":1, "unclassified":1}</code>). 등급은 <code>C&gt;S&gt;O</code> 서열이 있어 <b>최고 위험 하나</b>로 롤업되지만, 업무분류는 서열이 없고 한 문서가 여러 라벨을 가질 수 있어 대표를 고르면 반드시 무언가를 버립니다 — 그래서 고르지 않고 <b>건수 분포</b>를 그대로 싣습니다. 그래서 다중 라벨 문서 때문에 <b>분포의 합계가 <code>contains.total</code> 보다 클 수 있고</b>, 축을 안 쓴 실행에서는 <b>키 자체가 없습니다</b>("분류 못 함"과 "축을 안 씀"의 구분). 두 판이 <b>같은 모양·같은 값</b>을 내야 하므로 빌드 뒤 대조 지점으로 씁니다 (<code>--doctype</code> 을 켜고 압축을 하나 넣어 <code>contains_doctype</code> 을 비교).
+  포맷 지원도 <b>zip · tar(+gz/bz2/xz) · gz · bz2 · xz · 7z · rar</b> 로 같아졌습니다.
+  <br><br><b>보안등급 신호도 두 판이 같습니다</b> <span class="def">2026-09-08</span> — <code>rule</code>·<code>sensitive</code>·<code>stamp</code>·<code>name</code> 넷으로 정리됐고(경로 <code>paths</code> 신호는 걷어냄), 파일명 신호는 규칙의 <code>filename</code> 목록을 봅니다(본문 <code>terms</code> 를 빌려 쓰지 않음). <b>배포본의 <code>cso_rule.yaml</code> 도 함께 바꿔야 합니다</b> — 옛 <code>paths:</code> 가 남아 있으면 새 exe 가 V12 로 막혀 실행되지 않습니다.  <br><br><b>업무분류 신호와 그 신뢰도도 두 판이 같습니다</b> <span class="def">2026-09-07</span> — 신호는 <code>title</code>·<code>head</code>·<code>body</code>·<code>name</code> 넷으로 정리됐고(안 돌던 <code>form</code>·<code>path</code>·<code>structure</code> 는 걷어냄), 그 신뢰도는 <code>doc_rule.yaml</code> 의 <code>signals:</code> 로 <b>재빌드 없이</b> 바꿉니다. 두 판이 같은 표를 읽으므로, 빌드 뒤 같은 문서·같은 규칙으로 돌려 <code>confidence</code> 가 소수점까지 같은지 확인하세요.
+  <br><br><b>추출 본문 보존(<code>--textsave</code>)도 두 판 모두</b> <span class="def">2026-09-07</span> — 예전에는 파이썬 판의 <code>--save-text</code> 조차 <b>분류 모드에서는 동작하지 않았고</b>(<code>--text-only</code>·<code>--embed</code> 에서만), Rust 판은 인자를 삼키고 무시했습니다. 이제 두 판 모두 분류하면서 본문을 <code>&lt;sha256&gt;.txt</code> 로 남깁니다. <b>파일명 규칙이 바뀐 점</b>에 주의하세요 — 예전 <code>--save-text</code> 는 <code>원본명.txt</code>(충돌 시 <code>원본명__2.txt</code>)였습니다.
+  <br><br><b>레코드 시각(<code>ts</code>)도 이제 같습니다</b> <span class="def">2026-09-07</span> — 파이썬 판은 원래 <code>2026-09-07T14:11:45+09:00</code>(당시 표기)<code></code> 형태로 채우고 있었고, Rust 판만 <code>null</code> 이었습니다. Rust 판이 같은 모양으로 맞췄으므로 <b>이 필드는 더 이상 두 판의 차이가 아닙니다</b>. 파이썬 판은 이 건으로 다시 빌드할 필요가 없습니다.
+  <br><br>남은 차이는 <b>분할 볼륨</b> 하나뿐입니다:
+  <ul>
+    <li><b>rar 분할</b> — <b>파이썬 판만</b> 됩니다(<code>rarfile</code> 이 조각을 자동으로 잇습니다).
+        단 위의 <code>unrar</code> 번들이 있어야 합니다.</li>
+    <li><b>zip · tar · 7z 분할</b> — <b>두 판 모두 안 됩니다.</b>
+        <code>zipfile</code> 은 "zipfiles that span multiple disks are not supported" 로 거부하고,
+        <code>tarfile</code> 은 멀티볼륨 개념 자체가 없으며, <code>py7zr</code> 는
+        <code>multivolumefile</code> 로 감싸야 하는데 이 코드는 경로를 그대로 넘깁니다.
+        <br>조각을 넣으면 <code>error.kind=split_volume</code> 과
+        "파일이 깨진 것이 아닙니다" 안내가 결과에 남습니다 — 조용히 빠지지 않습니다.</li>
+  </ul></div>
 
   <h3>경로를 바꾸고 싶다면 — 환경변수</h3>
   <div class="scroll"><table>
@@ -508,17 +584,36 @@ python scripts/quantize_onnx.py --model e5-small-ko</code></pre>
 <section class="card">
   <div class="scroll"><table>
     <tr><th>#</th><th>확인 항목</th><th>명령</th><th>성공 신호</th></tr>
-    <tr><td>1</td><td>실행파일이 뜨는가</td><td><code>csoclassify --help</code></td><td>옵션 목록 출력</td></tr>
-    <tr><td>2</td><td>규칙셋을 찾는가</td><td><code>csoclassify --file 샘플.txt</code></td><td>등급 출력<br><span class="def">못 찾으면 안내 후 종료코드 3</span></td></tr>
-    <tr><td>3</td><td>임베딩 모델 로드</td><td><code>csoclassify --embed --file 샘플.txt</code></td><td>384차원 벡터 출력</td></tr>
-    <tr><td>4</td><td>하이브리드 추출</td><td><code>csoclassify --dir 폴더 -r --hybridparse</code></td><td>pdf·hwp·docx 모두 등급이 매겨짐</td></tr>
-    <tr><td>5</td><td><b>구형 OLE 를 사이냅 없이</b> <span class="def">2026-08-26 추가</span></td>
-        <td><code>synap/</code> 폴더를 치운 뒤<br><code>csoclassify --dir 폴더 -r --hybridparse</code></td>
+    <tr><td>1</td><td>실행파일이 뜨는가</td><td><code>MpowerClassify --help</code></td><td>옵션 목록 출력</td></tr>
+    <tr><td>2</td><td>규칙셋을 찾는가</td><td><code>MpowerClassify --file 샘플.txt</code></td><td>등급 출력<br><span class="def">못 찾으면 안내 후 종료코드 3</span></td></tr>
+    <tr><td>3</td><td>임베딩 모델 로드</td><td><code>MpowerClassify --embed --file 샘플.txt</code></td><td>384차원 벡터 출력</td></tr>
+    <tr><td>4</td><td>하이브리드 추출</td><td><code>MpowerClassify --dir 폴더 -r --hybridparse</code></td><td>pdf·hwp·docx 모두 등급이 매겨짐</td></tr>
+    <tr><td>5</td><td><b>기준 문서 등록이 되는가</b> <span class="def">2026-09-08 추가</span></td>
+        <td><code>MpowerClassify --seed-add 샘플.txt --seed-grade C<br>
+            &nbsp;&nbsp;--seed-reviewer "확인"</code></td>
+        <td><b>stdout 에 <code>{"v":3,…,"engine":"python",…}</code> 한 줄</b><br>
+            <span class="def">검토자를 빼면 <code>bad_args</code>·종료코드 3 이 나와야 정상입니다 —
+            이 옵션은 <code>src/csoclassify/seedstore.py</code>·<code>seedcli.py</code> 가
+            exe 안에 들어갔는지를 함께 확인해 줍니다</span></td></tr>
+    <tr><td>6</td><td><b>구형 OLE 를 사이냅 없이</b> <span class="def">2026-08-26 추가</span></td>
+        <td><code>synap/</code> 폴더를 치운 뒤<br><code>MpowerClassify --dir 폴더 -r --hybridparse</code></td>
         <td><code>.doc</code>·<code>.xls</code>·<code>.ppt</code>·구형 <code>.hwp</code> 가 <b>추출실패 0</b><br>
             <span class="def">한 건이라도 <code>감지=binary</code> 로 실패하면 8-⑧</span></td></tr>
   </table></div>
   <div class="note">첫 실행은 모델을 메모리에 올리느라 <b>수십 초</b> 걸릴 수 있습니다(정상).
   이후에는 모델이 상주해 빨라집니다.</div>
+
+  <div class="note"><b>기준 문서 저장소가 패키지 안으로 들어왔습니다</b>
+  <span class="pill">2026-09-08</span><br>
+  예전에는 화면 폴더에 있던 <code>ui/seedstore.py</code> 를
+  <code>src/csoclassify/seedstore.py</code> 로 옮겼습니다. 화면·CLI·
+  <code>--make-doctype-seeds</code> 가 <b>같은 writer</b> 를 쓰게 하려는 것입니다
+  (모양이 갈리면 어느 쪽이 맞는지 아무도 모릅니다).
+  <br><b>빌드에는 따로 할 일이 없습니다</b> — 패키지 안이라 PyInstaller 가 자동으로 담습니다.
+  새로 들어간 파일은 <code>seedstore.py</code>(저장소)·<code>seedcli.py</code>(<code>--seed-add</code>)
+  둘이고, 화면(<code>ui/app.py</code>)은 <code>from csoclassify import seedstore</code> 로 부릅니다.
+  <span class="def">소스에서 화면을 띄울 때를 위해 <code>ui/app.py</code> 가
+  <code>../src</code> 를 경로에 넣습니다 — exe 로 돌 때는 필요 없습니다.</span></div>
 
   <h3>기준값 — <code>d:\sample</code> 18건 <span class="def">2026-08-26 측정</span></h3>
   <p>빌드가 제대로 됐는지 가장 빠르게 보는 방법은 <b>같은 폴더를 세 엔진에 돌려 숫자가 같은지</b> 보는 것입니다.
@@ -529,7 +624,7 @@ python scripts/quantize_onnx.py --model e5-small-ko</code></pre>
     <tr><th>엔진</th><th>사이냅</th><th>결과</th></tr>
     <tr><td>Windows Python</td><td>있음</td><td>검출 10, C=7 S=3 O=0</td></tr>
     <tr><td>Linux Python</td><td><b>없음</b> + <code>--hybridparse</code></td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
-    <tr><td>Rust <code>csoclassify-rs</code></td><td>안 씀</td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
+    <tr><td>Rust <code>MpowerClassify-rs</code></td><td>안 씀</td><td>검출 10, C=7 S=3 O=0 <span class="def">추출실패 0</span></td></tr>
   </table></div>
   <div class="note">세 줄이 <b>완전히 같아야</b> 정상입니다. Linux 쪽만 <code>검출 5, C=3 S=2, 추출실패 7</code> 로 나오면
   <code>detect.py</code> 의 OLE 판정이 옛 버전인 것입니다 → <a href="#trouble">8-⑧</a></div>
@@ -545,7 +640,7 @@ python scripts/quantize_onnx.py --model e5-small-ko</code></pre>
   <p><b>원인</b> — CentOS 7 기본 <code>libstdc++</code>(gcc 4.8.5) 이 너무 낡았습니다.</p>
   <p><b>해결</b> — 배포본 <code>_internal/</code> 에 최신 <code>libstdc++.so.6</code>·<code>libgcc_s.so.1</code> 이 들어가야 합니다.
   spec 이 자동으로 넣어주지만, 찾지 못하면 조용히 건너뜁니다. 확인:</p>
-<pre><code>ls -la dist/csoclassify/_internal/libstdc++.so.6</code></pre>
+<pre><code>ls -la dist/MpowerClassify/_internal/libstdc++.so.6</code></pre>
   <p>없다면 conda 환경(<code>bong</code>)으로 빌드하거나, venv 라면 경로를 알려주고 다시 빌드하세요.</p>
 <pre><code>export CSO_EXTRA_LIBDIR=/MOCOMSYS/anaconda3/envs/bong/lib
 pyinstaller build/csoclassify.spec</code></pre>
@@ -561,9 +656,9 @@ pyinstaller build/csoclassify.spec</code></pre>
   <h3>④ 배포본 용량이 너무 큼 <span class="os">공통</span></h3>
   <p>특히 리눅스 conda 환경에서 <b>안 쓰는 대형 패키지가 딸려 들어오는</b> 경우가 많습니다.
   빌드 로그에서 무엇이 들어갔는지 확인하고 spec 의 <code>excludes</code> 에 추가하세요.</p>
-<pre><code>du -sh dist/csoclassify/_internal/* | sort -h | tail -20</code></pre>
+<pre><code>du -sh dist/MpowerClassify/_internal/* | sort -h | tail -20</code></pre>
 
-  <h3>⑤ <code>cso_rules.yaml</code> 을 못 찾음 (종료코드 3) <span class="os">공통</span></h3>
+  <h3>⑤ <code>cso_rule.yaml</code> 을 못 찾음 (종료코드 3) <span class="os">공통</span></h3>
   <p>실행파일 옆에 두거나, <code>--rules</code> 또는 <code>CSOCLASSIFY_POLICY_DIR</code> 로 경로를 지정하세요.</p>
 
   <h3>⑥ 빌드가 <code>src</code> 를 못 찾음 <span class="os">공통</span></h3>
@@ -572,14 +667,14 @@ pyinstaller build/csoclassify.spec</code></pre>
 
   <h3>⑦ 이전 빌드 찌꺼기 때문에 이상할 때 <span class="os">공통</span></h3>
 <pre><code><span class="cmt">:: Windows</span>
-rmdir /S /Q build\pyi-work dist\csoclassify
+rmdir /S /Q build\pyi-work dist\MpowerClassify
 
 <span class="cmt"># Linux</span>
-rm -rf build/pyi-work dist/csoclassify</code></pre>
+rm -rf build/pyi-work dist/MpowerClassify</code></pre>
 
   <h3>⑧ 구형 <code>.doc</code>/<code>.xls</code>/<code>.ppt</code>/<code>.hwp</code> 가 <code>감지=binary</code> 로 추출 실패 <span class="os">공통</span>
       <span class="def">2026-08-26 수정</span></h3>
-<pre><code>[csoclassify] 추출 실패: /경로/취업규칙.doc :: 사용 가능한 추출기 없음(감지=binary)</code></pre>
+<pre><code>[MpowerClassify] 추출 실패: /경로/취업규칙.doc :: 사용 가능한 추출기 없음(감지=binary)</code></pre>
   <p><b>원인</b> — <code>src/csoclassify/extract/detect.py</code> 의 OLE 매직 판정이 <b>슬라이스를 빠뜨린</b> 버전입니다.
   <code>head</code> 는 앞 <b>2048바이트</b>인데 8바이트 상수와 통째로 비교하면 절대 참이 되지 않아,
   <code>.doc</code>·<code>.xls</code>·<code>.ppt</code>·구형 <code>.hwp</code>(모두 OLE 복합문서)가 전부
@@ -597,7 +692,7 @@ if head[:8] == _OLE_MAGIC:</code></pre>
   판정 근거 용어까지 전수 대조한 결과 <b>차이 0건</b>이었습니다 — 자체 <code>.doc</code> 파서가 뽑는 텍스트가
   사이냅이 뽑던 것과 규칙 판정 면에서 동등합니다. 달라지는 것은 <b>사이냅이 없는 환경</b>뿐으로,
   <code>검출 5 → 10</code>, <code>추출실패 7 → 0</code> 이 됩니다.</div>
-  <div class="note">Rust 판(<code>csoclassify-rs</code>)은 CFB 컨테이너를 직접 열어 판정하므로
+  <div class="note">Rust 판(<code>MpowerClassify-rs</code>)은 CFB 컨테이너를 직접 열어 판정하므로
   이 버그와 무관합니다. 재빌드가 필요 없습니다.</div>
   <p class="def">PyInstaller 는 중간 산출물을 캐시합니다. spec 을 고쳤는데 반영이 안 되면 지우고 다시 빌드하세요.</p>
 </section>
@@ -607,7 +702,7 @@ if head[:8] == _OLE_MAGIC:</code></pre>
 <section class="card">
 
   <h3>A. Windows 전체 <span class="def">(cmd)</span></h3>
-<pre><code>cd /d D:\Project\CSOClassify
+<pre><code>cd /d D:\Project\MpowerClassify
 
 python -m venv .venv
 .venv\Scripts\activate
@@ -615,17 +710,18 @@ pip install -r requirements.txt
 
 pyinstaller build\csoclassify.spec
 
-xcopy /E /I /Y dist\csoclassify dist-onedir\windows
-copy  /Y resources\policy\cso_rules.yaml dist-onedir\windows\
-copy  /Y resources\policy\doc_taxonomy.yaml dist-onedir\windows\
-copy  /Y resources\policy\doc_rule.yaml dist-onedir\windows\
+xcopy /E /I /Y dist\MpowerClassify dist-onedir\windows
+copy  /Y resources\policy\cso_rule.yaml dist-onedir\windows\
+<span class="cmt">:: 업무분류 두 파일은 ui\policy 가 갱신되는 쪽 — 4장 '정책 파일 정본 확인' 을 먼저 읽을 것</span>
+copy  /Y ui\policy\doc_taxonomy.yaml dist-onedir\windows\
+copy  /Y ui\policy\doc_rule.yaml dist-onedir\windows\
 xcopy /E /I /Y resources\models\e5-small-ko dist-onedir\windows\models\e5-small-ko
 xcopy /E /I /Y ..\MpowerAI_v10\pympower_ext\common\filter4-v4.29.0-windows_64bit_VC9\v4 dist-onedir\windows\synap\windows
 
-dist-onedir\windows\csoclassify.exe --help</code></pre>
+dist-onedir\windows\MpowerClassify.exe --help</code></pre>
 
   <h3>B. Linux <span class="def">(1) Windows(Git Bash) 에서 업로드</span></h3>
-<pre><code>cd /d/Project/CSOClassify
+<pre><code>cd /d/Project/MpowerClassify
 tar -czf /tmp/cso_src.tgz src build requirements.txt
 plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/.csoclassify/build_slim"
 pscp  -batch -pw '&lt;PW&gt;' /tmp/cso_src.tgz mpower@10.10.4.10:/MOCOMSYS/.csoclassify/build_slim/</code></pre>
@@ -638,16 +734,17 @@ cd /MOCOMSYS/.csoclassify/build_slim
 tar xzf cso_src.tgz
 pyinstaller build/csoclassify.spec 2&gt;&amp;1 | tee build.log
 
-ls -la dist/csoclassify/_internal/libstdc++.so.6   <span class="cmt"># 있어야 정상</span>
-cd dist &amp;&amp; tar czf /tmp/csoclassify-onedir-linux.tgz csoclassify
-ls -lh /tmp/csoclassify-onedir-linux.tgz</code></pre>
+ls -la dist/MpowerClassify/_internal/libstdc++.so.6   <span class="cmt"># 있어야 정상</span>
+cd dist &amp;&amp; tar czf /tmp/MpowerClassify-onedir-linux.tgz MpowerClassify
+ls -lh /tmp/MpowerClassify-onedir-linux.tgz</code></pre>
 
   <h3><span class="def">(3) Windows 로 내려받아 마무리</span></h3>
-<pre><code>cd /d/Project/CSOClassify/dist-onedir/linux
-pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/csoclassify-onedir-linux.tgz .
+<pre><code>cd /d/Project/MpowerClassify/dist-onedir/linux
+pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/MpowerClassify-onedir-linux.tgz .
 
-cp ../../resources/policy/cso_rules.yaml .
-cp ../../resources/policy/doc_taxonomy.yaml ../../resources/policy/doc_rule.yaml .
+cp ../../resources/policy/cso_rule.yaml .
+<span class="cmt"># 업무분류 두 파일은 ui/policy 가 갱신되는 쪽 — 4장 '정책 파일 정본 확인' 참고</span>
+cp ../../ui/policy/doc_taxonomy.yaml ../../ui/policy/doc_rule.yaml .
 cp ../windows/class_seed.jsonl .
 mkdir -p models synap/linux
 cp -r ../../resources/models/e5-small-ko models/
@@ -655,13 +752,13 @@ cp ../../resources/synap/linux/snf_exe synap/linux/</code></pre>
 
   <h3>C. 배포 대상 리눅스에서 설치</h3>
 <pre><code>cd &lt;복사한 폴더&gt;
-tar xzf csoclassify-onedir-linux.tgz
-chmod +x csoclassify synap/linux/snf_exe
-./csoclassify --help</code></pre>
+tar xzf MpowerClassify-onedir-linux.tgz
+chmod +x MpowerClassify synap/linux/snf_exe
+./MpowerClassify --help</code></pre>
 </section>
 
 <footer>
-  CSOClassify(원본 · Python) 빌드 가이드 — 2026-08-26 기준<br>
+  MpowerClassify(원본 · Python) 빌드 가이드 — 2026-08-26 기준<br>
   확인 조합: Windows Python 3.12.10 + PyInstaller 6.22.0 · Linux conda <code>bong</code> Python 3.13.5 + PyInstaller 6.22.0 (CentOS 7.9, glibc 2.17)<br>
   <span class="def">2026-08-26 변경 — <code>detect.py</code> OLE 매직 판정 수정(8-⑧). <code>--hybridparse</code> 가 구형
   <code>.doc</code>/<code>.xls</code>/<code>.ppt</code>/<code>.hwp</code> 를 사이냅 없이 처리합니다. 기준값은 7장.</span>

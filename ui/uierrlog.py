@@ -5,7 +5,7 @@
 Streamlit 이 잡아 주는 예외도 브라우저에만 트레이스백을 그리고 끝난다 — 원격에
 띄워 둔 화면이면 그 트레이스백조차 볼 수 없다. 그래서 오류를 파일로 남긴다.
 
-exe 판(csoclassify.exe · csoclassify-rs.exe)과 **같은 파일 이름·같은 환경변수**를
+exe 판(MpowerClassify.exe · MpowerClassify-rs.exe)과 **같은 파일 이름·같은 환경변수**를
 쓴다. 그래야 "무슨 일이 있었나" 를 볼 때 한 파일만 보면 된다.
 
 규칙은 exe 판과 같다:

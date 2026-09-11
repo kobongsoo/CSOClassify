@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>추출 텍스트 저장(--textsave) 설계</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .ok{color:var(--o);font-weight:700}
+  .bad{color:var(--c);font-weight:700}
+  .mid{color:var(--s);font-weight:700}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .danger{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .gate{font-weight:800;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>추출 텍스트 저장 <span class="kbd">--textsave</span> 설계</h1>
+  <p>분류하면서 <b>문서에서 뽑아낸 본문</b>을 폴더에 <code>.txt</code> 로 남긴다.
+  왜 그 등급이 나왔는지 사람이 직접 눈으로 확인하고, 규칙을 고칠 때 같은 본문으로
+  다시 실험하기 위해서다. <span class="pill">구현 완료 · 2026-09-07</span></p>
+  <p class="muted" style="margin-top:8px">작성 2026-09-07 · Q1~Q6 권고안대로 확정·구현 · 대상 <code>csoclassify</code>(Python) /
+  <code>MpowerClassify-rs</code>(Rust) · 관련
+  <a href="문서크기-상한-설계-20260904.html">문서 크기 상한 설계</a> ·
+  <a href="CSO_HybridParse.html">하이브리드 추출기 설계</a></p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#bg">1. 배경 — 지금은 어디까지 되나(실측)</a></li>
+    <li><a href="#why">2. 왜 필요한가</a></li>
+    <li><a href="#principle">3. 설계 원칙</a></li>
+    <li><a href="#flag">4. 플래그 — 이름과 형태</a></li>
+    <li><a href="#name">5. 파일 이름 규칙 (핵심)</a></li>
+    <li><a href="#which">6. 어느 단계의 텍스트를 저장하나</a></li>
+    <li><a href="#index">7. 색인 파일 <code>_index.jsonl</code></a></li>
+    <li><a href="#rec">8. 레코드 · 요약 변경</a></li>
+    <li><a href="#fail">9. 실패 처리 — 분류를 멈추지 않는다</a></li>
+    <li><a href="#privacy">10. 프라이버시 (가장 중요)</a></li>
+    <li><a href="#edge">11. 경계 사례</a></li>
+    <li><a href="#parity">12. Python ↔ Rust 동치</a></li>
+    <li><a href="#test">13. 테스트 계획</a></li>
+    <li><a href="#open">14. 결정이 필요한 것</a></li>
+  </ul>
+</section>
+
+<!-- 1 -->
+<h2 id="bg"><span class="n">1</span> 배경 — 지금은 어디까지 되나</h2>
+<section class="card">
+  <p><b><code>--save-text</code> 라는 옵션이 이미 있다.</b> 그런데 <b>정작 분류할 때는 아무것도 저장하지 않는다.</b>
+  코드를 전수로 확인한 결과다.</p>
+
+  <div class="scroll"><table>
+    <tr><th>실행 모드</th><th><code>--save-text</code> 가 먹나</th><th>근거</th></tr>
+    <tr><td><b>분류(기본)</b> — 가장 많이 쓰는 모드</td>
+        <td class="bad">안 먹는다</td>
+        <td><code>cli.py</code> 가 추출기를 <code>save_dir=<b>None</b></code> 으로 <b>못박아</b> 부른다.
+            바로 위 주석: <span class="muted">"분류에서는 원문 텍스트를 (기본은) 디스크에 남기지 않는다(민감정보 잔존 방지)"</span></td></tr>
+    <tr><td><code>--text-only</code></td><td class="ok">먹는다</td><td>추출 텍스트를 그대로 출력하는 모드</td></tr>
+    <tr><td><code>--embed</code></td><td class="ok">먹는다</td><td>임베딩 경로는 <code>opts["save_dir"]</code> 를 그대로 넘긴다</td></tr>
+    <tr><td><b>Rust 판 전부</b></td>
+        <td class="bad">인자를 삼키고 <b>아무 일도 안 한다</b></td>
+        <td><code>main.rs</code> 인자 파싱: <code>"--save-text" =&gt; { take(true); }</code> — 값까지 먹고 끝.
+            <b>경고도 없다</b></td></tr>
+  </table></div>
+
+  <div class="danger"><b>이건 그냥 "기능이 없다"가 아니라 조용한 실패다.</b>
+  Rust 판에 <code>--save-text D:\파싱</code> 을 주면 <b>오류도 경고도 없이</b> 정상 종료하고,
+  폴더는 비어 있다. 사용자는 "저장했는데 왜 없지"를 혼자 헤맨다.
+  이 프로젝트가 계속 지켜 온 원칙 — <b>"무엇이 왜 빠졌는지 알 수 없는 것은 거버넌스 도구에서
+  가장 나쁜 실패다"</b> — 에 정면으로 어긋난다. 이번 작업은 기능 추가이면서
+  <b>이 결함의 해소</b>이기도 하다.</div>
+
+  <h3>지금의 파일 이름 규칙도 이대로는 못 쓴다</h3>
+  <p><code>extract/base.py::save_extracted_text()</code> 는 <b>원본 파일명</b>을 쓴다.</p>
+<pre><code>계약서.docx  →  계약서.txt
+계약서.docx  →  계약서__2.txt   <span class="cmt">← 다른 폴더의 동명 파일이면 이렇게 밀린다</span>
+계약서.hwp   →  계약서__3.txt   <span class="cmt">← 확장자가 달라도 stem 이 같으면 또 밀린다</span></code></pre>
+  <p>문제는 <b><code>__2</code> 가 어느 문서인지 결과 레코드만 보고는 알 수 없다는 것</b>이다.
+  2,254건을 한 폴더에 쏟으면 <code>계약서__37.txt</code> 같은 파일이 생기는데, 그게 어느 원본인지
+  되짚을 방법이 없다. 저장은 됐는데 <b>쓸 수가 없다.</b></p>
+</section>
+
+<!-- 2 -->
+<h2 id="why"><span class="n">2</span> 왜 필요한가</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>쓰임</th><th>설명</th></tr>
+    <tr><td><b>판정 근거 눈으로 확인</b></td>
+        <td>"이 PDF 가 왜 C 인가"를 볼 때, <code>signals.rule.hits</code> 만으로는 <b>문장 앞뒤 맥락</b>이 안 보인다.
+            추출 본문이 있으면 규칙이 걸린 그 문장을 직접 읽는다</td></tr>
+    <tr><td><b>추출 품질 점검</b></td>
+        <td>스캔본·표 중심 문서는 <b>본문이 거의 안 나온다</b>. 텍스트를 봐야
+            "추출이 부실해서 미분류"인지 "본문은 멀쩡한데 규칙이 없어서 미분류"인지 갈린다.
+            지금은 이 둘이 결과에서 똑같이 <b>미분류</b>로만 보인다</td></tr>
+    <tr><td><b>규칙 실험</b></td>
+        <td>규칙을 고칠 때마다 문서 2,000건을 <b>다시 파싱</b>하면 수십 분이 든다.
+            텍스트가 있으면 그것만 놓고 규칙을 돌려볼 수 있다</td></tr>
+    <tr><td><b>사고 재현</b></td>
+        <td>"이 문서가 왜 O 였나"를 나중에 물었을 때, 원본이 이미 지워졌어도 본문이 남아 있다</td></tr>
+  </table></div>
+</section>
+
+<!-- 3 -->
+<h2 id="principle"><span class="n">3</span> 설계 원칙</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>#</th><th>원칙</th><th>뜻</th></tr>
+    <tr><td>P1</td><td><b>분류 결과를 바꾸지 않는다</b></td>
+        <td>저장은 <b>곁다리</b>다. 저장이 되든 안 되든 <code>grade</code>·<code>doctype</code> 은 같아야 한다</td></tr>
+    <tr><td>P2</td><td><b>저장 실패로 분류를 멈추지 않는다</b></td>
+        <td>디스크가 차거나 권한이 없어도 분류는 끝까지 간다. 대신 <b>반드시 표식을 남긴다</b>(9장)</td></tr>
+    <tr><td>P3</td><td><b>레코드에서 파일로 갈 수 있어야 한다</b></td>
+        <td>결과 한 줄만 보고 그 문서의 <code>.txt</code> 를 바로 찾을 수 있어야 한다.
+            못 찾으면 저장한 의미가 없다(1장의 <code>__37</code> 문제)</td></tr>
+    <tr><td>P4</td><td><b>기본은 꺼짐</b></td>
+        <td>본문에는 개인정보가 그대로 들어 있다. <b>명시적으로 켠 사람만</b> 남긴다(10장)</td></tr>
+    <tr><td>P5</td><td><b>두 판이 같다</b></td>
+        <td>파이썬·Rust 가 같은 플래그·같은 파일명·같은 색인을 낸다. 옵션을 삼키고 무시하지 않는다</td></tr>
+  </table></div>
+</section>
+
+<!-- 4 -->
+<h2 id="flag"><span class="n">4</span> 플래그 — 이름과 형태</h2>
+<section class="card">
+<pre><code>--textsave &lt;폴더&gt;      <span class="cmt">← 요청하신 형태. 폴더는 <b>필수</b></span>
+
+MpowerClassify.exe --dir "D:\분류함" --textsave "D:\파싱"</code></pre>
+
+  <h3>기존 <code>--save-text</code> 와의 관계 — 세 가지 길</h3>
+  <div class="scroll"><table>
+    <tr><th>안</th><th>내용</th><th>장점</th><th>단점</th></tr>
+    <tr><td><b>A</b></td><td><code>--textsave</code> 를 <b>새로</b> 만들고
+            <code>--save-text</code> 는 그대로 둔다</td>
+        <td>기존 동작이 안 깨진다</td>
+        <td><b>비슷한 옵션이 둘</b>이 된다 — 무엇을 써야 하는지 매번 헷갈린다</td></tr>
+    <tr><td><b>B</b><br><span class="ok">권고</span></td>
+        <td><code>--textsave</code> 를 <b>정식 이름</b>으로 하고,
+            <code>--save-text</code> 는 <b>같은 동작의 옛 이름</b>으로 남긴다
+            (쓰면 "<code>--textsave</code> 를 쓰세요" 한 줄 안내 후 정상 동작)</td>
+        <td>옵션은 실질적으로 <b>하나</b>. 옛 명령줄도 그대로 돈다.
+            분류 모드에서도 저장되도록 <b>고쳐지는 김에</b> 통일된다</td>
+        <td>옛 이름의 파일명 규칙(원본명)이 <b>hash 로 바뀐다</b> —
+            기존 스크립트가 파일명을 짚어 쓰고 있었다면 영향</td></tr>
+    <tr><td><b>C</b></td><td><code>--save-text</code> 만 고쳐 쓰고 <code>--textsave</code> 는 안 만든다</td>
+        <td>새 이름을 안 외워도 된다</td>
+        <td>요청하신 이름이 아니다</td></tr>
+  </table></div>
+
+  <div class="note"><b>B 를 권합니다.</b> 지금 <code>--save-text</code> 는
+  <b>네 모드 중 둘에서만 동작</b>하고 Rust 에서는 아예 무시되므로, "기존 동작"이라고 지킬 만한 것이
+  사실상 없다. 옵션을 둘로 늘리는 비용이 더 크다.</div>
+
+  <h3>값을 안 주면</h3>
+  <p>지금 <code>--save-text</code> 는 값을 생략하면 <code>./_extracted</code> 로 간다.
+  <b><code>--textsave</code> 는 폴더를 필수로 받는다</b> — 개인정보가 담긴 파일이
+  <b>어디에 쌓이는지 모르는 채로</b> 생기면 안 되기 때문이다. 값이 없으면
+  <code>bad_args</code> 로 즉시 종료한다(두 판 동일).</p>
+</section>
+
+<!-- 5 -->
+<h2 id="name"><span class="n">5</span> 파일 이름 규칙 (핵심)</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>안</th><th>파일명</th><th>평가</th></tr>
+    <tr><td>원본명 <span class="muted">(지금 방식)</span></td><td><code>계약서.txt</code> · <code>계약서__2.txt</code></td>
+        <td class="bad">사람은 읽기 쉽지만 <b>충돌이 잦고</b>, <code>__2</code> 가 어느 문서인지 되짚을 수 없다.
+            한글·공백·특수문자·긴 경로 문제도 그대로 안는다</td></tr>
+    <tr><td><code>doc_id</code></td><td><code>SF20260724110933031.txt</code></td>
+        <td class="mid"><b>sfile_id 를 얻은 문서에만</b> 있다. <code>--filelist</code> 없이 돌리면
+            폴백이라 결국 hash 앞 40자가 되므로, 규칙이 <b>상황에 따라 달라진다</b></td></tr>
+    <tr><td><b>파일 SHA-256</b><br><span class="ok">권고</span></td><td><code>567b4e6e3af751a1….txt</code></td>
+        <td class="ok">항상 있고, 충돌이 없고, <b>결과 레코드의 <code>hash</code> 칸과 그대로 이어진다</b>(P3).
+            내용이 같은 문서는 <b>자동으로 한 파일</b>이 된다</td></tr>
+  </table></div>
+
+<pre><code>D:\파싱\
+  ├ 567b4e6e3af751a1b7f07a82045266b6c35ca3a74273fccfd28f3725c6769e08.txt
+  ├ ad5b1c65c028685998e15f285d3b5bceb157fe2a6198ef07011bebcddd1d56c9.txt
+  └ _index.jsonl                <span class="cmt">← 어느 원본인지는 여기서 본다(7장)</span></code></pre>
+
+  <div class="note"><b>hash 이름이 주는 덤 세 가지</b><br>
+  ① <b>중복 제거</b> — 같은 문서가 여러 폴더에 복사돼 있으면 <code>.txt</code> 는 <b>한 개</b>만 생긴다.
+  실측 폴더에 <code>99_중복파일</code> 이 따로 있을 만큼 중복이 많다.<br>
+  ② <b>경로 길이 안전</b> — 이름이 64자로 고정이라 Windows 260자 제한에 걸리지 않는다.
+  압축 내부 문서는 표시명이 <code>압축경로/내부경로</code> 라 특히 길다.<br>
+  ③ <b>파일명에 정보가 안 샌다</b> — <code>2026년_홍길동_징계의결서.txt</code> 같은 이름이
+  폴더 목록만으로 보이는 일이 없다.</div>
+
+  <div class="warn"><b>대가</b> — 폴더를 열어도 <b>사람은 무슨 파일인지 모른다</b>.
+  그래서 색인 파일(7장)이 <b>선택이 아니라 필수</b>다.</div>
+
+  <h3>hash 는 항상 계산되지 않는다 — 켜 줘야 한다</h3>
+  <p>지금 파일 해시는 <code>--hash</code> 나 <code>--simple</code> 일 때만 계산한다
+  (<code>need_hash = args.hash or simple</code>).
+  <b><code>--textsave</code> 를 주면 해시 계산을 강제로 켠다.</b>
+  이름의 근거이기 때문이다. 문서당 비용은 파일 1회 순차 읽기라 추출 비용에 비하면 무시할 수준이다.</p>
+</section>
+
+<!-- 6 -->
+<h2 id="which"><span class="n">6</span> 어느 단계의 텍스트를 저장하나</h2>
+<section class="card">
+  <p>본문은 분류에 닿기까지 <b>세 단계</b>를 거친다. 무엇을 저장하느냐로 쓰임이 달라진다.</p>
+<pre><code>추출기 원문(raw)  →  clean_text()  →  truncate_text(G3, 기본 200만자)  →  규칙·임베딩
+     ①                   ②                      ③</code></pre>
+
+  <div class="scroll"><table>
+    <tr><th>저장 대상</th><th>얻는 것</th><th>잃는 것</th></tr>
+    <tr><td>① 원문</td><td>추출기가 실제로 뱉은 것 — <b>파서 품질 점검</b>에 가장 정확</td>
+        <td>공백·제어문자 잡음이 그대로라 사람이 읽기 나쁘다</td></tr>
+    <tr><td><b>③ 정제 + 절단본</b><br><span class="ok">권고</span></td>
+        <td><b>도구가 실제로 보고 판정한 바로 그 텍스트</b>. "왜 이 등급인가"를 되짚을 때
+            어긋남이 없다. 규칙 재실험에도 이게 맞다</td>
+        <td>절단된 문서(<code>text_truncated=true</code>)는 <b>뒷부분이 없다</b></td></tr>
+  </table></div>
+
+  <div class="note"><b>③ 을 권하는 이유</b> — 이 옵션의 첫 번째 쓰임이 <b>"판정 근거 확인"</b>이다.
+  판정에 안 쓰인 텍스트를 보여 주면 <b>근거가 아니라 혼란</b>이 된다.
+  절단된 문서는 레코드에 이미 <code>text_truncated</code> 표식이 있고, 색인에도
+  <code>truncated</code> 를 넣어(7장) "여기까지만 보고 판정했다"가 드러나게 한다.
+  <br><br>원문(①)이 필요한 경우는 <b>파서 디버깅</b>인데, 그건 이미
+  <code>--text-only</code> 가 담당한다.</div>
+</section>
+
+<!-- 7 -->
+<h2 id="index"><span class="n">7</span> 색인 파일 <code>_index.jsonl</code></h2>
+<section class="card">
+  <p>저장 폴더에 <b>한 줄에 한 문서</b>로 쌓는다. 이것이 hash 이름과 원본을 잇는 유일한 다리다(P3).</p>
+<pre><code>{"hash":"567b4e6e…","txt":"567b4e6e….txt","file":"D:/분류함/01_제품매뉴얼/MCCS 이중화 테스트 시나리오.xlsx",
+ "doc_id":"SF_20260724110933031","chars":18452,"truncated":false,"ts":"2026-09-07T15:02:11+09:00"}</code></pre>
+
+  <div class="scroll"><table>
+    <tr><th>칸</th><th>뜻</th></tr>
+    <tr><td><code>hash</code></td><td>파일 SHA-256 — 결과 레코드의 <code>hash</code> 와 같은 값</td></tr>
+    <tr><td><code>txt</code></td><td>저장된 파일 이름(폴더 기준 상대). 규칙이 바뀌어도 여기만 보면 된다</td></tr>
+    <tr><td><code>file</code></td><td>원본 경로. 압축 내부 문서면 <code>압축경로/내부경로</code> 표시명 그대로</td></tr>
+    <tr><td><code>doc_id</code></td><td>있으면 넣는다(<code>sfile_id</code> 일 때만 값, 아니면 <code>null</code>)</td></tr>
+    <tr><td><code>chars</code></td><td>저장한 글자 수</td></tr>
+    <tr><td><code>truncated</code></td><td>G3 절단본인가 — <b>뒤가 잘렸다</b>는 사실을 색인만 봐도 알게 한다</td></tr>
+    <tr><td><code>ts</code></td><td>저장 시각(레코드의 <code>ts</code> 와 같은 모양)</td></tr>
+  </table></div>
+
+  <div class="note"><b>같은 문서가 여러 경로에 있으면</b> — <code>.txt</code> 는 하나지만
+  <b><code>_index.jsonl</code> 줄은 경로마다 하나씩</b> 쌓는다. 중복 제거의 이득은 챙기면서,
+  "그 본문이 어느 경로들에서 나왔는지"는 잃지 않는다.</div>
+
+  <div class="warn"><b>이어붙이기(append)다.</b> 같은 폴더에 두 번 돌리면 줄이 쌓인다.
+  덮어쓰지 않는 이유는, 어제 돌린 색인을 오늘 실행이 <b>말없이 지워 버리는</b> 것이
+  더 위험하기 때문이다. 새로 시작하려면 폴더를 비우면 된다.</div>
+</section>
+
+<!-- 8 -->
+<h2 id="rec"><span class="n">8</span> 레코드 · 요약 변경</h2>
+<section class="card">
+  <h3>레코드</h3>
+<pre><code>{"file":"…/계약서.docx", "hash":"567b4e6e…", "doc_id":null, "grade":"C", "doctype":["DC_006_001"],
+ "text_saved": "567b4e6e….txt",     <span class="cmt">← 저장에 성공했을 때만 붙는다(폴더 기준 상대명)</span>
+ …}</code></pre>
+  <p>칸 차례는 <b>④ 부속</b> 묶음이다(<code>seed_eligible</code> 곁). 판정값이 아니기 때문이다.
+  <b><code>--textsave</code> 를 안 쓴 실행에는 키 자체가 없다</b> —
+  이 프로젝트가 계속 지켜 온 "안 씀 / 못 함"을 가르는 규약과 같다.</p>
+
+  <h3>요약(summary)</h3>
+<pre><code>[summary] 총 311개 / … , 텍스트저장=305, 저장실패=6
+[summary][텍스트 저장] 305건을 D:\파싱 에 남겼습니다(중복 12건은 한 파일로 합쳐졌습니다).
+[summary][텍스트 저장 실패] 6건은 남기지 못했습니다 — 분류 결과에는 영향이 없습니다.
+                            사유는 레코드의 text_save_error 를 보세요.</code></pre>
+  <p>세는 칸을 <b>따로</b> 두는 이유는, 저장이 조용히 반쯤 실패하는 것을 막기 위해서다.
+  기존 게이트(크기·절단·압축)들과 같은 방식이다.</p>
+</section>
+
+<!-- 9 -->
+<h2 id="fail"><span class="n">9</span> 실패 처리 — 분류를 멈추지 않는다</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>상황</th><th>동작</th></tr>
+    <tr><td>폴더를 만들 수 없다 <span class="muted">(권한·경로 오류)</span></td>
+        <td><b>시작 전에</b> 검사해 <code>bad_args</code> 로 즉시 종료.
+            2,000건을 다 돌린 뒤 "한 건도 저장 못 했다"를 알게 되면 안 된다</td></tr>
+    <tr><td>쓰는 중 실패 <span class="muted">(디스크 가득·잠김)</span></td>
+        <td>그 문서만 건너뛰고 <b>분류는 계속</b>(P2). 레코드에
+            <code>"text_save_error": "&lt;사유&gt;"</code>, 요약에 <b>저장실패 N</b></td></tr>
+    <tr><td>본문이 없다 <span class="muted">(추출 실패·빈 문서)</span></td>
+        <td>파일을 만들지 않는다. <b>0바이트 파일을 남기면</b> "저장됐다"로 오해된다.
+            <code>text_saved</code> 키가 없는 것으로 구분된다</td></tr>
+    <tr><td>이미 같은 hash 의 파일이 있다</td>
+        <td><b>다시 쓰지 않는다</b>(같은 내용이므로). <code>text_saved</code> 는 그대로 붙고
+            색인 줄만 추가된다</td></tr>
+  </table></div>
+  <div class="note">종료코드는 <b>바뀌지 않는다</b> — 저장 실패는 분류 실패가 아니다.
+  자동화가 저장 실패로 파이프라인을 멈추면 P1·P2 가 무너진다.</div>
+</section>
+
+<!-- 10 -->
+<h2 id="privacy"><span class="n">10</span> 프라이버시 (가장 중요)</h2>
+<section class="card">
+  <div class="danger"><b>이 옵션은 개인정보를 평문으로 디스크에 복제한다.</b>
+  지금 분류 경로가 <code>save_dir=None</code> 을 <b>일부러</b> 못박아 둔 이유가 정확히 이것이다.
+  이 옵션은 <b>그 방어를 사용자가 의식적으로 여는 문</b>이며, 설계는 그 사실을 숨기지 않아야 한다.</div>
+
+  <div class="scroll"><table>
+    <tr><th>#</th><th>장치</th><th>내용</th></tr>
+    <tr><td>S1</td><td><b>기본 꺼짐 · 폴더 필수</b></td>
+        <td>값 없는 기본 경로를 두지 않는다(4장) — 어디에 쌓이는지 모르는 채로 생기지 않게</td></tr>
+    <tr><td>S2</td><td><b>실행 시 한 줄 경고</b></td>
+        <td><code>[MpowerClassify] --textsave: 추출 본문(개인정보 포함 가능)을 D:\파싱 에 평문으로 남깁니다.</code>
+            — 켠 사람이 못 봤다고 할 수 없게</td></tr>
+    <tr><td>S3</td><td><b>C 등급도 그대로 저장</b></td>
+        <td>등급으로 거르지 <b>않는다</b>. 등급은 저장한 <b>뒤에</b> 정해지고, 무엇보다
+            "C 는 빠졌다"를 모르면 근거 확인이라는 목적 자체가 깨진다.
+            대신 이 사실을 문서에 <b>분명히</b> 적는다</td></tr>
+    <tr><td>S4</td><td><b>폴더 안내문</b></td>
+        <td>저장 폴더에 <code>_README.txt</code> 를 하나 남긴다 — "이 폴더에는 원문 발췌가 들어 있다.
+            공유·백업 대상에서 제외하라." 폴더만 발견한 제3자를 위한 것이다</td></tr>
+  </table></div>
+  <p class="muted">S3·S4 는 검토 대상이다(14장). 특히 S4 는 파일이 하나 더 생기는 것이라
+  자동화가 폴더를 훑을 때 <code>.txt</code> 필터에 걸리지 않게 이름을 정해야 한다.</p>
+</section>
+
+<!-- 11 -->
+<h2 id="edge"><span class="n">11</span> 경계 사례</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>사례</th><th>동작</th></tr>
+    <tr><td><b>압축 내부 문서</b></td>
+        <td>내부 문서 <b>각각</b> 저장한다. hash 는 <b>임시로 풀어 놓은 실제 파일</b>의 것이라
+            압축을 다시 풀어도 같은 값이다. 색인의 <code>file</code> 은 표시명
+            (<code>D:/자료/a.zip/문서.docx</code>)</td></tr>
+    <tr><td><b>압축 집계 레코드</b></td>
+        <td>본문이 없다(집계일 뿐). 저장하지 않고 <code>text_saved</code> 키도 없다</td></tr>
+    <tr><td><b>크기 상한 초과(G1·G2)</b></td>
+        <td>애초에 읽지 않았으므로 저장할 것이 없다</td></tr>
+    <tr><td><b>분할 압축 조각</b></td>
+        <td>읽지 않는다 — 저장 없음</td></tr>
+    <tr><td><b><code>--text-only</code> 와 같이 준 경우</b></td>
+        <td>화면으로도 내고 파일로도 남긴다(모순이 없다)</td></tr>
+    <tr><td><b>데몬 모드</b></td>
+        <td>저장은 <b>추출을 실제로 한 쪽</b>(데몬 프로세스)이 한다. 경로는 요청과 함께 넘긴다 —
+            데몬의 작업 폴더를 기준으로 삼으면 <b>엉뚱한 데</b> 쌓인다.
+            <span class="muted">상대경로는 CLI 쪽에서 절대경로로 바꿔 보낸다</span></td></tr>
+  </table></div>
+</section>
+
+<!-- 12 -->
+<h2 id="parity"><span class="n">12</span> Python ↔ Rust 동치</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>항목</th><th>Python</th><th>Rust</th></tr>
+    <tr><td>플래그</td><td colspan="2"><code>--textsave &lt;폴더&gt;</code> (+ 옛 이름 <code>--save-text</code>, 4장 B안)</td></tr>
+    <tr><td>파일명</td><td colspan="2"><code>&lt;sha256&gt;.txt</code> · UTF-8 · 개행 <code>\n</code></td></tr>
+    <tr><td>색인</td><td colspan="2"><code>_index.jsonl</code> — 같은 칸·같은 차례</td></tr>
+    <tr><td>레코드</td><td colspan="2"><code>text_saved</code> / <code>text_save_error</code></td></tr>
+    <tr><td>구현 위치</td><td><code>extract/base.py::save_extracted_text()</code> 를
+            hash 이름 방식으로 고치고, <code>cli.py</code> 분류 경로에서 호출</td>
+        <td><code>main.rs</code> 인자 파싱에서 <b>삼키던 것을 실제 처리</b>로 바꾸고,
+            추출 직후 저장</td></tr>
+  </table></div>
+  <div class="danger"><b>[정정 · 구현하며 드러남] 두 판은 같은 폴더를 쓰면 안 된다.</b><br>
+  설계 단계에서 "파일명이 내용 해시라 서로 덮어써도 같은 내용"이라고 적었는데 <b>틀렸다</b>.
+  파일명은 <b>원본 파일</b>의 해시지만, 저장하는 것은 원본이 아니라 <b>추출한 본문</b>이다.
+  두 판은 파서가 아예 다르므로(파이썬=사이냅·하이브리드, Rust=순수 Rust 파서)
+  같은 문서에서도 본문이 다르게 나온다 — 실측으로 확인했다.
+  <div class="scroll"><table>
+    <tr><th>문서</th><th>파이썬 판</th><th>Rust 판</th></tr>
+    <tr><td>하이브리드 문서분류_초안.PPTX</td><td>9,312 B</td><td>9,330 B</td></tr>
+    <tr><td>pii_compare_report.html</td><td>153,285 B</td><td>140,370 B</td></tr>
+    <tr><td>MpowerAI_RAG_보안설계.html</td><td>4,353 B</td><td>4,739 B</td></tr>
+  </table></div>
+  그대로 뒀다면 나중에 돌린 판이 <b>"이미 있으니 됐다"</b>며 남의 본문을 자기 것인 양
+  가리켰을 것이다 — 결과에는 <code>text_saved</code> 가 멀쩡히 붙어 있어서
+  <b>알아챌 방법이 없는</b> 종류의 사고다.
+  <br><br><b>그래서 이렇게 막았다</b> — 같은 이름이 이미 있으면 <b>내용까지 비교</b>한다.
+  같으면 중복 제거로 넘어가고, <b>다르면 덮지 않고 오류로 알린다</b>:
+  <code>text_save_error="같은 해시의 다른 본문이 이미 있습니다 — 다른 엔진이나
+  다른 버전으로 만든 폴더로 보입니다. 폴더를 나누세요"</code>.
+  실측: 파이썬으로 만든 폴더에 Rust 를 돌리면 <b>저장실패=3</b> 이 뜨고 파일은 그대로 남는다.</div>
+</section>
+
+<!-- 13 -->
+<h2 id="test"><span class="n">13</span> 테스트 계획</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>#</th><th>무엇을 지키나</th></tr>
+    <tr><td>T1</td><td><code>--textsave</code> 를 주면 문서 수만큼 <code>.txt</code> 가 생기고, 이름이 레코드의 <code>hash</code> 와 같다</td></tr>
+    <tr><td>T2</td><td>같은 내용의 문서 2건 → <code>.txt</code> 는 <b>1개</b>, <code>_index.jsonl</code> 은 <b>2줄</b></td></tr>
+    <tr><td>T3</td><td>옵션을 안 주면 <b>파일이 하나도 안 생기고</b> <code>text_saved</code> 키도 없다(P4)</td></tr>
+    <tr><td>T4</td><td>저장 폴더를 읽기전용으로 만들어도 <b>분류 결과가 같다</b>(P1·P2) — 그리고 요약에 <b>저장실패 N</b> 이 뜬다</td></tr>
+    <tr><td>T5</td><td>추출 실패 문서에는 <b>0바이트 파일이 안 생긴다</b></td></tr>
+    <tr><td>T6</td><td>절단된 문서의 <code>.txt</code> 길이 == 레코드가 본 길이, 색인 <code>truncated=true</code></td></tr>
+    <tr><td>T7</td><td>두 판이 같은 <b>규칙</b>으로 낸다 — 파일명(<code>hash.txt</code>) ·
+        색인 칸과 차례 · <code>text_saved</code> 표식 · <code>_README.md</code>.
+        <span class="def">파일 <b>내용</b>은 파서가 달라 같지 않다(12장) — 내용을 비교하는
+        시험을 쓰면 늘 실패한다</span></td></tr>
+    <tr><td>T7b</td><td>같은 해시인데 본문이 다르면 <b>덮지 않고 오류로 알린다</b>(12장)</td></tr>
+    <tr><td>T8</td><td>Rust 가 <code>--textsave</code> 를 <b>삼키고 무시하지 않는다</b>(1장 결함의 회귀 방지)</td></tr>
+  </table></div>
+</section>
+
+<!-- 14 -->
+<h2 id="open"><span class="n">14</span> 결정이 필요한 것</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>#</th><th>물음</th><th>확정 <span class="def">2026-09-07 · 권고안대로</span></th></tr>
+    <tr><td>Q1</td><td>플래그를 <b>새로</b> 만드나, 기존 <code>--save-text</code> 를 흡수하나</td>
+        <td><b>B안</b> — <code>--textsave</code> 를 정식 이름으로, <code>--save-text</code> 는 옛 이름으로 남긴다</td></tr>
+    <tr><td>Q2</td><td>파일명을 <b>hash</b> 로 하나, 사람이 읽는 이름으로 하나</td>
+        <td><b>hash</b> + <code>_index.jsonl</code>. 읽기 편함은 색인이 맡는다</td></tr>
+    <tr><td>Q3</td><td><b>어느 단계</b>의 텍스트를 저장하나</td>
+        <td><b>정제·절단 후</b> — 도구가 실제로 보고 판정한 텍스트</td></tr>
+    <tr><td>Q4</td><td><span class="tag c">C</span> 등급 문서도 저장하나</td>
+        <td><b>저장한다</b>(S3). 다만 "C 도 남는다"를 실행가이드에 굵게 적는다</td></tr>
+    <tr><td>Q5</td><td>폴더에 <code>_README.txt</code> 경고문을 남기나</td>
+        <td>남긴다(S4). 반대 의견이 있으면 뺀다 — 기능에는 영향 없다</td></tr>
+    <tr><td>Q6</td><td>같은 폴더에 <b>다시 돌릴 때</b> 색인을 이어붙이나 새로 쓰나</td>
+        <td><b>이어붙인다</b> — 말없이 지우는 것이 더 위험하다</td></tr>
+  </table></div>
+  <div class="note"><b>Q1~Q6 모두 권고안대로 확정하고 구현했다</b> <span class="def">2026-09-07</span><br>
+  구현 위치 — 파이썬 <code>csoclassify/textsave.py</code>(신설) ·
+  <code>cli.py::resolve_textsave()</code> · <code>cli.py::_save_text_file()</code>,
+  Rust <code>src/textsave.rs</code>(신설) · <code>main.rs</code>.
+  시험 — 파이썬 <code>tests/test_textsave.py</code> 10건 +
+  <code>tests/test_errcodes.py</code> 의 두 판 대조 2건(×2엔진), Rust 1건.
+  <br><b>1장에서 지적한 Rust 의 조용한 실패</b>(<code>--save-text</code> 를 삼키고 아무 일도
+  안 하던 것)도 함께 없앴다 — 이제 두 판이 같은 옵션을 같은 뜻으로 처리한다.</div>
+</section>
+
+<footer>MpowerClassify · 추출 텍스트 저장(--textsave) 설계 · 2026-09-07 작성 · 설계안(미구현)</footer>
+</div>
+</body>
+</html>

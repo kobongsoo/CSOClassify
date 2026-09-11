@@ -184,25 +184,6 @@ def test_terms와_filename이_함께_걸리면_from_합쳐진다():
 
 
 #------------------------------------------------------------------
-# paths 매칭
-#
-# -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
-#------------------------------------------------------------------
-def test_paths_매칭():
-    taxonomy = mk_taxonomy()
-    rules = (D.DoctypeRule(id="dt_contract", node="CONTRACT",
-                          paths=("/법무/", "/계약/")),)
-    drs = D.DocRuleSet(conflict=D.ConflictSpec(strategy="all"), rules=rules)
-    sig = DT.scan_doctype("", "D:/collected/법무/무제.docx", drs, taxonomy)
-    assert len(sig.values) == 1
-    assert sig.values[0]["from"] == ("path",)
-
-
-# ── 조상 흡수(5-2) ─────────────────────────────────────────────────
-
-#------------------------------------------------------------------
 # 조상-자손이 함께 걸리면 자손만 남는다
 #
 # -in: 없음

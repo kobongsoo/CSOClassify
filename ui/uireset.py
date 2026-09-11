@@ -10,7 +10,7 @@
 #
 #   [남기는 것]
 #     - doc_classification_export.json  ← 회사 분류 체계 '원본'(사람이 받아 온 자산)
-#     - cso_rules.yaml · doc_rule_template.yaml · synonyms/  ← 애초에 대상이 아님(.yaml/폴더)
+#     - cso_rule.yaml · doc_rule_template.yaml · synonyms/  ← 애초에 대상이 아님(.yaml/폴더)
 #     - 소스 코드(.py) · 실행.bat · settings.yaml · policy_org/ 등 그 밖의 모든 것
 #
 #   [안전 장치] 지우는 대상을 '확장자와 폴더'로 좁혀 정한다. "목록에 없는 것을 전부

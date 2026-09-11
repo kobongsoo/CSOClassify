@@ -129,8 +129,8 @@
     <div class="sec-head"><span class="sec-num">01</span><h2>지금 무엇이 문제인가</h2></div>
 
     <h3>① 실패가 사람이 읽는 글자로만 나온다</h3>
-<pre><span class="cm">&gt; csoclassify-rs.exe --dir "D:\Sample2" --simple</span>
-[csoclassify-rs] 처리할 파일이 없습니다. --file 또는 --dir 지정.</pre>
+<pre><span class="cm">&gt; MpowerClassify-rs.exe --dir "D:\Sample2" --simple</span>
+[MpowerClassify-rs] 처리할 파일이 없습니다. --file 또는 --dir 지정.</pre>
     <p>부르는 쪽이 이 문장을 <b>글자로 맞춰 봐야</b> 원인을 안다. 문구를 한 글자만 고쳐도 상대 프로그램이 깨진다.</p>
 
     <h3>② 같은 상황인데 엔진마다 종료코드가 다르다</h3>
@@ -238,7 +238,7 @@
         <thead><tr><th>code</th><th>kind</th><th>exit</th><th>언제</th><th>path</th></tr></thead>
         <tbody>
           <tr><td class="mono">2001</td><td class="mono">rules_missing</td><td class="mono">3</td>
-              <td>보안등급 규칙셋(<code class="inl">cso_rules.yaml</code>)을 못 찾음</td><td>찾아본 경로</td></tr>
+              <td>보안등급 규칙셋(<code class="inl">cso_rule.yaml</code>)을 못 찾음</td><td>찾아본 경로</td></tr>
           <tr><td class="mono">2002</td><td class="mono">rules_invalid</td><td class="mono">4</td>
               <td>규칙셋 내용 오류 — V0(구조) · V5(정의 안 된 등급) · V6(bulk 가 base 보다 낮음) ·
               V12(경로 규칙에 grade·acl_restricted 둘 다 없음)</td><td>규칙셋</td></tr>
@@ -369,7 +369,7 @@ r = subprocess.run([EXE, "--dir", folder, "--json-errors",
 
   <footer>
     <span>CLI 오류 출력 — 기계가 읽는 오류 계약</span>
-    <span>CSOClassify · 2026-08-31 설계 · 2026-09-01 구현</span>
+    <span>MpowerClassify · 2026-08-31 설계 · 2026-09-01 구현</span>
   </footer>
 
 </div>

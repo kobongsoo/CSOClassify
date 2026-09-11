@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>cso_rules.yaml 규칙셋 레퍼런스</title>
+<title>cso_rule.yaml 규칙셋 레퍼런스</title>
 <style>
   :root{
     --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
@@ -68,7 +68,7 @@
 <div class="wrap">
 
 <header class="hero">
-  <h1>cso_rules.yaml — 규칙셋 필드 레퍼런스</h1>
+  <h1>cso_rule.yaml — 규칙셋 필드 레퍼런스</h1>
   <p>C/S/O 자동분류 규칙셋의 <b>모든 섹션·필드의 의미</b>를 표로 정리했습니다. 규칙셋을 직접 편집하거나 UI 규칙설정을 이해할 때 참고하세요.</p>
 </header>
 
@@ -86,19 +86,19 @@
     <li><a href="#keywords">6. keywords (기밀사전)</a></li>
     <li><a href="#sensitive">7. sensitive (민감정보군)</a></li>
     <li><a href="#stamps">8. stamps (보안분류 스탬프)</a></li>
-    <li><a href="#paths">9. paths (경로)</a></li>
+    <li><a href="#paths">9. paths (경로) <span class="def">2026-09-08 제거</span></a></li>
   </ul>
 </section>
 
 <!-- ============ 0. 개요 ============ -->
 <h2 id="overview"><span class="n">0</span> 개요 · 파일 위치</h2>
 <section class="card">
-  <p><code>cso_rules.yaml</code>은 문서를 <b>C(기밀)/S(민감)/O(공개)</b>로 분류하는 <b>정책 파일</b>입니다. 실행파일(<code>csoclassify</code>)에 내장하지 않고 <b>exe 옆의 외장 파일</b>로 두어, 재빌드 없이 규칙만 교체·배포할 수 있습니다.</p>
+  <p><code>cso_rule.yaml</code>은 문서를 <b>C(기밀)/S(민감)/O(공개)</b>로 분류하는 <b>정책 파일</b>입니다. 실행파일(<code>csoclassify</code>)에 내장하지 않고 <b>exe 옆의 외장 파일</b>로 두어, 재빌드 없이 규칙만 교체·배포할 수 있습니다.</p>
   <div class="scroll"><table>
     <tr><th>찾는 순서(우선)</th><th>위치</th></tr>
-    <tr><td>① 환경변수</td><td><code>CSOCLASSIFY_POLICY_DIR</code> 폴더의 <code>cso_rules.yaml</code></td></tr>
+    <tr><td>① 환경변수</td><td><code>CSOCLASSIFY_POLICY_DIR</code> 폴더의 <code>cso_rule.yaml</code></td></tr>
     <tr><td>② 인자</td><td><code>--rules &lt;파일경로&gt;</code> 로 직접 지정</td></tr>
-    <tr><td>③ 기본(배포)</td><td>exe 와 <b>같은 폴더</b>의 <code>cso_rules.yaml</code></td></tr>
+    <tr><td>③ 기본(배포)</td><td>exe 와 <b>같은 폴더</b>의 <code>cso_rule.yaml</code></td></tr>
   </table></div>
   <p class="muted">파일이 없으면 분류 실행 시 “어디에 두라”는 안내를 내고 종료(코드 3)합니다. 편집은 이 파일을 직접 수정하거나 <b>UI 규칙설정</b>에서 합니다(UI는 주석을 보존하며 저장 시 <code>.bak</code> 백업 + 버전 자동 상향).</p>
   <div class="warn"><b>프라이버시 불변식</b> — 스캐너는 매칭된 <b>원문 PII 값</b>을 저장하지 않습니다. 결과 근거에는 <b>유형 id·건수·정책 키워드</b>만 남습니다(원문은 <code>--with-pii</code> 옵션 사용 시에만 <code>--out</code> 파일에 한정).</div>
@@ -113,8 +113,7 @@
     <tr><td><code>rule</code> <span class="pill">내용</span></td><td><code>regex_pii</code> + <code>pii_combos</code> + <code>keywords</code></td><td>본문의 PII 유형·결합·기밀 키워드</td></tr>
     <tr><td><code>sensitive</code> <span class="pill">민감정보</span></td><td><code>sensitive</code></td><td>법상 민감정보 범주 키워드</td></tr>
     <tr><td><code>stamp</code> <span class="pill">표식</span></td><td><code>stamps</code></td><td>문서에 찍힌 보안분류 스탬프</td></tr>
-    <tr><td><code>path</code> <span class="pill">경로</span></td><td><code>paths</code></td><td>파일이 놓인 폴더/서버</td></tr>
-    <tr><td><code>name</code> <span class="pill">파일명</span></td><td><code>keywords</code> 재사용</td><td>파일 이름 속 키워드</td></tr>
+    <tr><td><code>name</code> <span class="pill">파일명</span></td><td><code>keywords[].filename</code></td><td>파일 이름 속 단어 <span class="def">2026-09-08 부터 본문(terms)과 별도 목록</span></td></tr>
     <tr><td><code>embed</code> <span class="pill">전파</span></td><td>(규칙셋 아님 · seed 비교)</td><td>보류 문서를 유사도로 구제(2차 패스)</td></tr>
   </table></div>
   <p class="muted"><b>bulk 상향</b>: 한 유형이 <b>임계값(건수) 이상</b> 나오면 <code>bulk_grade</code>로 상향됩니다(명단·대장 정황). 예) 주민번호 1건=<span class="tag s">S</span>, 5건 이상=<span class="tag c">C</span>.</p>
@@ -167,7 +166,6 @@
   keyword:   {high: 0.85, medium: 0.70, low: 0.50}   <span class="cmt"># 기밀사전</span>
   sensitive: {high: 0.85, medium: 0.70, low: 0.55}   <span class="cmt"># 민감정보군</span>
   stamp:     {high: 0.95, medium: 0.80, low: 0.65}   <span class="cmt"># 보안분류 스탬프</span>
-  path:      {high: 0.90, medium: 0.70, low: 0.50}   <span class="cmt"># 경로</span>
   name:      0.60                                      <span class="cmt"># 파일명(고정)</span></code></pre>
   <div class="scroll"><table>
     <tr><th>키</th><th>타입</th><th>의미</th></tr>
@@ -175,7 +173,6 @@
     <tr><td class="f">keyword</td><td>{high,medium,low}</td><td>기밀사전(keywords) 신호의 신뢰도.</td></tr>
     <tr><td class="f">sensitive</td><td>{high,medium,low}</td><td>민감정보군(sensitive) 신호의 신뢰도.</td></tr>
     <tr><td class="f">stamp</td><td>{high,medium,low}</td><td>보안분류 스탬프(stamps) 신호의 신뢰도(오탐 낮아 높게).</td></tr>
-    <tr><td class="f">path</td><td>{high,medium,low}</td><td>경로(paths) 신호의 신뢰도.</td></tr>
     <tr><td class="f">name</td><td>실수(float)</td><td>파일명 신호의 고정 신뢰도(힌트라 단일 값).</td></tr>
   </table></div>
   <p class="muted">※ 일부만 적어도 됩니다(적은 값만 기본값 위에 덮어씀). 값은 0~1 실수.</p>
@@ -204,7 +201,7 @@
     <tr><td class="f">weight</td><td class="opt">선택</td><td>weight</td><td>medium</td><td>신뢰도 가중.</td></tr>
     <tr><td class="f">seed_eligible</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 이 히트로 확정된 문서를 전파 seed 로 승격 가능.</td></tr>
   </table></div>
-  <div class="note">활성 PII는 <b>20종</b>(RRN·FRN·CARD·ACCOUNT·PASSPORT·DRIVER_LICENSE·PHONE·EMAIL·BUSINESS_REG·CORP_REG·ADDRESS·MEDICAL_INSURANCE·PRESCRIPTION_ID·EDI_DRUG·VEHICLE·COURT_CASE·PNU·NATIONALITY·URL·IP). <b>cso_rules.yaml에 매핑된 라벨만</b> 검출합니다(미등록 유형은 스캔 안 함).</div>
+  <div class="note">활성 PII는 <b>20종</b>(RRN·FRN·CARD·ACCOUNT·PASSPORT·DRIVER_LICENSE·PHONE·EMAIL·BUSINESS_REG·CORP_REG·ADDRESS·MEDICAL_INSURANCE·PRESCRIPTION_ID·EDI_DRUG·VEHICLE·COURT_CASE·PNU·NATIONALITY·URL·IP). <b>cso_rule.yaml에 매핑된 라벨만</b> 검출합니다(미등록 유형은 스캔 안 함).</div>
 </section>
 
 <!-- ============ 5. pii_combos ============ -->
@@ -241,18 +238,19 @@
 <!-- ============ 6. keywords ============ -->
 <h2 id="keywords"><span class="n">6</span> keywords <span class="sig">rule 신호 · L2 · name 신호</span></h2>
 <section class="card">
-  <p><b>기밀사전</b> — 지정 단어가 있으면 히트. <b>이 사전은 <u>내용과 파일명 둘 다</u>에 적용됩니다</b>:
-  본문(추출 텍스트)에서는 <code>rule</code> 신호의 L2로, 파일 이름(폴더 제외)에서는 <code>name</code> 신호로
-  같은 <code>terms</code> 목록이 쓰입니다.</p>
-  <div class="note"><b><code>name</code>(파일명) 신호는 별도 규칙 섹션이 없습니다.</b> 이 <code>keywords:</code> 섹션을
-  파일명에 그대로 재사용합니다(그래서 <code>cso_rules.yaml</code> 에 <code>name:</code> 섹션이 없음). 예:
-  <code>대외비_보고서.hwp</code> 라는 <b>파일명만</b>으로도 <code>mark_confidential</code>(<span class="tag c">C</span>)이 잡힙니다.
-  <code>keywords:</code> 에 단어를 추가하면 <b>내용·파일명 양쪽</b>에 반영됩니다.
-  <span class="def">단, PII 정규식(<code>regex_pii</code>)·스탬프(<code>stamps</code>)·민감정보(<code>sensitive</code>)는 내용 전용이라 파일명엔 적용되지 않습니다.</span></div>
+  <p><b>기밀사전</b> — 지정 단어가 있으면 히트. <b>본문과 파일명을 <u>따로</u> 적습니다</b>:
+  <code>terms</code> 는 본문(추출 텍스트)에서 <code>rule</code> 신호의 L2로,
+  <code>filename</code> 은 파일 이름(폴더 제외)에서 <code>name</code> 신호로 쓰입니다.</p>
+  <div class="note"><b><code>name</code>(파일명) 신호는 별도 섹션이 아니라 이 규칙의 <code>filename</code> 칸입니다.</b>
+  <code>filename</code> 을 <b>안 적으면 그 규칙은 파일 이름을 보지 않습니다</b> — <code>terms</code> 를 빌려 쓰지 않습니다.
+  예: <code>mark_confidential</code> 에 <code>filename: [대외비]</code> 를 적어 두면 <code>대외비_보고서.hwp</code> 라는 <b>파일명만</b>으로도 <span class="tag c">C</span> 가 잡힙니다.
+  <span class="def">PII 정규식(<code>regex_pii</code>)·스탬프(<code>stamps</code>)·민감정보(<code>sensitive</code>)는 내용 전용이라 파일명엔 적용되지 않습니다.</span></div>
+  <div class="warn"><b>왜 나눴나</b> <span class="pill">2026-09-08 변경</span> — 예전에는 <code>terms</code> 를 파일명에도 그대로 썼습니다. 그 탓에 실측(문서 2,266개)에서 <b>파일명 신호 99건 중 79건</b>이 제품명 규칙 하나에서 나왔습니다 — <code>엠파워 V10 사용자 매뉴얼.pptx</code> 같은 <b>제품 매뉴얼이 이름 때문에 <span class="tag c">C</span></b> 가 됐습니다. 본문에 제품명이 나오는 것과 파일명이 그 제품 문서인 것은 뜻이 다른데, 예전 문법으로는 구분할 방법이 없었습니다.</div>
 <pre><code>keywords:
 - id: mark_confidential
   name: 기밀 표식
-  terms: [대외비, 극비, 기밀, CONFIDENTIAL, RESTRICTED, SECRET]
+  terms: [대외비, 극비, 기밀, CONFIDENTIAL, RESTRICTED, SECRET]   <span class="cmt"># 본문에서 찾을 말</span>
+  filename: [대외비, 극비, 기밀, CONFIDENTIAL]                     <span class="cmt"># 파일명에서 찾을 말(생략 가능)</span>
   base_grade: C
   weight: high
   seed_eligible: true</code></pre>
@@ -260,7 +258,8 @@
     <tr><th>필드</th><th>필수</th><th>타입</th><th>기본</th><th>의미</th></tr>
     <tr><td class="f">id</td><td class="req">필수</td><td>문자열</td><td>—</td><td>규칙 식별자.</td></tr>
     <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름.</td></tr>
-    <tr><td class="f">terms</td><td class="req">필수</td><td>문자열 목록</td><td>—</td><td>탐지 단어들. 하나라도 텍스트에 있으면 히트(부분일치). <code>case_insensitive</code> 정책 적용.</td></tr>
+    <tr><td class="f">terms</td><td class="req">필수</td><td>문자열 목록</td><td>—</td><td>탐지 단어들. 하나라도 <b>본문</b>에 있으면 히트(부분일치). <code>case_insensitive</code> 정책 적용.</td></tr>
+    <tr><td class="f">filename</td><td class="opt">선택</td><td>문자열 목록</td><td>없음</td><td><b>파일 이름에서 찾을 단어들.</b> 안 적으면 이 규칙은 <b>파일명 신호를 만들지 않습니다</b>(<code>terms</code> 로 되돌아가지 않음). <code>exclude</code> 는 파일명에도 함께 적용됩니다. <span class="def">2026-09-08 신설</span></td></tr>
     <tr><td class="f">exclude</td><td class="opt">선택</td><td>문자열 목록</td><td>없음</td><td><b>오탐 제외어.</b> 단어가 이 문구 <b>안에 든</b> 매치는 세지 않음(한국어는 띄어쓰기가 없어 부분일치 오탐이 잦음). 예: <code>전과</code> 이지만 <code>산전과</code>·<code>발전과</code> 는 제외.</td></tr>
     <tr><td class="f">base_grade</td><td class="opt">선택</td><td>grade</td><td>S</td><td>1건이라도 있으면 부여할 등급.</td></tr>
     <tr><td class="f">bulk_grade</td><td class="opt">선택</td><td>grade</td><td>없음</td><td>총 등장 건수가 임계 이상이면 상향할 등급.</td></tr>
@@ -333,31 +332,35 @@
 </section>
 
 <!-- ============ 9. paths ============ -->
-<h2 id="paths"><span class="n">9</span> paths <span class="sig">path 신호 · Signal C</span></h2>
+<h2 id="paths"><span class="n">9</span> paths <span class="sig">2026-09-08 제거됨</span></h2>
 <section class="card">
-  <p><b>경로 택소노미</b> — 파일이 <b>어디에 있나</b>(폴더·서버 위치)로 등급을 매깁니다. 텍스트를 열지 않는 값싼 출처 신호입니다. 경로에 규칙의 <code>match</code> 조각이 들어 있으면 그 등급.</p>
-<pre><code>paths:
-- id: secure_server
-  name: 기밀 서버·보안파일서버
-  match: ["//hr-server/", "보안파일서버", "/secret/"]
-  grade: C
-  acl_restricted: true
-  weight: high
-  seed_eligible: false</code></pre>
+  <div class="danger"><b>이 섹션은 없어졌습니다.</b> 경로(폴더·서버 위치)로 등급을 매기던 <code>path</code> 신호(Signal C)를 두 판에서 함께 걷어냈습니다.</div>
+
+  <p><b>왜 뺐나</b> — 문서가 어디 놓여 있는지는 담당자가 옮기면 바뀝니다. 위치로 기밀을 정하면 <b>폴더 정리 한 번에 등급이 흔들립니다</b>. 실측(레코드 3,715건)에서도 거의 안 쓰였고, 쓰인 것은 틀렸습니다:</p>
+<pre><code>path 가 등급 결정에 참여   :  27건 (0.7%)
+path 만으로 등급이 정해짐  :   8건 (0.2%)  ← <b>전부 오탐</b>
+acl_restricted fail-safe   :   0건        ← 안전망이 한 번도 안 걸림</code></pre>
+  <p>규칙의 <code>match</code> 조각에 슬래시 없는 말(<code>보안파일서버</code>)이 섞여 있어, <b>"보안파일서버"라는 제품의 설치확인서</b>가 보안 서버의 파일로 취급됐습니다. 공개 평가 데이터셋도 폴더 이름(<code>finance</code>·<code>public</code>) 때문에 걸렸습니다. 경로 신호가 <b>위치가 아니라 이름에 든 말</b>을 보고 있었던 셈입니다.</p>
+
+  <h3>무엇으로 대신하나</h3>
   <div class="scroll"><table>
-    <tr><th>필드</th><th>필수</th><th>타입</th><th>기본</th><th>의미</th></tr>
-    <tr><td class="f">id</td><td class="req">필수</td><td>문자열</td><td>—</td><td>규칙 식별자. 결과 근거의 <code>source</code>.</td></tr>
-    <tr><td class="f">name</td><td class="opt">선택</td><td>문자열</td><td>=id</td><td>사람이 읽는 이름.</td></tr>
-    <tr><td class="f">match</td><td class="req">필수</td><td>문자열 목록</td><td>—</td><td>경로에 포함되면 매칭되는 <b>조각</b>들(부분일치). 구분자는 <code>/</code>로 통일해 표기(코드가 <code>\</code>·UNC를 <code>/</code>·<code>//</code>로 정규화·소문자화).</td></tr>
-    <tr><td class="f">grade</td><td class="opt">선택</td><td>grade</td><td>S</td><td>매칭 시 부여 등급.</td></tr>
-    <tr><td class="f">acl_restricted</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 <b>강한 제한</b> 표식 — 다른 신호가 없어도 fail-safe 로 <span class="tag c">C</span>.</td></tr>
-    <tr><td class="f">weight</td><td class="opt">선택</td><td>weight</td><td>high</td><td>신뢰도 가중.</td></tr>
-    <tr><td class="f">seed_eligible</td><td class="opt">선택</td><td>bool</td><td>false</td><td>true면 seed 승격 가능.</td></tr>
+    <tr><th>예전 쓰임</th><th>지금</th></tr>
+    <tr><td>폴더로 등급 부여(<code>grade</code>)</td>
+        <td>본문·파일명 신호로 판정합니다. 파일 이름으로 잡고 싶으면 <code>keywords[].filename</code> 에 그 말을 적으세요(6장)</td></tr>
+    <tr><td>보안 폴더 fail-safe(<code>acl_restricted</code>)</td>
+        <td>실행할 때 <code>--failsafe C</code> — 위치를 규칙 파일에 박는 대신 <b>그때그때 사람이 선언</b>합니다</td></tr>
   </table></div>
-  <p class="muted">※ 규칙은 <b>위에서부터 먼저 매칭되는 하나만</b> 적용됩니다(우선순위 = 배열 순서). 예) <code>//hr-server/</code>→<span class="tag c">C</span>, <code>/인사/</code>→<span class="tag s">S</span>, <code>/public/</code>→<span class="tag o">O</span>.</p>
+  <div class="note"><b><code>--failsafe</code> 로 다 덮이지는 않습니다.</b> 이 옵션은 <b>"읽었는데 신호가 없다"</b>에만 적용되고, <b>"못 읽었다"</b>(암호 zip·스캔 이미지)에는 일부러 주지 않습니다 — 못 읽은 문서에 자동으로 등급을 매기면 사람이 확인할 기회를 잃기 때문입니다. 그런 문서는 요약의 <code>추출실패=N</code> 과 레코드의 <code>error.kind</code> 로 드러납니다.</div>
+
+  <h3>옛 규칙셋에 <code>paths:</code> 가 남아 있으면</h3>
+  <p><b>조용히 무시하지 않습니다.</b> 이 파서는 모르는 최상위 키를 그냥 넘기므로, 알리지 않으면 경로로 등급이 붙던 문서가 아무 말 없이 등급을 잃습니다. 검증이 막습니다:</p>
+<pre><code>[V12] 이제 쓰지 않는 블록이 남아 있음
+  paths[-] = (블록)  — paths 는 더 이상 쓰지 않는 블록입니다(2026-09-08 제거)
+                       — 이 신호는 동작하지 않으므로 규칙셋에서 지우세요</code></pre>
+  <p class="muted">설계: <code>plan/보안등급-신호정리-paths제거-20260908.html</code> · 되돌릴 코드는 <code>_backup/before-remove-paths-20260908.tgz</code></p>
 </section>
 
-<footer>CSOClassify — cso_rules.yaml 규칙셋 필드 레퍼런스 · 정책 편집·감사 참고 문서</footer>
+<footer>MpowerClassify — cso_rule.yaml 규칙셋 필드 레퍼런스 · 정책 편집·감사 참고 문서</footer>
 
 </div>
 </body>

@@ -34,9 +34,14 @@ def test_별표_빠진_조각을_찾는다():
 
 
 #------------------------------------------------------------------
-# 기본 패턴은 엔진이 실제로 글을 뽑는 확장자만 담는다
+# 기본 패턴은 문서 확장자 + 압축 확장자를 담는다
 #=> 못 다루는 확장자를 넣으면 '본문 없음'으로 남아 추출실패 건수만 늘어난다.
 #   그리고 모든 조각에 별표가 붙어 있어야 한다(위 시험과 짝).
+#
+#   [압축이 빠지면 안 되는 이유] 엔진은 압축을 풀어 내부 문서를 하나씩 분류하지만,
+#   그 전에 이 패턴으로 대상을 고른다. 압축 확장자가 없으면 압축파일 자체가 안 걸려
+#   **안에 든 문서가 통째로 빠진다**(실측: 압축만 있는 폴더가 0건). 조용히 줄어드는
+#   종류의 손실이라 기본값으로 못박아 둔다.
 #
 # -in: 없음
 # -out: 없음(단언)
@@ -47,9 +52,12 @@ def test_기본_패턴은_바르고_다룰_수_있는_것들이다():
     assert app.glob_missing_star(app.DEFAULT_GLOB) == [], parts
     assert all(p.startswith("*.") for p in parts), parts
     exts = {p[2:] for p in parts}
-    # 사용자가 요청한 12종이 모두 들어 있다.
-    assert exts == {"txt", "html", "md", "doc", "docx", "ppt", "pptx",
-                    "xls", "xlsx", "hwp", "hwpx", "pdf"}, exts
+    # 문서 12종.
+    docs = {"txt", "html", "md", "doc", "docx", "ppt", "pptx",
+            "xls", "xlsx", "hwp", "hwpx", "pdf"}
+    # 압축 8종 — tar.gz·tar.bz2·tar.xz 는 뒤 확장자(gz·bz2·xz)로 걸린다.
+    arcs = {"zip", "7z", "rar", "tar", "tgz", "gz", "bz2", "xz"}
+    assert exts == docs | arcs, exts
     # 엔진의 형식 감지가 아는 것들인가(txt·md 는 text 로 간다).
     sys.path.insert(0, os.path.join(ROOT, "src"))
     from csoclassify.extract import detect  # noqa: E402

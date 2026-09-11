@@ -1,6 +1,6 @@
 #------------------------------------------------------------------
 # CLI 진입점 (설계서 §6)
-#=> csoclassify.exe 의 명령행을 해석하고 모드를 분기한다.
+#=> MpowerClassify.exe 의 명령행을 해석하고 모드를 분기한다.
 #    - --serve/--status/--stop : 데몬 제어
 #    - 일반 : 파일/폴더를 처리해 파일명+벡터(+시간)를 출력
 #   기본은 데몬 on. 데몬을 못 쓰면 in-process 로 자동 폴백해 항상 동작하게 한다.
@@ -9,15 +9,18 @@
 import argparse
 import dataclasses
 import glob
+import json
 import os
 import re
 import sys
 
 from . import __version__
 from . import config
+from . import record
 from . import errcodes
 from . import logsetup
 from . import output
+from . import seedcli
 from .timing import Timing
 
 
@@ -56,7 +59,7 @@ class _ContractParser(argparse.ArgumentParser):
         # --json-errors 면 usage 도 내지 않는다 — 그것도 stderr 로 나가는 사람용 글이다.
         if not errcodes.is_json():
             self.print_usage(sys.stderr)
-            print(f"[csoclassify] {message}", file=sys.stderr)
+            print(f"[MpowerClassify] {message}", file=sys.stderr)
         sys.exit(errcodes.exit_of(kind))
 
 
@@ -72,7 +75,7 @@ class _ContractParser(argparse.ArgumentParser):
 #
 # -in: 없음
 #
-# -out: text = "csoclassify <앱버전> (ko-pii <버전>)" 형태의 한 줄
+# -out: text = "MpowerClassify <앱버전> (ko-pii <버전>)" 형태의 한 줄
 # -out: error = 예외 없음 — ko-pii 가 없거나 버전이 없으면 "없음"/"버전미상"으로 적는다
 #------------------------------------------------------------------
 def version_text():
@@ -84,7 +87,7 @@ def version_text():
         # PII 검출은 ko-pii 없이는 못 하지만, 그 진단은 실제 스캔 때 하면 된다.
         # 여기서 죽으면 "왜 안 되는지" 물어보려던 사람이 답을 못 얻는다.
         kopii = "없음"
-    return f"csoclassify {__version__} (ko-pii {kopii})"
+    return f"MpowerClassify {__version__} (ko-pii {kopii})"
 
 
 #------------------------------------------------------------------
@@ -127,7 +130,7 @@ class _VersionAction(argparse.Action):
 #------------------------------------------------------------------
 def build_parser():
     p = _ContractParser(
-        prog="csoclassify",
+        prog="MpowerClassify",
         description="한국어 문서 → C/S/O 및 분류체계 자동분류(기본) · 임베딩 벡터(--embed) · 텍스트 추출(--text-only)",
     )
     # 입력 대상
@@ -180,9 +183,47 @@ def build_parser():
     # 시간/텍스트 보존/디버그
     p.add_argument("--timing", dest="timing", action="store_true", default=True)
     p.add_argument("--no-timing", dest="timing", action="store_false", help="처리 시간 출력 끄기")
-    p.add_argument("--save-text", dest="save_text", nargs="?", const="__DEFAULT__", default=None,
-                   help="추출 텍스트 보존(경로 생략 시 ./_extracted)")
+    # 추출 본문 보존 — 설계: plan/추출텍스트-저장-설계-20260907.html
+    # 폴더를 필수로 받는다. 예전 --save-text 는 값을 생략하면 ./_extracted 로 갔는데,
+    # 개인정보가 든 파일이 "어디에 쌓이는지 모르는 채로" 생기면 안 된다(설계 S1).
+    p.add_argument("--textsave", dest="textsave", metavar="폴더", default=None,
+                   help="추출 본문을 이 폴더에 <sha256>.txt 로 남긴다(개인정보 포함 가능)")
+    # 옛 이름 — 같은 동작. 쓰면 안내 한 줄을 내고 계속한다(옛 명령줄을 깨지 않는다).
+    p.add_argument("--save-text", dest="save_text_old", metavar="폴더", default=None,
+                   help="(옛 이름) --textsave 와 같다")
     p.add_argument("--text-only", action="store_true", help="벡터 없이 추출 텍스트만 출력")
+
+    # 문서 크기 상한(Size Gate) — 설계: plan/문서크기-상한-설계-20260904.html
+    # 기본값은 config 가 갖고, 여기서는 '이번 실행만' 덮어쓴다(기본값을 박지 않는
+    # 이유: 환경변수로 현장 조정한 값을 CLI 기본값이 덮어써 버리면 안 된다).
+    p.add_argument("--max-file-mb", dest="max_file_mb", type=float, default=None,
+                   help=f"원본 파일 크기 상한(MB, 기본 {config.MAX_FILE_BYTES // 1048576}). "
+                        f"텍스트 계열(txt/csv/tsv/json/html)은 별도로 더 낮다"
+                        f"(기본 {config.MAX_FILE_BYTES_TEXT // 1048576}MB). "
+                        "넘으면 읽지 않고 보류 레코드로 내보낸다.")
+    p.add_argument("--max-file-mb-text", dest="max_file_mb_text", type=float, default=None,
+                   help=f"텍스트 계열(txt/csv/tsv/json/html) 원본 크기 상한(MB, 기본 "
+                        f"{config.MAX_FILE_BYTES_TEXT // 1048576}). 이 포맷군만 바이트=글자수라 "
+                        "따로 둔다. 주면 --max-file-mb 보다 우선한다.")
+    p.add_argument("--max-archive-mb", dest="max_archive_mb", type=float, default=None,
+                   help=f"압축 1건당 해제 누적 상한(MB, 기본 "
+                        f"{config.MAX_ARCHIVE_BYTES // 1048576}). 넘으면 그 압축은 펼치지 않고 "
+                        "1건으로 둔다(내부 문서가 분류되지 않는다).")
+    p.add_argument("--max-archive-members", dest="max_archive_members", type=int, default=None,
+                   help=f"압축 1건당 내부 파일 개수 상한(기본 {config.MAX_ARCHIVE_MEMBERS}). "
+                        "0바이트 파일 수백만 개짜리 폭탄은 용량으로는 안 걸린다.")
+    p.add_argument("--parser-timeout", dest="parser_timeout", type=int, default=None,
+                   help=f"파서 1파일 시간 상한(초, 기본 {config.PARSER_TIMEOUT}). 넘으면 "
+                        "읽은 부분까지만 쓰고 partial_extract 표식을 단다.")
+    p.add_argument("--max-pdf-pages", dest="max_pdf_pages", type=int, default=None,
+                   help=f"PDF 1파일 페이지 상한(기본 {config.MAX_PDF_PAGES}). "
+                        "넘으면 앞 N 페이지만 읽고 partial_extract 표식을 단다.")
+    p.add_argument("--max-text-chars", dest="max_text_chars", type=int, default=None,
+                   help=f"정제 본문 글자수 상한(기본 {config.MAX_TEXT_CHARS:,}). "
+                        "넘으면 앞부분만 보고 분류하고 결과에 text_truncated 표식을 단다.")
+    p.add_argument("--no-size-limit", dest="no_size_limit", action="store_true",
+                   help="문서 크기 상한을 모두 해제한다(조사·디버깅 전용). "
+                        "초대형 문서에서 시간·메모리가 무제한으로 늘 수 있다.")
     # 추출 방식 — 기본은 '자체 파서'(하이브리드). Rust 포트와 추출 텍스트를 맞추기
     # 위한 기본값이다(config.DEFAULT_HYBRID_PARSE 주석 참고).
     p.add_argument("--hybridparse", dest="hybridparse", action="store_true",
@@ -217,11 +258,11 @@ def build_parser():
                    help=argparse.SUPPRESS)
     # C/S/O 자동 분류(규칙 스캔 Signal A)
     p.add_argument("--rules", dest="rules", default=None,
-                   help="분류 규칙셋 경로(기본 resources/policy/cso_rules.yaml)")
+                   help="분류 규칙셋 경로(기본 resources/policy/cso_rule.yaml)")
     p.add_argument("--failsafe", dest="failsafe", nargs="?", const="S", default=None,
                    help="규칙 미검출 시 부여할 기본등급(값 생략 시 S)")
     p.add_argument("--check-rules", dest="check_rules", action="store_true",
-                   help="규칙셋(cso_rules.yaml)의 등급 값만 검사하고 종료(문서는 읽지 않음). "
+                   help="규칙셋(cso_rule.yaml)의 등급 값만 검사하고 종료(문서는 읽지 않음). "
                         "정상 0, 검증 실패 4")
     # 업무 분류(doctype) 축 — 문서분류체계 연동(설계서 §3~6).
     p.add_argument("--taxonomy", dest="taxonomy", default=None,
@@ -281,6 +322,10 @@ def build_parser():
                    help="업무분류 seed 를 만들어 지정한 class_seed.jsonl 에 기록한다"
                         "(규칙 고신뢰 문서만 · 전량 임베딩 자동 활성화). "
                         "기존 보안등급 seed 는 보존하고 업무분류 seed 만 갈아 끼운다")
+
+    # 기준 문서를 화면 없이 등록하는 옵션들(설계서 '기준문서-CLI등록'). 웹·배치가
+    # exe 한 번으로 부를 수 있게 하는 것이 목적이라, 옵션 정의는 seedcli 에 모아 둔다.
+    seedcli.add_args(p)
     p.add_argument("--seed-per-dir", dest="seed_per_dir", type=int, default=6,
                    help="--make-doctype-seeds: 한 폴더에서 뽑을 최대 seed 수(기본 6). "
                         "편향 완화용 — 한 폴더 문서 모양이 그 분류의 정의가 되는 것을 막는다. "
@@ -291,7 +336,7 @@ def build_parser():
     # 분류 방식 배타 선택: 규칙만(rule-only) vs 벡터만(vector-only). 둘 다 안 주면 기존 동작.
     _clsmode = p.add_mutually_exclusive_group()
     _clsmode.add_argument("--rule-only", dest="rule_only", action="store_true",
-                   help="규칙(cso_rules.yaml)만으로 분류 — 임베딩·전파를 하지 않음(가장 빠름). --vector-only 와 배타")
+                   help="규칙(cso_rule.yaml)만으로 분류 — 임베딩·전파를 하지 않음(가장 빠름). --vector-only 와 배타")
     _clsmode.add_argument("--vector-only", dest="vector_only", action="store_true",
                    help="규칙 검사 없이 임베딩 벡터를 seed 와 비교해서만 분류(--seeds 필수). --rule-only 와 배타")
     p.add_argument("--doctype-vector-only", dest="doctype_vector_only",
@@ -312,7 +357,9 @@ def build_parser():
     _sumgrp.add_argument("--nosummary", dest="no_summary", action="store_true",
                    help="맨 끝 요약(summary) 레코드를 결과 출력에서 제거(파일별 레코드만)")
     p.add_argument("--simple", dest="simple", action="store_true",
-                   help="파일별 결과를 문서명·등급·해시(+업무분류 dc_id)로 줄여서 출력")
+                   help="파일별 결과를 문서명·해시·등급(+업무분류 dc_id·doc_id)으로 줄여서 "
+                        "출력. doc_id 는 목록의 sfile_id 로 채워진 것만 싣는다"
+                        "(폴백은 null — hash 로 가림)")
 
     # 데몬 제어
     p.add_argument("--daemon", dest="daemon", action="store_true", default=config.DEFAULT_DAEMON)
@@ -335,9 +382,54 @@ def build_parser():
 
 
 #------------------------------------------------------------------
+# --textsave / --save-text 를 하나로 정리하고 저장 폴더를 준비한다
+#=> 두 이름이 같은 자리를 가리키게 맞추고, 폴더를 시작 전에 만들어 본다.
+#   여기서 막지 않으면 문서 수천 건을 다 돌린 뒤에야 "한 건도 저장 못 했다"를
+#   알게 된다(설계 9장).
+#    1) 옛 이름을 정식 이름으로 옮긴다(둘 다 다른 폴더로 주면 오류)
+#    2) 폴더를 만들고 실제로 써 보며 확인한다
+#    3) "평문으로 남긴다"를 화면에 한 줄 알린다 — 켠 사람이 못 봤다고 할 수 없게
+#
+# -in: args = argparse 결과(제자리에서 args.textsave 를 절대경로로 바꾼다)
+#
+# -out: code = 계속해도 되면 None, 끝내야 하면 종료코드
+# -out: error = 없음(실패는 fail_err 로 안내한 뒤 종료코드를 돌려준다)
+#------------------------------------------------------------------
+def resolve_textsave(args):
+    old = getattr(args, "save_text_old", None)
+    new = getattr(args, "textsave", None)
+    # 둘 다 줬는데 가리키는 곳이 다르면, 어디에 남길지 우리가 고를 문제가 아니다.
+    if old and new and os.path.abspath(old) != os.path.abspath(new):
+        return fail_err("bad_args",
+                        "[MpowerClassify] --textsave 와 --save-text 는 같은 옵션입니다 — "
+                        "서로 다른 폴더를 주면 어디에 남길지 정할 수 없습니다.")
+    if old and not new:
+        # 옛 이름도 그대로 받아 준다. 다만 새 이름을 알려 준다.
+        print("[MpowerClassify] --save-text 는 옛 이름입니다 — 앞으로는 --textsave 를 쓰세요.",
+              file=sys.stderr)
+        args.textsave = old
+    if not getattr(args, "textsave", None):
+        return None
+    from . import textsave as _ts
+    try:
+        args.textsave = _ts.prepare(args.textsave)
+    except OSError as e:
+        return fail_err("bad_args",
+                        f"[MpowerClassify] --textsave 폴더를 쓸 수 없습니다: {e}",
+                        args.textsave)
+    # 이 옵션은 "민감정보를 디스크에 남기지 않는다"는 기본 방어를 여는 문이다.
+    # 조용히 열리면 안 된다(설계 10장 S2).
+    print(f"[MpowerClassify] --textsave: 추출 본문(개인정보 포함 가능)을 "
+          f"{args.textsave} 에 평문으로 남깁니다. 보안등급 C 문서도 그대로 남습니다.",
+          file=sys.stderr)
+    return None
+
+
+#------------------------------------------------------------------
 # 옵션 dict 구성
 #=> 파싱된 args 에서 파이프라인/데몬이 쓰는 처리 옵션만 뽑아 dict 로 만든다(데몬에
-#   IPC 로 넘기기 좋게 순수 값들로 구성). save-text 기본경로도 여기서 확정한다.
+#   IPC 로 넘기기 좋게 순수 값들로 구성). 저장 폴더는 resolve_textsave() 가
+#   이미 절대경로로 확정해 둔 값을 그대로 싣는다.
 #
 # -in: args = argparse 결과 네임스페이스
 #
@@ -345,10 +437,9 @@ def build_parser():
 # -out: error = 없음
 #------------------------------------------------------------------
 def make_opts(args):
-    # --save-text 를 값 없이 준 경우 기본 폴더로 해석.
-    save_dir = args.save_text
-    if save_dir == "__DEFAULT__":
-        save_dir = os.path.join(os.getcwd(), "_extracted")
+    # --textsave(정식) 와 --save-text(옛 이름)는 같은 값이다. 정규화는 이미
+    # resolve_textsave() 가 끝냈으므로 여기서는 절대경로 하나만 꺼내 쓴다.
+    save_dir = getattr(args, "textsave", None)
 
     return {
         "max_tokens": args.max_tokens,
@@ -360,6 +451,10 @@ def make_opts(args):
         "keep_page_markers": False,
         # 추출기 선택용(--hybridparse). run_text_only 처럼 args 를 직접 안 받는 경로가 읽는다.
         "hybridparse": getattr(args, "hybridparse", False),
+        # 글자수 상한(G3). 분류 경로만이 아니라 --embed 경로(pipeline.process_file)와
+        # 데몬 경로도 같은 상한을 갖게 해야, 같은 문서를 어느 경로로 넣든 결과가
+        # 갈리지 않는다. None 이면 상한 없음(--no-size-limit).
+        "max_text_chars": _resolve_text_limit(args),
     }
 
 
@@ -475,7 +570,7 @@ def read_files_from(src):
             skipped += 1
     # 조용히 버리면 "왜 결과 건수가 모자라지?" 로 이어진다 — 건수만이라도 남긴다.
     if skipped:
-        print(f"[csoclassify] --files-from: 파일이 아니어서 건너뜀 {skipped}건",
+        print(f"[MpowerClassify] --files-from: 파일이 아니어서 건너뜀 {skipped}건",
               file=sys.stderr)
     return files
 
@@ -516,6 +611,9 @@ def collect_files(args):
     # 반대로 --dir 과 함께 주면 위에서 이미 돌아갔다 — 그때 목록은 'ID 사전' 역할만 한다.
     flist = getattr(args, "_filelist", None)
     if flist is not None:
+        # 목록이 대상을 정한 실행에서만 '없는 파일'을 결과에 남긴다. --dir 과 함께
+        # 준 경우에는 목록이 ID 사전일 뿐이라, 그 바깥 항목을 빠졌다고 하면 안 된다.
+        args._filelist_is_target = True
         return flist.target_paths()
     return []
 
@@ -602,21 +700,25 @@ def _worst_grade(grades):
 # -out: dict = 압축 집계 레코드(archive=True 로 표시)
 # -out: error = 없음
 #------------------------------------------------------------------
-def _archive_record(origin, grades, ts):
+def _archive_record(origin, grades, ts, doctypes=None):
     from collections import Counter
     dist = Counter(g if g in ("C", "S", "O") else "none" for g in grades)
     worst = _worst_grade(grades)
-    return {
+    rec = {
         "file": origin,
-        "grade": worst,
         "archive": True,                 # 이 레코드는 '압축파일 자체'의 집계임을 표시
-        "method": "archive_rollup",
-        "decided_by": ["archive"],
+        "grade": worst,
+        "why": {"security": {"method": "archive_rollup", "decided_by": ["archive"]}},
         # 내부 등급 분포(어느 위험이 몇 건인지) — 압축만 봐도 위험도를 파악.
         "contains": {"total": len(grades), "C": dist["C"], "S": dist["S"],
                      "O": dist["O"], "unclassified": dist["none"]},
-        "ts": ts,
+        "meta": {"ts": ts},
     }
+    # 업무분류는 서열이 없어 대표 하나를 못 고른다 — 분포를 그대로 싣는다.
+    # 축이 안 돌았으면 키 자체를 넣지 않는다('축 미사용'과 '분류 못 함'의 구분).
+    if doctypes:
+        rec["contains_doctype"] = dict(sorted(doctypes.items()))
+    return rec
 
 
 #------------------------------------------------------------------
@@ -644,6 +746,8 @@ def _extract_failed_record(path, err, ruleset, doc_rules=None, taxonomy=None):
     # 관례를 따라 그때 가져온다.
     from .classify import now_iso
     from .classify.engine import build_record
+    # 크기 초과 예외인지 가리려고 가져온다(이 파일의 지역 import 관례를 따른다).
+    from .extract.base import SizeLimitError
 
     # 빈 본문으로 정상 경로를 그대로 태운다.
     #=> 본문을 못 읽었어도 경로(Signal C)·파일명(Signal D)은 본문과 무관하게 유효하다.
@@ -661,19 +765,21 @@ def _extract_failed_record(path, err, ruleset, doc_rules=None, taxonomy=None):
     rec = build_record(path, "", ruleset, ts=now_iso(), failsafe=None, vector=None,
                        rules_enabled=True, doc_rules=doc_rules, taxonomy=taxonomy)
 
-    rec["error"] = {"stage": "extract", "reason": str(err)}
+    # kind 로 '깨져서 못 읽음'과 '너무 커서 안 읽음'을 가른다 — 운영 대응이 다르기
+    # 때문이다. 크기 초과는 상한을 올리거나 비동기 큐로 넘기면 그대로 처리되는 정상
+    # 문서이고, 그냥 '추출 실패'로 묻히면 그 구분이 사라진다.
+    rec["error"] = {"stage": "extract", "reason": str(err),
+                    "kind": "size_limit" if isinstance(err, SizeLimitError) else "extract_failed"}
 
     # 못 읽은 문서는 전파 seed 가 될 수 없다 — 근거를 못 본 문서를 다른 문서의
     # 기준으로 삼으면 오분류가 스스로를 강화한다.
-    rec["seed_eligible"] = False
+    sec = rec.setdefault("why", {}).setdefault("security", {})
+    sec["seed_eligible"] = False
 
     # 아무것도 못 정했으면 '봤는데 없더라'(unclassified)가 아니라 '못 읽었다'로 적는다.
     # 조건과 표기를 _mark_no_body 와 같게 맞춰, 두 실패 경로가 같은 모양을 내게 한다.
-    if not rec.get("grade") and rec.get("method") in (None, "", "unclassified"):
-        rec["method"] = "extract_failed"
-        sec = (rec.get("labels") or {}).get("security")
-        if isinstance(sec, dict):
-            sec["method"] = "extract_failed"
+    if not rec.get("grade") and sec.get("method") in (None, "", "unclassified"):
+        sec["method"] = "extract_failed"
     return rec
 
 
@@ -702,10 +808,14 @@ def _extract_failed_record(path, err, ruleset, doc_rules=None, taxonomy=None):
 #------------------------------------------------------------------
 def _attach_doc_id(rec, path, src, flist, stats):
     from . import filelist as filelist_mod
-    doc_id, source, key, matched = filelist_mod.resolve_doc_id(path, src, flist)
+    doc_id, source, key, matched, chash = filelist_mod.resolve_doc_id(path, src, flist)
+    # doc_id 는 이제 sfile_id 뿐이다 — 못 얻으면 None 그대로 둔다(지어내지 않는다).
     rec["doc_id"] = doc_id
     rec["doc_id_source"] = source
-    rec["key"] = key
+    # 지문은 여기서 딱 한 번 구해 싣는다. 예전에는 이 함수가 40자 doc_id 를
+    # 만드느라 한 번, 아래 need_hash 가 또 한 번 같은 파일을 해싱했다.
+    if chash:
+        rec["hash"] = chash
     stats[source] = stats.get(source, 0) + 1
     # 대소문자만 달라 구제된 경우는 조용히 넘기지 않고 그 사실을 레코드에 남긴다.
     if matched == "case":
@@ -719,6 +829,49 @@ def _attach_doc_id(rec, path, src, flist, stats):
             actual = _file_hash(src or path)
             if actual and actual != entry.hash:
                 stats["hash_mismatch"] = stats.get("hash_mismatch", 0) + 1
+
+
+#------------------------------------------------------------------
+# 목록에 있으나 디스크에 없는 문서의 레코드
+#=> --filelist 가 대상을 정한 실행에서, 목록에 적힌 문서가 실제로 없을 때 만든다.
+#   예전에는 이런 문서가 결과에서 통째로 사라졌다(stderr 의 F4 경고가 전부였다).
+#   그래서 7건을 요청했는데 1건만 돌아와도, 결과 파일만 보는 쪽은 "요청한 만큼
+#   다 됐다"고 믿었다 — 조용히 빠지는 것이 이 도구에서 가장 나쁜 실패다.
+#
+#   [왜 규칙을 안 돌리나] 파일이 없으니 본문도 파일명 신호도 '확인된 것'이 아니다.
+#   없는 문서에 등급을 매기면 사람이 확인할 기회를 잃는다(추출 실패에 failsafe 를
+#   주지 않는 것과 같은 이유다). grade 는 null 로 두고 왜 없는지만 남긴다.
+#
+# -in: path      = 목록에 적힌 문서 경로(원본 표기 그대로)
+# -in: doc_id    = 목록이 준 sfile_id
+# -in: ruleset   = 규칙셋(rule_version 을 적으려고 받는다)
+# -in: doc_rules = 업무분류 규칙(축이 꺼져 있으면 None)
+# -in: taxonomy  = 분류체계(축이 꺼져 있으면 None)
+#
+# -out: dict = 결과 레코드(error.kind="file_missing")
+# -out: error = 없음
+#------------------------------------------------------------------
+def _missing_file_record(path, doc_id, ruleset, doc_rules=None, taxonomy=None):
+    from .classify import now_iso
+    from .classify.engine import build_record
+
+    # rules_enabled=False — 없는 문서에 신호를 지어내지 않는다.
+    rec = build_record(path, "", ruleset, ts=now_iso(), failsafe=None, vector=None,
+                       rules_enabled=False, doc_rules=None, taxonomy=None)
+    rec["error"] = {
+        "stage": "input",
+        "kind": "file_missing",
+        "reason": "목록(--filelist)에 있으나 파일이 없습니다",
+    }
+    rec["why"]["security"]["method"] = "file_missing"
+    # 목록이 준 번호는 그대로 싣는다 — 부르는 쪽이 '어느 문서가 빠졌나'를
+    # 자기 ID 로 알아야 목록을 고칠 수 있다.
+    if doc_id:
+        rec["doc_id"] = doc_id
+        rec["doc_id_source"] = "sfile_id"
+    # 없는 파일은 지문도 없다. 칸을 만들지 않는다(빈 값을 지어내지 않는다).
+    rec["why"]["security"]["seed_eligible"] = False
+    return rec
 
 
 #------------------------------------------------------------------
@@ -752,14 +905,286 @@ def _body_too_short(text):
 # -out: error = 없음
 #------------------------------------------------------------------
 def _mark_no_body(rec, n):
-    rec["error"] = {"stage": "extract", "text_len": n,
+    # kind 를 여기서도 채운다 — 크기 초과(size_limit)가 이 칸을 쓰기 시작했으므로,
+    # 어떤 실패는 kind 가 있고 어떤 실패는 없으면 읽는 쪽이 매번 존재 확인을 해야 한다.
+    rec["error"] = {"stage": "extract", "text_len": n, "kind": "no_body",
                     "reason": "본문 텍스트가 거의 없습니다 — 스캔본(이미지)이거나 "
                               "빈 문서일 수 있습니다. OCR 이나 사람 확인이 필요합니다."}
-    if not rec.get("grade") and rec.get("method") in (None, "", "unclassified"):
-        rec["method"] = "extract_failed"
-        sec = (rec.get("labels") or {}).get("security")
-        if isinstance(sec, dict):
-            sec["method"] = "extract_failed"
+    sec = rec.setdefault("why", {}).setdefault("security", {})
+    if not rec.get("grade") and sec.get("method") in (None, "", "unclassified"):
+        sec["method"] = "extract_failed"
+
+
+#------------------------------------------------------------------
+# 크기 상한 CLI 덮어쓰기를 config 에 반영 (G1·G2·G4·G5)
+#=> --max-file-mb / --no-size-limit 을 이번 프로세스의 config 값에 새겨 넣는다.
+#   G3(글자수)만은 값을 인자로 들고 다니지만, 나머지 게이트는 추출기·압축 해제기·
+#   PDF 파서처럼 args 를 볼 수 없는 깊은 자리에서 config 를 직접 읽는다. 거기까지
+#   인자를 실어 나르면 함수 시그니처 대여섯 개가 상한 하나 때문에 바뀐다.
+#   config 값은 이미 환경변수로 정해지는 '이 실행의 설정'이므로, CLI 를 같은
+#   자리에 한 번 얹는 것이 우선순위(CLI > 환경변수 > 기본값)와도 맞는다.
+#    1) --no-size-limit 이면 모든 상한을 0(=무제한)으로 만들고 경고를 남긴다
+#    2) --max-file-mb 가 있으면 MB → 바이트로 바꿔 새기고, 텍스트 상한이 그보다
+#       크면 뒤집힌 설정이 되므로 같이 내린다
+#
+# -in: args = 파싱된 CLI 인자(max_file_mb / no_size_limit 를 본다)
+# -in: log  = 로거(None 이면 기록 생략)
+#
+# -out: 없음(config 모듈 값을 제자리에서 고친다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _apply_size_limit_overrides(args, log=None):
+    # --no-size-limit 은 '전부 해제'다. 0 을 넣어 두면 각 게이트가 0 이하를
+    # '상한 없음'으로 읽도록 이미 만들어져 있어, 분기 없이 한 번에 꺼진다.
+    if getattr(args, "no_size_limit", False):
+        config.MAX_FILE_BYTES = 0
+        config.MAX_FILE_BYTES_TEXT = 0
+        config.MAX_ARCHIVE_BYTES = 0
+        config.MAX_ARCHIVE_MEMBERS = 0
+        config.PARSER_TIMEOUT = 0
+        config.MAX_PDF_PAGES = 0
+        # 조용히 상한을 끄면 나중에 "그때 왜 안 걸렸지"를 설명할 수 없다.
+        if log:
+            log.warning("--no-size-limit: 문서 크기 상한을 모두 해제했습니다"
+                        "(초대형 문서에서 시간·메모리가 무제한으로 늘 수 있습니다)")
+        return
+
+    # 0 이하는 어느 플래그에서든 '해제'로 받는다(--max-text-chars 0 과 같은 규칙).
+    def _mb(v):
+        return int(v * 1048576) if v > 0 else 0
+
+    mb = getattr(args, "max_file_mb", None)
+    if mb is not None:
+        n = _mb(mb)
+        config.MAX_FILE_BYTES = n
+        # 텍스트 계열 상한이 일반 상한보다 크면 뒤집힌 설정이라 의미가 없다.
+        # 사용자가 일반 상한을 낮췄으면 텍스트 상한도 그 아래로 따라 내린다.
+        if n and config.MAX_FILE_BYTES_TEXT > n:
+            config.MAX_FILE_BYTES_TEXT = n
+        elif not n:
+            config.MAX_FILE_BYTES_TEXT = 0
+
+    # 텍스트 상한을 '직접' 지정했으면 위의 따라내리기보다 이쪽이 우선이다 —
+    # 사용자가 명시한 값을 자동 보정이 덮으면 플래그를 준 의미가 없다.
+    mbt = getattr(args, "max_file_mb_text", None)
+    if mbt is not None:
+        config.MAX_FILE_BYTES_TEXT = _mb(mbt)
+
+    amb = getattr(args, "max_archive_mb", None)
+    if amb is not None:
+        config.MAX_ARCHIVE_BYTES = _mb(amb)
+
+    for attr, name in (("max_archive_members", "MAX_ARCHIVE_MEMBERS"),
+                       ("parser_timeout", "PARSER_TIMEOUT"),
+                       ("max_pdf_pages", "MAX_PDF_PAGES")):
+        v = getattr(args, attr, None)
+        if v is not None:
+            setattr(config, name, v if v > 0 else 0)
+
+    if log:
+        log.info("크기 상한 MAX_FILE_BYTES=%s TEXT=%s ARCHIVE=%s MEMBERS=%s "
+                 "PARSER_TIMEOUT=%s PDF_PAGES=%s",
+                 config.MAX_FILE_BYTES, config.MAX_FILE_BYTES_TEXT,
+                 config.MAX_ARCHIVE_BYTES, config.MAX_ARCHIVE_MEMBERS,
+                 config.PARSER_TIMEOUT, config.MAX_PDF_PAGES)
+
+
+#------------------------------------------------------------------
+# 이번 실행에 쓸 글자수 상한 결정 (G3)
+#=> 우선순위는 다른 옵션들과 같게 'CLI 플래그 > 환경변수 > 코드 기본값' 이다.
+#   --no-size-limit 이면 None 을 돌려 상한을 끈다(truncate_text 가 그대로 통과시킴).
+#    1) --no-size-limit 이 있으면 무조건 해제
+#    2) --max-text-chars 를 줬으면 그 값(0 이하는 '해제'로 읽는다)
+#    3) 아니면 config.MAX_TEXT_CHARS(환경변수가 이미 반영된 값)
+#
+# -in: args = 파싱된 CLI 인자(max_text_chars / no_size_limit 를 본다)
+#
+# -out: limit = 글자수 상한 정수, 또는 None(상한 없음)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _resolve_text_limit(args):
+    # 조사·디버깅용 탈출구 — 상한 때문에 결과가 달라졌는지 확인할 때 쓴다.
+    if getattr(args, "no_size_limit", False):
+        return None
+    n = getattr(args, "max_text_chars", None)
+    if n is not None:
+        # 0 이하를 '해제'로 받아 준다 — --max-text-chars 0 이 직관적으로 통한다.
+        return n if n > 0 else None
+    return config.MAX_TEXT_CHARS
+
+
+#------------------------------------------------------------------
+# '파서가 끝까지 못 읽었다' 표식 달기 (G5)
+#=> 페이지·시간 상한에 걸려 파서가 중간에 멈춘 문서에 단다. 절단(G3)과 다른
+#   사건이다 — G3 은 '다 읽고 나서 잘랐다', 이건 '애초에 끝까지 못 읽었다'라
+#   재검토할 때 손볼 상한값이 서로 다르다(MAX_TEXT_CHARS vs MAX_PDF_PAGES).
+#   분류 결과 자체는 건드리지 않는다. 읽은 부분만으로도 규칙에 걸렸다면 그
+#   등급은 맞다.
+#
+# -in: rec  = 완성된 레코드(제자리에서 고친다)
+# -in: note = notes.take() 가 준 {reason, unit, read, total}
+#
+# -out: 없음(rec 을 제자리에서 고친다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _mark_partial_extract(rec, note):
+    # 어디까지 읽었는지(읽은 수/전체 수)를 함께 남긴다 — '일부만 읽었다'만으로는
+    # 3,000쪽 중 2,999쪽을 읽은 것과 10쪽을 읽은 것이 구분되지 않아, 사람이
+    # 재검토 우선순위를 정할 수 없다.
+    rec["partial_extract"] = True
+    rec["partial_extract_info"] = {
+        "reason": note.get("reason"),
+        "unit": note.get("unit"),
+        "read": note.get("read"),
+        "total": note.get("total"),
+    }
+
+
+#------------------------------------------------------------------
+# 압축별 업무분류 분포 모으기
+#=> 압축 안 문서 하나가 최종 확정될 때마다 그 업무분류 라벨을 압축별 통계에
+#   더한다. 보안등급은 'C>S>O' 서열이 있어 최고 위험 하나로 롤업되지만,
+#   업무분류는 서열이 없고 한 문서가 여러 라벨을 갖는다 — 대표 하나를 고르면
+#   반드시 무언가를 버린다. 그래서 고르지 않고 분포를 그대로 모은다.
+#
+#   [축을 안 쓰는 배포와 구분] doctype 칸 자체가 없으면 업무분류 축을
+#   아예 안 돌린 것이므로 아무것도 모으지 않는다. 그래야 결과에서 '축 미사용'과
+#   '축은 돌았는데 못 맞힘'이 구분된다(기존 레코드 규칙과 같은 정신).
+#
+# -in: store  = {origin: {dc_id: 건수}} 누적 dict(제자리에서 고친다)
+# -in: origin = 이 문서가 나온 최상위 압축 경로
+# -in: rec    = 최종 확정된 문서 레코드
+#
+# -out: 없음(store 를 제자리에서 고친다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _collect_archive_doctype(store, origin, rec):
+    # 축이 안 돌았으면(doctype 칸 자체가 없음) 아무것도 모으지 않는다 —
+    # '축을 안 씀'과 '분류를 못 함'을 결과에서 구분하려는 기존 규칙과 같다.
+    dt = record.doctype_of(rec)
+    if dt is None:
+        return
+    bucket = store.setdefault(origin, {})
+    values = dt.get("values") or []
+    if not values:
+        # 축은 돌았는데 라벨이 안 붙은 문서 — 그것도 사실이라 따로 센다.
+        bucket["unclassified"] = bucket.get("unclassified", 0) + 1
+        return
+    for v in values:
+        dc = v.get("dc_id")
+        if dc:
+            bucket[dc] = bucket.get(dc, 0) + 1
+
+
+#------------------------------------------------------------------
+# '압축을 펼치지 못했다' 표식 달기 (G4)
+#=> 해제 상한에 걸려 내부 파일로 펼치지 못한 압축에 단다.
+#
+# -in: rec    = 완성된 레코드(제자리에서 고친다)
+# -in: reason = 왜 못 펼쳤는지
+# -in: kind   = "limit"(상한) | "error"(그 밖의 실패) | "split_volume"(분할 조각)
+#
+# -out: 없음(rec 을 제자리에서 고친다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _mark_archive_unexpanded(rec, reason, kind="limit"):
+    rec["archive_unexpanded"] = True
+    rec["archive_unexpanded_reason"] = reason
+    # 상한 때문인지(limit) 그 밖의 실패인지(error)를 갈라 둔다 — 사람이 할 일이
+    # 다르다. 상한이면 값을 올리면 되고, 실패면 원본이나 포맷을 봐야 한다.
+    rec["archive_unexpanded_kind"] = kind
+
+
+#------------------------------------------------------------------
+# '본문 일부만 보고 판정했다' 표식 달기 (G3)
+#=> 분류 결과 자체는 건드리지 않는다. 앞부분만으로도 규칙에 걸렸다면 그 등급은
+#   맞다. 다만 뒷부분을 안 봤다는 사실을 반드시 남겨야 한다.
+#
+# -in: rec    = 완성된 레코드(제자리에서 고친다)
+# -in: n_orig = 자르기 전 원래 글자수
+# -in: n_kept = 실제로 스캔한 글자수(=상한값)
+#
+# -out: 없음(rec 을 제자리에서 고친다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _mark_truncated(rec, n_orig, n_kept):
+    # 세 값을 함께 남긴다 — '잘렸다'만 있으면 얼마나 잘렸는지 몰라 재검토 우선순위를
+    # 못 정한다(200만 중 201만 자와 200만 중 3천만 자는 위험도가 다르다).
+    rec["text_truncated"] = True
+    rec["text_chars"] = n_kept
+    rec["text_chars_original"] = n_orig
+
+
+#------------------------------------------------------------------
+# PII 스캔 상한에 걸렸다는 표식 달기
+#=> 전화·주소·계좌는 비용이 초선형이라 앞부분까지만 훑는다(rules 의
+#   _KOPII_MAX_TOTAL). 그 절단이 지금까지 아무 표식도 남기지 않아, 뒤쪽 주소록이
+#   통째로 안 잡혀도 결과만 보면 "없더라"와 구분되지 않았다.
+#   본문 절단(text_truncated)과 나란히 두되 이름을 따로 쓴다 — 자른 층이 다르고,
+#   G3 에 안 걸린 문서도 여기 걸릴 수 있기 때문이다.
+#   [왜 등급은 안 건드리나] 앞부분에서 잡힌 신호는 그대로 유효하다. 이건 "덜 봤다"는
+#   사실을 기록하는 것이지 판정을 뒤집는 것이 아니다.
+#
+# -in: rec     = 결과 레코드(제자리에서 고친다)
+# -in: covered = 초선형 검출기가 실제로 훑은 글자 수
+# -in: total   = 전체 글자 수
+#
+# -out: 없음
+# -out: error = 없음
+#------------------------------------------------------------------
+def _mark_pii_scan_capped(rec, covered, total):
+    # 얼마나 못 봤는지를 함께 남긴다 — 100만 중 101만 자와 100만 중 3억 자는
+    # 재검토 우선순위가 전혀 다르다(실측 최악은 커버율 0.3%였다).
+    rec["pii_scan_capped"] = True
+    rec["pii_scan_chars"] = covered
+    rec["pii_scan_chars_total"] = total
+
+
+#------------------------------------------------------------------
+# 추출 본문 한 건을 파일로 남긴다 (--textsave)
+#=> 파일 이름은 원본의 SHA-256 이라, 결과 레코드의 hash 칸으로 바로 찾을 수 있고
+#   같은 내용의 문서는 한 파일로 합쳐진다. 색인 한 줄도 함께 남겨,
+#   hash 이름만 보고는 못 알아보는 문제를 메운다(설계 5·7장).
+#
+#   [실패해도 분류는 계속한다] 저장은 곁다리다. 디스크가 차거나 잠겨도 등급은
+#   그대로 나와야 한다(설계 P1·P2). 대신 무엇이 왜 빠졌는지는 반드시 남긴다 —
+#   rec["text_save_error"] 와 요약의 '저장실패 N'.
+#
+# -in: save_dir  = 저장 폴더(resolve_textsave 가 확정한 절대경로). None 이면 아무것도 안 한다
+# -in: rec       = 결과 레코드(제자리에서 표식을 단다)
+# -in: text      = 저장할 본문(정제·절단까지 끝난 텍스트)
+# -in: path      = 표시 경로(압축 내부면 '압축경로/내부경로')
+# -in: truncated = G3 로 뒤가 잘렸는가
+# -in: ts        = 저장 시각 문자열
+#
+# -out: state = "saved" | "dedup" | "skip"(본문 없음/해시 없음) | "error"
+# -out: error = 없음(모든 실패는 rec 에 담고 "error" 로 알린다)
+#------------------------------------------------------------------
+def _save_text_file(save_dir, rec, text, path, truncated, ts):
+    if not save_dir:
+        return "skip"
+    sha = rec.get("hash")
+    # 본문이 없으면 파일을 만들지 않는다 — 0바이트 파일을 남기면 "저장됐다"로
+    # 오해된다. text_saved 키가 없는 것으로 구분된다(설계 9장).
+    if not sha or not text:
+        return "skip"
+    from . import textsave as _ts
+    try:
+        name, deduped = _ts.save(save_dir, sha, text)
+        # doc_id 는 sfile_id 로 얻은 것만 싣는다 — 폴백(content)은 'hash 앞 40자'라
+        # 바로 옆 hash 칸과 같은 값이고, MpowerV11 문서 ID 처럼 생긴 값을 남기면
+        # 받는 쪽이 적재해 버린다(--simple 과 같은 규약).
+        _doc_id = (rec.get("doc_id")
+                   if rec.get("doc_id_source") == "sfile_id" else None)
+        _ts.index_append(save_dir, sha, name, path, _doc_id,
+                         len(text), truncated, ts)
+    except OSError as e:
+        # 문서 한 건만 건너뛴다. 종료코드는 건드리지 않는다 — 저장 실패는
+        # 분류 실패가 아니고, 자동화가 이걸로 멈추면 안 된다.
+        rec["text_save_error"] = f"{type(e).__name__}: {e}"
+        return "error"
+    rec["text_saved"] = name
+    return "dedup" if deduped else "saved"
 
 
 #------------------------------------------------------------------
@@ -767,11 +1192,15 @@ def _mark_no_body(rec, n):
 #=> 만들어진 순서 그대로 내보내면 눈에 안 들어온다 — 가장 궁금한 업무분류가
 #   labels 안에 묻혀 열 번째에 있고, 판정 근거(signals)가 결과보다 먼저 나오며,
 #   버전 칸이 여기저기 흩어져 있었다.
-#    ① 무엇을      file · hash
+#    ① 무엇을      file · hash · doc_id
 #    ② 어떻게 됐나  grade · doctype · confidence · method · decided_by · error
 #    ③ 왜          labels(축별 상세) · signals(근거)
 #    ④ 부속        seed_eligible · 버전 3개 · ts · elapsed_ms
-#   앞 네 칸이 --simple 과 같아, 축약본이 전체의 '앞부분만 떼어낸 것'이 된다.
+#   앞 다섯 칸이 --simple 과 같아, 축약본이 전체의 '앞부분만 떼어낸 것'이 된다.
+#
+#   [doc_id 가 grade 앞에 있는 이유] doc_id 는 '이 문서가 무엇인가'라서 file·hash
+#   와 같은 ① 묶음이다. 예전에는 grade·doctype 뒤(다섯째)에 있었는데, 묶음
+#   정의와 어긋나 읽는 사람이 매번 예외를 외워야 했다(2026-09-07 옮김).
 #
 #   [doctype 을 최상위로] labels.doctype.values 에서 뽑은 같은 값이라 새로 만드는
 #   정보가 아니다. 축이 돌았을 때만 넣는다 — 빈 배열이 나가면 "분류 못 함"과
@@ -785,27 +1214,77 @@ def _mark_no_body(rec, n):
 # -out: dict = 같은 내용, 차례만 바뀐 새 dict
 # -out: error = 없음
 #------------------------------------------------------------------
-# doc_id·key 는 --simple 네 칸 바로 뒤에 둔다 — 문서를 잇는 키라 눈에 띄어야 하고,
-# 앞 네 칸(=--simple)의 차례를 건드리면 "축약본은 전체의 앞부분"이라는 약속이 깨진다.
-_REC_ORDER = ("file", "hash", "grade", "doctype",
-              "doc_id", "doc_id_source", "key", "rematched_by",
-              "confidence", "method",
-              "decided_by", "error", "labels", "signals", "pii", "vector",
-              "seed_eligible", "rule_version", "taxonomy_version",
-              "doctype_rule_version", "ts", "elapsed_ms")
+# doc_id_source 는 --simple 다섯 칸 바로 뒤에 둔다 — 문서를 잇는 값의 '출처'라
+# doc_id 곁에 있어야 읽히고, 앞 다섯 칸(=--simple)의 차례를 건드리면 "축약본은
+# 전체의 앞부분"이라는 약속이 깨진다.
+#
+# [2026-09-10] key 칸을 뺐다. file 에 normalize_key() 를 걸면 그대로 나오는
+# 값이라 실을 이유가 없었다 — 읽던 세 곳이 전부 '없으면 file 로 계산' 폴백을
+# 갖고 있었고, override 색인은 저장된 key 를 아예 보지 않고 매번 다시 계산했다.
+#
+# [2026-09-10] labels 껍데기를 없애고 축을 최상위로 올렸다. 예전에는
+# 같은 값이 최상위(grade·confidence·method·decided_by)와 labels.security
+# 양쪽에 두 벌 있었고, 최상위 doctype(dc_id 목록)은 labels.doctype.values
+# 에서 뽑은 세 번째 사본이었다. 이제 축마다 한 벌씩만 있다.
+#
+# [2026-09-10 오후] 판정을 맨 앞으로 올렸다. 파일을 열면 가장 먼저 보고 싶은
+# 것은 "이 문서가 무엇이고(①) 어떻게 판정됐나(②)" 이지, 그 판정의 근거가
+# 아니다. 근거는 why 한 덩어리로 뒤에 둔다 — --simple 이 ①②만 떼어낸
+# 모양이라, 축약본과 전체가 같은 낱말·같은 차례를 쓰게 된다.
+#   ① 무엇을      file · hash · doc_id · doc_id_source
+#   ② 어떻게 됐나  grade · doctype(dc_id 목록) · error
+#   ③ 왜          why(축별 상세) · pii · vector
+#   ④ 장부        meta · elapsed_ms
+_REC_ORDER = ("file", "hash", "doc_id", "doc_id_source", "rematched_by",
+              "grade", "doctype", "error", "why", "pii", "vector",
+              "text_saved", "text_save_error", "meta", "elapsed_ms")
+
+
+# doctype 축 안쪽 칸 차례. 2026-09-10 부터 truncated·conflicts 는 값이 있을 때만,
+# strategy 는 --conflict 로 덮어썼을 때만 실린다 — 즉 '언제 붙느냐'가 경로마다
+# 달라졌다. 붙는 자리를 표로 고정하지 않으면 같은 문서인데도 두 판(또는 1패스와
+# 2패스 전파)이 칸 차례가 다른 파일을 내고, 결과를 나란히 견줄 수 없게 된다.
+_DOCTYPE_ORDER = ("values", "strategy", "truncated", "conflicts", "embed")
+
+
+#------------------------------------------------------------------
+# doctype 축 안쪽 칸을 표 차례로 다시 담기
+#=> 위 _DOCTYPE_ORDER 를 그대로 따르되, 표에 없는 칸은 잃지 않고 뒤에 붙인다
+#   (새 칸이 생겼을 때 조용히 지워 버리면 가장 찾기 어려운 사고가 된다).
+#
+# -in: dt = rec["doctype"] dict
+#
+# -out: dict = 같은 내용, 차례만 바뀐 새 dict
+# -out: error = 없음
+#------------------------------------------------------------------
+def _order_doctype(dt):
+    if not isinstance(dt, dict):
+        return dt
+    out = {k: dt[k] for k in _DOCTYPE_ORDER if k in dt}
+    for k, v in dt.items():
+        if k not in out:
+            out[k] = v
+    return out
 
 
 def _order_record(rec):
     if not isinstance(rec, dict):
         return rec
     out = {}
-    dt = (rec.get("labels") or {}).get("doctype")
     for key in _REC_ORDER:
         if key == "doctype":
-            # 축이 돌았을 때만 — labels.doctype 이 있을 때가 그때다.
-            if isinstance(dt, dict):
-                out["doctype"] = [v.get("dc_id") for v in (dt.get("values") or [])
-                                  if v.get("dc_id")]
+            # 맨 앞의 doctype 은 dc_id 목록이다 — why.doctype.values 에서 지금
+            # 뽑는다. 전파가 후보를 더할 수 있어 레코드를 만들 때 미리 적어 두면
+            # 어긋난다. 축이 안 돌았으면 키 자체를 만들지 않는다(빈 배열이 나가면
+            # "분류 못 함"과 "축 안 씀"이 구분되지 않는다 — --simple 과 같은 규약).
+            if record.doctype_of(rec) is not None:
+                out["doctype"] = record.doctype_ids(rec)
+            continue
+        if key == "why" and isinstance(rec.get("why"), dict):
+            w = dict(rec["why"])
+            if isinstance(w.get("doctype"), dict):
+                w["doctype"] = _order_doctype(w["doctype"])
+            out["why"] = w
             continue
         if key in rec:
             out[key] = rec[key]
@@ -844,9 +1323,10 @@ def _order_record(rec):
 # -out: error = 없음(신호가 없으면 hits 가 빈 목록)
 #------------------------------------------------------------------
 def _why_record(rec):
-    sec = {"by": rec.get("decided_by") or [], "conf": rec.get("confidence")}
+    s = record.security_of(rec)
+    sec = {"by": s.get("decided_by") or [], "conf": s.get("confidence")}
     hits = []
-    for sig, val in (rec.get("signals") or {}).items():
+    for sig, val in (s.get("signals") or {}).items():
         if not isinstance(val, dict) or not val.get("grade"):
             continue
         got = val.get("hits") or []
@@ -859,8 +1339,8 @@ def _why_record(rec):
             hits.append({"sig": sig, "src": val.get("source") or val.get("seed")})
     sec["hits"] = hits
     why = {"security": sec}
-    dt = (rec.get("labels") or {}).get("doctype")
-    if isinstance(dt, dict):
+    dt = record.doctype_of(rec)
+    if dt is not None:
         # stage 는 이 후보가 규칙 스캔에서 나왔는지(rule) 기준 문서 비교에서
         # 나왔는지(embed) 말해 준다 — 같은 숫자라도 뜻이 달라 반드시 함께 낸다.
         vals = [{"dc": v.get("dc_id"), "c": round(v.get("confidence") or 0, 2),
@@ -897,27 +1377,41 @@ def _file_hash(path, algo="sha256"):
 
 
 #------------------------------------------------------------------
-# --simple 용 레코드 축약(문서명·등급·해시 + 업무분류)
-#=> 결과 레코드에서 사용자가 요청한 3가지(file·grade·hash)만 남긴 새 dict 를 만든다.
+# --simple 용 레코드 축약(문서명·등급·해시 + 업무분류 + 문서 ID)
+#=> 결과 레코드에서 연동에 필요한 칸만 남긴 새 dict 를 만든다.
 #   원본 레코드는 건드리지 않는다.
+#
+#   [doc_id 를 왜 sfile_id 일 때만 싣나]
+#   폴백 doc_id(content)는 '파일 SHA-256 앞 40자'라서 이미 hash 칸에 들어 있다
+#   (doc_id == hash[:40]). 그 값을 한 칸 더 실어 봐야 새 정보가 없고, 오히려
+#   MpowerV11 문서 ID 처럼 생긴 값이 적재 쪽으로 흘러가 같은 문서가 두 건으로
+#   들어가는 사고를 부른다. 그래서 sfile_id 로 채워진 경우만 값을 싣고,
+#   나머지는 None 으로 둔다 — 받는 쪽은 "None 이면 hash 로 문서를 가린다".
 #
 # -in: rec = 전체 결과 레코드(hash 필드가 이미 채워져 있어야 함)
 # -in: why = True 면 판정 근거 요약(why)을 함께 담는다(--simple-why)
 #
-# -out: dict = {"file":..., "grade":..., "hash":..., ["why":...]}
+# -out: dict = {"file":..., "hash":..., "grade":..., ["doctype":...],
+#               ["doc_id":...], ["error":...], ["why":...]}
 # -out: error = 없음
 #------------------------------------------------------------------
 def _simple_record(rec, why=False):
-    # 읽는 차례로 넣는다 — 무엇을(file·hash) → 어떻게 됐나(grade·doctype) → 왜(why).
-    # file 과 hash 는 둘 다 '이 문서가 무엇인가'라서 붙여 두고, 판정 결과와 섞지 않는다.
-    out = {"file": rec.get("file"), "hash": rec.get("hash"), "grade": rec.get("grade")}
+    # 읽는 차례로 넣는다 — 무엇을(file·hash·doc_id) → 어떻게 됐나(grade·doctype) → 왜(why).
+    # 셋 다 '이 문서가 무엇인가'라서 붙여 두고, 판정 결과와 섞지 않는다.
+    out = {"file": rec.get("file"), "hash": rec.get("hash")}
+    # 문서 ID 축이 돌았을 때만 doc_id 키를 붙인다(--no-doc-id 면 키 자체가 없다).
+    # doctype 과 같은 규약이다 — "못 얻었다(None)"와 "축을 안 썼다(키 없음)"를 가른다.
+    if "doc_id_source" in rec:
+        # sfile_id 로 채워진 것만 MpowerV11 문서와 이어지는 값이다. 폴백(content·path)은
+        # 우리가 만들어 낸 값이라 적재하면 안 되므로 None 으로 내보낸다.
+        out["doc_id"] = rec.get("doc_id") if rec.get("doc_id_source") == "sfile_id" else None
+    out["grade"] = record.grade_of(rec)
     # 업무분류 축이 돌았을 때만 doctype 키를 붙인다. 축을 안 쓰는 배포에서 빈 배열이
     # 나가면 "분류를 못 했다"와 "축을 안 썼다"가 구분되지 않는다(설계서 4-6과 같은 규약).
-    dt = (rec.get("labels") or {}).get("doctype")
-    if isinstance(dt, dict):
+    if record.doctype_of(rec) is not None:
         # 확신 내림차순은 엔진이 이미 맞춰 놓았다. 여기서는 dc_id 만 뽑아 담는다 —
         # 받는 쪽(문서중앙화)은 분류체계를 이미 갖고 있으므로 이름은 필요 없다.
-        out["doctype"] = [v.get("dc_id") for v in (dt.get("values") or []) if v.get("dc_id")]
+        out["doctype"] = record.doctype_ids(rec)
     # 못 읽은 문서에는 그 사실을 함께 싣는다. 없으면 '읽었는데 미분류'와 글자 그대로
     # 같은 모습이라, --simple 만 받는 쪽은 스캔본을 영영 못 가려낸다.
     # 성공한 문서에는 이 칸이 아예 없다(기존 모양 그대로).
@@ -959,7 +1453,7 @@ def run_text_only(files, opts, out_fp):
             print(text, file=(out_fp or sys.stdout))
         except ExtractError as e:
             # ExtractError 는 이제 사유만 담으므로 경로는 여기서 한 번 붙인다.
-            print(f"[csoclassify] 추출 실패: {label} :: {e}", file=sys.stderr)
+            print(f"[MpowerClassify] 추출 실패: {label} :: {e}", file=sys.stderr)
             code = config.EXIT_EXTRACT_FAIL
     return code
 
@@ -968,7 +1462,7 @@ def run_text_only(files, opts, out_fp):
 # 분류체계 스냅샷 노후 경고 (T13)
 #=> exported_at 이 max_age_days 보다 오래됐으면 경고 문구를 만든다. DB 를 다시
 #   조회하지 않고 판단할 수 있는 유일한 근거가 이 타임스탬프뿐이라(설계서 3-3 —
-#   CSOClassify 는 분류 중 DB 에 전혀 접속하지 않는다), 완벽히 막지는 못해도
+#   MpowerClassify 는 분류 중 DB 에 전혀 접속하지 않는다), 완벽히 막지는 못해도
 #   "느슨하게 동기화되지만 조용히 낡지는 않는다"를 지키기 위한 안전망이다.
 #
 # -in: taxonomy     = axes.Taxonomy
@@ -986,7 +1480,7 @@ def _check_stale_taxonomy(taxonomy, max_age_days=90):
     age_days = (datetime.datetime.now() - exported).days
     if age_days <= max_age_days:
         return None
-    return (f"[csoclassify] 분류체계 스냅샷(doc_taxonomy.yaml)이 {age_days}일 전 것입니다"
+    return (f"[MpowerClassify] 분류체계 스냅샷(doc_taxonomy.yaml)이 {age_days}일 전 것입니다"
            f"(exported_at={taxonomy.exported_at}) — DB 와 어긋났을 수 있습니다. "
            f"scripts/export_taxonomy.py 로 다시 내보내는 것을 권장합니다.")
 
@@ -1039,16 +1533,16 @@ def _load_doctype_axis(args, log):
     except FileNotFoundError as e:
         if axis == "doctype":
             # '파일 없음'은 내용 오류(4)가 아니라 부른 쪽이 고칠 문제(3)다.
-            return None, None, fail_err("taxonomy_missing", f"[csoclassify] {e}",
+            return None, None, fail_err("taxonomy_missing", f"[MpowerClassify] {e}",
                                         taxonomy_path)
-        print(f"[csoclassify] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.\n"
+        print(f"[MpowerClassify] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.\n"
               f"              보안등급(security)만 판정합니다. 분류체계를 쓰려면\n"
               f"              scripts/export_taxonomy.py 로 내보낸 뒤 exe 옆에 두세요.",
               file=sys.stderr)
         return None, None, None
     except AX.TaxonomyValidationError as e:
         log.error("분류체계 스냅샷 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return None, None, fail_err("taxonomy_invalid", f"[csoclassify] {e}", e.path)
+        return None, None, fail_err("taxonomy_invalid", f"[MpowerClassify] {e}", e.path)
 
     # doc_taxonomy.yaml 파일 점검
     # => exported_at 날짜가 현재기준 90일 이전꺼면 노후화된 분류체계 로그 남김.
@@ -1067,7 +1561,7 @@ def _load_doctype_axis(args, log):
         # 켜 두면 1차 스캔은 아무것도 못 맞히지만 전파가 라벨을 채울 수 있고,
         # seed 마저 없으면 미분류로 남아 사람이 나중에 분류하게 된다.
         doc_rules_set = DR.seed_only_ruleset()
-        print(f"[csoclassify] doc_rule.yaml 이 없어 업무분류(doctype)를 "
+        print(f"[MpowerClassify] doc_rule.yaml 이 없어 업무분류(doctype)를 "
               f"'seed 전파 전용'으로 돌립니다.\n"
               f"              규칙 대신 class_seed.jsonl 과의 임베딩 유사도로만 분류합니다"
               f"(seed 도 없으면 전부 미분류).\n"
@@ -1076,10 +1570,10 @@ def _load_doctype_axis(args, log):
         return taxonomy, doc_rules_set, None
     except DR.DocRuleValidationError as e:
         log.error("업무분류 규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return None, None, fail_err("doc_rules_invalid", f"[csoclassify] {e}", e.path)
+        return None, None, fail_err("doc_rules_invalid", f"[MpowerClassify] {e}", e.path)
 
     for w in doc_rules_set.warnings:
-        print(f"[csoclassify] {w}", file=sys.stderr)
+        print(f"[MpowerClassify] {w}", file=sys.stderr)
         log.warning("doctype 규칙 경고 :: %s", w)
 
     # --doctype-vector-only : 규칙 목록만 비우고 나머지(embed 임계값·conflict 전략·
@@ -1089,7 +1583,7 @@ def _load_doctype_axis(args, log):
     # 똑같이 흘러간다 — 엔진에 새 분기를 만들지 않아도 되는 이유다.
     if getattr(args, "doctype_vector_only", False):
         doc_rules_set = dataclasses.replace(doc_rules_set, rules=())
-        print("[csoclassify] 업무분류: 규칙을 쓰지 않고 기준 문서(class_seed) 비교로만 "
+        print("[MpowerClassify] 업무분류: 규칙을 쓰지 않고 기준 문서(class_seed) 비교로만 "
               "분류합니다(--doctype-vector-only).", file=sys.stderr)
         log.info("doctype 벡터 전용 모드 :: path=%s", doc_rules_path)
 
@@ -1156,7 +1650,7 @@ def _doctype_breakdown(doctype_label):
 # C/S/O 보안등급 & 업무분류 분류 처리 (기본 모드 · 예전 --classify)
 #=> 추출→정제한 텍스트에 규칙 스캔(Signal A)을 걸어 보안등급(C/S/O)과 업무분류(doctype)
 #   를 동시에 수행하여 문서마다 분류 결과 레코드를 출력한다.
-#    1) 규칙셋 1회 로드: CSO 보안등급(cso_rules.yaml) + 업무분류(doc_rule.yaml, 선택)
+#    1) 규칙셋 1회 로드: CSO 보안등급(cso_rule.yaml) + 업무분류(doc_rule.yaml, 선택)
 #    2) 파일마다: 추출→정제→build_record(규칙/경로/파일명/임베딩으로 등급·분류 산출) → jsonl/json
 #    3) 마지막에 CSO 등급 분포 + 업무분류 롤업 요약을 stderr 로 출력(오탐률/분류현황 실측용)
 #   [프라이버시] 추출 텍스트는 기본적으로 디스크에 남기지 않는다(save_dir=None → 자동삭제).
@@ -1177,7 +1671,7 @@ def _doctype_breakdown(doctype_label):
 #     전파 없이 규칙만으로 끝낸다(레코드 스트리밍). --auto-propagate 로 명시할 수도 있다.
 #     전파는 '외부 seed(class_seed.jsonl) + 내부 seed_eligible'을 함께 기준으로 쓴다.
 #   [분류방식 배타옵션]
-#       · --rule-only  : 규칙(cso_rules.yaml + doc_rule.yaml)만으로 분류. seed 가 옆에 있어도
+#       · --rule-only  : 규칙(cso_rule.yaml + doc_rule.yaml)만으로 분류. seed 가 옆에 있어도
 #                        임베딩·전파를 아예 안 한다(순수 규칙 분류를 보장하는 명시적 차단, 가장 빠름).
 #       · --vector-only: 규칙 검사를 하지 않고(rules_enabled=False → 전부 보류 레코드),
 #                        전량 임베딩 후 seed 와 벡터 비교(전파)로만 등급을 정한다.
@@ -1199,9 +1693,12 @@ def run_classify(files, args, out_fp):
 
     from . import PROCESS_START_PERF   # 프로세스(파이썬 진입) 시작 시각 — startup 측정 기준
     from .extract import build_extractor
-    from .extract.base import ExtractError
-    from .clean import clean_text
-    from .classify import (load_rules, build_record, now_iso, default_seed_path,
+    from .extract import notes
+    # 분할 압축 조각인지 이름으로 가려내는 헬퍼(압축 확장기와 같은 규칙을 쓴다).
+    from .extract.archive import split_volume_hint as archive_split_hint
+    from .extract.base import ExtractError, SizeLimitError
+    from .clean import clean_text, truncate_text
+    from .classify import (load_rules, build_record, now_iso, default_seed_path, superlinear_coverage,
                            RuleSetValidationError)
 
     log = logsetup.get_logger("csoclassify.cli")
@@ -1212,18 +1709,18 @@ def run_classify(files, args, out_fp):
     # 규칙셋은 파일마다 다시 읽지 않도록 한 번만 로드해 재사용한다.
     # 규칙셋은 외장 파일(exe 옆)이라 누락이 흔하다 → 원시 스택 대신 안내 후 정상 종료.
     try:
-        # => C/S/O 분류 cso_rules.yaml 파일을 불러온다.
+        # => C/S/O 분류 cso_rule.yaml 파일을 불러온다.
         ruleset = load_rules(args.rules)
     except FileNotFoundError as e:
         log.error("규칙셋 로드 실패 :: %s", e)
         # 예외가 실제로 뒤진 경로를 알고 있으면 그것을 쓴다(--rules 를 안 준 경우 기본 경로).
-        return fail_err("rules_missing", f"[csoclassify] {e}",
+        return fail_err("rules_missing", f"[MpowerClassify] {e}",
                         getattr(e, "filename", None) or args.rules)
     except RuleSetValidationError as e:
         # 파일은 있지만 내용이 틀림 → 스캔을 시작하지 않고 위반 전체를 보여 준다.
         # "파일 없음(3)"과 구분되는 코드 4 로 나가 배치가 대응을 나눌 수 있게 한다.
         log.error("규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return fail_err("rules_invalid", f"[csoclassify] {e}", e.path)
+        return fail_err("rules_invalid", f"[MpowerClassify] {e}", e.path)
 
     #-----------------------------------------------------------
     # 업무분류 규칙파일 로딩.
@@ -1249,7 +1746,7 @@ def run_classify(files, args, out_fp):
             override_axis, override_spec = _parse_conflict_override(args.conflict)
             ensure_overridable_axis(override_axis)
         except (ValueError, AxisNotOverridableError) as e:
-            return fail_err("bad_conflict_axis", f"[csoclassify] {e}")
+            return fail_err("bad_conflict_axis", f"[MpowerClassify] {e}")
         if doc_rules_set is not None:
             import dataclasses
             doc_rules_set = dataclasses.replace(doc_rules_set, conflict=override_spec)
@@ -1272,6 +1769,17 @@ def run_classify(files, args, out_fp):
     # 부가적인 옵션값 설정.
     #-----------------------------------------------------------
     with_text = getattr(args, "with_text", False)         # 결과 레코드에 추출 텍스트 포함
+    # 벡터를 '결과 파일에 실어 보낼지'. 만들지 말지가 아니다 — 전파는 벡터를
+    # 레코드 안에서 주고받으므로 언제나 만들어야 하고, 여기서 정하는 것은 출력이다.
+    #
+    # [2026-09-11] 예전에는 이 구분이 없어, 임베딩한 문서면 **언제나** 384차원
+    # 실수 배열이 결과 파일에 실렸다. 두 가지가 조용히 어긋났다:
+    #   · Rust 판은 이 두 인자가 있을 때만 싣는다 — 같은 명령의 결과가 판마다 달랐다
+    #   · 인자를 준 적 없는 사용자의 결과 파일에 본문에서 뽑은 벡터가 들어갔다.
+    #     벡터는 본문의 파생물이라 공유·백업 시 텍스트와 같은 급으로 다뤄야 한다.
+    # 두 인자의 도움말이 이미 "벡터 산출/포함"이라고 말하고 있었다 — 코드만 안 따랐다.
+    emit_vector = (getattr(args, "with_vector", False)
+                   or getattr(args, "embed_needed", False))
     auto_prop = getattr(args, "auto_propagate", False)    # 분류 직후 보류 문서를 seed 로 전파
     rule_only = getattr(args, "rule_only", False)         # 규칙만(임베딩·전파 없음)
     vector_only = getattr(args, "vector_only", False)     # 규칙 없이 벡터-seed 비교만
@@ -1296,7 +1804,7 @@ def run_classify(files, args, out_fp):
         # 규칙 미사용: 전량 임베딩 후 seed 와 비교해 등급을 정한다 → 비교 기준 seed 파일 필수.
         if not seeds_path or not os.path.isfile(seeds_path):
             return fail_err("seeds_missing",
-                            "[csoclassify] --vector-only 는 비교 기준 seed 파일이 필요합니다: "
+                            "[MpowerClassify] --vector-only 는 비교 기준 seed 파일이 필요합니다: "
                             "--seeds <class_seed.jsonl>(또는 exe 옆 class_seed.jsonl)",
                             seeds_path)
         embed_mode = "all"      # 모든 문서를 임베딩해야 seed 와 비교 가능
@@ -1317,7 +1825,7 @@ def run_classify(files, args, out_fp):
             # class_seed.jsonl 이 없어 보류 21건이 미분류로 나갔다 — 부록 C-5).
             # 파일이 없는 것 자체는 정상 배포일 수도 있으므로(규칙만 쓰는 배포)
             # 오류로 막지는 않고, '무엇이 꺼졌는지'만 분명히 알린다.
-            print(f"[csoclassify] 전파용 seed 파일이 없어 자동 전파를 건너뜁니다: "
+            print(f"[MpowerClassify] 전파용 seed 파일이 없어 자동 전파를 건너뜁니다: "
                   f"{seeds_path}\n"
                   f"              규칙이 못 정한 문서는 미분류로 남습니다. "
                   f"의도한 것이면 --rule-only 로 명시하세요.", file=sys.stderr)
@@ -1357,7 +1865,7 @@ def run_classify(files, args, out_fp):
         elif embed_mode == "none":
             why = "임베딩을 하지 않아(--rule-only 등)"
         if why:
-            print(f"[csoclassify] 업무분류: 규칙(doc_rule.yaml)도 없고 {why} 전파도 못 합니다 "
+            print(f"[MpowerClassify] 업무분류: 규칙(doc_rule.yaml)도 없고 {why} 전파도 못 합니다 "
                   f"— 전부 미분류로 두니 관리자가 분류한 뒤 seed 로 승격하세요.", file=sys.stderr)
             log.warning("업무분류 분류수단 없음 :: embed_mode=%s dt_seed=%d seeds=%s",
                         embed_mode, n_dt_seed, seeds_path)
@@ -1409,7 +1917,7 @@ def run_classify(files, args, out_fp):
             except DaemonUnavailable as e:
                 # 데몬 불가 → in-process 폴백(원인은 로그로 남긴다).
                 if args.verbose:
-                    print(f"[csoclassify] 데몬 폴백(in-process): {e}", file=sys.stderr)
+                    print(f"[MpowerClassify] 데몬 폴백(in-process): {e}", file=sys.stderr)
                 log.warning("분류 임베딩 데몬 불가 → in-process 폴백 :: %s", e)
 
         #--------------------------------------------------------------
@@ -1429,6 +1937,31 @@ def run_classify(files, args, out_fp):
     # 본문을 못 읽은 문서 수 — 추출기가 예외를 던진 것과 '글자가 사실상 없던 것'을
     # 함께 센다. 부르는 쪽이 "이번 실행에 손봐야 할 문서가 몇 건인가"를 알아야 한다.
     n_extract_failed = 0
+    # 글자수 상한(G3)에 걸려 '앞부분만 보고' 판정한 문서 수. 요약에 실어, 운영자가
+    # "이번 배치에서 상한에 걸린 문서가 몇 건인가"를 보고 상한값을 조정할 수 있게 한다.
+    n_text_truncated = 0
+    n_pii_capped = 0        # PII 스캔 상한에 걸려 뒷부분을 못 본 문서 수
+    # 크기 상한(G1·G2)에 걸려 '아예 읽지 않은' 문서 수. 추출 실패와 따로 세야
+    # 운영자가 "상한을 올리면 처리되는 건"과 "원본이 깨진 건"을 구분할 수 있다.
+    n_size_skipped = 0
+    # 분할 압축의 조각이라 읽지 않은 문서 수. 추출 실패와 따로 세야
+    # "원본이 깨진 것"과 "조각이라 원래 못 읽는 것"을 구분할 수 있다.
+    n_split_volume = 0
+    # 파서가 상한에서 멈춰 '앞부분만' 읽은 문서 수(G5). 절단(G3)과 다른 사건이다 —
+    # G3 은 다 읽고 나서 자른 것이고, 이건 애초에 끝까지 읽지 못한 것이다.
+    n_partial_extract = 0
+    # --textsave 관측 — 저장이 조용히 반쯤 실패하는 것을 막는다(설계 8장).
+    n_text_saved = 0
+    n_text_dedup = 0
+    n_text_save_failed = 0
+    # 해제 상한(G4)에 걸려 내부 파일로 펼치지 못한 압축(main 이 expand_paths 에서 받아 둔다).
+    # 경로 → 사유. 아래 루프에서 해당 압축 레코드에 표식을 달 때 쓴다.
+    # 경로 → (사유, 종류). 종류는 "limit"(상한 초과) 또는 "error"(손상·미지원·분할볼륨 등).
+    # 둘을 섞으면 안내가 엇나간다 — 손상 압축에 "상한을 올리세요"는 틀린 처방이다.
+    arch_unexpanded = {row["path"]: (row["reason"], row.get("kind", "limit"))
+                       for row in (getattr(args, "_archive_stats", None) or {}).get("unexpanded", [])}
+    # 상한은 파일마다 다시 계산할 이유가 없으므로 루프 밖에서 한 번만 정한다.
+    text_limit = _resolve_text_limit(args)
     # 문서 식별자 집계 — ID 를 어떤 출처로 채웠는지 센다(요약 첫 줄 · R14).
     docid_stats = {}
     docid_flist = getattr(args, "_filelist", None)
@@ -1449,7 +1982,11 @@ def run_classify(files, args, out_fp):
     no_summary = getattr(args, "no_summary", False)       # 맨 끝 요약 레코드를 출력에서 제거
     simple_why = getattr(args, "simple_why", False)       # 축약본에 판정 근거 요약까지
     simple = getattr(args, "simple", False) or simple_why  # 파일별 문서명·등급·해시 3필드만
-    need_hash = getattr(args, "hash", False) or simple    # --hash 또는 --simple 이면 해시 계산
+    # --textsave 는 파일 이름을 해시로 삼으므로 해시가 반드시 있어야 한다.
+    # 비용은 파일 1회 순차 읽기라 추출에 비하면 무시할 수준이다(설계 5장).
+    text_save_dir = getattr(args, "textsave", None)
+    need_hash = (getattr(args, "hash", False) or simple
+                 or bool(text_save_dir))    # --hash/--simple/--textsave 면 해시 계산
 
     #--------------------------------------------------------------
     # 레코드 1개 출력(+로그)
@@ -1480,20 +2017,78 @@ def run_classify(files, args, out_fp):
             full_fp = open(full_path, "w", encoding="utf-8")
         except OSError as e:
             return fail_err("output_write_failed",
-                            f"[csoclassify] 감사용 전체 결과 파일을 쓰지 못했습니다: "
+                            f"[MpowerClassify] 감사용 전체 결과 파일을 쓰지 못했습니다: "
                             f"{full_path} :: {e}", full_path)
         full_writer = output.RecordWriter(full_fp, args.fmt, multi=True)
 
+    #--------------------------------------------------------------
+    # 실행 헤더 한 줄 — 이번 실행이 어떤 기준으로 판정했는가
+    #=> 규칙셋 버전 세 칸은 한 번 실행하면 모든 줄이 같은 값이라, 예전에는
+    #   레코드마다 같은 글자를 되풀이해 적었다(실측: 결과 파일의 7.9%가 meta 였고
+    #   그중 버전 세 칸이 6.1%였다). 요약 줄에도 이미 같은 값이 들어 있어,
+    #   18개 문서를 분류하면 같은 버전이 19번 적히는 셈이었다.
+    #
+    #   [왜 요약이 아니라 헤더인가] 요약은 맨 뒤에 나온다. jsonl 을 한 줄씩
+    #   처리하는 쪽은 문서를 다 읽은 뒤에야 "어느 규칙으로 판정된 것인지"를
+    #   알게 된다. 게다가 --nosummary 를 주면 요약 자체가 안 나가 버전이
+    #   어디에도 안 남는다. 맨 앞 한 줄이면 두 문제가 다 없어진다.
+    #
+    #   [축약본에는 넣지 않는다] --simple 은 받는 쪽(문서중앙화)과의 계약이라
+    #   줄 모양을 바꾸지 않는다. 감사용 전체 파일(.full)에는 넣는다.
+    #
+    # -in: 없음(바깥 스코프의 ruleset·doc_rules_set·taxonomy 를 본다)
+    #
+    # -out: dict = {"run": {...}} 한 줄
+    # -out: error = 없음
+    #--------------------------------------------------------------
+    def _run_header():
+        run = {"rule_version": ruleset.version}
+        # 업무분류 축이 돌았을 때만 그 두 버전을 적는다(축 미사용과 구분).
+        if doc_rules_set is not None and taxonomy is not None:
+            run["doctype_rule_version"] = doc_rules_set.version
+            run["taxonomy_version"] = taxonomy.exported_at
+        run["started_at"] = now_iso()
+        return {"run": run}
+
+    _header_done = []
+
+    def _emit_header_once():
+        if _header_done:
+            return
+        _header_done.append(True)
+        if summary_only:
+            return
+        # 축약본에는 안 넣는다 — 전체 출력일 때만 맨 앞 줄로 나간다.
+        if not simple:
+            writer.write_record(_run_header())
+        if full_writer is not None:
+            full_writer.write_record(_run_header())
+
     def _emit(rec):
+        # 등록 모드에서는 분류 결과가 목적이 아니다 — 레코드를 모아 두고
+        # 마지막에 기준 문서 줄로 바꾼다. stdout 은 등록 결과만 나가야 한다(P5).
+        if getattr(args, "_seed_plan", None) is not None:
+            args._seed_recs.append(rec)
+            return
         # --summary 면 파일별/집계 레코드는 아예 출력하지 않는다(맨 끝 요약만 낸다).
         if summary_only:
             return
+        _emit_header_once()
         # --simple 이면 문서명·등급·해시 3가지만 남긴다.
         out = _simple_record(rec, why=simple_why) if simple else _order_record(rec)
+        # 벡터는 인자로 요청했을 때만 내보낸다. 레코드 자체에서 지우지 않고
+        # '내보낼 사본'에서만 뺀다 — 뒤이어 도는 전파·seed 수집이 rec["vector"] 를
+        # 그대로 읽기 때문이다. 여기서 지우면 그쪽이 조용히 빈손이 된다.
+        if not emit_vector:
+            out.pop("vector", None)
         writer.write_record(out)
         # 축약본만으로는 "왜 이 등급인가"를 나중에 댈 수 없다 — 전체를 옆에 남긴다.
+        # 감사용 전체본에도 같은 기준을 적용한다(Rust 판은 애초에 안 싣는다).
         if full_writer is not None:
-            full_writer.write_record(_order_record(rec))
+            full = _order_record(rec)
+            if not emit_vector:
+                full.pop("vector", None)
+            full_writer.write_record(full)
         log.info("결과 %s", output.dumps_safe(_loggable_record(rec), separators=(",", ":")))
 
     #--------------------------------------------------------------
@@ -1503,14 +2098,14 @@ def run_classify(files, args, out_fp):
     #    1) --conflict 로 전략을 덮어썼으면 그 문자열을 레코드에 각인(6-5 재현성)
     #    2) 뿌리/말단 분류별로 문서 수를 센다(라벨이 없으면 미분류로 카운트)
     #
-    # -in: rec = 결과 레코드(labels.doctype 이 있을 수도, 없을 수도)
+    # -in: rec = 결과 레코드(doctype 축이 있을 수도, 없을 수도)
     #
     # -out: 없음(rec 갱신 + 바깥 집계 변수 갱신)
     # -out: error = 없음
     #--------------------------------------------------------------
     def _finalize_doctype(rec):
         nonlocal doctype_total_docs, doctype_unclassified
-        label = (rec.get("labels") or {}).get("doctype")
+        label = record.doctype_of(rec)
         # 키 자체가 없으면 이번 실행이 축을 안 쓴 것 — 집계 대상이 아니다(4-6).
         if label is None:
             return
@@ -1555,6 +2150,9 @@ def run_classify(files, args, out_fp):
 
     # 압축파일 '자체'의 집계 등급용: origin(최상위 압축) → 내부 파일 최종등급 리스트.
     arch_members = {}
+    # 압축별 업무분류 분포: {origin: {dc_id: 건수}}. 보안등급과 달리 서열이 없어
+    # 대표 하나를 못 고르므로, 고르지 않고 분포를 그대로 모은다.
+    arch_doctypes = {}
     rec_origins = []   # auto_prop 경로에서 records 와 나란히 origin 을 보관
 
     # for문을 돌면서 문서처리..
@@ -1564,6 +2162,42 @@ def run_classify(files, args, out_fp):
         src, path, origin = _as_job(item)
         # 파일별 스톱워치 — 추출/정제/규칙/(임베딩) 단계별 소요시간을 잰다(--embed 와 동일 형식).
         timing = Timing()
+
+        # 분할 압축의 '두 번째 이후 조각'은 압축으로 감지조차 되지 않아 일반 파일로
+        # 흘러든다. 그대로 두면 뜻 없는 이진 덩어리를 본문으로 읽어 분류한다 —
+        # 실측에서 5조각 7z 의 세 번째 조각이 'text' 로 감지됐다. 읽기 전에 막고
+        # 무엇인지 분명히 남긴다. 첫 조각은 압축 확장 단계가 이미 사유를 달았으므로
+        # 여기서 또 세지 않는다.
+        # 표시용 라벨(path)로 이름을 보고, 실제 경로(src)로 내용을 본다 —
+        # 분할 zip 의 마지막 조각은 이름이 평범한 .zip 이라 내용을 봐야 안다.
+        _vol = archive_split_hint(path, src)
+        if _vol and path not in arch_unexpanded:
+            rec = _extract_failed_record(
+                path, f"분할 압축의 조각입니다({_vol}) — 조각 하나만으로는 내용을 "
+                      f"꺼낼 수 없어 읽지 않았습니다. 이 도구는 분할 압축을 잇지 않습니다.",
+                ruleset, doc_rules_set, taxonomy)
+            rec["error"]["kind"] = "split_volume"
+            n_split_volume += 1
+            code = config.EXIT_EXTRACT_FAIL
+            counts["none"] = counts.get("none", 0) + 1
+            n_extract_failed += 1
+            if docid_on:
+                _attach_doc_id(rec, path, src, docid_flist, docid_stats)
+                if rec.get("doc_id_source") != "sfile_id":
+                    missing_id_rows.append(rec)
+            if auto_prop:
+                records.append(rec)
+                rec_origins.append(origin)
+            else:
+                _finalize_doctype(rec)
+                _emit(rec)
+                if origin is not None:
+                    arch_members.setdefault(origin, []).append(None)
+                    _collect_archive_doctype(arch_doctypes, origin, rec)
+            if show_progress:
+                print(f"[progress] {i}/{total} {path}", file=sys.stderr, flush=True)
+            continue
+
         try:
             #----------------------------------------------------------------------------
             # **(1) 문서text 추출**
@@ -1571,23 +2205,49 @@ def run_classify(files, args, out_fp):
             #=> 문서포멧감지(detected_format)->포멧문서파서로 text 추출
             #=> 분류에서는 원문 텍스트를 (기본은) 디스크에 남기지 않는다(민감정보 잔존 방지).
             with timing.measure("extract"):
+                # 파서가 남길 '부분 추출' 표식 자리를 비우고 시작한다(G5 관측).
+                notes.reset()
                 raw = extractor.extract(src, save_dir=None)
+                partial = notes.take()
 
             #----------------------------------------------------------------------------
             # 추출된 text 정제
             #----------------------------------------------------------------------------
             with timing.measure("clean"):
                 text = clean_text(raw)
+                #----------------------------------------------------------------------
+                # 글자수 상한(G3) — 설계: plan/문서크기-상한-설계-20260904.html
+                #----------------------------------------------------------------------
+                # 여기서 자르는 이유: 이 아래로 이어지는 세 가지 비용 — PII 정규식
+                # 전문 스캔(실측 전체 시간의 66%) · 임베딩 청크 수 · 데몬 IPC
+                # 페이로드(16MB 상한) — 이 전부 이 길이 하나로 결정된다. 한 곳에서
+                # 유계로 만들면 셋이 함께 유계가 된다.
+                # 버리는 게 아니라 앞부분만 보는 것이며, 표식은 레코드가 만들어진
+                # 뒤에 단다(_mark_truncated).
+                text, n_text_orig, was_truncated = truncate_text(text, text_limit)
 
         except ExtractError as e:
-            print(f"[csoclassify] 추출 실패: {path} :: {e}", file=sys.stderr)
-            log.error("분류 추출 실패 file=%s :: %s", path, e)
+            # 크기 초과(G1·G2)는 '실패'가 아니라 '안 읽기로 한 것'이라 말투를 나눈다.
+            # 같은 문장으로 찍으면 운영자가 파일이 깨진 줄 알고 원본을 뒤진다.
+            if isinstance(e, SizeLimitError):
+                print(f"[MpowerClassify] 크기 상한 초과로 건너뜀: {path} :: {e}", file=sys.stderr)
+                log.warning("크기 상한 초과 file=%s :: %s", path, e)
+                n_size_skipped += 1
+            else:
+                print(f"[MpowerClassify] 추출 실패: {path} :: {e}", file=sys.stderr)
+                log.error("분류 추출 실패 file=%s :: %s", path, e)
             code = config.EXIT_EXTRACT_FAIL
             # 못 읽은 문서도 '결과'다 — 레코드를 안 내면 그 문서는 결과에서 통째로
             # 사라져, 화면에는 "18개 중 11건"처럼 조용히 줄어든 숫자만 남는다.
             # 무엇이 왜 빠졌는지 알 수 없는 것은 거버넌스 도구에서 가장 나쁜 실패다.
             # 등급 없이(=보류) 실패 사유를 실어 내보내 사람이 처리하게 한다.
             rec = _extract_failed_record(path, e, ruleset, doc_rules_set, taxonomy)
+            # 못 펼친 압축은 '본문 추출'까지 실패해 이 갈래로 오는 일이 흔하다
+            # (분할 7z 처럼 사이냅도 못 읽는 경우). 표식을 성공 경로에만 달면
+            # 정작 필요한 이 자리에서 빠져, 요약은 세는데 레코드는 비는 상태가 된다.
+            if path in arch_unexpanded:
+                _reason, _kind = arch_unexpanded[path]
+                _mark_archive_unexpanded(rec, _reason, _kind)
             # 못 읽은 문서에도 식별자는 단다 — 그 문서도 사람이 손볼 '결과'라
             # 나중에 수정을 이으려면 키가 필요하다(내용을 못 읽으면 경로 해시로 내려간다).
             if docid_on:
@@ -1604,6 +2264,7 @@ def run_classify(files, args, out_fp):
                 _emit(rec)
                 if origin is not None:
                     arch_members.setdefault(origin, []).append(None)
+                    _collect_archive_doctype(arch_doctypes, origin, rec)
             # 실패해도 진행수는 늘려 UI 바가 멈추지 않게 한다.
             if show_progress:
                 print(f"[progress] {i}/{total} {path}", file=sys.stderr, flush=True)
@@ -1613,7 +2274,7 @@ def run_classify(files, args, out_fp):
         # **(2) CSO 보안등급 & 업무분류 1차 분류**
         #----------------------------------------------------------------------------
         # => build_record() 함수가 다섯 신호(규칙·민감정보·스탬프·경로·파일명)를 스캔·융합하여
-        #    CSO 보안등급 1차 분류를 완성한다(cso_rules.yaml 기반).
+        #    CSO 보안등급 1차 분류를 완성한다(cso_rule.yaml 기반).
         #    동시에 doc_rules 와 taxonomy 가 '둘 다' 있으면 _attach_doctype() 함수 내에서
         #    scan_doctype() 을 통해 업무분류 1차 분류도 수행한다(doc_rule.yaml 기반).
         #
@@ -1636,12 +2297,41 @@ def run_classify(files, args, out_fp):
         # 본문을 사실상 못 읽었으면 표식을 단다(분류 결과 자체는 건드리지 않는다).
         # 종료코드도 추출 실패(1)로 올린다 — 배치가 "이 실행에 손봐야 할 문서가
         # 있다"를 종료코드만으로 알 수 있어야 한다.
+        # 본문 일부만 보고 판정했으면 표식을 단다(분류 결과 자체는 건드리지 않는다).
+        # 추출 실패와 달리 종료코드는 올리지 않는다 — 등급은 정상적으로 나왔고,
+        # '전문을 못 봤다'는 것은 실패가 아니라 재검토 대상이라는 뜻이다.
+        if was_truncated:
+            _mark_truncated(rec, n_text_orig, len(text))
+            n_text_truncated += 1
+            log.info("본문 절단 file=%s %d자 → %d자(상한)", path, n_text_orig, len(text))
+
+        # 파서가 상한에서 멈춰 끝까지 읽지 못했으면 그 사실도 남긴다(G5).
+        # 절단(G3)과 따로 세는 이유: G3 은 '다 읽고 나서 잘랐다', 이건 '애초에
+        # 끝까지 못 읽었다' — 재검토 시 손볼 곳(상한값)이 서로 다르다.
+        if partial:
+            _mark_partial_extract(rec, partial)
+            n_partial_extract += 1
+
+        # 압축을 펼치지 못했으면 그 압축 레코드에 표식을 단다(G4).
+        # 이게 없으면 내부 문서 수백 건이 사라진 것이 결과에 전혀 드러나지 않는다.
+        if path in arch_unexpanded:
+            _reason, _kind = arch_unexpanded[path]
+            _mark_archive_unexpanded(rec, _reason, _kind)
+
+        # PII 스캔 상한(초선형 검출기: 전화·주소·계좌)에 걸렸는지 본다. 본문 절단과
+        # 다른 층이라 따로 센다 — G3 에 안 걸린 문서도 여기 걸릴 수 있다.
+        _capped, _cov, _tot = superlinear_coverage(text, {r.label for r in ruleset.regex_rules})
+        if _capped:
+            _mark_pii_scan_capped(rec, _cov, _tot)
+            n_pii_capped += 1
+            log.info("PII 스캔 상한 file=%s %d자 중 %d자만 훑음", path, _tot, _cov)
+
         short, n_chars = _body_too_short(text)
         if short:
             _mark_no_body(rec, n_chars)
             n_extract_failed += 1
             code = config.EXIT_EXTRACT_FAIL
-            print(f"[csoclassify] 본문 텍스트 없음({n_chars}자): {path}"
+            print(f"[MpowerClassify] 본문 텍스트 없음({n_chars}자): {path}"
                   f" — 스캔본(이미지)일 수 있습니다", file=sys.stderr)
 
         # 업무분류 집계는 여기서 하지 않는다 — 전파(auto_prop)가 라벨을 더 붙일 수
@@ -1658,8 +2348,29 @@ def run_classify(files, args, out_fp):
             if rec.get("doc_id_source") != "sfile_id":
                 missing_id_rows.append(rec)
 
-        if need_hash:
+        # 지문 — _attach_doc_id 가 이미 구해 뒀으면 그대로 쓴다(두 번 해싱 금지).
+        if need_hash and not rec.get("hash"):
             rec["hash"] = _file_hash(src)
+
+        #----------------------------------------------------------------------------
+        # 추출 본문 보존(--textsave) — 설계: plan/추출텍스트-저장-설계-20260907.html
+        #----------------------------------------------------------------------------
+        # 해시를 단 바로 뒤에 부른다: 파일 이름이 그 해시이기 때문이다.
+        # 저장하는 text 는 '정제·절단까지 끝난' 값 — 도구가 실제로 보고 판정한
+        # 바로 그 텍스트여야 나중에 근거를 되짚을 때 어긋나지 않는다(설계 6장).
+        if text_save_dir:
+            # [2026-09-10] ts 는 meta 안으로 들어갔다. 예전 코드가 rec["ts"] 를
+            # 그대로 읽어 늘 None 이 나왔고, 색인에 '레코드 시각' 대신 '저장 시각'이
+            # 조용히 들어가고 있었다 — 오류가 안 나서 못 알아챘다.
+            _st = _save_text_file(text_save_dir, rec, text, path, was_truncated,
+                                  record.meta_of(rec).get("ts") or now_iso())
+            if _st == "saved":
+                n_text_saved += 1
+            elif _st == "dedup":
+                n_text_saved += 1
+                n_text_dedup += 1
+            elif _st == "error":
+                n_text_save_failed += 1
 
         #----------------------------------------------------------------------------
         # ** (3) 벡터 생성 **        
@@ -1672,7 +2383,7 @@ def run_classify(files, args, out_fp):
         #      - 보안등급 미정(grade=None): 규칙이 등급을 못 정한 경우
         #      - seed 전파 후보(seed_eligible=True): cso_rule.yaml에서 marked
         #      - 문서타입 미정: doc_rule.yaml에서 라벨은 있지만 선택지가 비어있음
-        #        예: "labels": {"doctype": {"values": []}} ← 규칙이 후보를 찾지 못함
+        #        예: "doctype": {"values": []} ← 규칙이 후보를 찾지 못함
         #
         #    · "none" 모드: 임베딩 안 함 (--rule-only 또는 규칙 분류만 사용할 때)
         #
@@ -1681,12 +2392,13 @@ def run_classify(files, args, out_fp):
         #    · 세 조건을 모두 만족 못하면 → need_vec=False → 벡터 생성 안 함
         #    · 벡터 없음 → seed_pool에 추가 안 됨 → 업무분류 seed 최종 미포함
         #
-        dt_label = rec.get("labels", {}).get("doctype")
+        dt_label = record.doctype_of(rec)
 
         dt_undecided = dt_label is not None and not dt_label.get("values")
+        rsec = rec["why"]["security"]
         need_vec = embed_mode == "all" or (
             embed_mode == "needed"
-            and (rec["grade"] is None or rec.get("seed_eligible") or dt_undecided))
+            and (rec.get("grade") is None or rsec.get("seed_eligible") or dt_undecided))
 
         if need_vec and embed_mode != "none":
             try:
@@ -1717,11 +2429,11 @@ def run_classify(files, args, out_fp):
             rec["elapsed_ms"] = em
             totals.append(em.get("total", 0.0))
 
-        counts[rec["grade"] or "none"] = counts.get(rec["grade"] or "none", 0) + 1
+        counts[rec.get("grade") or "none"] = counts.get(rec.get("grade") or "none", 0) + 1
 
         # 씨앗 후보 적재 — 지금이 '규칙만으로 판정한 상태'라 씨앗 자격을 보기에 맞다.
         if getattr(args, "make_doctype_seeds", None) and rec.get("vector"):
-            seed_pool.append({"file": rec.get("file"), "labels": rec.get("labels"),
+            seed_pool.append({"file": rec.get("file"), "doctype": rec.get("doctype"),
                               "vector": rec["vector"], "text_len": len(text or "")})
 
         # auto_prop 면 전파 후 출력하려고 모아 두고, 아니면 바로 출력.
@@ -1734,7 +2446,8 @@ def run_classify(files, args, out_fp):
             _emit(rec)
             # 스트리밍 경로는 지금 등급이 최종이라 바로 압축별로 모은다.
             if origin is not None:
-                arch_members.setdefault(origin, []).append(rec["grade"])
+                arch_members.setdefault(origin, []).append(rec.get("grade"))
+                _collect_archive_doctype(arch_doctypes, origin, rec)
 
         # 한 파일 처리 완료 → 진행수 갱신(UI 진행바/경과시간용).
         if show_progress:
@@ -1752,7 +2465,7 @@ def run_classify(files, args, out_fp):
         from .classify import seedgen
         out_path = args.make_doctype_seeds
         if taxonomy is None or doc_rules_set is None:
-            print("[csoclassify] 업무분류 축이 꺼져 있어 seed 를 만들 수 없습니다 "
+            print("[MpowerClassify] 업무분류 축이 꺼져 있어 seed 를 만들 수 없습니다 "
                   "(--taxonomy·--doc-rules 확인)", file=sys.stderr)
         else:
             # 업무분류측 class_seed.jsonl 씨드파일을 만든다.
@@ -1789,10 +2502,10 @@ def run_classify(files, args, out_fp):
         # 외부 class_seed.jsonl 파일 읽어오기
         if seeds_path and os.path.isfile(seeds_path):
             seed_index = SeedIndex.from_seed_file(seeds_path)
-            print(f"[csoclassify] 외부 seed {seed_index.size}건 로드: {seeds_path}", file=sys.stderr)
+            print(f"[MpowerClassify] 외부 seed {seed_index.size}건 로드: {seeds_path}", file=sys.stderr)
         elif args.seeds:
             # 사용자가 --seeds 로 명시했는데 파일이 없을 때만 알린다(내부 seed 로 진행).
-            print(f"[csoclassify] seed 파일 없음(내부 seed 만 사용): {args.seeds}", file=sys.stderr)
+            print(f"[MpowerClassify] seed 파일 없음(내부 seed 만 사용): {args.seeds}", file=sys.stderr)
 
         # 내부 seed 읽기(cso_rule.yaml)
         # => cso_rule.yaml에서 고신뢰(seed_eligible) 설정된 경우에 대해 읽어옴
@@ -1836,13 +2549,15 @@ def run_classify(files, args, out_fp):
         # 전파로 등급이 바뀌었을 수 있으니 분포를 다시 집계한 뒤 출력.
         counts = {"C": 0, "S": 0, "O": 0, "none": 0}
         for rec, origin in zip(records, rec_origins):
-            counts[rec.get("grade") or "none"] = counts.get(rec.get("grade") or "none", 0) + 1
+            g = record.grade_of(rec)
+            counts[g or "none"] = counts.get(g or "none", 0) + 1
             # 전파까지 끝난 지금이 최종 — 여기서 업무분류를 센다(전파로 붙은 라벨 포함).
             _finalize_doctype(rec)
             _emit(rec)
             # 전파 후가 최종 등급이므로 여기서 압축별로 모은다.
             if origin is not None:
-                arch_members.setdefault(origin, []).append(rec.get("grade"))
+                arch_members.setdefault(origin, []).append(g)
+                _collect_archive_doctype(arch_doctypes, origin, rec)
         print(
             f"[propagate] seeds={pstats['seeds']} already_graded={pstats['already_graded']} "
             f"embed_decided={pstats['embed_decided']} "
@@ -1857,12 +2572,32 @@ def run_classify(files, args, out_fp):
     if arch_members:
         ts = now_iso()
         for origin, grades in arch_members.items():
-            arec = _archive_record(origin, grades, ts)
+            arec = _archive_record(origin, grades, ts, arch_doctypes.get(origin))
             # --hash/--simple 이면 압축파일 자체의 해시도 함께 싣는다(origin=압축파일 실경로).
             if need_hash:
                 arec["hash"] = _file_hash(origin)
             arch_recs.append(arec)
             _emit(arec)
+
+    # 목록에 있으나 없는 파일 — 결과에도 한 줄씩 남긴다(F4 를 stderr 에만 두지 않는다).
+    # 목록이 대상을 정한 실행에서만 한다. --dir 과 함께 준 경우 목록은 ID 사전일 뿐이라
+    # 그 바깥 항목을 '빠졌다'고 하면 엉뚱한 경고가 된다.
+    n_missing_file = 0
+    if getattr(args, "_filelist_is_target", False):
+        _fl = getattr(args, "_filelist", None)
+        for _e in (_fl.missing_entries() if _fl is not None else ()):
+            mrec = _missing_file_record(_e.path, _e.sfile_id, ruleset,
+                                        doc_rules_set, taxonomy)
+            n_missing_file += 1
+            counts["none"] = counts.get("none", 0) + 1
+            _emit(mrec)
+        if n_missing_file:
+            # 추출 실패와 같은 급으로 종료코드를 올린다 — 부르는 쪽이 결과를
+            # 파싱하지 않고 종료코드만 봐도 '요청한 만큼 안 됐다'를 알아야 한다.
+            code = config.EXIT_EXTRACT_FAIL
+            print(f"[MpowerClassify] 목록에 있으나 파일이 없어 처리하지 못함: "
+                  f"{n_missing_file}건 — 결과에 error.kind=file_missing 으로 남겼습니다",
+                  file=sys.stderr)
 
     # 최종 요약 집계 — 총수/검출수(C+S+O)/등급별/미분류, 그리고 프로세스 시작~지금까지의
     #   '총 소요시간'(startup 포함 = exe 실행부터 여기까지의 실제 체감 시간).
@@ -1870,11 +2605,15 @@ def run_classify(files, args, out_fp):
     s_cnt = counts.get("S", 0)
     o_cnt = counts.get("O", 0)
     none_cnt = counts.get("none", 0)
-    total_files = len(files)
+    # 없는 파일도 '다룬 문서'로 센다 — 요청받은 문서이기 때문이다. total 에서 빼면
+    # 부르는 쪽이 "7건 요청했는데 total 이 1" 인 것을 눈치챌 수단이 사라진다.
+    total_files = len(files) + n_missing_file
     detected = c_cnt + s_cnt + o_cnt                      # 등급이 매겨진(=검출된) 문서 수
     total_ms = round((time.perf_counter() - PROCESS_START_PERF) * 1000.0, 1)
     # 상태 줄에 실을 건수를 남겨 둔다 — '16건 중 1건 실패'를 숫자로 알려 준다.
-    errcodes.set_counts(total_files, n_extract_failed)
+    # 상태 줄의 '실패' 건수에는 없는 파일도 넣는다 — 부르는 쪽에는 둘 다
+    # "요청했는데 결과를 못 받은 문서"로 같은 뜻이다.
+    errcodes.set_counts(total_files, n_extract_failed + n_missing_file)
     # 정책 버전도 함께 — 결과만 있고 '어떤 규칙으로 판정했는지'가 없으면 나중에
     # 재현할 수 없다(--simple --nosummary 면 지금까지 어디에도 안 남았다).
     errcodes.set_versions(
@@ -1889,6 +2628,26 @@ def run_classify(files, args, out_fp):
         "extract_failed": n_extract_failed,
         "elapsed_total_ms": total_ms, "rule_version": ruleset.version, "embedded": embedded,
     }
+    # 목록에 있으나 없던 파일 — 있을 때만 싣는다(0건이 정상이라 칸이 늘면 헷갈린다).
+    if n_missing_file:
+        summary["file_missing"] = n_missing_file
+    # 글자수 상한에 걸린 문서가 '있을 때만' 요약에 싣는다 — 0건일 때 칸이 늘면
+    # 기존 요약을 읽던 스크립트·눈이 괜히 흔들린다(doctype 칸과 같은 방식).
+    if n_text_truncated:
+        summary["text_truncated"] = n_text_truncated
+    # PII 스캔 상한도 있을 때만 싣는다(0건이 정상).
+    if n_pii_capped:
+        summary["pii_scan_capped"] = n_pii_capped
+    # 크기 상한에 걸린 문서도 같은 이유로 있을 때만 싣는다. extract_failed 안에도
+    # 포함돼 있지만, 그중 몇 건이 '크기 때문'인지를 따로 알아야 대응을 정할 수 있다.
+    if n_size_skipped:
+        summary["size_skipped"] = n_size_skipped
+    if n_split_volume:
+        summary["split_volume"] = n_split_volume
+    if n_partial_extract:
+        summary["partial_extract"] = n_partial_extract
+    if arch_unexpanded:
+        summary["archive_unexpanded"] = len(arch_unexpanded)
     # 압축파일 집계 레코드가 있으면 개수도 요약에 표기(내부 파일 total 과는 별개).
     if arch_recs:
         summary["archives"] = len(arch_recs)
@@ -1925,7 +2684,7 @@ def run_classify(files, args, out_fp):
             full_writer.write_record(errcodes.status_object(code, args.file or args.dir))
         full_writer.close()
         full_fp.close()
-        print(f"[csoclassify] 감사용 전체 결과: {full_path}", file=sys.stderr)
+        print(f"[MpowerClassify] 감사용 전체 결과: {full_path}", file=sys.stderr)
 
     # (1-b) --report-missing-id — sfile_id 를 못 얻은 문서를 따로 뽑아 둔다.
     #       이 문서들은 매핑 테이블 적재 대상이 아니므로(R14), 왜 ID 를 못 얻었는지
@@ -1935,15 +2694,15 @@ def run_classify(files, args, out_fp):
             with open(args.report_missing_id, "w", encoding="utf-8") as mf:
                 for r in missing_id_rows:
                     mf.write(output.dumps_safe(
-                        {"file": r.get("file"), "key": r.get("key"),
+                        {"file": r.get("file"),
                          "doc_id": r.get("doc_id"),
                          "doc_id_source": r.get("doc_id_source")},
                         separators=(",", ":")) + "\n")
-            print(f"[csoclassify] 문서 ID 미획득 목록: {args.report_missing_id} "
+            print(f"[MpowerClassify] 문서 ID 미획득 목록: {args.report_missing_id} "
                   f"({len(missing_id_rows)}건)", file=sys.stderr)
         except OSError as e:
             # 본 작업은 끝난 뒤라, 리포트를 못 썼다고 결과까지 버릴 이유는 없다.
-            print(f"[csoclassify] 미획득 목록을 쓰지 못했습니다: {e}", file=sys.stderr)
+            print(f"[MpowerClassify] 미획득 목록을 쓰지 못했습니다: {e}", file=sys.stderr)
 
     # (2) 화면(stderr) 최종 요약 — 사용자가 요청한 형식(총수/검출/등급별/미분류/총시간).
     #     --nosummary 면 이 화면 요약 줄도 내지 않는다(summary 를 마지막 출력에서 완전 제거).
@@ -1971,13 +2730,87 @@ def run_classify(files, args, out_fp):
                       f"{docid_stats['hash_mismatch']}건 — 수정된 것으로 보이며 "
                       f"같은 문서로 처리했습니다", file=sys.stderr)
         arch_note = f", 압축 {len(arch_recs)}건" if arch_recs else ""
+        # 절단은 0건이 정상이라, 있을 때만 칸을 늘려 눈에 띄게 한다.
+        trunc_note = f", 본문절단={n_text_truncated}" if n_text_truncated else ""
+        size_note = f", 크기초과={n_size_skipped}" if n_size_skipped else ""
+        vol_note = f", 분할조각={n_split_volume}" if n_split_volume else ""
+        part_note = f", 부분추출={n_partial_extract}" if n_partial_extract else ""
+        arch_un_note = f", 압축미해제={len(arch_unexpanded)}" if arch_unexpanded else ""
+        # --textsave 를 안 쓰면 0/0 이라 칸을 아예 안 낸다(쓰는 사람만 보게).
+        ts_note = f", 텍스트저장={n_text_saved}" if text_save_dir else ""
+        ts_fail_note = f", 저장실패={n_text_save_failed}" if n_text_save_failed else ""
         print(
             f"[summary] 총 {total_files}개 / 검출 {detected}, "
             f"C={c_cnt} S={s_cnt} O={o_cnt} 미분류={none_cnt} "
-            f"추출실패={n_extract_failed}{arch_note}, "
+            f"추출실패={n_extract_failed}{arch_note}{trunc_note}{size_note}"
+            f"{part_note}{arch_un_note}{vol_note}{ts_note}{ts_fail_note}, "
             f"총시간={total_ms}ms",
             file=sys.stderr,
         )
+        # 저장은 곁다리라 결과를 안 바꾸지만, 몇 건이 어디에 남았는지는 말해야 한다.
+        # 중복이 합쳐진 건수를 함께 내는 이유: 폴더의 .txt 개수가 문서 수보다
+        # 적은 것을 보고 "빠졌나" 의심하지 않게 하려는 것이다.
+        if text_save_dir:
+            dedup_note = (f"(내용이 같은 {n_text_dedup}건은 한 파일로 합쳐졌습니다)"
+                          if n_text_dedup else "")
+            print(f"[summary][텍스트 저장] {n_text_saved}건을 {text_save_dir} 에 "
+                  f"남겼습니다{dedup_note}. 원본 발췌이므로 공유·백업에 주의하세요.",
+                  file=sys.stderr)
+        if n_text_save_failed:
+            print(f"[summary][텍스트 저장 실패] {n_text_save_failed}건은 남기지 "
+                  f"못했습니다 — 분류 결과에는 영향이 없습니다. 사유는 레코드의 "
+                  f"text_save_error 를 보세요.", file=sys.stderr)
+        # 크기 초과는 '고장'이 아니라 '설정에 걸린 것'이므로, 무엇을 하면 되는지까지 알려 준다.
+        if n_size_skipped:
+            print(f"[summary][크기 초과] {n_size_skipped}건은 원본이 상한보다 커서 읽지 "
+                  f"않았습니다(error.kind=size_limit) — 상한 조정은 --max-file-mb "
+                  f"(텍스트 파일은 --max-file-mb-text) 로 합니다.", file=sys.stderr)
+        # G5 — 끝까지 못 읽은 문서. 등급은 나왔지만 뒷부분을 안 본 판정이다.
+        if n_partial_extract:
+            print(f"[summary][부분 추출] {n_partial_extract}건은 파서가 상한에서 멈춰 문서 "
+                  f"앞부분만 읽었습니다(partial_extract=true) — 재검토 대상입니다. "
+                  f"상한 조정은 --max-pdf-pages · --parser-timeout 으로 합니다.",
+                  file=sys.stderr)
+        # 분할 압축 조각 — 깨진 파일이 아니라 '원래 단독으로 못 읽는 것'이다.
+        if n_split_volume:
+            print(f"[summary][분할 조각] {n_split_volume}건은 분할 압축의 조각이라 읽지 "
+                  f"않았습니다(error.kind=split_volume) — 파일이 깨진 것이 아닙니다. "
+                  f"이 도구는 조각을 이어 붙이지 않으므로, 원본을 한 파일로 합친 뒤 "
+                  f"넣어야 내부 문서가 분류됩니다.", file=sys.stderr)
+        # G4 — 가장 조용한 손실. 내부 문서 수백 건이 통째로 빠졌을 수 있다.
+        # 상한 초과와 그 밖의 실패는 사람이 할 일이 달라서 문구를 나눈다.
+        if arch_unexpanded:
+            n_limit = sum(1 for _r, k in arch_unexpanded.values() if k == "limit")
+            n_vol = sum(1 for _r, k in arch_unexpanded.values() if k == "split_volume")
+            n_error = len(arch_unexpanded) - n_limit - n_vol
+            if n_limit:
+                print(f"[summary][압축 미해제] {n_limit}건은 해제 상한을 넘어 "
+                      f"내부 파일로 펼치지 못했습니다(archive_unexpanded=true) — 그 압축 안의 "
+                      f"문서는 한 건도 분류되지 않았습니다. 상한 조정은 --max-archive-mb "
+                      f"· --max-archive-members 로 합니다.", file=sys.stderr)
+            if n_vol:
+                print(f"[summary][분할 조각] {n_vol}건은 분할 압축의 첫 조각이라 펼치지 못했습니다"
+                      f"(archive_unexpanded=true, kind=split_volume) — 파일이 깨진 것이 아닙니다. "
+                      f"원본을 한 파일로 합친 뒤 넣어야 내부 문서가 분류됩니다.",
+                      file=sys.stderr)
+            if n_error:
+                print(f"[summary][압축 확장 실패] {n_error}건은 압축을 펼치지 못했습니다"
+                      f"(archive_unexpanded=true, kind=error) — 그 압축 안의 문서는 한 건도 "
+                      f"분류되지 않았습니다. 손상·암호·분할볼륨이거나 해제 도구가 없을 수 "
+                      f"있습니다. 사유는 각 레코드의 archive_unexpanded_reason 을 보세요.",
+                      file=sys.stderr)
+        # 절단이 있었으면 무엇을 해야 하는지까지 알려 준다 — 숫자만 던지면 운영자가
+        # 상한을 올려야 할지 그 문서를 따로 봐야 할지 판단할 근거가 없다.
+        if n_text_truncated:
+            print(f"[summary][본문 절단] {n_text_truncated}건은 본문 앞 "
+                  f"{text_limit:,}자만 보고 판정했습니다(text_truncated=true) — "
+                  f"재검토 대상입니다. 상한 조정은 --max-text-chars 로 합니다.",
+                  file=sys.stderr)
+        # 본문은 안 잘렸어도 전화·주소·계좌만 뒷부분을 못 본 문서가 있다.
+        if n_pii_capped:
+            print(f"[summary][PII 스캔 상한] {n_pii_capped}건은 전화·주소·계좌를 "
+                  f"앞부분까지만 훑었습니다 — 뒤쪽 연락처·주소록이 안 잡혔을 수 "
+                  f"있습니다(레코드의 pii_scan_capped 참고)", file=sys.stderr)
         # doctype 축 롤업 — 뿌리 카테고리별 총계(괄호 안은 실제 걸린 노드별 내역) + 미분류.
         # 상세 문서별 내역이 필요하면 결과 파일을 classify.summarize_records() 로 다시 돌리면 된다.
         if doctype_total_docs:
@@ -1996,7 +2829,124 @@ def run_classify(files, args, out_fp):
             head = " / ".join(parts) if parts else "(분류된 문서 없음)"
             print(f"[summary][업무분류] {head} / 미분류 {doctype_unclassified}",
                   file=sys.stderr)
+
+    # 기준 문서 등록 모드는 여기가 본론이다 — 위의 분류는 지문과 벡터를 얻는
+    # 과정이었을 뿐이고, 이제 그 결과를 기준 문서 줄로 바꿔 쓴다.
+    if getattr(args, "_seed_plan", None):
+        return _finish_seed_add(args, taxonomy)
     return code
+
+
+#------------------------------------------------------------------
+# 기준 문서 등록 마무리 — 레코드를 기준 문서 줄로 바꿔 쓴다
+#=> 설계서 8장 ④~⑧. 분류가 이미 지문(hash)과 벡터를 만들어 뒀으므로,
+#   여기서는 사람이 정한 값을 얹어 저장하거나 stdout 으로 낸다.
+#    1) 없는 dc_id 는 여기서 막는다 — 분류체계는 이 시점에 알 수 있다
+#    2) --seeds 를 주면 읽기~쓰기를 잠그고 병합, 안 주면 stdout(파일 안 건드림)
+#    3) 축마다 감사 기록을 남긴다 — CLI 로 넣은 것만 이력이 없으면 감사 구멍이다
+#    4) 부분 실패를 종료코드로 구분한다 — 받는 쪽이 줄 수만 세면 못 알아챈다
+#
+# -in: args     = 파싱된 인자(_seed_plan·_seed_recs 가 실려 있다)
+# -in: taxonomy = 분류체계(없으면 dc_id 검사를 건너뛴다)
+#
+# -out: code = 0 전부 등록 · 1 일부 실패 · 2 한 건도 못 함 · 3 인자 잘못
+# -out: error = 파일을 못 쓰면 output_write_failed(exit 1)
+#------------------------------------------------------------------
+def _finish_seed_add(args, taxonomy):
+    from . import seedstore
+
+    plan = args._seed_plan
+    # 없는 분류로 씨앗을 만들면 전파가 조용히 헛돈다. 체계를 아는 지금 막는다.
+    if taxonomy is not None:
+        for p in plan:
+            gone = [d for d in p["doctype"] if taxonomy.get(d) is None]
+            if gone:
+                return fail_err("bad_args",
+                                "[MpowerClassify] %s: 분류체계에 없는 dc_id 입니다: %s"
+                                % (p["file"], ", ".join(gone)))
+
+    seeds_path = getattr(args, "seeds", None)
+    audit = seedcli.audit_path(args)
+
+    #--------------------------------------------------------------
+    # 등록 한 판 — 파일 모드면 잠근 채로 읽고 쓴다
+    #=> 읽고 나서 남이 쓴 뒤 우리가 덮으면 그 등록이 아무 말 없이 사라진다.
+    #   그래서 읽기~쓰기 전체를 한 잠금 안에서 한다.
+    #
+    # -in: 없음(바깥 변수를 쓴다)
+    # -out: (added, failed, before) = 등록·실패 목록과 축별 이전 값
+    # -out: error = 없음
+    #--------------------------------------------------------------
+    def _do():
+        base = seedstore.load_seeds(seeds_path) if seeds_path else []
+        # 감사 기록의 before 에 넣을 '고치기 전 값'을 미리 떠 둔다.
+        was = {}
+        for p in plan:
+            cur = seedstore.find_seed(base, p["file"])
+            was[seedstore.norm_file(p["file"])] = {
+                a: seedstore.axis_value(cur, a) for a in seedstore.AXES} if cur else {}
+        rows, added, failed = seedcli.build_rows(plan, args._seed_recs, base)
+        return rows, added, failed, was
+
+    try:
+        if seeds_path:
+            with seedstore.seed_lock(seeds_path):
+                rows, added, failed, was = _do()
+                n = seedstore.save_seeds(seeds_path, rows)
+        else:
+            rows, added, failed, was = _do()
+            n = 0
+    except TimeoutError as e:
+        return fail_err("output_write_failed", "[MpowerClassify] %s" % e, seeds_path)
+    except OSError as e:
+        return fail_err("output_write_failed",
+                        "[MpowerClassify] 기준 문서를 쓰지 못했습니다: %s :: %s"
+                        % (seeds_path, e), seeds_path)
+
+    # stdout 모드 — 등록된 줄만 jsonl 로 내보낸다(파일은 건드리지 않는다).
+    if not seeds_path:
+        done = {seedstore.norm_file(a["file"]) for a in added}
+        for r in rows:
+            if seedstore.norm_file(r.get("file")) in done:
+                print(json.dumps(seedstore._ordered(r), ensure_ascii=False))
+
+    # 감사 기록 — 파일 모드에서만. stdout 모드는 파일을 안 만지는 모드다.
+    if seeds_path and audit and added:
+        for a in added:
+            prev = was.get(seedstore.norm_file(a["file"]), {})
+            for axis, val in (("security", a["grade"]), ("doctype", a["doctype"])):
+                if not val:
+                    continue
+                try:
+                    seedstore.append_seed_audit(
+                        audit, "update" if prev.get(axis) else "add", a["file"],
+                        axis=axis, before=prev.get(axis), after=val,
+                        reviewer=plan[0]["reviewer"], reason="CLI --seed-add")
+                except OSError as e:
+                    # 씨앗은 이미 저장됐다 — 되돌리지도, 조용히 넘기지도 않는다.
+                    print("[seed-add] 변경 기록을 남기지 못했습니다: %s :: %s"
+                          % (audit, e), file=sys.stderr)
+                    break
+
+    where = seeds_path if seeds_path else "stdout"
+    msg = "[seed-add] %d건 등록" % len(added)
+    if failed:
+        msg += " · %d건 실패(%s)" % (len(failed), failed[0]["why"])
+    if seeds_path:
+        msg += " → %s (전체 %d줄)" % (where, n)
+    else:
+        msg += " → stdout (파일은 건드리지 않았습니다)"
+    print(msg, file=sys.stderr)
+    for f in failed:
+        print("[seed-add] 실패: %s — %s" % (f["file"], f["why"]), file=sys.stderr)
+    if seeds_path and audit:
+        print("[seed-add] 변경 기록: %s" % audit, file=sys.stderr)
+
+    # 받는 쪽이 stdout 줄 수만 세면 "3건 넣었는데 2줄"을 못 알아챈다.
+    # 0 과 1 이 다르다는 것을 종료코드로 못박는다(설계 P4).
+    if not added:
+        return config.EXIT_EMBED_FAIL
+    return config.EXIT_EXTRACT_FAIL if failed else config.EXIT_OK
 
 
 #------------------------------------------------------------------
@@ -2033,7 +2983,7 @@ def run_propagate(args):
     # 1차 레코드(jsonl) 로드.
     if not os.path.isfile(args.propagate):
         return fail_err("propagate_input_missing",
-                        f"[csoclassify] 전파 입력 파일이 없습니다: {args.propagate}",
+                        f"[MpowerClassify] 전파 입력 파일이 없습니다: {args.propagate}",
                         args.propagate)
 
     # 입력 레코드 로드 — classify 가 형식에 따라 'JSON 배열'(--dir 기본), '객체 1개'
@@ -2056,15 +3006,26 @@ def run_propagate(args):
             except json.JSONDecodeError as e:
                 log.warning("전파 입력 %d 행 파싱 실패: %s", i, e)
 
+    # 문서가 아닌 줄을 걸러낸다 — 'file' 이 있는 것만 문서 레코드로 본다.
+    #
+    # [2026-09-11] 1차 결과에는 문서 줄 말고도 맨 앞의 실행 헤더({"run":…})와
+    # 맨 뒤의 요약({"summary":…})이 들어 있다. 여태 그 둘을 그대로 문서로 받아
+    # 전파를 돌렸고, 헤더가 등급 없는 유령 레코드 한 줄로 **결과에 실려 나갔다**
+    # (실측: 파이썬 19줄 vs Rust 18줄). 전파 통계도 그만큼 어긋났다
+    # (axis_off=1 · no_vector=1 이 헤더 한 줄 때문에 붙었다).
+    # 오류가 안 나는 종류라, 2차 패스를 돌릴 때마다 미분류가 1건씩 늘어나는데도
+    # 그것이 문서인 줄 알았다. Rust 판 load_propagate_input 과 같은 기준이다.
+    recs = [r for r in recs if isinstance(r, dict) and isinstance(r.get("file"), str)]
+
     # --seeds 가 있으면 외부 큐레이션 seed 저장소를 기준으로 비교(Phase 3 정석).
     seed_index = None
     if args.seeds:
         if not os.path.isfile(args.seeds):
             return fail_err("seeds_missing",
-                            f"[csoclassify] seed 파일이 없습니다: {args.seeds}",
+                            f"[MpowerClassify] seed 파일이 없습니다: {args.seeds}",
                             args.seeds)
         seed_index = SeedIndex.from_seed_file(args.seeds)
-        print(f"[csoclassify] 외부 seed {seed_index.size}건 로드: {args.seeds}", file=sys.stderr)
+        print(f"[MpowerClassify] 외부 seed {seed_index.size}건 로드: {args.seeds}", file=sys.stderr)
 
     # 전파 + 재융합(상향 전용).
     # 입력 레코드/seed 는 외부 파일이라 손으로 고쳐졌을 수 있다. 등급 값이 정의된
@@ -2075,7 +3036,7 @@ def run_propagate(args):
     except UnknownGradeError as e:
         log.error("전파 입력 등급 오류 :: %s", e)
         return fail_err("rules_invalid",
-                        f"[csoclassify] 전파 입력의 등급 값이 올바르지 않습니다: "
+                        f"[MpowerClassify] 전파 입력의 등급 값이 올바르지 않습니다: "
                         f"{args.propagate}\n  {e}", args.propagate)
 
     # doctype 축 전파(D7) — security 와 별개 축이라 별도 seed 저장소(같은 class_seed.jsonl
@@ -2089,9 +3050,9 @@ def run_propagate(args):
         dt_seeds = DoctypeSeedIndex.from_seed_file(args.seeds)
         emb = doc_rules_set.embed
         if dt_seeds.size:
-            print(f"[csoclassify] 업무분류 seed {dt_seeds.size}건 로드: {args.seeds}", file=sys.stderr)
+            print(f"[MpowerClassify] 업무분류 seed {dt_seeds.size}건 로드: {args.seeds}", file=sys.stderr)
         if dt_seeds.size and not emb.enabled:
-            print("[csoclassify] doc_rule.yaml 의 embed.enabled 가 false 라 "
+            print("[MpowerClassify] doc_rule.yaml 의 embed.enabled 가 false 라 "
                   "업무분류 2단계를 건너뜁니다", file=sys.stderr)
             dt_seeds = DoctypeSeedIndex.from_seed_file(None)   # 빈 인덱스로 통과
         records, dt_stats = propagate_doctype_records(
@@ -2110,7 +3071,7 @@ def run_propagate(args):
         out_fp = open(args.out, "w", encoding="utf-8") if args.out else None
     except OSError as e:
         return fail_err("output_write_failed",
-                        f"[csoclassify] 출력 파일을 쓰지 못했습니다: {args.out}\n  {e}",
+                        f"[MpowerClassify] 출력 파일을 쓰지 못했습니다: {args.out}\n  {e}",
                         args.out)
     writer = output.RecordWriter(out_fp or sys.stdout, args.fmt, multi=len(records) > 1)
     try:
@@ -2122,11 +3083,12 @@ def run_propagate(args):
             #  · signals.embed 존재 = propagate_records 가 보류 문서에만 붙임 → 임베딩 관여
             #  · 없고 grade 있음    = 1차(rule/path/name) 확정본이 그대로 통과
             #  · 없고 grade 없음    = 끝내 미확정(보류)
-            if "embed" in (rec.get("signals") or {}):
+            rsec = record.security_of(rec)
+            if "embed" in (rsec.get("signals") or {}):
                 tag = "[임베딩]"
-            elif rec.get("grade") is not None:
+            elif rsec.get("grade") is not None:
                 # 실제로 무엇이 확정했는지(rule/path/name)를 그대로 보여 준다.
-                who = "·".join(rec.get("decided_by") or []) or "1차"
+                who = "·".join(rsec.get("decided_by") or []) or "1차"
                 tag = f"[통과({who} 확정)]"
             else:
                 tag = "[보류(미확정)]"
@@ -2224,7 +3186,7 @@ def run_embed(files, args, opts, out_fp):
                     result = client.request_embed(src, opts)
                 except DaemonUnavailable as e:
                     if args.verbose:
-                        print(f"[csoclassify] 데몬 폴백(in-process): {e}", file=sys.stderr)
+                        print(f"[MpowerClassify] 데몬 폴백(in-process): {e}", file=sys.stderr)
                     # 폴백은 파일 로그에 항상 남겨 원인을 나중에 확인할 수 있게 한다.
                     log.warning("데몬 사용 불가 → in-process 폴백 file=%s :: %s", label, e)
                     result = process_inprocess(src)
@@ -2243,17 +3205,17 @@ def run_embed(files, args, opts, out_fp):
             totals.append(result.get("elapsed_ms", {}).get("total", 0.0))
 
         except ExtractError as e:
-            print(f"[csoclassify] 추출 실패: {label} :: {e}", file=sys.stderr)
+            print(f"[MpowerClassify] 추출 실패: {label} :: {e}", file=sys.stderr)
             log.error("추출 실패 file=%s :: %s", label, e)
             code = config.EXIT_EXTRACT_FAIL
         except EmbedError as e:
-            print(f"[csoclassify] 임베딩 실패: {label} :: {e}", file=sys.stderr)
+            print(f"[MpowerClassify] 임베딩 실패: {label} :: {e}", file=sys.stderr)
             log.error("임베딩 실패 file=%s :: %s", label, e)
             code = config.EXIT_EMBED_FAIL
         except RuntimeError as e:
             # 데몬이 돌려준 처리 오류(추출/임베딩)를 코드로 환원.
             msg = str(e)
-            print(f"[csoclassify] 처리 실패: {label} :: {msg}", file=sys.stderr)
+            print(f"[MpowerClassify] 처리 실패: {label} :: {msg}", file=sys.stderr)
             # 스택까지 파일 로그에 남겨 원인 추적을 돕는다.
             log.exception("처리 실패 file=%s :: %s", label, msg)
             code = config.EXIT_EMBED_FAIL if "embed" in msg else config.EXIT_EXTRACT_FAIL
@@ -2316,7 +3278,7 @@ def handle_daemon_commands(args):
 # 실제 실행 커맨드라인 문자열
 #=> 로그에 "무엇을 어떻게 실행했는지"를 재현 가능하게 남기려고, 이 프로세스의 실행
 #   커맨드라인을 풀경로로 조립한다.
-#    - frozen(exe): sys.argv[0] 이 exe 풀경로라 그대로 사용 (예: C:\...\csoclassify.exe ...)
+#    - frozen(exe): sys.argv[0] 이 exe 풀경로라 그대로 사용 (예: C:\...\MpowerClassify.exe ...)
 #    - 소스/모듈 실행: 앞에 파이썬 실행기를 붙여 실제 실행형태로 복원
 #
 # -in: 없음
@@ -2396,7 +3358,7 @@ def run_sync_doc_rule(args):
 
     if not os.path.isfile(tax_path):
         return fail_err("taxonomy_missing",
-                        f"[csoclassify] 회사 분류 체계를 찾을 수 없습니다: {tax_path}\n"
+                        f"[MpowerClassify] 회사 분류 체계를 찾을 수 없습니다: {tax_path}\n"
                         f"  · --taxonomy <파일경로> 로 지정하거나,\n"
                         f"  · --export-taxonomy 로 먼저 만드세요.", tax_path)
     try:
@@ -2405,12 +3367,12 @@ def run_sync_doc_rule(args):
     except Exception as e:
         # 파일은 있는데 못 읽는다 = 내용 문제다(없음과 구분해 코드 4 로 나간다).
         return fail_err("taxonomy_invalid",
-                        f"[csoclassify] 분류 체계를 읽지 못했습니다: {e}", tax_path)
+                        f"[MpowerClassify] 분류 체계를 읽지 못했습니다: {e}", tax_path)
 
     # doc_taxonomy.yaml 을 읽어오면서 doc_rule.yaml 에 분류체계노드를 만듬.
     nodes = DV.nodes_from_taxonomy(taxonomy)
     if not nodes:
-        print("[csoclassify] 규칙을 만들 분류가 없습니다(꺼 둔 분류와 대분류는 "
+        print("[MpowerClassify] 규칙을 만들 분류가 없습니다(꺼 둔 분류와 대분류는 "
               "가져오지 않습니다).", file=sys.stderr)
         return 0
 
@@ -2419,7 +3381,7 @@ def run_sync_doc_rule(args):
         doc = DV.load_doc(rules_path)
     except Exception as e:
         return fail_err("doc_rules_invalid",
-                        f"[csoclassify] 규칙 파일을 읽지 못했습니다: {rules_path}\n  {e}",
+                        f"[MpowerClassify] 규칙 파일을 읽지 못했습니다: {rules_path}\n  {e}",
                         rules_path)
 
     # 업종별 분류체계 유의어 사전 파일을 로딩
@@ -2434,7 +3396,7 @@ def run_sync_doc_rule(args):
         enrich_existing=bool(args.sync_enrich), syn=syn, new_rule=new_rule)
 
     if not (added or filled or enriched):
-        print(f"[csoclassify] 바뀐 것이 없습니다 — 규칙 파일은 그대로 둡니다: {rules_path}",
+        print(f"[MpowerClassify] 바뀐 것이 없습니다 — 규칙 파일은 그대로 둡니다: {rules_path}",
               file=sys.stderr)
         return 0
 
@@ -2443,11 +3405,11 @@ def run_sync_doc_rule(args):
         DV.save_doc(rules_path, doc)
     except OSError as e:
         return fail_err("doc_rules_write_failed",
-                        f"[csoclassify] 규칙 파일을 쓰지 못했습니다: {rules_path}\n  {e}",
+                        f"[MpowerClassify] 규칙 파일을 쓰지 못했습니다: {rules_path}\n  {e}",
                         rules_path)
 
     layers = [os.path.basename(p) for p in (syn or {}).get("layers") or []]
-    print(f"[csoclassify] {rules_path} 갱신 — 새 분류 {added}개 · 빈 규칙 채움 "
+    print(f"[MpowerClassify] {rules_path} 갱신 — 새 분류 {added}개 · 빈 규칙 채움 "
           f"{filled}개 · 유의어 더함 {enriched}개"
           + (f" (유의어 사전: {' → '.join(layers)})" if layers else " (유의어 사전 없음)"),
           file=sys.stderr)
@@ -2458,7 +3420,7 @@ def run_sync_doc_rule(args):
 
 #------------------------------------------------------------------
 # 분류체계 스냅샷 내보내기 전용 모드 (--export-taxonomy)
-#=> DOC_CLASSIFICATION JSON(MpowerV11 관리 화면/배치가 뽑은 원본)을 CSOClassify
+#=> DOC_CLASSIFICATION JSON(MpowerV11 관리 화면/배치가 뽑은 원본)을 MpowerClassify
 #   가 읽는 doc_taxonomy.yaml 로 바꾼다. scripts/export_taxonomy.py(개발용
 #   스크립트)와 완전히 같은 axes.export_from_mpower_json() 을 쓴다 — exe 로
 #   얼려도(scripts/ 는 PyInstaller 번들에 안 들어간다) 이 변환을 할 수 있어야
@@ -2484,7 +3446,7 @@ def run_export_taxonomy(args):
 
     if not os.path.isfile(input_path):
         return fail_err("export_input_missing",
-                        f"[csoclassify] 원본 JSON을 찾을 수 없습니다: {input_path}\n"
+                        f"[MpowerClassify] 원본 JSON을 찾을 수 없습니다: {input_path}\n"
                         f"  · --export-input <파일경로> 로 지정하거나,\n"
                         f"  · resources/policy/doc_classification_export.json 에 두세요.",
                         input_path)
@@ -2496,18 +3458,18 @@ def run_export_taxonomy(args):
         # 파일이 없는 경우(2007)와 갈라 두면 부르는 쪽이 "경로를 다시 묻는다 / 원본
         # 데이터를 고친다"를 구분할 수 있다.
         log.error("분류체계 내보내기 실패(원본 문제) :: %s", e)
-        return fail_err("export_input_invalid", f"[csoclassify] {e}", input_path)
+        return fail_err("export_input_invalid", f"[MpowerClassify] {e}", input_path)
     except AX.TaxonomyValidationError as e:
         # 변환은 됐지만 결과 트리가 깨짐(순환·고아 등) — 원본 데이터 자체의 문제.
         log.error("분류체계 내보내기 검증 실패 count=%d", len(e.violations))
         return fail_err("export_input_invalid",
-                        f"[csoclassify] 변환 결과가 검증을 통과하지 못했습니다:\n{e}",
+                        f"[MpowerClassify] 변환 결과가 검증을 통과하지 못했습니다:\n{e}",
                         input_path)
 
     for w in warnings:
-        print(f"[csoclassify] 경고: {w}", file=sys.stderr)
+        print(f"[MpowerClassify] 경고: {w}", file=sys.stderr)
 
-    print(f"[csoclassify] {output_path} 생성 완료 — "
+    print(f"[MpowerClassify] {output_path} 생성 완료 — "
           f"노드 {len(taxonomy)}개, 최상위 {len(taxonomy.roots)}개, "
           f"exported_at={taxonomy.exported_at}")
     for root in taxonomy.roots[:3]:
@@ -2518,10 +3480,10 @@ def run_export_taxonomy(args):
         doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
         scaffold = DR.write_scaffold(taxonomy, doc_rules_path)
         if scaffold is None:
-            print(f"[csoclassify] {doc_rules_path} 이 이미 있어 골격 생성을 건너뜁니다"
+            print(f"[MpowerClassify] {doc_rules_path} 이 이미 있어 골격 생성을 건너뜁니다"
                   f"(사람이 채운 내용을 덮어쓰지 않기 위함).", file=sys.stderr)
         else:
-            print(f"[csoclassify] {doc_rules_path} 골격 생성 완료 — "
+            print(f"[MpowerClassify] {doc_rules_path} 골격 생성 완료 — "
                   f"규칙 {len(scaffold['doctype_rules'])}건(terms 는 비어 있음, 채워야 동작).")
 
     return config.EXIT_OK
@@ -2529,7 +3491,7 @@ def run_export_taxonomy(args):
 
 #------------------------------------------------------------------
 # 규칙셋 검사 전용 모드 (--check-rules)
-#=> 문서는 한 건도 읽지 않고 cso_rules.yaml 의 등급 값만 확인하고 끝낸다.
+#=> 문서는 한 건도 읽지 않고 cso_rule.yaml 의 등급 값만 확인하고 끝낸다.
 #   규칙셋을 고친 뒤 '실제 스캔을 돌리기 전에' 안전한지 확인하는 용도다.
 #   특히 검증을 새로 도입한 직후, 기존 규칙셋에 이미 오타가 있는지 미리 보는 데 쓴다.
 #    1) 규칙셋을 검증까지 포함해 읽어 본다
@@ -2552,18 +3514,18 @@ def run_check_rules(args):
     try:
         rs = load_rules(args.rules)
     except FileNotFoundError as e:
-        return fail_err("rules_missing", f"[csoclassify] {e}", path)
+        return fail_err("rules_missing", f"[MpowerClassify] {e}", path)
     except RuleSetValidationError as e:
         log.error("규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return fail_err("rules_invalid", f"[csoclassify] {e}", e.path)
+        return fail_err("rules_invalid", f"[MpowerClassify] {e}", e.path)
 
     # 통과했으면 "무엇을 검사했는지"를 건수로 보여 준다. 규칙이 0건이면 파일을
     # 잘못 지정했을 가능성이 크므로 눈에 띄게 알려 주는 편이 낫다.
-    print(f"[csoclassify] 규칙셋 정상: {path}")
+    print(f"[MpowerClassify] 규칙셋 정상: {path}")
     print(f"  version={rs.version}  등급={'/'.join(GRADES)}")
     print(f"  regex_pii={len(rs.regex_rules)} · pii_combos={len(rs.pii_combos)} · "
           f"keywords={len(rs.keyword_rules)} · sensitive={len(rs.sensitive_rules)} · "
-          f"stamps={len(rs.stamp_rules)} · paths={len(rs.path_rules)}")
+          f"stamps={len(rs.stamp_rules)}")
 
     # doctype 축은 선택 자산이다(4-6) — 파일이 아예 없으면 "안 씀"으로 보고 건너뛴다.
     # (--axis security 로 좁히지 않는다 — --check-rules 는 배치 실행이 아니라 사람이
@@ -2573,17 +3535,17 @@ def run_check_rules(args):
 
     taxonomy_path = args.taxonomy or AX.default_taxonomy_path()
     if not os.path.isfile(taxonomy_path):
-        print(f"[csoclassify] 분류체계 스냅샷 없음(doctype 축 미사용): {taxonomy_path}")
+        print(f"[MpowerClassify] 분류체계 스냅샷 없음(doctype 축 미사용): {taxonomy_path}")
         return config.EXIT_OK
     try:
         taxonomy = AX.load_taxonomy(taxonomy_path)
     except AX.TaxonomyValidationError as e:
         log.error("분류체계 스냅샷 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return fail_err("taxonomy_invalid", f"[csoclassify] {e}", e.path)
+        return fail_err("taxonomy_invalid", f"[MpowerClassify] {e}", e.path)
     stale = _check_stale_taxonomy(taxonomy)
     if stale:
         print(stale, file=sys.stderr)
-    print(f"[csoclassify] 분류체계 스냅샷 정상: {taxonomy_path}")
+    print(f"[MpowerClassify] 분류체계 스냅샷 정상: {taxonomy_path}")
     print(f"  exported_at={taxonomy.exported_at}  노드={len(taxonomy)}개  "
           f"최상위={len(taxonomy.roots)}개")
 
@@ -2595,7 +3557,7 @@ def run_check_rules(args):
         from .classify import default_seed_path
         seeds_path = args.seeds or default_seed_path()
         n_seed = DoctypeSeedIndex.from_seed_file(seeds_path).size
-        print(f"[csoclassify] 업무분류 규칙셋 없음 → 'seed 전파 전용' 모드: {doc_rules_path}")
+        print(f"[MpowerClassify] 업무분류 규칙셋 없음 → 'seed 전파 전용' 모드: {doc_rules_path}")
         if n_seed:
             print(f"  업무분류 seed {n_seed}건 사용 가능: {seeds_path}")
         else:
@@ -2606,10 +3568,10 @@ def run_check_rules(args):
         drs = DR.load_doc_rules(doc_rules_path, taxonomy=taxonomy)
     except DR.DocRuleValidationError as e:
         log.error("업무분류 규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return fail_err("doc_rules_invalid", f"[csoclassify] {e}", e.path)
+        return fail_err("doc_rules_invalid", f"[MpowerClassify] {e}", e.path)
     for w in drs.warnings:
-        print(f"[csoclassify] {w}")
-    print(f"[csoclassify] 업무분류 규칙셋 정상: {doc_rules_path}")
+        print(f"[MpowerClassify] {w}")
+    print(f"[MpowerClassify] 업무분류 규칙셋 정상: {doc_rules_path}")
     print(f"  version={drs.version}  conflict={drs.conflict.strategy}  "
           f"규칙={len(drs.rules)}건(활성 {len(drs.active_rules)}건)")
     return config.EXIT_OK
@@ -2717,7 +3679,7 @@ def resolve_format(fmt, out, log=None):
                    ".json": "json", ".txt": "text"}.get(ext)
         if guessed:
             if guessed != config.DEFAULT_FORMAT:
-                print(f"[csoclassify] --out 확장자({ext})에 맞춰 --format {guessed} 로 저장합니다."
+                print(f"[MpowerClassify] --out 확장자({ext})에 맞춰 --format {guessed} 로 저장합니다."
                       f" (다르게 하려면 --format 을 직접 지정하세요)", file=sys.stderr)
             if log is not None:
                 log.info("출력 형식 추론: out=%s → format=%s", out, guessed)
@@ -2852,7 +3814,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         # 사용자가 Ctrl+C 로 멈춘 것은 '오류'가 아니다 — 로그를 더럽히지 않는다.
         if not errcodes.is_json():
-            print("\n[csoclassify] 사용자가 중단했습니다.", file=sys.stderr)
+            print("\n[MpowerClassify] 사용자가 중단했습니다.", file=sys.stderr)
         return 130
     except BaseException as e:      # noqa: BLE001  (여기서 놓치면 흔적이 안 남는다)
         log = logsetup.get_logger("csoclassify.cli")
@@ -2860,8 +3822,8 @@ def main(argv=None):
         log.error("예상하지 못한 오류로 중단: %s: %s", type(e).__name__, e, exc_info=True)
         errcodes.emit("internal_error", f"{type(e).__name__}: {e}")
         if not errcodes.is_json():
-            print(f"[csoclassify] 예상하지 못한 오류: {type(e).__name__}: {e}", file=sys.stderr)
-            print(f"[csoclassify] 자세한 내용은 오류 로그를 보세요: "
+            print(f"[MpowerClassify] 예상하지 못한 오류: {type(e).__name__}: {e}", file=sys.stderr)
+            print(f"[MpowerClassify] 자세한 내용은 오류 로그를 보세요: "
                   f"{logsetup.default_err_log_path()}", file=sys.stderr)
         return 1
 
@@ -2900,6 +3862,9 @@ def _main(argv=None):
     # (0-1) 출력 형식 확정 — 아래 모든 모드가 args.fmt 를 그대로 읽으므로 여기서 한 번만 정한다.
     args.fmt = resolve_format(args.fmt, args.out, log)
 
+    # (0-2) 크기 상한(Size Gate) CLI 덮어쓰기를 여기서 한 번만 반영한다.
+    _apply_size_limit_overrides(args, log)
+
     # (1) 데몬 제어 명령 우선 처리.
     dc = handle_daemon_commands(args)
     if dc is not None:
@@ -2917,7 +3882,7 @@ def _main(argv=None):
             # 부른 쪽이 준 값이 틀린 것이므로 '인자 오류(3)'다. 예전에는 규칙셋
             # 내용 오류와 같은 4 로 나가 배치가 원인을 구분할 수 없었다.
             return fail_err("bad_failsafe",
-                            f"[csoclassify] --failsafe 값이 올바르지 않습니다: {args.failsafe!r}\n"
+                            f"[MpowerClassify] --failsafe 값이 올바르지 않습니다: {args.failsafe!r}\n"
                             f"  정의된 등급: {' < '.join(GRADES)}")
 
     # (1.35) 분류체계 스냅샷 내보내기 모드: 문서도 모델도 필요 없다 → 가장 먼저 처리.
@@ -2933,8 +3898,29 @@ def _main(argv=None):
         log.info("문서분류규칙파일 doc_rule.yaml 생성(--sync_doc_rule)")
         return run_sync_doc_rule(args)
 
+    # (1.37) 기준 문서 등록 모드: 인자를 먼저 다 검사한 뒤 분류 경로에 태운다.
+    # 문서를 절반 읽고 나서 인자가 틀린 것을 알면, 이미 쓴 것과 안 쓴 것이 섞여
+    # 되돌리기 어렵다. 그래서 읽기 전에 전부 본다(설계서 6장).
+    if seedcli.is_seed_add(args):
+        log.info("기준 문서 등록 모드(--seed-add)")
+        plan, err = seedcli.build_plan(args, tax=None)
+        if err:
+            return fail_err(err[0], "[MpowerClassify] %s" % err[1])
+        # 분류 경로가 그대로 돌도록 대상 파일을 인자에 실어 준다.
+        args._seed_plan = plan
+        args._seed_recs = []
+        args.file = None
+        # 지문과 벡터는 이 모드에서 선택이 아니다 — 둘 다 없으면 기준으로 못 쓴다.
+        args.hash = True
+        args.with_vector = True
+        # stdout 에는 등록된 기준 문서 줄만 나가야 한다(설계 P5 — stdout 은
+        # 기계가 읽는 것). 분류 레코드도 요약 레코드도 여기서는 소리가 된다.
+        args.no_summary = True
+        args.summary_only = False
+        args.fmt = "jsonl"
+
     # (1.4) 규칙셋 검사 모드: 문서도 모델도 필요 없다 → 파일 수집 전에 먼저 끝낸다.
-    # => cso_rules.yaml, doc_rules.yaml, doc_taxonomy.yaml 파일 유효성 검사.
+    # => cso_rule.yaml, doc_rules.yaml, doc_taxonomy.yaml 파일 유효성 검사.
     if getattr(args, "check_rules", False):
         log.info("규칙파일 유효성 검사(--check_rules)")
         return run_check_rules(args)
@@ -2950,7 +3936,7 @@ def _main(argv=None):
     try:
         config.get_model_spec(args.model)
     except KeyError as e:
-        return fail_err("bad_args", f"[csoclassify] {e}")
+        return fail_err("bad_args", f"[MpowerClassify] {e}")
 
     # (3) 대상 파일 수집.
     # => --file 혹은 --dir 처리
@@ -2959,7 +3945,7 @@ def _main(argv=None):
     # 조용히 하나를 고르면 '왜 저 파일이 빠졌지?' 로 이어지므로 그 자리에서 막는다.
     if getattr(args, "files_from", None) and (args.file or args.dir):
         return fail_err("bad_args",
-                        "[csoclassify] --files-from 은 --file/--dir 과 함께 쓸 수 없습니다.")
+                        "[MpowerClassify] --files-from 은 --file/--dir 과 함께 쓸 수 없습니다.")
 
     # (3-a) 입력 목록(--filelist) 로드 — 대상 수집보다 먼저 한다.
     # 목록이 깨져 있으면(F1·F3) 문서를 한 건도 읽기 전에 멈추는 것이 맞다.
@@ -2973,18 +3959,25 @@ def _main(argv=None):
             # '파일이 없다'와 '내용이 잘못됐다'는 부르는 쪽의 대응이 다르므로 코드를 나눈다.
             kind = ("filelist_missing" if not os.path.isfile(args.filelist or "")
                     else "filelist_invalid")
-            return fail_err(kind, f"[csoclassify] {e}")
+            return fail_err(kind, f"[MpowerClassify] {e}")
         st = args._filelist.stats
-        print(f"[csoclassify] 목록 {os.path.basename(args.filelist)}: "
-              f"{st['loaded']}건 적재(전체 {st['lines']}줄)", file=sys.stderr)
+        # 주석이 있으면 몇 줄을 건너뛰었는지도 알려 준다 — "왜 3건만 읽혔지?" 를
+        # 파일을 열어 보지 않고 알 수 있게.
+        _skipped = (f" · 주석 {st['comments']}줄 건너뜀"
+                    if st.get("comments") else "")
+        print(f"[MpowerClassify] 목록 {os.path.basename(args.filelist)}: "
+              f"{st['loaded']}건 적재(데이터 {st['lines']}줄{_skipped})", file=sys.stderr)
         for w in args._filelist.warnings:
-            print(f"[csoclassify] {w}", file=sys.stderr)
+            print(f"[MpowerClassify] {w}", file=sys.stderr)
 
     #-------------------------------------------
     # 문서 수집
     # => --file, --dir, --filelist 등 인자값에 따라 분류할 문서수집
     #-------------------------------------------
     files = collect_files(args)
+    # 등록 모드에서는 계획에 적힌 문서가 곧 대상이다(--file/--dir 은 못 쓴다).
+    if getattr(args, "_seed_plan", None):
+        files = [p["file"] for p in args._seed_plan]
     log.info("대상수집파일목록(%d건): dir=%s, file=%s", 
              len(files), args.dir, args.file)
     
@@ -3001,7 +3994,7 @@ def _main(argv=None):
                   or getattr(args, "filelist", None))
         if not target:
             return fail_err("no_target_arg",
-                            "[csoclassify] 처리할 파일이 없습니다. "
+                            "[MpowerClassify] 처리할 파일이 없습니다. "
                             "--file <경로> · --dir <폴더> · --files-from <목록> · "
                             "--filelist <목록> 중 하나를 지정하세요.")
         # 왜 0건인지를 상황에 맞게 말해 준다 — "없다"만으로는 무엇을 고칠지 모른다.
@@ -3013,8 +4006,15 @@ def _main(argv=None):
         else:
             why = f"폴더가 없거나, --glob 패턴({args.glob})에 맞는 파일이 없습니다."
         return fail_err("no_input",
-                        f"[csoclassify] 처리할 파일이 없습니다: {target}\n  {why}",
+                        f"[MpowerClassify] 처리할 파일이 없습니다: {target}\n  {why}",
                         target)
+
+    # (3-0) 추출 본문 보존(--textsave) 준비 — 설계 9장.
+    #   폴더를 못 쓰면 여기서 끝낸다. 압축을 풀고 문서를 다 돌린 뒤에
+    #   "한 건도 저장 못 했다"를 알게 되는 것이 가장 나쁘다.
+    _ts_code = resolve_textsave(args)
+    if _ts_code is not None:
+        return _ts_code
 
     # (3-1) 압축파일(zip) 확장: zip 이 섞여 있으면 임시폴더에 풀어 내부 '파일별'로 나눈다.
     #   → 압축 1개가 여러 건으로 분류돼 어느 내부 파일이 C/S/O 인지 알 수 있다.
@@ -3041,14 +4041,17 @@ def _main(argv=None):
             # 권한·디스크·다른 프로그램이 잡고 있음 — 결과를 만들어도 둘 데가 없다.
             shutil.rmtree(arch_tmp, ignore_errors=True)
             return fail_err("output_write_failed",
-                            f"[csoclassify] 출력 파일을 쓰지 못했습니다: {args.out}\n  {e}",
+                            f"[MpowerClassify] 출력 파일을 쓰지 못했습니다: {args.out}\n  {e}",
                             args.out)
         
     #-----------------------------------------------------
     # 분류 시작
     #-----------------------------------------------------
     try:
-        jobs = expand_paths(files, arch_tmp)
+        # 압축 해제 상한(G4)에 걸린 건을 분류 요약까지 실어 나르려고 stats 를 준다.
+        # args 에 실어 두는 것은 _filelist·_log_path 와 같은 이 파일의 관례다.
+        args._archive_stats = {}
+        jobs = expand_paths(files, arch_tmp, stats=args._archive_stats)
 
         # 명시 모드가 있으면 그쪽으로, 없으면 기본 = C/S/O 분류.
         # => --text-only 일때 문서에서 text만 추출(*python 모드 exe 일때만)

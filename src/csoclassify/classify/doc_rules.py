@@ -1,7 +1,7 @@
 #------------------------------------------------------------------
 # 업무 분류(doctype) 축 — doc_rule.yaml 로더
 #=> "무엇을 계약서로 볼 것인가" 같은 매칭 규칙(doctype_rules)과 축 전체 충돌
-#   전략(conflict)을 읽는다. cso_rules.yaml(security 축)과는 완전히 다른
+#   전략(conflict)을 읽는다. cso_rule.yaml(security 축)과는 완전히 다른
 #   파일이며(설계서 3-2), 이 로더는 그 파일을 전혀 건드리지 않는다.
 #   doc_rule.yaml 이 없어도 시스템은 계속 동작해야 한다 — 이 축은 "있으면
 #   켜지고 없으면 꺼지는 외장 자산"이다(설계서 4-6과 같은 원칙, T16).
@@ -17,7 +17,7 @@ import yaml
 
 from ..resources import resource_path, exe_dir
 
-# doc_rule.yaml 도 cso_rules.yaml·doc_taxonomy.yaml 과 같은 "exe 옆 외장 파일"
+# doc_rule.yaml 도 cso_rule.yaml·doc_taxonomy.yaml 과 같은 "exe 옆 외장 파일"
 # 규약을 따른다(설계서 3-2 표 — 배포 원칙은 세 파일이 모두 같다).
 DOC_RULE_FILENAME = "doc_rule.yaml"
 
@@ -41,40 +41,6 @@ class ConflictSpec:
     strategy: str = "all"
     n: int = None
     min_confidence: float = None
-
-
-#------------------------------------------------------------------
-# 서식 필드어 세트 (재설계 7장)
-#=> "이 문서가 무슨 종류인가"를 문서종류명이 아니라 '그 양식에만 있는 항목명'
-#   으로 판별한다. 회의록을 회의록으로 만드는 건 '회의록'이라는 단어가 아니라
-#   일시·장소·참석자·안건이라는 서식 골격이기 때문이다.
-#   security 축 ComboRule 의 all_of / of+min_types 문법을 그대로 가져와,
-#   관리자가 두 축에서 같은 문법을 쓰게 한다.
-#
-# -필드: all_of    = 이 항목들이 '모두' 있어야 성립(비어 있으면 이 조건 미사용)
-# -필드: any_of    = min_types 판정 대상 항목 그룹
-# -필드: min_types = any_of 에서 필요한 '서로 다른 항목' 최소 종수(0이면 미사용)
-#------------------------------------------------------------------
-@dataclass(frozen=True)
-class FormSpec:
-    all_of: tuple = ()
-    any_of: tuple = ()
-    min_types: int = 0
-
-    #------------------------------------------------------------------
-    # 조건이 하나라도 적혀 있는지
-    #=> all_of 도 없고 any_of/min_types 도 없으면 이 규칙은 아무 것도 판정하지
-    #   않는다. 그런 빈 껍데기가 "항상 성립"으로 오작동하지 않도록 스캔 쪽에서
-    #   이 값을 먼저 확인한다.
-    #
-    # -in: 없음
-    #
-    # -out: bool = 실제로 판정 가능한 조건이 있으면 True
-    # -out: error = 없음
-    #------------------------------------------------------------------
-    @property
-    def usable(self):
-        return bool(self.all_of) or bool(self.any_of and self.min_types > 0)
 
 
 #------------------------------------------------------------------
@@ -160,7 +126,7 @@ class EmbedSpec:
 
 #------------------------------------------------------------------
 # 업무 분류 규칙 1개
-#=> doc_rule.yaml 의 doctype_rules 항목 하나. cso_rules.yaml 의 KeywordRule 과
+#=> doc_rule.yaml 의 doctype_rules 항목 하나. cso_rule.yaml 의 KeywordRule 과
 #   문법은 거의 같지만(terms·exclude·weight), grade 대신 node(dc_id)를 갖는다
 #   — 이 한 줄 차이가 security 축과 doctype 축을 가른다(설계서 5-1 note).
 #
@@ -176,17 +142,12 @@ class EmbedSpec:
 #                   첫 줄이 제목이 아니어서 스캔 쪽이 자동으로 건너뛴다
 # -필드: head_terms = 앞 head_chars 자(표제부)에서만 찾을 문서종류어(재설계 6-2)
 # -필드: head_chars = 이 규칙의 표제부 범위. None 이면 defaults.head_chars
-# -필드: form     = FormSpec | None. 서식 필드어 세트(재설계 7장)
-# -필드: structure = 구조 신호 정규식 목록(예: r"제\d+조"). 보조 전용이라
-#                   단독으로는 후보를 만들지 못한다
 # -필드: terms    = 내용 키워드 목록. [재설계 8-2] '약한 증거'로 격하됐다 —
 #                   문서 전체에서 찾되 단독으로는 후보를 만들지 못한다
 # -필드: min_distinct = terms 중 서로 다른 단어 최소 종수. None 이면 defaults
 # -필드: min_count = terms 총 등장 건수 하한. None 이면 defaults
 # -필드: exclude  = 오탐 제외어 목록
 # -필드: filename = 파일명 신호 목록(선택)
-# -필드: paths    = 경로 신호 목록(선택). load_doc_rules 가 '/' 정규화 + 소문자화해
-#                   둔다(rules.py 의 PathRule.matches 와 같은 규약)
 # -필드: active   = load_doc_rules 가 채운다. node 가 doc_taxonomy.yaml 에서
 #                   status=0(미사용)이면 False — 매칭을 시도하지 않는다(T6).
 #                   taxonomy 없이 로드했으면 항상 True(교차검증을 안 했으므로
@@ -200,23 +161,20 @@ class DoctypeRule:
     title_terms: tuple = ()
     head_terms: tuple = ()
     head_chars: int = None
-    form: FormSpec = None
-    structure: tuple = ()
     terms: tuple = ()
     min_distinct: int = None
     min_count: int = None
     exclude: tuple = ()
     filename: tuple = ()
-    paths: tuple = ()
     active: bool = True
 
 
 #------------------------------------------------------------------
 # doc_rule.yaml 전체
-#=> 로드된 doc_rule.yaml 을 통째로 담는 컨테이너. cso_rules.yaml 의 RuleSet 과
+#=> 로드된 doc_rule.yaml 을 통째로 담는 컨테이너. cso_rule.yaml 의 RuleSet 과
 #   같은 역할을 doctype 축에서 한다.
 #
-# -필드: version  = 규칙셋 버전 문자열(감사용). cso_rules.yaml 의 version: 과 같은
+# -필드: version  = 규칙셋 버전 문자열(감사용). cso_rule.yaml 의 version: 과 같은
 #                   문법 — doc_rule.yaml 최상위에 적으면 결과 레코드의
 #                   doctype_rule_version 으로 그대로 나간다(설계서 7-1). 생략하면
 #                   "unknown"(rules.py 의 RuleSet.version 기본값과 동일 규약)
@@ -224,6 +182,8 @@ class DoctypeRule:
 # -필드: rules    = DoctypeRule 튜플(파일에 적힌 순서 그대로, 비활성 규칙도 포함)
 # -필드: defaults = Defaults(전역 기본값 블록). 규칙에 같은 필드가 있으면 그쪽이 이긴다
 # -필드: embed    = EmbedSpec(2단계 임베딩 전파 설정)
+# -필드: signals  = 신호별 신뢰도 표({신호: {high,medium,low}}). 정책 파일에
+#                   signals: 블록이 없으면 None(코드 기본값을 쓴다)
 # -필드: warnings = 로드 중 발견한 경고 메시지 목록(T6·T12 등 — 로드를 막지
 #                   않는 문제). 종료 여부는 호출자(cli.py)가 정책으로 정한다
 #------------------------------------------------------------------
@@ -235,6 +195,9 @@ class DocRuleSet:
     warnings: tuple = ()
     defaults: Defaults = Defaults()
     embed: EmbedSpec = EmbedSpec()
+    # 신호별 신뢰도 표. None 이면 정책 파일이 안 건드린 것 —
+    # 채점 쪽이 코드 기본값(doctype._SIG_CONF)을 그대로 쓴다.
+    signals: dict = None
 
     #------------------------------------------------------------------
     # 실제로 매칭에 쓸 규칙만
@@ -411,6 +374,83 @@ def _parse_defaults(raw):
     return d, violations
 
 
+# signals: 로 값을 바꿀 수 있는 신호 — 코드의 표(doctype._SIG_CONF)와 같다.
+# 차례는 판별력이 센 것부터 — 오류 문구에 이 차례 그대로 나간다.
+CONFIGURABLE_SIGNALS = ("title", "head", "body", "name")
+
+
+#------------------------------------------------------------------
+# signals: 블록 검사·파싱 (T20)
+#=> 신호별 신뢰도 표(doctype._SIG_CONF)를 정책 파일에서 덮어쓸 수 있게 한다.
+#   그 값들은 코드 주석에 "실측 전 잠정치 · 검증셋 측정 후 재보정 대상"이라고
+#   적혀 있는데, 소스에 박혀 있으면 재보정할 때마다 두 판을 고치고 exe 를
+#   다시 빌드해야 한다. embed: 블록을 정책 파일로 꺼낸 것과 같은 이유다.
+#
+#   [부분만 적어도 된다] 적은 칸만 덮어쓰고 나머지는 코드 기본값을 쓴다.
+#   "title 만 0.70 으로 올려 보자"가 두 줄로 끝나야 실제로 시도된다.
+#
+#   [모르는 이름은 막는다] signals 에 'titel' 처럼 오타를 적으면, 조용히
+#   무시하면 사람은 "고쳤는데 왜 안 바뀌지"를 혼자 헤맨다. 아는 이름만 받는다.
+#
+#   [name·structure 는 세 값이 같아야 한다] 코드가 이 둘만 weight 를 보지 않고
+#   "medium" 칸을 직접 집어 쓴다(_scan_rule). 그래서 high 를 다르게 적어도
+#   아무 효과가 없다 — 설정할 수 있게 해 놓고 조용히 무시하는 셈이라, 아예
+#   막아서 "이건 등급별로 못 준다"를 그 자리에서 알려 준다.
+#
+# -in: raw = data.get("signals") 원본(없으면 None)
+#
+# -out: (signals|None, violations) — signals 는 7개 이름을 모두 채운 dict.
+#       raw 가 없으면 None 을 돌려 "정책 파일이 안 건드림"을 뜻하게 한다
+# -out: error = 없음
+#------------------------------------------------------------------
+def _parse_signals(raw):
+    # 기본 표는 doctype 이 갖는다(설명이 그쪽에 길게 붙어 있어 한 곳에 둔다).
+    from .doctype import _SIG_CONF as base
+    if raw is None:
+        return None, []
+    if not isinstance(raw, dict):
+        return None, [_dv("T20", None, "signals", raw, "signals 는 매핑(mapping)이어야 합니다")]
+
+    violations = []
+    out = {k: dict(v) for k, v in base.items()}
+    # 이 둘은 코드가 medium 칸만 쓴다 — 등급별로 다른 값을 줄 수 없다.
+    flat = ("name",)
+
+    for sig, cell in raw.items():
+        if sig not in base:
+            violations.append(_dv("T20", None, f"signals.{sig}", sig,
+                                  f"모르는 신호 이름입니다. 쓸 수 있는 것: "
+                                  # 정렬하지 않고 표에 적힌 차례(판별력 센 것부터)로
+                                  # 보여 준다 — Rust 판과 같은 문장이어야 한다.
+                                  f"{' · '.join(CONFIGURABLE_SIGNALS)}"))
+            continue
+        if not isinstance(cell, dict):
+            violations.append(_dv("T20", None, f"signals.{sig}", cell,
+                                  "high/medium/low 를 담은 매핑이어야 합니다"))
+            continue
+        for w, v in cell.items():
+            if w not in ("high", "medium", "low"):
+                violations.append(_dv("T20", None, f"signals.{sig}.{w}", w,
+                                      "high | medium | low 중 하나여야 합니다"))
+                continue
+            # bool 은 int 의 하위형이라 True 가 1 로 통과한다 — 명시적으로 막는다.
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                violations.append(_dv("T20", None, f"signals.{sig}.{w}", v, "숫자여야 합니다"))
+                continue
+            if not (0.0 <= float(v) <= 1.0):
+                violations.append(_dv("T20", None, f"signals.{sig}.{w}", v,
+                                      "0.0 이상 1.0 이하여야 합니다"))
+                continue
+            out[sig][w] = float(v)
+
+        # (b)안 — 못 지키는 약속은 하지 않는다.
+        if sig in flat and len(set(out[sig].values())) > 1:
+            violations.append(_dv("T20", None, f"signals.{sig}", out[sig],
+                                  f"이 신호는 규칙의 weight 를 보지 않고 medium 값만 "
+                                  f"씁니다. high·medium·low 를 모두 같은 값으로 적으세요"))
+    return out, violations
+
+
 #------------------------------------------------------------------
 # embed: 블록 검사·파싱 (T20)
 #=> 2단계 임계값. defaults 와 같은 원칙으로 로드 시점에 막는다.
@@ -461,32 +501,10 @@ def _parse_embed(raw):
 
 
 #------------------------------------------------------------------
-# form: 블록 → FormSpec
-#=> 검증(_check_rule_fields)을 통과한 원본만 들어온다는 전제로 변환한다.
-#   조건이 하나도 없는 빈 블록은 None 으로 접는다 — 빈 껍데기를 그대로 두면
-#   스캔 쪽에서 "조건 0개를 모두 만족"으로 오해할 여지가 생긴다.
-#
-# -in: raw = item.get("form") 원본(없으면 None)
-#
-# -out: FormSpec | None
-# -out: error = 없음
-#------------------------------------------------------------------
-def _parse_form(raw):
-    if not isinstance(raw, dict):
-        return None
-    spec = FormSpec(
-        all_of=tuple(raw.get("all_of") or []),
-        any_of=tuple(raw.get("any_of") or []),
-        min_types=int(raw.get("min_types") or 0),
-    )
-    return spec if spec.usable else None
-
-
-#------------------------------------------------------------------
 # 규칙 1개의 신규 필드 검사 (T21·T22)
-#=> form 블록의 형식(T21)과 structure 정규식이 실제로 컴파일되는지(T22)를 본다.
-#   정규식 오타는 스캔이 시작돼야 터지는데, 그때는 어느 규칙이 범인인지
-#   알기 어렵다 — 로드 시점에 규칙 id 와 함께 잡아 준다.
+#=> 규칙 항목의 숫자 필드(min_distinct·min_count·head_chars)가 쓸 수 있는
+#   값인지 보고, 이제 안 쓰는 필드(form·structure·paths)가 남아 있으면 알린다.
+#   로드 시점에 규칙 id 와 함께 잡아 줘야 어느 규칙이 범인인지 안다.
 #
 # -in: item = doctype_rules 항목 dict(구조 검증 통과분)
 #
@@ -497,34 +515,16 @@ def _check_rule_fields(item):
     violations = []
     rid = item.get("id")
 
-    form = item.get("form")
-    if form is not None:
-        if not isinstance(form, dict):
-            violations.append(_dv("T21", rid, "form", form, "form 은 매핑(mapping)이어야 합니다"))
-        else:
-            for key in ("all_of", "any_of"):
-                if key in form and not isinstance(form[key], list):
-                    violations.append(_dv("T21", rid, f"form.{key}", form[key],
-                                          "목록(list)이어야 합니다"))
-            mt = form.get("min_types")
-            if mt is not None and (isinstance(mt, bool) or not isinstance(mt, int) or mt < 1):
-                violations.append(_dv("T21", rid, "form.min_types", mt,
-                                      "1 이상의 정수여야 합니다"))
-            # any_of 보다 큰 min_types 는 절대 성립하지 않는다 — 조용히 죽은
-            # 규칙이 되므로 미리 알린다.
-            anyof = form.get("any_of") or []
-            if isinstance(anyof, list) and isinstance(mt, int) and not isinstance(mt, bool):
-                if mt > len(anyof):
-                    violations.append(_dv("T21", rid, "form.min_types", mt,
-                                          f"any_of 항목 수({len(anyof)})보다 클 수 없습니다 "
-                                          f"— 이 조건은 절대 성립하지 않습니다"))
-
-    for pat in (item.get("structure") or []):
-        try:
-            re.compile(pat)
-        except re.error as exc:
-            violations.append(_dv("T22", rid, "structure", pat,
-                                  f"정규식으로 해석할 수 없습니다: {exc}"))
+    # [2026-09-07 제거] form·structure·paths 는 어느 규칙도 쓰지 않아 신호가
+    # 한 번도 안 돌았고, 도는 코드와 섞여 있으면 읽는 사람이 매번 되짚어야 해서
+    # 걷어냈다. 그런데 이 파서는 모르는 필드를 조용히 무시한다 — 옛 파일에
+    # 남아 있으면 신호가 소리 없이 사라지는 셈이라, 사실대로 알린다.
+    for gone in ("form", "structure", "paths"):
+        if item.get(gone) is not None:
+            violations.append(_dv("T21", rid, gone, item[gone],
+                                  f"{gone} 는 더 이상 쓰지 않는 필드입니다"
+                                  f"(2026-09-07 제거) — 이 신호는 동작하지 않으므로 "
+                                  f"규칙에서 지우세요"))
 
     for name in ("min_distinct", "min_count", "head_chars"):
         v = item.get(name)
@@ -566,6 +566,7 @@ def validate_doc_rule_data(data):
     # 규칙의 판정이 함께 틀어지므로 규칙 오류보다 먼저 보여 주는 게 낫다.
     violations += _parse_defaults(data.get("defaults"))[1]
     violations += _parse_embed(data.get("embed"))[1]
+    violations += _parse_signals(data.get("signals"))[1]
 
     raw_rules = data.get("doctype_rules")
     if raw_rules is None:
@@ -671,7 +672,7 @@ def format_doc_rule_violations(path, violations):
 #------------------------------------------------------------------
 # doc_rule.yaml 위반 예외
 #=> doc_rule.yaml 을 읽는 데는 성공했지만 내용이 규칙에 맞지 않을 때 던진다.
-#   cso_rules.yaml 의 RuleSetValidationError, doc_taxonomy.yaml 의
+#   cso_rule.yaml 의 RuleSetValidationError, doc_taxonomy.yaml 의
 #   TaxonomyValidationError 와 같은 역할이다.
 #
 # -필드: path       = 문제의 doc_rule.yaml 경로
@@ -697,7 +698,7 @@ class DocRuleValidationError(Exception):
 
 #------------------------------------------------------------------
 # doc_rule.yaml 기본 경로
-#=> cso_rules.yaml 의 default_rules_path(), doc_taxonomy.yaml 의
+#=> cso_rule.yaml 의 default_rules_path(), doc_taxonomy.yaml 의
 #   default_taxonomy_path() 와 완전히 같은 규약("exe 옆 외장 파일").
 #    1) 환경변수 CSOCLASSIFY_POLICY_DIR 이 있으면 그 폴더
 #    2) exe(PyInstaller) 로 얼린 실행이면 'exe 옆'
@@ -794,6 +795,7 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
     # 검증을 이미 통과했으므로 여기서 나오는 위반 목록은 버린다(값만 필요).
     defaults, _ = _parse_defaults(data.get("defaults"))
     embed, _ = _parse_embed(data.get("embed"))
+    signals, _ = _parse_signals(data.get("signals"))
 
     warnings = []
     rules = []
@@ -819,8 +821,6 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
             title_terms=tuple(item.get("title_terms") or []),
             head_terms=tuple(item.get("head_terms") or []),
             head_chars=item.get("head_chars"),
-            form=_parse_form(item.get("form")),
-            structure=tuple(item.get("structure") or []),
             terms=tuple(item.get("terms") or []),
             min_distinct=item.get("min_distinct"),
             min_count=item.get("min_count"),
@@ -829,7 +829,6 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
             # 경로 조각은 로드 시점에 정규화해 둔다(구분자 '/' 통일 + 소문자) —
             # rules.py 의 PathRule 과 같은 규약. 매 스캔마다 다시 정규화하지 않아도
             # 되고, 스캔 쪽 코드가 규칙 파일 표기(백슬래시 등)를 몰라도 되게 한다.
-            paths=tuple(p.replace("\\", "/").lower() for p in (item.get("paths") or [])),
             active=active,
         ))
 
@@ -854,7 +853,7 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
 
     return DocRuleSet(conflict=conflict, version=str(data.get("version", "unknown")),
                       rules=tuple(rules), warnings=tuple(warnings),
-                      defaults=defaults, embed=embed)
+                      defaults=defaults, embed=embed, signals=signals)
 
 
 # 새 doc_rule.yaml 의 머리 부분을 가져올 본보기 파일 이름(화면·CLI 공용 규약).

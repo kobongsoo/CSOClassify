@@ -7,7 +7,8 @@
 
 import threading
 
-from .clean import clean_text
+from . import config
+from .clean import clean_text, truncate_text
 from .embed.base import EmbedError  # noqa: F401 (하위호환용 재노출)
 from .logsetup import get_logger
 
@@ -83,7 +84,7 @@ def embed_with_timing(embedder, text, opts, timing, preloaded_load_ms=None):
 #=> 추출→정제→임베딩 전 과정을 수행하고 결과 dict 를 만든다. 단일파일 in-process
 #   경로에서는 parallel_preload=True 로 추출과 모델 로딩을 병렬화해 콜드스타트를 가린다.
 #    1) (옵션) 백그라운드로 모델 예열 시작
-#    2) extract → clean (각각 시간기록)
+#    2) extract → clean → 글자수 상한 적용(G3, 각각 시간기록)
 #    3) 예열 스레드 합류 → 임베딩
 #    4) elapsed_ms/total 채워 결과 반환
 #
@@ -95,6 +96,7 @@ def embed_with_timing(embedder, text, opts, timing, preloaded_load_ms=None):
 # -in: parallel_preload = True 면 추출과 모델 로딩을 병렬 실행
 #
 # -out: result = {file, model, dim, chunks, vector|vectors, elapsed_ms}
+#                (글자수 상한에 걸렸을 때만 text_truncated/text_chars/text_chars_original 추가)
 # -out: error = 추출/임베딩 실패 시 각 예외 전파(ExtractError/EmbedError)
 #------------------------------------------------------------------
 def process_file(path, opts, extractor, embedder, timing, parallel_preload=False):
@@ -119,8 +121,18 @@ def process_file(path, opts, extractor, embedder, timing, parallel_preload=False
         raw = extractor.extract(path, save_dir=opts.get("save_dir"))
     with timing.measure("clean"):
         text = clean_text(raw, remove_page_markers=not opts.get("keep_page_markers", False))
+        # 글자수 상한(G3) — 설계: plan/문서크기-상한-설계-20260904.html
+        # 분류 경로(cli.run_classify)와 같은 상한을 여기서도 적용한다. 이 경로를
+        # 데몬 서버도 그대로 쓰므로, 한 군데만 걸어도 세 경로(분류·--embed·데몬)가
+        # 함께 보호된다. 옵션에 키가 없으면 config 기본값을 쓴다(구 호출부 호환).
+        limit = opts.get("max_text_chars", config.MAX_TEXT_CHARS)
+        text, n_text_orig, was_truncated = truncate_text(text, limit)
     # 추출/정제 결과 규모를 남겨(원문 길이·정제 후 길이) 문제 문서를 찾기 쉽게 한다.
     log.info("추출/정제 file=%s raw_chars=%d clean_chars=%d", path, len(raw), len(text))
+    # 잘렸다면 그 사실을 로그로 남긴다 — 벡터가 문서 앞부분만 대표하게 되므로,
+    # 나중에 "이 문서 벡터가 왜 이상하지"를 추적하려면 이 줄이 있어야 한다.
+    if was_truncated:
+        log.info("본문 절단 file=%s %d자 → %d자(상한)", path, n_text_orig, len(text))
 
     # (3) 예열 스레드가 있으면 합류시키고, 로딩 에러가 있었다면 여기서 표면화.
     preloaded_ms = None
@@ -139,6 +151,11 @@ def process_file(path, opts, extractor, embedder, timing, parallel_preload=False
         "model": embedder.spec.hf_id,
     }
     result.update(core)
+    # 잘렸을 때만 칸을 늘린다 — 정상 문서의 출력 형태는 종전 그대로 유지된다.
+    if was_truncated:
+        result["text_truncated"] = True
+        result["text_chars"] = len(text)
+        result["text_chars_original"] = n_text_orig
     result["elapsed_ms"] = timing.as_dict()
     # 완료 요약: 청크 수와 단계별 소요시간을 한 줄로 남긴다(성능/이상 추적용).
     log.info("처리 완료 file=%s chunks=%d times_ms=%s", path, n_chunks, timing.as_dict())

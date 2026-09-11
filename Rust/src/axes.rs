@@ -1,7 +1,7 @@
 //! 업무 분류(doctype) 축 — 분류체계 스냅샷 로드 (Python classify/axes.py 포팅).
 //! doc_taxonomy.yaml 을 읽어 dc_id 색인과 전체경로("기술/개발 > 설계문서 > ...")를
 //! 만든다. security 축(enum Grade, 서열 있음)과 달리 이 축은 트리이고 서열이 없다.
-//! rules.rs 와 같은 관례를 따른다: cso_rules.yaml/doc_taxonomy.yaml 모두
+//! rules.rs 와 같은 관례를 따른다: cso_rule.yaml/doc_taxonomy.yaml 모두
 //! `#[derive(Deserialize)]` 대신 serde_yaml::Value → serde_json::Value 변환 후
 //! s()/os()/oi() 헬퍼로 수동 추출한다(이 파일이라고 새 관례를 만들지 않는다).
 
@@ -403,7 +403,7 @@ fn convert_export_node(raw: &Value) -> Option<Value> {
 /// MpowerV11 내보내기 JSON → doc_taxonomy.yaml 로 쓸 스냅샷 구조 + 경고 목록.
 ///
 ///  1) source 는 원본 값을 그대로 옮긴다(예: "Mpower10U.DOC_CLASSIFICATION")
-///  2) exported_at 은 '지금' — DB 조회 시각이 아니라 "CSOClassify 가 이 스냅샷을
+///  2) exported_at 은 '지금' — DB 조회 시각이 아니라 "MpowerClassify 가 이 스냅샷을
 ///     받아들인 시각"이 감사에 더 값지다(파이썬 판과 같은 규약)
 ///  3) 원본 node_count 가 실제 노드 수와 달라도 막지 않고 경고만 한다 — 원본이
 ///     낡았을 수는 있어도 변환 자체를 못 할 이유는 아니다

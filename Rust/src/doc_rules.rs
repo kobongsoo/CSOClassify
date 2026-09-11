@@ -1,6 +1,6 @@
 //! 업무분류(doctype) 축 — doc_rule.yaml 로더 (Python classify/doc_rules.py 포팅).
 //! "무엇을 계약서로 볼 것인가" 규칙(doctype_rules)과 축 전체 충돌 전략(conflict)을
-//! 읽는다. cso_rules.yaml(security 축)과는 완전히 다른 파일이며 이 로더는 그
+//! 읽는다. cso_rule.yaml(security 축)과는 완전히 다른 파일이며 이 로더는 그
 //! 파일을 전혀 건드리지 않는다. doc_rule.yaml 이 없어도 시스템은 계속 동작해야
 //! 한다 — "있으면 켜지고 없으면 꺼지는 외장 자산"(설계서 4-6, T16).
 
@@ -26,24 +26,6 @@ pub struct ConflictSpec {
 impl Default for ConflictSpec {
     fn default() -> Self {
         ConflictSpec { strategy: "all".into(), n: None, min_confidence: None }
-    }
-}
-
-/// 서식 필드어 세트(재설계 7장). 문서종류명이 아니라 '그 양식에만 있는 항목명'
-/// 의 조합으로 판별한다 — 회의록 본문에 "계약서"가 언급될 수는 있어도 갑·을·
-/// 제O조·계약기간이 함께 나오지는 않는다.
-#[derive(Clone, Default, Debug, PartialEq)]
-pub struct FormSpec {
-    pub all_of: Vec<String>,
-    pub any_of: Vec<String>,
-    pub min_types: usize,
-}
-
-impl FormSpec {
-    /// 실제로 판정 가능한 조건이 있는지. 빈 껍데기가 "항상 성립"으로 오작동하지
-    /// 않도록 스캔 쪽에서 이 값을 먼저 확인한다.
-    pub fn usable(&self) -> bool {
-        !self.all_of.is_empty() || (!self.any_of.is_empty() && self.min_types > 0)
     }
 }
 
@@ -94,7 +76,7 @@ impl Default for EmbedSpec {
     }
 }
 
-/// 업무 분류 규칙 1개. cso_rules.yaml 의 KeywordRule 과 문법은 거의 같지만
+/// 업무 분류 규칙 1개. cso_rule.yaml 의 KeywordRule 과 문법은 거의 같지만
 /// (terms·exclude·weight), grade 대신 node(dc_id)를 갖는다.
 #[derive(Clone)]
 pub struct DoctypeRule {
@@ -110,9 +92,7 @@ pub struct DoctypeRule {
     /// 이 규칙의 표제부 범위. None 이면 defaults.head_chars.
     pub head_chars: Option<usize>,
     /// 서식 필드어 세트(재설계 7장). 조건이 없으면 None.
-    pub form: Option<FormSpec>,
     /// 구조 신호 정규식. 보조 전용이라 단독으로는 후보를 만들지 못한다.
-    pub structure: Vec<String>,
     /// 본문 키워드. [재설계 8-2] 약한 증거로 격하 — 단독 채택 불가.
     pub terms: Vec<String>,
     /// terms 중 서로 다른 단어 최소 종수. None 이면 defaults.
@@ -122,7 +102,6 @@ pub struct DoctypeRule {
     pub exclude: Vec<String>,
     pub filename: Vec<String>,
     /// '/' 정규화 + 소문자화된 경로 조각(로드 시점에 정규화 — rules::PathRule.matches 와 동일 규약).
-    pub paths: Vec<String>,
     /// node 가 doc_taxonomy.yaml 에서 status=0(미사용)이면 false — 매칭을 시도하지 않는다(T6).
     /// taxonomy 없이 로드했으면 항상 true(교차검증을 안 했으므로 판단 불가).
     pub active: bool,
@@ -133,6 +112,9 @@ pub struct DocRuleSet {
     pub conflict: ConflictSpec,
     pub defaults: Defaults,
     pub embed: EmbedSpec,
+    /// 신호별 신뢰도 표(doc_rule.yaml 의 signals:). 정책 파일이 안 건드리면
+    /// None — 채점 쪽이 코드 기본값(doctype::sig_conf)을 그대로 쓴다.
+    pub signals: Option<crate::doctype::SignalTable>,
     pub version: String,
     pub rules: Vec<DoctypeRule>,
     /// 로드 중 발견한 경고(T6·T12 등 — 로드를 막지 않는 문제).
@@ -156,6 +138,7 @@ impl DocRuleSet {
             conflict: ConflictSpec::default(),
             defaults: Defaults::default(),
             embed: EmbedSpec::default(),
+            signals: None,
             version: "none".into(),
             rules: Vec::new(),
             warnings: Vec::new(),
@@ -323,6 +306,96 @@ pub(crate) fn parse_defaults(raw: &Value) -> (Defaults, Vec<DVio>) {
 }
 
 /// embed: 블록 검사·파싱(T20). defaults 와 같은 원칙으로 로드 시점에 막는다.
+//------------------------------------------------------------------
+// signals: 블록 검사·파싱 (T20)
+//=> 신호별 신뢰도 표를 정책 파일에서 덮어쓸 수 있게 한다. 그 값들은 코드 주석에
+//   "실측 전 잠정치 · 검증셋 측정 후 재보정 대상"이라고 적혀 있는데, 소스에
+//   박혀 있으면 재보정할 때마다 두 판을 고치고 exe 를 다시 빌드해야 한다.
+//   embed: 블록을 정책 파일로 꺼낸 것과 같은 이유다.
+//   파이썬 판 doc_rules._parse_signals 와 같은 규칙·같은 거절 사유를 낸다.
+//
+//   [부분만 적어도 된다] 적은 칸만 덮어쓰고 나머지는 코드 기본값을 쓴다.
+//   [모르는 이름은 막는다] 'titel' 같은 오타를 조용히 무시하지 않는다.
+//   [name·structure 는 세 값이 같아야 한다] 코드가 medium 칸만 쓰므로,
+//   등급별로 다른 값을 받아 놓고 무시하는 상태를 만들지 않는다.
+//
+// -in: raw = data["signals"] 원본(없으면 Value::Null)
+//
+// -out: (Option<SignalTable>, Vec<DVio>) — 정책 파일이 안 건드렸으면 None
+// -out: error = 없음
+//------------------------------------------------------------------
+pub(crate) fn parse_signals(raw: &Value) -> (Option<crate::doctype::SignalTable>, Vec<DVio>) {
+    use crate::doctype::{default_cell, FLAT_SIGNALS, SIGNAL_NAMES};
+    if raw.is_null() {
+        return (None, vec![]);
+    }
+    if !raw.is_object() {
+        return (None, vec![DVio { code: "T20", rule_id: None, field: "signals",
+            value: raw.to_string(), detail: "signals 는 매핑(mapping)이어야 합니다".into() }]);
+    }
+    let mut out: Vec<DVio> = vec![];
+    let mut tbl: crate::doctype::SignalTable = SIGNAL_NAMES
+        .iter()
+        .map(|n| ((*n).to_string(), default_cell(n)))
+        .collect();
+
+    let obj = match raw.as_object() {
+        Some(m) => m,
+        None => return (Some(tbl), out),
+    };
+    for (sig, cell) in obj.iter() {
+        let sig = sig.as_str();
+        if !SIGNAL_NAMES.contains(&sig) {
+            out.push(DVio { code: "T20", rule_id: None, field: "signals",
+                value: sig.to_string(),
+                detail: format!("signals.{} — 모르는 신호 이름입니다. 쓸 수 있는 것: {}",
+                                sig, SIGNAL_NAMES.join(" · ")) });
+            continue;
+        }
+        if !cell.is_object() {
+            out.push(DVio { code: "T20", rule_id: None, field: "signals",
+                value: cell.to_string(),
+                detail: format!("signals.{} — high/medium/low 를 담은 매핑이어야 합니다", sig) });
+            continue;
+        }
+        let entry = tbl.get_mut(sig).expect("SIGNAL_NAMES 로 채워 둔 자리");
+        for (w, v) in cell.as_object().expect("바로 위에서 매핑임을 확인했다").iter() {
+            let w = w.as_str();
+            if !["high", "medium", "low"].contains(&w) {
+                out.push(DVio { code: "T20", rule_id: None, field: "signals",
+                    value: w.to_string(),
+                    detail: format!("signals.{}.{} — high | medium | low 중 하나여야 합니다", sig, w) });
+                continue;
+            }
+            // bool 은 숫자로 읽히면 안 된다(파이썬 판과 같은 거절).
+            let f = if v.is_boolean() { None } else { v.as_f64() };
+            match f {
+                Some(x) if (0.0..=1.0).contains(&x) => match w {
+                    "high" => entry.high = x,
+                    "low" => entry.low = x,
+                    _ => entry.medium = x,
+                },
+                Some(_) => out.push(DVio { code: "T20", rule_id: None, field: "signals",
+                    value: v.to_string(),
+                    detail: format!("signals.{}.{} — 0.0 이상 1.0 이하여야 합니다", sig, w) }),
+                None => out.push(DVio { code: "T20", rule_id: None, field: "signals",
+                    value: v.to_string(),
+                    detail: format!("signals.{}.{} — 숫자여야 합니다", sig, w) }),
+            }
+        }
+        // 못 지킬 약속은 하지 않는다 — 등급별로 못 주는 신호는 그 자리에서 알린다.
+        if FLAT_SIGNALS.contains(&sig)
+            && !(entry.high == entry.medium && entry.medium == entry.low)
+        {
+            out.push(DVio { code: "T20", rule_id: None, field: "signals",
+                value: format!("high={} medium={} low={}", entry.high, entry.medium, entry.low),
+                detail: format!("signals.{} — 이 신호는 규칙의 weight 를 보지 않고 medium 값만 \
+씁니다. high·medium·low 를 모두 같은 값으로 적으세요", sig) });
+        }
+    }
+    (Some(tbl), out)
+}
+
 pub(crate) fn parse_embed(raw: &Value) -> (EmbedSpec, Vec<DVio>) {
     let mut e = EmbedSpec::default();
     if raw.is_null() {
@@ -373,80 +446,26 @@ pub(crate) fn parse_embed(raw: &Value) -> (EmbedSpec, Vec<DVio>) {
     (e, out)
 }
 
-/// form: 블록 → FormSpec. 조건이 하나도 없는 빈 블록은 None 으로 접는다 —
-/// 그대로 두면 스캔 쪽에서 "조건 0개를 모두 만족"으로 오해할 여지가 생긴다.
-pub(crate) fn parse_form(raw: Option<&Value>) -> Option<FormSpec> {
-    let raw = raw?;
-    if !raw.is_object() {
-        return None;
-    }
-    let list = |key: &str| -> Vec<String> {
-        raw.get(key).and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
-            .unwrap_or_default()
-    };
-    let spec = FormSpec {
-        all_of: list("all_of"),
-        any_of: list("any_of"),
-        min_types: raw.get("min_types").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
-    };
-    if spec.usable() { Some(spec) } else { None }
-}
-
-/// 규칙 1개의 신규 필드 검사(T20·T21·T22). 정규식 오타는 스캔이 시작돼야 터지는데
-/// 그때는 어느 규칙이 범인인지 알기 어렵다 — 로드 시점에 규칙 id 와 함께 잡는다.
+/// 규칙 1개의 필드 검사(T20·T21). 숫자 필드가 쓸 수 있는 값인지 보고,
+/// 이제 안 쓰는 필드(form·structure·paths)가 남아 있으면 알린다.
+/// 로드 시점에 규칙 id 와 함께 잡아 줘야 어느 규칙이 범인인지 안다.
 fn check_rule_fields(item: &Value) -> Vec<DVio> {
     let mut out: Vec<DVio> = vec![];
     let rid = item.get("id").and_then(|v| v.as_str()).map(|x| x.to_string());
 
-    if let Some(form) = item.get("form") {
-        if !form.is_object() {
-            out.push(DVio { code: "T21", rule_id: rid.clone(), field: "form",
-                value: form.to_string(), detail: "form 은 매핑(mapping)이어야 합니다".into() });
-        } else {
-            for key in ["all_of", "any_of"] {
-                if let Some(v) = form.get(key) {
-                    if !v.is_array() {
-                        out.push(DVio { code: "T21", rule_id: rid.clone(), field: "form",
-                            value: v.to_string(),
-                            detail: format!("form.{} 는 목록(list)이어야 합니다", key) });
-                    }
-                }
-            }
-            if let Some(v) = form.get("min_types") {
-                let n = if v.is_boolean() { None } else { v.as_i64() };
-                match n {
-                    Some(x) if x >= 1 => {
-                        // any_of 보다 큰 min_types 는 절대 성립하지 않는다 —
-                        // 조용히 죽은 규칙이 되므로 미리 알린다.
-                        let len = form.get("any_of").and_then(|a| a.as_array())
-                            .map(|a| a.len()).unwrap_or(0);
-                        if x as usize > len {
-                            out.push(DVio { code: "T21", rule_id: rid.clone(),
-                                field: "form.min_types", value: v.to_string(),
-                                detail: format!("any_of 항목 수({})보다 클 수 없습니다 — 이 조건은 절대 성립하지 않습니다", len) });
-                        }
-                    }
-                    _ => out.push(DVio { code: "T21", rule_id: rid.clone(),
-                        field: "form.min_types", value: v.to_string(),
-                        detail: "1 이상의 정수여야 합니다".into() }),
-                }
+    // [2026-09-07 제거] form·structure·paths 는 어느 규칙도 쓰지 않아 신호가
+    // 한 번도 안 돌았고, 도는 코드와 섞여 있으면 읽는 사람이 매번 되짚어야 해서
+    // 걷어냈다. 그런데 이 파서는 모르는 필드를 조용히 무시한다 — 옛 파일에
+    // 남아 있으면 신호가 소리 없이 사라지는 셈이라, 사실대로 알린다.
+    for gone in ["form", "structure", "paths"] {
+        if let Some(v) = item.get(gone) {
+            if !v.is_null() {
+                out.push(DVio { code: "T21", rule_id: rid.clone(), field: "doctype_rules",
+                    value: v.to_string(),
+                    detail: format!("{} 는 더 이상 쓰지 않는 필드입니다(2026-09-07 제거) \n— 이 신호는 동작하지 않으므로 규칙에서 지우세요", gone) });
             }
         }
     }
-
-    if let Some(arr) = item.get("structure").and_then(|v| v.as_array()) {
-        for pat in arr {
-            if let Some(p) = pat.as_str() {
-                if let Err(e) = regex::Regex::new(p) {
-                    out.push(DVio { code: "T22", rule_id: rid.clone(), field: "structure",
-                        value: p.to_string(),
-                        detail: format!("정규식으로 해석할 수 없습니다: {}", e) });
-                }
-            }
-        }
-    }
-
     for key in ["min_distinct", "min_count", "head_chars"] {
         if let Some(v) = item.get(key) {
             let n = if v.is_boolean() { None } else { v.as_i64() };
@@ -472,6 +491,7 @@ fn validate_doc_rule_data(data: &Value) -> Vec<DVio> {
     // 판정이 함께 틀어지므로 규칙 오류보다 먼저 보여 주는 게 낫다.
     out.extend(parse_defaults(data.get("defaults").unwrap_or(&Value::Null)).1);
     out.extend(parse_embed(data.get("embed").unwrap_or(&Value::Null)).1);
+    out.extend(parse_signals(data.get("signals").unwrap_or(&Value::Null)).1);
 
     let raw_rules = match data.get("doctype_rules") {
         None => return out,
@@ -542,8 +562,8 @@ fn format_doc_rule_violations(path: &str, violations: &[DVio]) -> String {
         "T5" => "[T5] 분류체계 스냅샷에 없는 노드 참조",
         "T10" => "[T10] top_n 설정이 올바르지 않음",
         "T20" => "[T20] 임계값·수치 설정이 올바르지 않음",
-        "T21" => "[T21] form(서식 필드어) 형식 오류",
-        _ => "[T22] structure 정규식 오류",
+        "T21" => "[T21] 이제 쓰지 않는 규칙 필드",
+        _ => "[T22] (사용하지 않음)",
     };
     let mut lines = vec![
         format!("[규칙셋 오류] {} — 검증 실패 {}건. doctype 축을 로드하지 않았습니다.", path, violations.len()),
@@ -751,6 +771,7 @@ pub fn load_doc_rules(path: &std::path::Path, taxonomy: Option<&Taxonomy>) -> Re
     // 검증을 이미 통과했으므로 여기서 나오는 위반 목록은 버린다(값만 필요).
     let defaults = parse_defaults(data.get("defaults").unwrap_or(&Value::Null)).0;
     let embed = parse_embed(data.get("embed").unwrap_or(&Value::Null)).0;
+    let signals = parse_signals(data.get("signals").unwrap_or(&Value::Null)).0;
 
     let mut warnings = vec![];
     let mut rules = vec![];
@@ -776,14 +797,11 @@ pub fn load_doc_rules(path: &std::path::Path, taxonomy: Option<&Taxonomy>) -> Re
             title_terms: strvec(item, "title_terms"),
             head_terms: strvec(item, "head_terms"),
             head_chars: item.get("head_chars").and_then(|v| v.as_u64()).map(|v| v as usize),
-            form: parse_form(item.get("form")),
-            structure: strvec(item, "structure"),
             min_distinct: item.get("min_distinct").and_then(|v| v.as_u64()).map(|v| v as usize),
             min_count: item.get("min_count").and_then(|v| v.as_u64()).map(|v| v as u32),
             terms: strvec(item, "terms"),
             exclude: strvec(item, "exclude"),
             filename: strvec(item, "filename"),
-            paths: strvec(item, "paths").iter().map(|p| p.replace('\\', "/").to_lowercase()).collect(),
             active,
         });
     }
@@ -805,13 +823,86 @@ pub fn load_doc_rules(path: &std::path::Path, taxonomy: Option<&Taxonomy>) -> Re
         warnings.push("doctype_rules 가 비어 있어 doctype 축이 아무 문서도 분류하지 않습니다".into());
     }
 
-    Ok(DocRuleSet { conflict, defaults, embed,
+    Ok(DocRuleSet { conflict, defaults, embed, signals,
                     version: s(&data, "version", "unknown"), rules, warnings })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    //------------------------------------------------------------------
+    // signals: 블록 — 파이썬 판과 같은 규칙으로 받아들이고 같은 것을 막는다
+    //=> 이 표가 두 판에서 갈리면 같은 문서에 다른 점수가 나오는데, 오류도
+    //   경고도 없이 결과만 달라져 가장 알아채기 어렵다.
+    //------------------------------------------------------------------
+    #[test]
+    fn signals_블록을_파이썬과_같은_규칙으로_읽는다() {
+        use crate::doctype::default_cell;
+
+        // 없으면 None — 예전 doc_rule.yaml 이 그대로 돈다(하위호환).
+        assert!(parse_signals(&serde_json::Value::Null).0.is_none());
+
+        // 일부만 적으면 나머지는 코드 기본값이 남는다.
+        let raw = serde_json::json!({"title": {"high": 0.90}});
+        let (tbl, vio) = parse_signals(&raw);
+        assert!(vio.is_empty(), "{}", vio.len());
+        let tbl = tbl.unwrap();
+        assert_eq!(tbl["title"].high, 0.90);
+        assert_eq!(tbl["title"].medium, default_cell("title").medium);
+        assert_eq!(tbl["head"], default_cell("head"));
+
+        // 잘못 적은 것은 막는다 — 조용히 무시하면 "고쳤는데 왜 안 바뀌지"가 된다.
+        for bad in [
+            serde_json::json!({"title": {"high": 1.5}}),      // 범위 밖
+            serde_json::json!({"titel": {"high": 0.8}}),      // 신호 이름 오타
+            serde_json::json!({"title": {"highest": 0.8}}),   // 등급 키 오타
+            serde_json::json!({"title": {"high": "세게"}}),    // 숫자 아님
+            serde_json::json!({"title": {"high": true}}),     // bool 은 숫자가 아니다
+            serde_json::json!({"title": 0.8}),                // 매핑이 아님
+        ] {
+            assert!(!parse_signals(&bad).1.is_empty(), "안 막혔다: {}", bad);
+        }
+
+        // name 은 medium 칸만 쓰이므로 세 값이 같아야 한다.
+        let bad = serde_json::json!({"name": {"high": 0.9}});
+        assert!(!parse_signals(&bad).1.is_empty(), "name: 세 값이 달라도 통과했다");
+        let ok = serde_json::json!({"name": {"high": 0.4, "medium": 0.4, "low": 0.4}});
+        assert!(parse_signals(&ok).1.is_empty(), "name: 같은 값인데 막혔다");
+
+        // form·structure·path 는 2026-09-07 에 걷어냈다 — 이제 아는 이름이
+        // 아니므로 오타와 같은 갈래로 막힌다. 쓸 수 있는 목록을 함께 보여 주므로
+        // 사람은 그 자리에서 무엇을 적어야 하는지 안다.
+        for sig in ["form", "structure", "path"] {
+            let v = serde_json::json!({ sig: {"high": 0.5, "medium": 0.5, "low": 0.5} });
+            let vio = parse_signals(&v).1;
+            assert_eq!(vio.len(), 1, "{}: 안 막혔다", sig);
+            assert!(vio[0].detail.contains("모르는 신호"), "{}: {}", sig, vio[0].detail);
+            assert!(vio[0].detail.contains("title"), "{}: 쓸 수 있는 목록이 없다", sig);
+        }
+    }
+
+    //------------------------------------------------------------------
+    // 옛 규칙에 남은 form·structure·paths 필드는 조용히 무시하지 않는다
+    //=> 이 파서는 모르는 필드를 그냥 넘긴다. 그대로 두면 예전에 그 필드를 적어 둔
+    //   파일에서 신호가 소리 없이 사라진다 — 사실대로 알려서 규칙에서 지우게 한다.
+    //------------------------------------------------------------------
+    #[test]
+    fn 옛_규칙_필드는_사유를_알린다() {
+        for (field, value) in [
+            ("form", serde_json::json!({"all_of": ["갑", "을"]})),
+            ("structure", serde_json::json!([r"제\s*\d+\s*조"])),
+            ("paths", serde_json::json!(["/계약/"])),
+        ] {
+            let item = serde_json::json!({
+                "id": "x", "node": "DC_001", "weight": "medium",
+                "title_terms": ["가"], field: value });
+            let vio = check_rule_fields(&item);
+            assert_eq!(vio.len(), 1, "{}: 조용히 무시됐다", field);
+            assert!(vio[0].detail.contains("더 이상 쓰지 않는 필드"),
+                    "{}: {}", field, vio[0].detail);
+        }
+    }
     use crate::axes::{Taxonomy, TaxonomyNode};
 
     // cargo test 는 기본적으로 테스트를 여러 스레드에서 병렬 실행한다. 여러

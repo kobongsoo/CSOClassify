@@ -19,7 +19,7 @@ _ROOT_NAME = "csoclassify"
 
 #------------------------------------------------------------------
 # 기본 로그 파일 경로
-#=> --log 를 안 줬을 때 쓰는 경로. "실행된 csoclassify.exe 가 있는 폴더" 아래 log/
+#=> --log 를 안 줬을 때 쓰는 경로. "실행된 MpowerClassify.exe 가 있는 폴더" 아래 log/
 #   폴더에 날짜별 파일로 남긴다(<exe폴더>/log/class_YYYYMMDD.log). 소스 실행 때는
 #   프로젝트 루트 아래 log/ 가 된다. 날짜별로 나눠 파일이 무한정 커지지 않게 한다.
 #
@@ -64,7 +64,7 @@ def log_dir():
 #    1) 환경변수 CSOCLASSIFY_ERRLOG 가 있으면 그 '파일 경로'를 그대로 쓴다
 #       (읽기전용 폴더에 설치했거나 여러 대의 로그를 한 파일로 모을 때)
 #    2) 없으면 log_dir()/class_err_YYYYMMDD.log — 일반 로그와 같은 폴더
-#   Rust 판(csoclassify-rs)도 같은 이름·같은 환경변수를 쓴다.
+#   Rust 판(MpowerClassify-rs)도 같은 이름·같은 환경변수를 쓴다.
 #
 # -in: 없음
 #

@@ -183,7 +183,7 @@
   <p>한 화면에서 <b class="ax1">보안등급(C·S·O)</b> 과 <b class="ax2">업무분류(문서 분류 체계)</b> 두 가지를
   동시에 다루되, <b>실무 기업 관리자가 설명 없이 바로 쓸 수 있을 만큼 단순하게</b> 만드는 화면 설계</p>
   <div class="meta">작성 2026-08-25 · 상위 설계 <a href="문서분류체계-연동-분류규칙-설계.html">문서 분류 체계 연동 · 분류 규칙 설계서</a> ·
-  대상 <code>CSOClassify/ui/</code>(Streamlit) · <b>UI/UX 설계만, 구현 없음</b></div>
+  대상 <code>MpowerClassify/ui/</code>(Streamlit) · <b>UI/UX 설계만, 구현 없음</b></div>
 </header>
 
 <section class="card">
@@ -312,7 +312,7 @@
 <tr><td>rejected</td><td><b>아니라고 표시함</b></td><td>“거절”은 사람에게 하는 말 같다</td></tr>
 <tr><td>seed / seed 저장소</td><td><b>기준 문서</b> <span class="muted">“이런 문서는 이 등급” 본보기</span></td><td>seed 는 은유가 한국어로 안 넘어온다</td></tr>
 <tr><td>임베딩 전파 / embed</td><td><b>비슷한 문서 참고</b></td><td>사용자에게 중요한 것은 방법이 아니라 근거의 종류다</td></tr>
-<tr><td>규칙셋 / cso_rules.yaml</td><td><b>보안등급 판단 기준</b></td><td>파일명은 설정 화면 하단에만 작게</td></tr>
+<tr><td>규칙셋 / cso_rule.yaml</td><td><b>보안등급 판단 기준</b></td><td>파일명은 설정 화면 하단에만 작게</td></tr>
 <tr><td>doc_rule.yaml</td><td><b>업무분류 판단 기준</b></td><td>동일</td></tr>
 <tr><td>doc_taxonomy.yaml / 스냅샷</td><td><b>회사 분류 체계</b> <span class="muted">(가져온 날짜 표시)</span></td><td>사용자는 이것을 “우리 회사 분류표”로 안다</td></tr>
 <tr><td>충돌 전략 max / all / top_n</td><td><b>화면에 표시하지 않음</b></td><td>상위 설계 6-2에서 “고르는 것이 아니라 따라 나오는 값”으로 확정됐다. 고를 수 없는 것을 보여줄 이유가 없다</td></tr>

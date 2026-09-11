@@ -12,7 +12,7 @@ import os
 #------------------------------------------------------------------
 # 상태 저장 폴더 경로
 #=> 레지스트리/잠금 파일을 둘 사용자별 폴더를 정해 만든다.
-#    1) 윈도우면 %LOCALAPPDATA%\CSOClassify
+#    1) 윈도우면 %LOCALAPPDATA%\MpowerClassify
 #    2) 그 외/미설정이면 홈 아래 .csoclassify
 #
 # -in: 없음
@@ -23,7 +23,7 @@ import os
 def state_dir():
     base = os.environ.get("LOCALAPPDATA")
     if base:
-        d = os.path.join(base, "CSOClassify")
+        d = os.path.join(base, "MpowerClassify")
     else:
         d = os.path.join(os.path.expanduser("~"), ".csoclassify")
     os.makedirs(d, exist_ok=True)

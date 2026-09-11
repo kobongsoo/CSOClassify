@@ -12,7 +12,7 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "ui"))
 
-import seedstore as S     # noqa: E402
+from csoclassify import seedstore as S     # noqa: E402
 import app                # noqa: E402
 
 
@@ -55,25 +55,33 @@ def test_등급만_바꾸기():
     out = app.apply_seed_edit([e], "d:/s/a.doc", ops, "관리자")
     got = S.find_seed(out, "d:/s/a.doc")
     assert got["grade"] == "S"
-    assert got["labels"]["doctype"] == ["DC_1", "DC_2"]   # 다른 축은 그대로
+    assert got["doctype"] == ["DC_1", "DC_2"]             # 다른 축은 그대로
 
 
 #------------------------------------------------------------------
-# 보안축을 '해제'하면 값은 남고 잣대에서만 빠진다
-#=> 업무분류축은 살아 있으므로 줄 자체는 남아야 한다.
+# 보안축을 '해제'해도 업무분류축은 살아 있다
+#=> v3 에서 해제는 그 축의 칸을 지우는 것이다. 다른 축이 살아 있으면
+#   줄 자체는 남아야 한다 — 여기서 줄이 통째로 사라지면 업무분류 기준
+#   하나가 조용히 없어진다.
+#
+#   [지운 값은 어디 남나] 화면(apply_seed_edit)이 append_seed_audit 에
+#   before=이전값 으로 남긴다. v2 는 줄 안에 값을 남겨 두는 척했지만,
+#   파생값이 지워져 엔진이 못 봤고 두 축을 다 해제하면 줄째 사라졌다.
 #
 # -in: 없음
 # -out: 없음(단언)
 # -out: error = 없음
 #------------------------------------------------------------------
-def test_보안축_해제는_값을_지우지_않는다():
+def test_보안축_해제해도_업무분류축은_남는다():
     e = mk()
     ops = app.seed_edit_ops(e, "해제", ["DC_1", "DC_2"], "")
     assert [o["action"] for o in ops] == ["retire"]
+    assert ops[0]["before"] == "C"          # 감사 로그에 남길 이전 값
     out = app.apply_seed_edit([e], "d:/s/a.doc", ops, "관리자")
     got = S.find_seed(out, "d:/s/a.doc")
-    assert "grade" not in got                       # 엔진에는 안 보인다
-    assert S.axis_value(got, "security") == "C"     # 값은 남아 있다
+    assert "grade" not in got                       # 그 축은 지워졌다
+    assert S.axis_value(got, "security") is None
+    assert got["doctype"] == ["DC_1", "DC_2"]       # 다른 축은 그대로
     assert S.active_axes(got) == ("doctype",)
 
 
@@ -91,7 +99,7 @@ def test_업무분류를_비우면_해제():
                     "before": ["DC_1", "DC_2"], "after": None}]
     out = app.apply_seed_edit([e], "d:/s/a.doc", ops, "관리자")
     got = S.find_seed(out, "d:/s/a.doc")
-    assert "doctype" not in got.get("labels", {})
+    assert "doctype" not in got        # v3 는 해제 = 그 칸을 지우는 것
     assert got["grade"] == "C"
 
 
@@ -123,7 +131,7 @@ def test_업무분류_교체():
     e = mk()
     ops = app.seed_edit_ops(e, "C", ["DC_9"], "")
     out = app.apply_seed_edit([e], "d:/s/a.doc", ops, "관리자")
-    assert S.find_seed(out, "d:/s/a.doc")["labels"]["doctype"] == ["DC_9"]
+    assert S.find_seed(out, "d:/s/a.doc")["doctype"] == ["DC_9"]
 
 
 #------------------------------------------------------------------
@@ -140,7 +148,7 @@ def test_메모만_고치기():
     out = app.apply_seed_edit([e], "d:/s/a.doc", ops, "관리자")
     got = S.find_seed(out, "d:/s/a.doc")
     assert got["note"] == "대표 문서"
-    assert got["grade"] == "C" and got["labels"]["doctype"] == ["DC_1", "DC_2"]
+    assert got["grade"] == "C" and got["doctype"] == ["DC_1", "DC_2"]
 
 
 #------------------------------------------------------------------

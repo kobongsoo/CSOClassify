@@ -20,7 +20,6 @@ use std::path::Path;
 /// doc_id 폭. 문서분류체계 DB 의 DC_ID 가 VARCHAR(40) 이라 짝이 될 doc_id 도 같은
 /// 폭으로 맞춘다. SHA-256 hex 는 64자라 앞 40자(160비트)만 쓴다 — 1억 문서 기준
 /// 충돌 확률이 약 10⁻³³ 로 사실상 0 이고, SHA-1(정확히 40자)보다 충돌 내성이 좋다.
-pub const DOC_ID_LEN: usize = 40;
 
 //------------------------------------------------------------------
 // 경로 → 정규화 키
@@ -82,12 +81,15 @@ pub fn normalize_key(path: &str) -> String {
 }
 
 //------------------------------------------------------------------
-// 내용 해시로 doc_id 만들기 (폴백 ②)
-//=> sfile_id 를 못 얻은 문서용. 파일 내용의 SHA-256 앞 40자를 쓴다.
-//   문서를 옮기거나 이름을 바꿔도 유지되지만, 내용을 고치면 값이 바뀐다.
-//   그래서 이 값은 매핑 테이블에 넣지 않는다 — doc_id_source 로 구분한다.
+// 파일 내용의 지문(SHA-256 전체)
+//=> "이 문서가 무엇인가"를 내용으로 가리는 값. 옮기거나 이름을 바꿔도 그대로고,
+//   내용을 고치면 바뀐다. 결과 레코드의 hash 칸이자, 화면이 사람의 수정 기록을
+//   문서에 다시 붙일 때 쓰는 결합 키다(파이썬 filelist.content_hash 와 같은 값).
+//
+//   [왜 자르지 않나 — 2026-09-10] 예전에는 40자로 잘라 doc_id 에 넣었다.
+//   지금은 자르지 않은 전체를 hash 칸에 그대로 싣는다.
 //------------------------------------------------------------------
-pub fn content_doc_id(path: &Path) -> Option<String> {
+pub fn content_hash(path: &Path) -> Option<String> {
     let mut f = std::fs::File::open(path).ok()?;
     let mut h = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];      // 1MB 씩 — 대용량에서 메모리가 튀지 않게
@@ -98,27 +100,39 @@ pub fn content_doc_id(path: &Path) -> Option<String> {
         }
         h.update(&buf[..n]);
     }
-    Some(hex40(&h.finalize()))
-}
-
-//------------------------------------------------------------------
-// 경로 해시로 doc_id 만들기 (폴백 ③)
-//=> 내용조차 못 읽는 파일(암호 걸린 zip·손상 파일)의 최후 수단.
-//------------------------------------------------------------------
-pub fn path_doc_id(key: &str) -> String {
-    let mut h = Sha256::new();
-    h.update(key.as_bytes());
-    hex40(&h.finalize())
-}
-
-/// 해시 바이트 → 앞 40 hex 자.
-fn hex40(digest: &[u8]) -> String {
-    let mut s = String::with_capacity(64);
-    for b in digest {
-        s.push_str(&format!("{:02x}", b));
+    let d = h.finalize();
+    let mut out = String::with_capacity(64);
+    for b in d {
+        out.push_str(&format!("{:02x}", b));
     }
-    s.truncate(DOC_ID_LEN);
-    s
+    Some(out)
+}
+
+//------------------------------------------------------------------
+// 이 줄은 주석인가
+//=> 목록 파일에 "무엇을 적어야 하는지"를 사람 말로 적어 둘 수 있게, '#' 로
+//   시작하는 줄을 데이터가 아닌 것으로 본다.
+//
+//   [왜 '#' 만으로 판정하지 않나] 경로가 '#' 로 시작할 수 있기 때문이다. 실제로
+//   이 저장소 샘플에도 `#외부유출금지_회사규정#` 같은 폴더가 있다. 그래서
+//   '#' **뒤에 공백이나 '#' 이 오거나 줄이 거기서 끝날 때만** 주석으로 본다.
+//   `#외부유출금지#/a.docx,SF-1` 은 '#' 뒤가 한글이라 그대로 데이터로 읽힌다.
+//
+//   jsonl 은 줄이 '{' 로 시작하므로 애초에 충돌하지 않는다. 헷갈릴 여지가 있는
+//   쪽은 csv 의 첫 칸(경로)뿐이다.
+//
+//   [Python 과의 관계] `filelist.py::_is_comment` 와 판정이 같아야 한다.
+//   한쪽만 고치면 같은 목록이 두 판에서 다르게 읽힌다.
+//------------------------------------------------------------------
+pub fn is_comment(line: &str) -> bool {
+    let t = line.trim_start();
+    match t.strip_prefix('#') {
+        // '#' 뒤가 없으면(줄 끝) 빈 주석 줄이다.
+        Some(rest) => rest.is_empty()
+            || rest.starts_with('#')
+            || rest.starts_with(char::is_whitespace),
+        None => false,
+    }
 }
 
 //------------------------------------------------------------------
@@ -140,7 +154,10 @@ pub struct Entry {
 pub struct FileList {
     pub entries: HashMap<String, Entry>,
     pub warnings: Vec<String>,
+    /// 해석 대상이 된 데이터 줄 수(빈 줄·주석 제외).
     pub lines: usize,
+    /// 주석으로 보고 건너뛴 줄 수.
+    pub comments: usize,
     pub bad_lines: usize,
     pub no_id: usize,
     pub missing_file: usize,
@@ -176,6 +193,19 @@ impl FileList {
         v
     }
 
+    /// 목록에 있는데 디스크에 없는 항목들 — (경로, sfile_id).
+    /// F4 로 건수만 경고하던 것을 '결과에도 남기기' 위해 항목 자체를 준다.
+    /// 부르는 쪽(MpowerV11)은 자기가 준 sfile_id 로 무엇이 빠졌는지 알아야
+    /// 목록을 고칠 수 있다 — 경로만으로는 어느 문서인지 되짚기 어렵다.
+    pub fn missing_entries(&self) -> Vec<(String, String)> {
+        let mut v: Vec<(String, String)> = self.entries.values()
+            .filter(|e| !Path::new(&e.path).is_file())
+            .map(|e| (e.path.clone(), e.sfile_id.clone()))
+            .collect();
+        v.sort();
+        v
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -206,13 +236,26 @@ pub fn load(path: &str) -> Result<FileList, String> {
     let text = String::from_utf8_lossy(&raw);
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text).to_string();
 
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-    if lines.is_empty() {
-        return Err(format!("목록 파일이 비어 있습니다: {}", path));
-    }
     let base = p.parent().map(|d| d.to_path_buf()).unwrap_or_default();
     let fname = p.file_name().map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string());
+
+    // 물리 줄번호를 달아서 들고 다닌다 — 빈 줄과 주석을 걷어내도 오류 메시지의
+    // "N번째 줄"이 사람이 편집기에서 보는 줄번호와 같아야 찾아가 고칠 수 있다.
+    let numbered: Vec<(usize, &str)> =
+        text.lines().enumerate().map(|(i, l)| (i + 1, l)).collect();
+    let comments = numbered.iter().filter(|(_, l)| is_comment(l)).count();
+    let lines: Vec<(usize, &str)> = numbered.into_iter()
+        .filter(|(_, l)| !l.trim().is_empty() && !is_comment(l))
+        .collect();
+    if lines.is_empty() {
+        // 주석만 남은 경우는 "빈 파일"과 원인이 달라 따로 알려 준다.
+        return Err(if comments > 0 {
+            format!("목록 {} — 주석({}줄)뿐이고 데이터 줄이 하나도 없습니다", fname, comments)
+        } else {
+            format!("목록 파일이 비어 있습니다: {}", path)
+        });
+    }
 
     let (rows, mut bad) = parse_rows(&lines, path)?;
 
@@ -264,9 +307,10 @@ pub fn load(path: &str) -> Result<FileList, String> {
     // F1 — 한 줄도 못 읽었으면 데이터가 아니라 형식을 잘못 준 것이다.
     if entries.is_empty() {
         return Err(format!(
-            "목록 {} — 쓸 수 있는 줄이 하나도 없습니다(전체 {}줄 · 파싱 실패 {} · \
+            "목록 {} — 쓸 수 있는 줄이 하나도 없습니다(데이터 {}줄 · 파싱 실패 {} · \
              sfile_id 없음 {}).\n  jsonl 이면 {{\"path\": ..., \"sfile_id\": ...}} \
-             한 줄씩, csv 면 첫 줄에 path,sfile_id 헤더가 필요합니다.",
+             한 줄씩, csv 면 첫 줄에 path,sfile_id 헤더가 필요합니다.\n  \
+             ('#' 로 시작하는 줄은 주석으로 건너뜁니다)",
             fname, lines.len(), bad, no_id));
     }
 
@@ -310,6 +354,7 @@ pub fn load(path: &str) -> Result<FileList, String> {
 
     Ok(FileList {
         lines: lines.len(),
+        comments,
         bad_lines: bad,
         no_id,
         missing_file,
@@ -325,19 +370,23 @@ pub fn load(path: &str) -> Result<FileList, String> {
 //=> jsonl 이냐 csv 냐를 가려서 해석한다. 판정은 첫 줄이 '{' 로 시작하는지를
 //   먼저 보고, 아니면 확장자를 본다 — 확장자를 잘못 붙여 온 목록 때문에
 //   통째로 실패하는 것보다 낫다.
+//
+//   들어오는 줄은 (물리 줄번호, 본문) 짝이다. 빈 줄·주석이 이미 빠져 있으므로
+//   여기서 세면 안 되고, 달려 온 번호를 그대로 써야 사람이 찾아갈 수 있다.
 //------------------------------------------------------------------
-fn parse_rows(lines: &[&str], path: &str)
+fn parse_rows(lines: &[(usize, &str)], path: &str)
     -> Result<(Vec<(usize, HashMap<String, String>)>, usize), String>
 {
     let ext = Path::new(path).extension()
         .map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-    let is_json = lines[0].trim_start().starts_with('{')
+    let first = lines[0].1;
+    let is_json = first.trim_start().starts_with('{')
         || matches!(ext.as_str(), "jsonl" | "json" | "ndjson");
 
     let mut rows = Vec::new();
     let mut bad = 0usize;
     if is_json {
-        for (i, ln) in lines.iter().enumerate() {
+        for (lineno, ln) in lines.iter() {
             match serde_json::from_str::<serde_json::Value>(ln) {
                 Ok(v) => match v.as_object() {
                     Some(o) => {
@@ -351,7 +400,7 @@ fn parse_rows(lines: &[&str], path: &str)
                             };
                             m.insert(k.clone(), s);
                         }
-                        rows.push((i + 1, m));
+                        rows.push((*lineno, m));
                     }
                     None => bad += 1,
                 },
@@ -362,12 +411,12 @@ fn parse_rows(lines: &[&str], path: &str)
     }
 
     // csv/tsv — 첫 줄이 헤더다. 탭이 콤마보다 많으면 탭 구분으로 본다.
-    let delim = if lines[0].matches('\t').count() > lines[0].matches(',').count() {
+    let delim = if first.matches('\t').count() > first.matches(',').count() {
         '\t'
     } else {
         ','
     };
-    let header: Vec<String> = split_csv(lines[0], delim)
+    let header: Vec<String> = split_csv(first, delim)
         .into_iter().map(|s| s.trim().to_string()).collect();
     if !header.iter().any(|h| h == "path") || !header.iter().any(|h| h == "sfile_id") {
         let shown = if header.is_empty() { "(헤더 없음)".to_string() } else { header.join(", ") };
@@ -377,13 +426,13 @@ fn parse_rows(lines: &[&str], path: &str)
                 .unwrap_or_else(|| path.to_string()),
             shown));
     }
-    for (i, ln) in lines.iter().enumerate().skip(1) {
+    for (lineno, ln) in lines.iter().skip(1) {
         let cells = split_csv(ln, delim);
         let mut m = HashMap::new();
         for (h, c) in header.iter().zip(cells.into_iter()) {
             m.insert(h.clone(), c);
         }
-        rows.push((i + 1, m));
+        rows.push((*lineno, m));
     }
     Ok((rows, bad))
 }
@@ -430,21 +479,26 @@ fn split_csv(line: &str, delim: char) -> Vec<String> {
 //         matched = 목록과 이어진 방법("key"|"case") · 못 이었으면 None
 //------------------------------------------------------------------
 pub fn resolve_doc_id(display: &str, read_path: &Path, flist: Option<&FileList>)
-    -> (String, &'static str, String, Option<&'static str>)
+    -> (Option<String>, &'static str, String, Option<&'static str>, Option<String>)
 {
+    // 2026-09-10: doc_id 는 MpowerV11 의 sfile_id 뿐이다. 못 얻으면 지어내지 않고
+    // 비운다 — 지문(hash)이 '이 문서가 무엇인가'를 대신 가린다. 파이썬 판
+    // filelist.resolve_doc_id 와 같은 계약이다(한쪽만 바꾸면 두 판이 갈린다).
     let key = normalize_key(display);
     if let Some(fl) = flist {
         if let Some((e, how)) = fl.lookup(display) {
-            return (e.sfile_id.clone(), "sfile_id", key, Some(how));
+            // 번호를 얻어도 지문은 따로 구한다 — 결합 키이자 '원본이 바뀌었나'의
+            // 근거라, 번호가 있다고 없어도 되는 값이 아니다.
+            let h = content_hash(read_path);
+            return (Some(e.sfile_id.clone()), "sfile_id", key, Some(how), h);
         }
     }
-    // ② 내용 해시 — 옮기거나 이름을 바꿔도 유지된다.
-    if let Some(cid) = content_doc_id(read_path) {
-        return (cid, "content", key, None);
+    // 번호를 못 얻었다 — 내용 지문으로 가린다(옮기거나 이름이 바뀌어도 유지된다).
+    if let Some(h) = content_hash(read_path) {
+        return (None, "content", key, None, Some(h));
     }
-    // ③ 내용조차 못 읽는 파일(암호 zip·손상)의 최후 수단.
-    let pid = path_doc_id(&key);
-    (pid, "path", key, None)
+    // 내용조차 못 읽는 파일(암호 zip·손상): 남은 단서는 경로뿐이다.
+    (None, "path", key, None, None)
 }
 
 #[cfg(test)]
@@ -474,11 +528,30 @@ mod tests {
         assert_eq!(normalize_key(""), "");
     }
 
+    //--------------------------------------------------------------
+    // 지문은 SHA-256 전체(64자)다
+    //=> 예전에는 이 값을 40자로 잘라 doc_id 로 썼다(그 시험이 여기 있었다).
+    //   2026-09-10 부터 자르지 않고 hash 칸에 그대로 싣는다 — 파이썬 판과
+    //   같은 값이어야 두 판의 결과를 나란히 견줄 수 있다.
+    //--------------------------------------------------------------
     #[test]
-    fn doc_id_는_40자다() {
-        assert_eq!(path_doc_id("D:/a.txt").len(), DOC_ID_LEN);
+    fn 지문은_sha256_전체다() {
+        let d = std::env::temp_dir().join("mpc_hash_test.txt");
+        std::fs::write(&d, b"hello").unwrap();
+        let h = content_hash(&d).expect("지문을 구해야 한다");
+        assert_eq!(h.len(), 64, "SHA-256 전체여야 한다: {}", h);
+        // 알려진 값 — 파이썬 hashlib.sha256(b"hello").hexdigest() 와 같다.
+        assert_eq!(h, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        let _ = std::fs::remove_file(&d);
     }
 
+    // [윈도우 전용] 이 테스트는 `D:/a.txt` 와 `d:\a.txt` 가 **같은 파일**이라는
+    // 윈도우 경로 규칙(드라이브 문자 대소문자 무시 · `\` 도 구분자)에 기댄다.
+    // 리눅스에서는 `D:/a.txt` 가 절대경로가 아니라 목록 파일 폴더 밑의 상대경로가
+    // 되고(`/tmp/…/D:/a.txt`), `\` 는 파일명 글자라 두 줄이 서로 다른 키가 된다.
+    // 그래서 F3(같은 파일에 다른 id)이 성립하지 않는다 — 구현이 틀린 게 아니라
+    // 전제가 없는 것이라, 리눅스에서는 돌리지 않는다.
+    #[cfg(windows)]
     #[test]
     fn f3_같은_파일에_다른_id면_멈춘다() {
         let d = std::env::temp_dir().join("csoc_fl_f3");
@@ -489,6 +562,142 @@ mod tests {
              {\"path\": \"d:\\\\a.txt\", \"sfile_id\": \"BBB\"}\n").unwrap();
         let e = load(p.to_str().unwrap()).unwrap_err();
         assert!(e.contains("F3"), "F3 로 멈춰야 한다: {}", e);
+    }
+
+    //------------------------------------------------------------------
+    // csv 읽기 — OS 무관 판(위 csv_도_읽는다 의 이식 가능 버전)
+    //=> 위 테스트는 목록에 `D:/a.txt` 라고 적어 두어 리눅스에서는 절대경로가
+    //   아니게 되는 바람에 윈도우 전용으로 묶였다. 여기서는 **실제로 만든 파일의
+    //   진짜 경로**를 적어 두 OS 모두에서 절대경로가 되게 한다. 그래서 csv 해석
+    //   자체(열 이름 매핑·따옴표)는 어디서 돌리든 계속 검증된다.
+    //
+    //   같이 확인하는 것 두 가지:
+    //    1) 열 순서가 달라도 **이름으로** 찾는가(`memo,sfile_id,path` 순서로 적는다)
+    //    2) 경로에 콤마가 들어가 따옴표로 감싼 칸을 제대로 푸는가
+    //------------------------------------------------------------------
+    #[test]
+    fn csv_는_열이름으로_읽고_따옴표를_푼다() {
+        let d = std::env::temp_dir().join("csoc_fl_csv_portable");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+
+        // 실제 파일을 만들어 그 경로를 목록에 적는다 — 이래야 두 OS 다 절대경로다.
+        let plain = d.join("a.txt");
+        std::fs::write(&plain, b"x").unwrap();
+        // 이름에 콤마가 든 파일 — csv 에서는 따옴표로 감싸 와야 한다.
+        let comma = d.join("b,c.txt");
+        std::fs::write(&comma, b"x").unwrap();
+
+        let p = d.join("l.csv");
+        // 헤더 순서를 일부러 뒤집어 둔다(위치가 아니라 이름으로 찾는지 보려고).
+        let body = format!(
+            "memo,sfile_id,path\n\
+             무시됨,SF-A,{}\n\
+             메모2,SF-B,\"{}\"\n",
+            plain.to_string_lossy(),
+            comma.to_string_lossy());
+        std::fs::write(&p, body).unwrap();
+
+        let fl = load(p.to_str().unwrap()).unwrap();
+        assert_eq!(fl.len(), 2, "두 줄 모두 읽혀야 한다");
+
+        let (e, _) = fl.lookup(&plain.to_string_lossy()).unwrap();
+        assert_eq!(e.sfile_id, "SF-A", "열 이름으로 sfile_id 를 찾아야 한다");
+
+        let (e2, _) = fl.lookup(&comma.to_string_lossy()).unwrap();
+        assert_eq!(e2.sfile_id, "SF-B", "따옴표로 감싼 경로(콤마 포함)를 풀어야 한다");
+
+        // 목록에 적은 두 파일이 실제로 있으므로 F4(파일 없음) 경고가 없어야 한다.
+        assert!(!fl.warnings.iter().any(|w| w.contains("F4")),
+                "실재하는 파일인데 F4 경고가 났다: {:?}", fl.warnings);
+
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    //--------------------------------------------------------------
+    // 주석 줄은 건너뛰되 '#' 로 시작하는 경로는 지킨다
+    //=> 목록에 설명을 적어 둘 수 있어야 하지만, `#외부유출금지#` 같은 폴더가
+    //   실제로 있으므로 '#' 뒤에 공백이 없으면 데이터로 읽어야 한다.
+    //   Python 판 test_filelist_comments.py 와 같은 것을 본다.
+    //--------------------------------------------------------------
+    #[test]
+    fn 주석줄은_건너뛰고_샾으로_시작하는_경로는_읽는다() {
+        assert!(is_comment("# 설명"));
+        assert!(is_comment("## 제목"));
+        assert!(is_comment("   #\t들여쓴 주석"));
+        assert!(is_comment("#"));
+        // '#' 뒤가 글자면 경로다 — 주석이 아니다.
+        assert!(!is_comment("#외부유출금지#/a.docx,SF-1"));
+        assert!(!is_comment("{\"path\": \"#a/b.txt\", \"sfile_id\": \"SF-1\"}"));
+
+        let d = std::env::temp_dir().join("csoc_fl_comment");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("a.txt");
+        std::fs::write(&f, b"x").unwrap();
+
+        let p = d.join("l.jsonl");
+        std::fs::write(&p, format!(
+            "# 이 줄은 주석\n\
+             ##\n\
+             \n\
+             {{\"path\": {:?}, \"sfile_id\": \"SF-A\"}}\n",
+            f.to_string_lossy())).unwrap();
+        let fl = load(p.to_str().unwrap()).unwrap();
+        assert_eq!((fl.len(), fl.lines, fl.comments), (1, 1, 2));
+        // 주석은 F1(해석 실패)로 세면 안 된다.
+        assert_eq!(fl.bad_lines, 0, "주석을 파싱 실패로 세면 안 된다");
+        assert!(!fl.warnings.iter().any(|w| w.contains("F1")), "{:?}", fl.warnings);
+
+        // 주석뿐이면 '빈 파일'과 다른 이유를 알려 준다.
+        let p2 = d.join("only.jsonl");
+        std::fs::write(&p2, "# 아무 데이터도 없다\n# 정말로\n").unwrap();
+        let e = load(p2.to_str().unwrap()).unwrap_err();
+        assert!(e.contains("주석"), "주석뿐임을 알려야 한다: {}", e);
+
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    //--------------------------------------------------------------
+    // 배포에 같이 나가는 샘플 목록이 실제로 읽힌다
+    //=> 샘플은 사용자가 제일 먼저 여는 파일이라, 이게 안 읽히면 첫인상이
+    //   "고장난 도구"가 된다. 주석을 잔뜩 단 뒤로는 더 그렇다.
+    //   Python 판 test_docid.py::test_shipped_sample_filelist_parses 와 짝이다.
+    //--------------------------------------------------------------
+    #[test]
+    fn 배포_샘플_목록이_읽힌다() {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("dist-onedir/windows/sample/filelist.sample.txt");
+        let fl = load(p.to_str().unwrap()).expect("샘플 목록이 읽혀야 한다");
+        assert_eq!(fl.len(), 7, "데이터 줄 7건이 적재돼야 한다");
+        assert_eq!(fl.bad_lines, 0, "주석을 파싱 실패로 세면 안 된다");
+        assert_eq!(fl.no_id, 0);
+        assert!(fl.comments > 0, "주석이 있어야 한다");
+        // 폴더 이름이 '#' 로 시작하는 줄도 살아 있어야 한다.
+        assert!(fl.entries.keys().any(|k| k.contains("/#외부유출금지")),
+                "'#' 로 시작하는 폴더 경로가 주석으로 먹히면 안 된다");
+    }
+
+    //--------------------------------------------------------------
+    // 오류 메시지의 줄번호는 '편집기에서 보이는 줄'이다
+    //=> 주석·빈 줄을 걷어낸 뒤의 순번을 쓰면, 주석이 많은 목록에서 F3 이 났을 때
+    //   엉뚱한 줄을 가리켜 사람이 찾아가지 못한다.
+    //--------------------------------------------------------------
+    #[cfg(windows)]
+    #[test]
+    fn f3_줄번호는_물리_줄번호다() {
+        let d = std::env::temp_dir().join("csoc_fl_lineno");
+        std::fs::create_dir_all(&d).unwrap();
+        let p = d.join("l.jsonl");
+        // 1~3줄이 주석/빈 줄 → 충돌 줄은 물리 5번째다.
+        std::fs::write(&p,
+            "# 머리말\n\
+             \n\
+             # 또 주석\n\
+             {\"path\": \"D:/a.txt\", \"sfile_id\": \"AAA\"}\n\
+             {\"path\": \"d:\\\\a.txt\", \"sfile_id\": \"BBB\"}\n").unwrap();
+        let e = load(p.to_str().unwrap()).unwrap_err();
+        assert!(e.contains("5번째 줄"), "물리 줄번호(5)를 가리켜야 한다: {}", e);
     }
 
     #[test]
@@ -508,6 +717,10 @@ mod tests {
         assert!(load(p2.to_str().unwrap()).is_err());
     }
 
+    // [윈도우 전용] 드라이브 문자(`D:` ↔ `d:`)와 구분자(`/` ↔ `\`)가 달라도 같은
+    // 파일로 이어지는지를 보는 테스트다. 이 동등성 자체가 윈도우 규칙이라
+    // 리눅스에서는 성립하지 않는다(위 f3 주석 참고).
+    #[cfg(windows)]
     #[test]
     fn 대소문자만_다르면_구제한다() {
         let d = std::env::temp_dir().join("csoc_fl_case");
@@ -524,6 +737,10 @@ mod tests {
         assert_eq!((e2.sfile_id.as_str(), how2), ("SF-1", "case"));
     }
 
+    // [윈도우 전용] 확인하려는 것(csv 도 jsonl 과 같게 읽히는가) 자체는 OS 와
+    // 무관하지만, 목록에 적은 `D:/a.txt` 가 리눅스에서는 절대경로가 아니라
+    // lookup 키가 달라져 실패한다. 경로 규칙이 아니라 **표기** 때문에 걸린 경우다.
+    #[cfg(windows)]
     #[test]
     fn csv_도_읽는다() {
         let d = std::env::temp_dir().join("csoc_fl_csv");

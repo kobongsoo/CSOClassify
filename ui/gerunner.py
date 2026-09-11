@@ -16,10 +16,10 @@ from types import SimpleNamespace
 
 #------------------------------------------------------------------
 # 실행 명령 문자열 → 인자 리스트
-#=> "csoclassify.exe" 또는 "python -m csoclassify" 같은 명령을 인자 리스트로 나눈다.
+#=> "MpowerClassify.exe" 또는 "python -m csoclassify" 같은 명령을 인자 리스트로 나눈다.
 #   윈도 경로를 위해 백슬래시는 이스케이프로 보지 않고, 큰따옴표로 묶인 토큰(공백 포함
 #   경로)은 통째로 한 인자로 처리한다. 예)
-#     '"D:\\Program Files\\a b\\csoclassify.exe"' → ['D:\\Program Files\\a b\\csoclassify.exe']
+#     '"D:\\Program Files\\a b\\MpowerClassify.exe"' → ['D:\\Program Files\\a b\\MpowerClassify.exe']
 #     'python -m csoclassify'                     → ['python','-m','csoclassify']
 #   (사용자가 실수로 경로를 따옴표로 감싸도, 공백이 있어도 안전하게 동작)
 #
@@ -313,7 +313,7 @@ def run_export_taxonomy(base_cmd, export_input, taxonomy_out, pythonpath=None,
     args = list(base_cmd) + ["--export-taxonomy",
                              "--export-input", export_input,
                              "--taxonomy", taxonomy_out]
-    r = _run(args, pythonpath, timeout, "[csoclassify]")
+    r = _run(args, pythonpath, timeout, "[MpowerClassify]")
     r.args = args
     return r
 

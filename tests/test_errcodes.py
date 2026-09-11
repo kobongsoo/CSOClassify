@@ -15,7 +15,7 @@ from csoclassify import cli
 from csoclassify import errcodes
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RS_EXE = os.path.join(ROOT, "Rust", "target", "release", "csoclassify-rs.exe")
+RS_EXE = os.path.join(ROOT, "Rust", "target", "release", "MpowerClassify-rs.exe")
 RS_SRC = os.path.join(ROOT, "Rust", "src", "errcodes.rs")
 
 
@@ -145,8 +145,8 @@ def test_옵션을_주면_stdout에_한_줄(capsys):
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_fail_err_는_표가_정한_코드로_끝낸다(capsys):
-    assert cli.fail_err("taxonomy_missing", "[csoclassify] 없다", "D:/t.yaml") == 3
-    assert cli.fail_err("taxonomy_invalid", "[csoclassify] 깨졌다", "D:/t.yaml") == 4
+    assert cli.fail_err("taxonomy_missing", "[MpowerClassify] 없다", "D:/t.yaml") == 3
+    assert cli.fail_err("taxonomy_invalid", "[MpowerClassify] 깨졌다", "D:/t.yaml") == 4
     # 사람이 읽는 안내는 예전처럼 stderr 에 그대로 남는다.
     assert "없다" in capsys.readouterr().err
 
@@ -180,38 +180,63 @@ def test_argparse_오류도_인자오류3_이다(argv, kind, capsys):
 # --failsafe 로 준 등급이 두 엔진에서 똑같이 적용된다
 #=> Rust 판은 값을 읽지 않고 늘 "S" 를 박았다(2026-09-01 수정). 규칙으로 못 정한
 #   문서에 다른 등급이 조용히 들어가던 것이라, 종료코드가 아니라 '결과'가 틀렸다.
-#   번호만 맞추는 테스트로는 못 잡으므로 실제 등급 분포를 맞춰 본다.
+#   번호만 맞추는 테스트로는 못 잡으므로 실제 등급을 맞춰 본다.
 #
-# -in: 없음
+#   [왜 합성 문서를 쓰나] 예전에는 저장소의 doc/*.html 을 훑었다. 그런데 그 폴더가
+#   PII 예시로 가득한 문서들로 채워지면서 12건 전부 규칙에 걸리게 됐고, failsafe 가
+#   아예 발동하지 않았다. 더 나쁜 것은 [C]·[S] 가 그때도 통과했다는 점이다 —
+#   규칙이 매긴 등급에 마침 C 와 S 가 있어서였지 failsafe 때문이 아니었다.
+#   즉 이 시험은 한동안 아무것도 검증하지 못하면서 초록불이었다(2026-09-08 발견).
+#   그래서 신호가 하나도 없는 문서를 직접 만들어 쓴다 — 저장소 문서 내용이 바뀌어도
+#   흔들리지 않는다.
+#
+#   [method 까지 보는 이유] 등급만 보면 규칙이 우연히 같은 등급을 냈을 때 또 통과한다.
+#   failsafe 로 정해졌을 때만 나오는 method("failsafe_default")를 함께 단언해,
+#   '규칙이 정한 등급'으로는 절대 통과할 수 없게 만든다.
+#
+# -in: grade    = 시험할 failsafe 등급(C·O·S)
+# -in: tmp_path = pytest 임시 폴더
+#
 # -out: 없음(단언)
 # -out: error = Rust exe 가 없으면 skip
 #------------------------------------------------------------------
 @pytest.mark.parametrize("grade", ["C", "O", "S"])
-def test_두_엔진이_같은_failsafe_등급을_준다(grade):
+def test_두_엔진이_같은_failsafe_등급을_준다(grade, tmp_path):
     if not os.path.isfile(RS_EXE):
         pytest.skip("Rust exe 없음(cargo build --release 먼저)")
-    rules = os.path.join(ROOT, "resources", "policy", "cso_rules.yaml")
+    # 규칙에 걸릴 만한 것이 하나도 없는 본문. PII·기밀어·스탬프 어느 것도 없고,
+    # 파일명도 기밀사전에 안 걸리는 이름으로 둔다(파일명은 Signal D 가 본다).
+    doc = tmp_path / "plain.txt"
+    doc.write_text(
+        "봄이 오면 마당에 심은 나무에 새 잎이 돋는다." + chr(10) +
+        "아침마다 물을 주며 자라는 모습을 지켜보는 일이 즐겁다." + chr(10) +
+        "여름에는 그늘이 넓어져 앉아 쉬기에 좋다." + chr(10),
+        encoding="utf-8")
+
+    rules = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
     got = {}
     for name, cmd in (("python", [sys.executable, "-m", "csoclassify"]),
                       ("rust", [RS_EXE])):
         env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
                    PYTHONIOENCODING="utf-8")
-        r = subprocess.run(cmd + ["--dir", os.path.join(ROOT, "doc"), "--glob", "*.html",
+        r = subprocess.run(cmd + ["--file", str(doc),
                                   "--format", "jsonl", "--rule-only",
                                   "--rules", rules, "--failsafe", grade],
                            cwd=ROOT, env=env, capture_output=True, text=True,
                            encoding="utf-8")
-        grades = []
-        for line in r.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("{") and '"file"' in line:
-                grades.append(json.loads(line).get("grade"))
-        assert grades, f"{name}: 레코드가 없다 :: {r.stderr[-400:]}"
-        got[name] = sorted(g for g in grades if g)
-    assert got["python"] == got["rust"]
-    # 규칙으로 못 정한 문서가 실제로 그 등급을 받았는지 — 안 그러면 이 테스트가
-    # '늘 S' 버그를 다시 놓친다.
-    assert grade in got["rust"]
+        recs = [json.loads(l) for l in r.stdout.splitlines()
+                if l.strip().startswith("{") and '"file"' in l]
+        assert recs, f"{name}: 레코드가 없다 :: {r.stderr[-400:]}"
+        got[name] = recs[0]
+
+    # 두 판이 같은 답을 내는가 — 이 시험이 처음 잡으려던 '늘 S' 버그가 여기 걸린다.
+    assert got["python"]["grade"] == got["rust"]["grade"]
+    for name, rec in got.items():
+        sec = rec["why"]["security"]
+        assert rec["grade"] == grade, f"{name}: {sec['grade']} != {grade}"
+        # 규칙이 아니라 failsafe 가 정했는가. 이 줄이 없으면 저장소 내용이 바뀌었을 때
+        # 규칙이 매긴 등급으로 조용히 통과한다(예전에 실제로 그랬다).
+        assert sec.get("method") == "failsafe_default",             f"{name}: failsafe 가 아니라 {sec.get('method')} 로 정해졌다"
 
 
 #------------------------------------------------------------------
@@ -557,9 +582,15 @@ def test_simple이면_감사용_전체파일이_함께_생긴다(engine, tmp_pat
                 if l.strip().startswith("{") and '"file"' in l]
     simple, whole = recs(out), recs(full)
     # --out 은 지금까지처럼 축약본이어야 한다 — 읽고 있는 쪽의 계약을 바꾸지 않는다.
-    assert set(simple[0]) <= {"file", "grade", "hash", "doctype", "error", "why"}
+    assert set(simple[0]) <= {"file", "grade", "hash", "doctype", "doc_id",
+                              "error", "why"}
     # 전체 파일에는 근거가 통째로 들어 있어야 한다.
-    assert "signals" in whole[0] and "rule_version" in whole[0]
+    # [2026-09-10] 근거는 그 축 안(security.signals)에, 버전은 meta 에 있다.
+    assert "signals" in whole[0]["why"]["security"]
+    # [2026-09-10 오후] 버전은 레코드가 아니라 맨 앞 실행 헤더 한 줄에 있다.
+    head = [json.loads(l) for l in full.read_text(encoding="utf-8").splitlines()
+            if l.strip().startswith("{") and '"run"' in l]
+    assert head and "rule_version" in head[0]["run"], head
     assert len(simple) == len(whole)
     # 연동용에 --nosummary 를 줘도 감사용에는 요약이 남는다(정책 버전이 필요하다).
     assert '"summary"' in full.read_text(encoding="utf-8")
@@ -623,10 +654,13 @@ def test_업무분류_신뢰도에_판정경로가_붙는다(engine, tmp_path):
                          "--nosummary", "--format", "jsonl", "--out", str(out)])
     rec = json.loads([l for l in out.read_text(encoding="utf-8").splitlines()
                       if '"file"' in l][0])
-    # 칸 차례도 못박는다 — 무엇을(file·hash) → 어떻게 됐나(grade·doctype) → 왜(why).
-    # 두 판이 같은 차례로 내야 결과 파일을 그대로 견줄 수 있다(Rust 는 기본값이
-    # 사전순이라 Cargo.toml 에 preserve_order 를 켜 두었다).
-    assert list(rec) == ["file", "hash", "grade", "doctype", "why"], list(rec)
+    # 칸 차례도 못박는다 — 무엇을(file·hash·doc_id) → 어떻게 됐나(grade·doctype) →
+    # 왜(why). doc_id 는 '이 문서가 무엇인가'라서 판정값 앞이다(2026-09-07 옮김).
+    # 두 판이 같은 차례로 내야 결과 파일을 그대로 견줄
+    # 수 있다(Rust 는 기본값이 사전순이라 Cargo.toml 에 preserve_order 를 켜 두었다).
+    # 여기서는 --filelist 를 안 줬으므로 doc_id 는 폴백이라 값이 None 이다.
+    assert list(rec) == ["file", "hash", "doc_id", "grade", "doctype", "why"], list(rec)
+    assert rec["doc_id"] is None, rec["doc_id"]
     assert list(rec["why"]) == ["security", "doctype"], list(rec["why"])
     assert list(rec["why"]["security"]) == ["by", "conf", "hits"], rec["why"]["security"]
     dt = (rec.get("why") or {}).get("doctype")
@@ -636,3 +670,80 @@ def test_업무분류_신뢰도에_판정경로가_붙는다(engine, tmp_path):
         assert v["by"] in ("rule", "embed"), v
     # --rule-only 로 돌렸으니 임베딩이 관여할 수 없다.
     assert all(v["by"] == "rule" for v in dt), dt
+
+
+#------------------------------------------------------------------
+# T7·T8 — --textsave 를 두 판이 같은 규칙으로 처리한다
+#=> Rust 판은 예전에 --save-text 를 삼키고 아무 일도 안 했다. 오류도 경고도 없이
+#   폴더가 비어 있어서, 사용자는 "저장했는데 왜 없지"를 혼자 헤맸다. 그 조용한
+#   실패가 되살아나지 않게 못박는다.
+#
+#   [본문이 두 판에서 같지 않은 것은 정상이다] 저장하는 것은 원본이 아니라
+#   *추출한 본문*이고 두 판은 파서가 다르다(실측: 같은 pptx 가 9,312 / 9,330바이트).
+#   그래서 파일 '내용'이 아니라 규칙 — 이름·색인 칸·표식 — 이 같은지를 본다.
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_textsave가_본문을_해시이름으로_남긴다(engine, tmp_path):
+    if engine == "rust" and not os.path.isfile(RS_EXE):
+        pytest.skip("Rust exe 없음(cargo build --release 먼저)")
+    (tmp_path / "규정.txt").write_text(
+        "연구소안전관리규정\n제1조 이 규정은 안전관리에 관한 사항을 정한다.\n" * 5,
+        encoding="utf-8")
+    save_dir = tmp_path / "본문"
+    out = tmp_path / "r.jsonl"
+    _run_status(engine, ["--dir", str(tmp_path), "--rule-only", "--nosummary",
+                         "--textsave", str(save_dir),
+                         "--format", "jsonl", "--out", str(out)])
+
+    rec = json.loads([l for l in out.read_text(encoding="utf-8").splitlines()
+                      if '"file"' in l][0])
+    # 이름이 레코드의 hash 와 이어져야 "결과 한 줄에서 본문으로" 갈 수 있다.
+    assert rec["text_saved"] == rec["hash"] + ".txt", rec
+    saved = save_dir / rec["text_saved"]
+    assert saved.is_file(), sorted(p.name for p in save_dir.iterdir())
+    assert "연구소안전관리규정" in saved.read_text(encoding="utf-8")
+
+    # 색인 — 칸 이름·차례가 두 판에서 같아야 한 파일로 섞어 읽을 수 있다.
+    rows = [json.loads(l) for l in
+            (save_dir / "_index.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(rows) == 1, rows
+    assert list(rows[0]) == ["hash", "txt", "file", "doc_id", "chars", "truncated", "ts"], rows[0]
+    assert rows[0]["hash"] == rec["hash"]
+    assert rows[0]["txt"] == rec["text_saved"]
+    assert rows[0]["truncated"] is False
+    # --filelist 를 안 줬으니 폴백이다 — 폴백 doc_id 는 싣지 않는다.
+    assert rows[0]["doc_id"] is None, rows[0]
+
+    # 폴더만 발견한 사람에게 경고가 닿아야 한다.
+    assert (save_dir / "_README.md").is_file()
+
+
+#------------------------------------------------------------------
+# 옵션을 안 주면 두 판 모두 아무것도 남기지 않는다
+#=> 기본 꺼짐은 프라이버시 장치다(설계 P4). 한쪽만 켜져 있으면 엔진을 바꾼 것만으로
+#   개인정보가 디스크에 남는다.
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_textsave_없으면_아무것도_안_남긴다(engine, tmp_path):
+    if engine == "rust" and not os.path.isfile(RS_EXE):
+        pytest.skip("Rust exe 없음(cargo build --release 먼저)")
+    (tmp_path / "규정.txt").write_text("연구소안전관리규정\n" * 5, encoding="utf-8")
+    out = tmp_path / "r.jsonl"
+    _run_status(engine, ["--dir", str(tmp_path), "--rule-only", "--nosummary",
+                         "--format", "jsonl", "--out", str(out)])
+    rec = json.loads([l for l in out.read_text(encoding="utf-8").splitlines()
+                      if '"file"' in l][0])
+    assert "text_saved" not in rec, rec
+    assert not list(tmp_path.glob("**/_index.jsonl"))

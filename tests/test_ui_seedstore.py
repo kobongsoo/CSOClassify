@@ -1,10 +1,14 @@
 #------------------------------------------------------------------
-# ui/seedstore.py — 기준 문서 저장소 v2(두 축) 단위 테스트
+# ui/seedstore.py — 기준 문서 저장소 v3(평평한 두 축) 단위 테스트
 #=> 한 문서 = 한 줄 = 벡터 하나를 유지한 채 보안등급·업무분류 두 축이 그 줄을
 #   나눠 쓰는 구조를 검증한다. 특히 다음 세 가지가 이 저장소의 핵심 계약이다.
-#    1) axes 가 진실이고 grade/labels 는 저장할 때 다시 만들어지는 파생값이다
+#    1) grade·doctype 칸이 곧 진실이다 — 파생값도, 중첩된 axes 도 없다
 #    2) 축 하나를 해제해도 다른 축은 살아 있다(둘 다 죽으면 줄이 사라진다)
-#    3) 시스템은 표시(suspect)만 하고, 지우는 것은 사람이 한다
+#    3) 시스템은 표시(hold)만 하고, 지우는 것은 사람이 한다
+#
+#   [v2 에서 바뀐 계약] 예전에는 axes 가 진실이고 grade/labels 가 파생값이었다.
+#   같은 등급이 세 곳에 적혀, 저장 직전에 반드시 project() 를 통과해야만
+#   앞뒤가 맞는 형식이었다. v3 는 칸 하나가 진실이라 그 규율이 필요 없다.
 #------------------------------------------------------------------
 
 import os
@@ -13,7 +17,7 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "ui"))
 
-import seedstore as S   # noqa: E402
+from csoclassify import seedstore as S   # noqa: E402
 
 
 #------------------------------------------------------------------
@@ -26,7 +30,7 @@ import seedstore as S   # noqa: E402
 def test_기존_seed_없으면_새로_만든다():
     seeds = S.add_doctype_seed([], "a.hwp", ["DC_006_001"], [0.1, 0.2], "고봉수")
     assert len(seeds) == 1
-    assert seeds[0]["labels"]["doctype"] == ["DC_006_001"]
+    assert seeds[0]["doctype"] == ["DC_006_001"]
     assert seeds[0]["vector"] == [0.1, 0.2]
     assert seeds[0]["approved_by"] == "고봉수"
 
@@ -48,9 +52,9 @@ def test_기존_security_seed에_doctype_추가():
     e = out[0]
     assert e["grade"] == "S"                      # 보안축은 손대지 않는다
     assert e["vector"] == [9.9, 9.9]              # 새로 준 벡터로 갱신
-    assert e["labels"]["doctype"] == ["DC_006_001"]
-    assert e["labels"]["security"] == "S"         # 파생값은 axes 에서 다시 만들어진다
-    assert S.axis_value(e, "security") == "S"     # 옛 grade 가 axes 로 승격됐다
+    assert e["doctype"] == ["DC_006_001"]
+    assert S.axis_value(e, "security") == "S"     # 축 이름으로 읽어도 같은 값이다
+    assert "labels" not in e and "axes" not in e  # v2 잔재는 남지 않는다
 
 
 #------------------------------------------------------------------
@@ -64,7 +68,7 @@ def test_다시_호출하면_라벨이_교체된다():
     seeds = S.add_doctype_seed([], "a.hwp", ["DC_006_001"], [1, 2], "x")
     seeds = S.add_doctype_seed(seeds, "a.hwp", ["DC_006_001", "DC_003_001"], [1, 2], "x")
     assert len(seeds) == 1
-    assert seeds[0]["labels"]["doctype"] == ["DC_006_001", "DC_003_001"]
+    assert seeds[0]["doctype"] == ["DC_006_001", "DC_003_001"]
 
 
 #------------------------------------------------------------------
@@ -80,7 +84,8 @@ def test_다른_파일은_건드리지_않는다():
     out = S.add_doctype_seed(seeds, "a.hwp", ["DC_001"], [0, 0], "x")
     assert len(out) == 2
     b = next(s for s in out if s["file"] == "b.hwp")
-    assert "labels" not in b
+    assert "doctype" not in b        # 업무분류축이 생기지 않았다
+    assert b["grade"] == "C"         # 원래 있던 축은 그대로다
 
 
 #------------------------------------------------------------------
@@ -116,9 +121,13 @@ def test_축_하나만_해제하면_다른_축은_남는다():
 
     seeds, removed = S.retire_axis(seeds, "a.hwp", "doctype")
     assert removed is False
-    assert seeds[0]["grade"] == "C"                       # 보안축은 그대로
-    assert "doctype" not in seeds[0].get("labels", {})    # 엔진에는 안 보인다
-    assert S.axis_value(seeds[0], "doctype") == ["DC_1"]  # 값은 남아 있다
+    assert seeds[0]["grade"] == "C"                  # 보안축은 그대로
+    # v3 에서 해제는 그 칸을 지우는 것이다. v2 는 값을 남겨 두는 척했지만
+    # 파생값이 지워져 엔진이 못 봤고, 두 축을 다 해제하면 줄째 사라졌으며,
+    # 재등록도 막지 못했다 — 이미 "지운다" 와 같았다. 지운 값은 호출부가
+    # append_seed_audit(before=이전값) 로 감사 로그에 남긴다.
+    assert "doctype" not in seeds[0]
+    assert S.axis_value(seeds[0], "doctype") is None
     assert S.active_axes(seeds[0]) == ("security",)
 
     seeds, removed = S.retire_axis(seeds, "a.hwp", "security")
@@ -182,7 +191,9 @@ def test_사람이_해제한_축은_시스템이_안_건드린다(tmp_path):
     seeds, _ = S.retire_axis(seeds, f, "doctype")
     out, ev = S.sync_with_records(seeds, [{"file": f, "hash": "zz"}])
     assert ev == []
-    assert S.axis_state(out[0], "doctype") == S.STATE_RETIRED
+    # 사람이 해제한 축은 칸이 없다 → 시스템이 보류(hold)를 붙일 대상도 없다.
+    assert S.axis_state(out[0], "doctype") == ""
+    assert not (out[0].get("hold") or {})
 
 
 #------------------------------------------------------------------
@@ -234,43 +245,55 @@ def test_저장하고_다시_읽어도_같다(tmp_path):
     back = S.load_seeds(p)
     assert back[0]["v"] == S.SCHEMA_VERSION
     assert back[0]["grade"] == "C"
-    assert back[0]["labels"] == {"security": "C", "doctype": ["DC_1"]}
-    assert back[0]["doc"]["hash"] == "aa"
+    assert back[0]["doctype"] == ["DC_1"]
+    assert back[0]["hash"] == "aa"        # 원본 지문은 해시 한 칸이다
+    assert "labels" not in back[0] and "axes" not in back[0] and "doc" not in back[0]
     assert S.axis_counts(back) == {"total": 1, "security": 1, "doctype": 1,
                                    "both": 1, "suspect": 0, "retired": 0}
 
 
 #------------------------------------------------------------------
-# 축마다 확정자가 다르면 둘 다 보여준다
-#=> 보안등급은 A 가, 업무분류는 B 가 확정하는 일이 실제로 생긴다.
-#   맨 위 approved_by 만 보면 '마지막에 손댄 한 사람'만 남아 한 명이 가려진다.
+# 확정자는 줄 단위 한 명이다 (v3 계약)
+#=> v2 는 축마다 확정자를 따로 적었다. 그런데 실제 운영 파일 19행 중 두 축의
+#   확정자가 다른 줄은 0건이었고, 화면에도 축별로 다른 사람을 적을 수단이
+#   없었다 — 쓰이지 않는 유연성이었다. 그래서 줄 단위 한 칸으로 합쳤다.
+#   "누가 어느 축을 확정했나" 는 class_seed_audit.jsonl 이 axis 칸과 함께
+#   갖고 있으므로 추적은 그대로 된다.
 #------------------------------------------------------------------
-def test_축마다_확정자가_다르면_둘_다_나온다():
-    e = {"axes": {"security": {"state": "active", "value": "S", "approved_by": "김철수"},
-                  "doctype": {"state": "active", "value": ["DC_1"], "approved_by": "이영희"}}}
-    assert S.approvers(e) == ("김철수", "이영희")
+def test_확정자는_줄_단위_한_명이다():
+    seeds = S.add_seed([], "a.hwp", "S", [1, 0], "김철수")
+    assert S.approvers(seeds[0]) == ("김철수",)
+    # 다른 사람이 다른 축을 확정하면 '마지막에 손댄 사람'이 남는다.
+    seeds = S.add_doctype_seed(seeds, "a.hwp", ["DC_1"], [1, 0], "이영희")
+    assert S.approvers(seeds[0]) == ("이영희",)
+    assert seeds[0]["grade"] == "S"          # 앞 사람이 정한 값은 그대로다
 
 
 #------------------------------------------------------------------
-# 같은 사람이 두 축을 확정했으면 한 번만 나온다
-#=> 표에 "고봉수 · 고봉수" 로 찍히면 두 사람인 줄 안다.
+# 축마다 출처가 다르면 둘 다 남는다
+#=> 확정자와 달리 출처(source)는 실제로 갈린다 — 보안등급은 phase4 화면에서,
+#   업무분류는 phase6 화면에서 등록되기 때문이다. 한 칸으로 합치되 뜻을
+#   잃지 않게 이어 붙인다.
 #------------------------------------------------------------------
-def test_같은_사람은_한_번만_나온다():
-    e = {"axes": {"security": {"state": "active", "value": "S", "approved_by": "고봉수"},
-                  "doctype": {"state": "active", "value": ["DC_1"], "approved_by": "고봉수"}}}
-    assert S.approvers(e) == ("고봉수",)
+def test_축마다_출처가_다르면_이어_붙인다():
+    seeds = S.add_seed([], "a.hwp", "S", [1, 0], "x", source="phase4")
+    seeds = S.add_doctype_seed(seeds, "a.hwp", ["DC_1"], [1, 0], "x", source="phase6")
+    assert seeds[0]["source"] == "phase4+phase6"
+    # 같은 출처를 다시 써도 중복되지 않는다.
+    seeds = S.add_seed(seeds, "a.hwp", "C", [1, 0], "x", source="phase4")
+    assert seeds[0]["source"] == "phase4+phase6"
 
 
 #------------------------------------------------------------------
-# 옛 형식(맨 위 approved_by 만 있는 줄)도 읽는다
+# 옛 형식(v1/v2)도 읽는다
 #=> 손으로 만든 줄이나 예전 버전이 쓴 줄이 섞여 있어도 표가 비면 안 된다.
 #------------------------------------------------------------------
-def test_옛_형식은_맨_위_값을_쓴다():
-    assert S.approvers({"approved_by": "박지훈"}) == ("박지훈",)
-    # 축에 기록이 있으면 그쪽이 우선이다(더 정확하다).
-    e = {"approved_by": "박지훈",
-         "axes": {"doctype": {"state": "active", "value": ["DC_1"], "approved_by": "이영희"}}}
-    assert S.approvers(e) == ("이영희",)
+def test_옛_형식도_읽는다():
+    assert S.approvers(S.ensure_v3({"approved_by": "박지훈", "grade": "C"})) == ("박지훈",)
+    # v2 축 기록에 있는 이름도 끌어올린다.
+    e = {"axes": {"doctype": {"state": "active", "value": ["DC_1"],
+                              "approved_by": "이영희"}}}
+    assert S.approvers(S.ensure_v3(e)) == ("이영희",)
 
 
 #------------------------------------------------------------------
@@ -281,4 +304,4 @@ def test_기록이_없으면_빈_값이다():
     assert S.approvers({}) == ()
     assert S.approvers(None) == ()
     assert S.approvers({"approved_by": "   "}) == ()          # 공백만 있는 값
-    assert S.approvers({"axes": {"security": {"approved_by": ""}}}) == ()
+    assert S.approvers(S.ensure_v3({"axes": {"security": {"approved_by": ""}}})) == ()

@@ -113,7 +113,7 @@
     빠짐없이 읽는다. 상주 데몬이 없어 이 비용을 <b>프로세스마다 새로 낸다</b>. 1차 규칙 스캔 결과를 보고
     <b>필요할 때만</b> 모델을 올리도록 게이트를 세우고, 함께 죽어 있는 <code class="inl">--embed-needed</code> 를 살린다.</p>
     <div class="meta">
-      <span class="chip"><b>대상</b> Rust 엔진 (csoclassify-rs)</span>
+      <span class="chip"><b>대상</b> Rust 엔진 (MpowerClassify-rs)</span>
       <span class="chip"><b>범위</b> main.rs 모드결정 · 2차 임베딩 단계</span>
       <span class="chip"><b>결과 변화</b> 없음(동작 불변)</span>
       <span class="chip"><b>상태</b> 설계 · <b class="ok">구현 완료 2026-09-02</b></span>
@@ -441,7 +441,7 @@ let m = if <span class="hi">opts.embed_needed</span> { "needed" }        <span c
       <li><b>경량 프리체크</b> — 세션을 만들지 않고 <b>존재 여부만</b> 확인한다(<code class="inl">model_dir()</code> + dylib 경로 <code class="inl">is_file()</code>).
           파이프라인 진입 시 1회. 비용은 stat 몇 번. 없으면 note 로 남긴다.
           <b>구현: <code class="inl">embed::check_deployment()</code></b></li>
-      <li><b>스킵 사유를 남긴다</b> — <code class="inl">[csoclassify-rs] 임베딩 불필요(전 문서 규칙 확정) → 모델 로드 생략</code>.
+      <li><b>스킵 사유를 남긴다</b> — <code class="inl">[MpowerClassify-rs] 임베딩 불필요(전 문서 규칙 확정) → 모델 로드 생략</code>.
           로그만 봐도 <b>"안 돈 것"과 "안 필요했던 것"</b>이 구분돼야 한다.</li>
       <li><b>전파 요약 로그 공백을 메운다</b> — main.rs:1477 <code class="inl">[전파] seed=… 전파결정=… 미분류잔여=…</code> 가
           안 나가게 되므로, 이를 파싱하는 쪽이 있다면 위 note 로 대체한다.</li>
@@ -520,7 +520,7 @@ let m = if <span class="hi">opts.embed_needed</span> { "needed" }        <span c
           <tr><td class="mono">C</td><td><b>죽은 함수</b> <code class="inl">run_csoclassify_dir</code>(<code class="inl">with_vector=True</code> 기본) — 호출부 없음</td>
               <td class="mono">gerunner.py:339</td><td>정리</td></tr>
           <tr><td class="mono">D</td><td><b>문서가 구현과 어긋난다</b> — 실행가이드 예제가
-              <code class="inl">for %f in (D:\docs\*) do csoclassify.exe --file "%f" --with-vector</code> 로,
+              <code class="inl">for %f in (D:\docs\*) do MpowerClassify.exe --file "%f" --with-vector</code> 로,
               <b>파일마다 프로세스 + 전량 벡터</b>라는 최악의 조합을 권하고 있다. 구현은 이미
               <code class="inl">--embed-needed</code> + <code class="inl">--dir</code> 로 개선됐다</td>
               <td class="mono">실행가이드:166<br>UIUX설계:191,195</td><td class="wn">문서 갱신</td></tr>
@@ -817,7 +817,7 @@ Session::builder()?
 
   <footer>
     <span>Rust 임베딩 모델 지연 로딩 — 규칙으로 끝나면 모델을 읽지 않는다</span>
-    <span>CSOClassify · 2026-09-02 설계 · 2026-09-02 구현</span>
+    <span>MpowerClassify · 2026-09-02 설계 · 2026-09-02 구현</span>
   </footer>
 
 </div>

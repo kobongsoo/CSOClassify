@@ -93,10 +93,10 @@
 
 <header class="hero">
   <h1>문서 분류 체계 연동 · 분류 규칙 설계서</h1>
-  <p>현재 운영 중인 <code>DOC_CLASSIFICATION</code> 업무 분류 체계를 CSOClassify 규칙 엔진에 연동하고,
+  <p>현재 운영 중인 <code>DOC_CLASSIFICATION</code> 업무 분류 체계를 MpowerClassify 규칙 엔진에 연동하고,
   <b>신호 충돌 해소 전략을 선택 가능하게</b> 만드는 설계</p>
   <div class="meta">작성 2026-08-24 · 근거 자료 <code>2025 문서 분류 체계\수정.pptx</code>(3매) ·
-  대상 <code>CSOClassify</code>(Python) 및 <code>Rust/</code>(csoclassify-rs)</div>
+  대상 <code>MpowerClassify</code>(Python) 및 <code>Rust/</code>(MpowerClassify-rs)</div>
 <div class="note"><b>구현 현황 (2026-09-03 갱신)</b> — 이 문서는 처음 작성될 때(2026-08-24) 설계만 담았으나, 그 뒤 다음이 실제로 들어갔다.
 <ul>
 <li><b>D1~D4 (축 · 분류체계 · 충돌 전략 · doctype 가동)</b> — 구현 완료. <code>classify/axes.py</code> · <code>conflict.py</code> · <code>doc_rules.py</code> · <code>doctype.py</code> 와 Rust 대응 포트.</li>
@@ -202,7 +202,7 @@
 
 <h2 id="key"><span class="n">2</span> 핵심 관찰 — 축이 두 개다</h2>
 <section class="card">
-  <p>이 자료를 CSOClassify 에 얹으려 할 때 가장 먼저 부딪히는 사실은 이것이다.</p>
+  <p>이 자료를 MpowerClassify 에 얹으려 할 때 가장 먼저 부딪히는 사실은 이것이다.</p>
   <div class="bad" style="font-size:15.5px">
   <b><code>DOC_CLASSIFICATION</code> 은 C/S/O 를 <u>대체하는 것이 아니라, 전혀 다른 질문에 답한다.</u></b>
   </div>
@@ -216,7 +216,7 @@
         <tr><th>서열</th><td><b>있다</b> (C &gt; S &gt; O)</td></tr>
         <tr><th>개수</th><td>문서당 <b>정확히 1개</b></td></tr>
         <tr><th>충돌</th><td>“더 위험한 쪽”이 정답 → <code>max</code></td></tr>
-        <tr><th>출처</th><td>CSOClassify <code>cso_rules.yaml</code></td></tr>
+        <tr><th>출처</th><td>MpowerClassify <code>cso_rule.yaml</code></td></tr>
       </table></div>
     </div>
     <div>
@@ -285,7 +285,7 @@
 
   <div class="two">
     <div>
-      <p><span class="ax1">① <code>cso_rules.yaml</code></span> <span class="def">(기존 · 무변경)</span></p>
+      <p><span class="ax1">① <code>cso_rule.yaml</code></span> <span class="def">(기존 · 무변경)</span></p>
 <pre><code><span class="cmt"># security 축 — 파일 자체가 이 축 전용이므로</span>
 <span class="cmt"># axis: 헤더가 필요 없다(파일 자체가 축을 정함 — 3-2-1)</span>
 version: "cso-2026.09.1"
@@ -339,16 +339,16 @@ doctype_rules:
         <td><code>all</code> · <code>top_n</code></td></tr>
   </table></div>
   이 표는 <b>코드에 내장된 규칙을 설명하는 참고표</b>다 — <code>kind</code> 는 더 이상 파일에 적는 값이
-  아니고(3-2-1), 파일이 곧 축을 정한다(<code>cso_rules.yaml</code> → ordered, <code>doc_rule.yaml</code> →
+  아니고(3-2-1), 파일이 곧 축을 정한다(<code>cso_rule.yaml</code> → ordered, <code>doc_rule.yaml</code> →
   taxonomy). 다만 <code>doc_rule.yaml</code> 의 <code>conflict:</code> 에 <code>max</code> 를 적으면
   <b>검증에서 강제</b>로 막는다(T2, → <a href="#validate">8장</a>) — 조용히 아무 값이나 고르는 것보다 낫다.</div>
 
   <h3 id="split">3-2. 규칙을 파일 하나가 아니라 <b>축별로 두 파일</b>에 나눈다 <span class="pill">2026-08-24 확정</span></h3>
-  <div class="note"><b>확정</b> — <code>axes:</code> 블록을 <code>cso_rules.yaml</code> 안에 함께 적지 않는다.
-  대신 축마다 <b>파일을 통째로 분리</b>한다.</p>
+  <div class="note"><b>확정</b> — <code>axes:</code> 블록을 <code>cso_rule.yaml</code> 안에 함께 적지 않는다.
+  대신 축마다 <b>파일을 통째로 분리</b>한다.
   <div class="scroll"><table class="nowrap">
     <tr><th>파일</th><th>축</th><th>내용</th><th>손대는 사람</th></tr>
-    <tr><td><code>cso_rules.yaml</code> <span class="def">(기존 · 무변경)</span></td>
+    <tr><td><code>cso_rule.yaml</code> <span class="def">(기존 · 무변경)</span></td>
         <td><span class="ax1">security</span></td>
         <td><code>keywords</code>·<code>regex_pii</code>·<code>sensitive</code>·<code>stamps</code>·<code>paths</code></td>
         <td>보안 담당</td></tr>
@@ -360,7 +360,7 @@ doctype_rules:
 
   <p>3-1 의 <code>axes:</code> 스키마는 <b>개념 설명용으로 남긴다</b> — “축이란 무엇인가”를 보여 주는 그림이지,
   실제로 그 문법 그대로 파일에 적는 것은 아니다. 대신 각 파일이 <b>자기 축을 스스로 선언</b>한다.</p>
-<pre><code><span class="cmt"># cso_rules.yaml — 지금과 100% 동일. axes: 블록은 애초에 문법에 없다(3-2-1)</span>
+<pre><code><span class="cmt"># cso_rule.yaml — 지금과 100% 동일. axes: 블록은 애초에 문법에 없다(3-2-1)</span>
 keywords: [ … ]
 paths: [ … ]
 
@@ -375,7 +375,7 @@ doctype_rules:
   <h4>왜 <code>axes:</code> 통합 문서 대신 파일 분리인가</h4>
   <div class="scroll"><table class="nowrap">
     <tr><th>기준</th><th>한 파일에 <code>axes:</code> 통합</th><th><b>파일을 축별로 분리</b></th></tr>
-    <tr><td>기존 <code>cso_rules.yaml</code></td>
+    <tr><td>기존 <code>cso_rule.yaml</code></td>
         <td>스키마가 바뀐다 — <code>axes:</code>·<code>doctype_rules:</code> 블록이 새로 들어감</td>
         <td><b>글자 하나 안 바뀐다.</b> 기존 배치·파서·검증이 손댈 것이 없다</td></tr>
     <tr><td>편집 충돌</td>
@@ -389,7 +389,7 @@ doctype_rules:
     <tr><td>변경 빈도</td>
         <td>초기엔 <code>doctype_rules</code> 가 계속 늘어나는데(22개 노드),
             그때마다 보안 규칙과 같은 파일이 커진다</td>
-        <td><code>doc_rule.yaml</code> 만 자주 바뀌고 <code>cso_rules.yaml</code> 은 <b>조용하다</b></td></tr>
+        <td><code>doc_rule.yaml</code> 만 자주 바뀌고 <code>cso_rule.yaml</code> 은 <b>조용하다</b></td></tr>
     <tr><td>배포</td>
         <td>업무분류를 안 쓰는 배포도 <code>axes:</code> 스키마를 이해해야 함(하위호환으로 흡수는 됨)</td>
         <td><code>doc_rule.yaml</code> 이 <b>없으면 그냥 doctype 축을 끈다</b> — 4-6 과 동일한
@@ -440,7 +440,7 @@ doctype_rules:
 
   <div class="ok"><b>결과</b> — <code>doc_rule.yaml</code> 맨 위는 이제
   <code>conflict: all</code> <span class="def">(그나마도 생략 가능)</span> 한 줄뿐이다.
-  이건 <code>cso_rules.yaml</code> 이 애초에 <code>axes:</code> 블록을 쓰지 않는 것(3-2 표)과
+  이건 <code>cso_rule.yaml</code> 이 애초에 <code>axes:</code> 블록을 쓰지 않는 것(3-2 표)과
   <b>같은 정신을 doctype 쪽까지 끝까지 민 것</b>이다 — 안 바뀌는 값을 적으라고 하지 않는다.</div>
 
   <h4 id="jsonexport">MPOWER 쪽 원본이 JSON 인 경우</h4>
@@ -455,7 +455,7 @@ doc_classification_export.json     <span class="cmt">MPOWER 관리 화면/배치
         │
         │  ①-b export_taxonomy.py 가 표준 스냅샷 형식으로 변환
         ▼
-doc_taxonomy.yaml                  <span class="cmt">CSOClassify 가 실제로 읽는 파일(4-2). 어휘(트리)만 담는다</span>
+doc_taxonomy.yaml                  <span class="cmt">MpowerClassify 가 실제로 읽는 파일(4-2). 어휘(트리)만 담는다</span>
         │
         │  ② doc_rule.yaml 이 이 스냅샷의 DC_ID 를 참조(4-3)
         ▼
@@ -485,7 +485,7 @@ doc_rule.yaml                      <span class="cmt">사람이 terms/exclude/fil
   <div class="warn"><b>“함께 로드한다”가 “실시간으로 같이 바뀐다”는 뜻은 아니다.</b>
   <code>doc_taxonomy.yaml</code> 은 <a href="#tax">4-1</a>에서 이미 정한 대로 <b>스냅샷</b>이다 —
   DB(<code>DOC_CLASSIFICATION</code>)를 <code>export_taxonomy.py</code> 로 <b>다시 내보내야만</b> 갱신된다.
-  CSOClassify 는 로컬 CLI 로, 분류를 실행하는 동안 <b>MySQL 에 전혀 접속하지 않는다</b>(오프라인 전제, §1).</p>
+  MpowerClassify 는 로컬 CLI 로, 분류를 실행하는 동안 <b>MySQL 에 전혀 접속하지 않는다</b>(오프라인 전제, §1).
   <div class="tree">DB 에서 노드를 고침
         │
         │  (내보내기를 다시 돌리기 <b>전까지는</b> 아무 것도 안 바뀐다)
@@ -506,7 +506,7 @@ csoclassify 실행                      <span class="cmt">doc_rule.yaml + doc_ta
 <section class="card">
 
   <h3>4-1. 어휘를 어디서 가져오나 — DB 직결이 아니라 <b>스냅샷 동기화</b></h3>
-  <p>CSOClassify 는 <b>서버·인터넷 없이 도는 로컬 CLI</b>다(설계서 §1). 분류할 때마다 MySQL 에
+  <p>MpowerClassify 는 <b>서버·인터넷 없이 도는 로컬 CLI</b>다(설계서 §1). 분류할 때마다 MySQL 에
   붙는 구조는 이 전제를 깬다. 그래서 <b>DB → 파일 스냅샷</b> 방식을 쓴다.</p>
 <div class="tree">DOC_CLASSIFICATION (MySQL)
         │
@@ -516,7 +516,7 @@ doc_taxonomy.yaml            <span class="cmt">exe 옆 외장 파일 — 규칙�
         │
         │  ② 로드 (오프라인)
         ▼
-csoclassify / csoclassify-rs</div>
+csoclassify / MpowerClassify-rs</div>
   <div class="scroll"><table class="nowrap">
     <tr><th>선택지</th><th>장점</th><th>단점</th><th>판정</th></tr>
     <tr><td><b>스냅샷 파일</b></td><td>오프라인 유지 · 재현 가능 · 배포본에 동봉</td>
@@ -552,7 +552,7 @@ taxonomy:
     <tr><th>안</th><th>동작</th><th>장점</th><th>단점</th><th>판정</th></tr>
     <tr><td><b>고정 파일명</b><br><code>doc_taxonomy.yaml</code></td>
         <td>내보낼 때마다 같은 파일을 덮어씀</td>
-        <td>실행기가 <b>어디를 읽어야 할지</b> 항상 명확함 — <code>cso_rules.yaml</code>·<code>doc_rule.yaml</code> 과
+        <td>실행기가 <b>어디를 읽어야 할지</b> 항상 명확함 — <code>cso_rule.yaml</code>·<code>doc_rule.yaml</code> 과
             같은 방식(“exe 옆 외장 파일”)</td>
         <td>이전 스냅샷은 덮어써지면 사라짐</td><td><span class="tag may">채택</span></td></tr>
     <tr><td>타임스탬프 파일명<br><code>doc_taxonomy_20260809.yaml</code></td>
@@ -619,7 +619,7 @@ taxonomy:
   <h3 id="notax">4-6. 스냅샷이 없으면 — 보안 축만 돌린다 <span class="pill">2026-08-24 확정</span></h3>
   <div class="note"><b>확정</b> — <code>doc_taxonomy.yaml</code> 이 없으면
   <b>업무분류 축은 반영하지 않고 보안 축만</b> 처리한다.</div>
-  <p>보안 축만 쓰는 배포(기존 CSOClassify 그대로)와, 두 축을 다 쓰는 배포가 <b>같은 실행파일</b>이어야 한다.
+  <p>보안 축만 쓰는 배포(기존 MpowerClassify 그대로)와, 두 축을 다 쓰는 배포가 <b>같은 실행파일</b>이어야 한다.
   분류체계 스냅샷은 <b>있으면 켜지고 없으면 꺼지는 외장 자산</b>으로 다룬다 —
   모델·<code>pdfium</code>·<code>class_seed.jsonl</code> 을 다루는 방식과 같다.</p>
   <div class="scroll"><table class="nowrap">
@@ -639,7 +639,7 @@ taxonomy:
         <td>경고 — 어휘는 있는데 규칙이 없어 아무것도 분류되지 않는다(T9)</td>
         <td>0</td></tr>
   </table></div>
-<pre><code>[csoclassify] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.
+<pre><code>[MpowerClassify] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.
               보안등급(security)만 판정합니다. 분류체계를 쓰려면
               scripts/export_taxonomy.py 로 내보낸 뒤 exe 옆에 두세요.</code></pre>
   <div class="warn"><b>“조용히”가 아니라 “한 줄 알리고” 넘어간다.</b>
@@ -654,7 +654,7 @@ taxonomy:
   기존 규칙 문법(키워드·경로·파일명)을 <b>그대로 재사용</b>하고, 결과가 향하는 축만 바꾼다.</p>
 
   <h3>5-1. 규칙 섹션</h3>
-<pre><code><span class="cmt"># doc_rule.yaml — cso_rules.yaml 과는 별개 파일(3-2). axis: 헤더는 없다(3-2-1)</span>
+<pre><code><span class="cmt"># doc_rule.yaml — cso_rule.yaml 과는 별개 파일(3-2). axis: 헤더는 없다(3-2-1)</span>
 conflict: all          <span class="cmt"># 생략하면 all(기본)</span>
 
 doctype_rules:
@@ -690,7 +690,7 @@ doctype_rules:
   <div class="note"><b>규칙 문법 자체는 기존과 다른 점이 <code>node:</code> 한 줄뿐이다.</b>
   <code>grade: C</code> 대신 <code>node: DC0061</code> 을 적는다. 스캔 엔진(키워드 매칭·제외어·경로 비교)은
   <b>이미 있는 것을 그대로 쓴다</b> — 새로 만들 필요가 없다. 다만 <b>적는 파일이 다르다</b>(3-2) —
-  이 블록은 <code>cso_rules.yaml</code> 이 아니라 <code>doc_rule.yaml</code> 에 적는다.</div>
+  이 블록은 <code>cso_rule.yaml</code> 이 아니라 <code>doc_rule.yaml</code> 에 적는다.</div>
 
   <h3 id="fieldsrc">5-1-1. 필드별 출처 — <code>doc_taxonomy.yaml</code>(DB) 참조 vs 관리자 수동 입력</h3>
   <p><code>doc_rule.yaml</code> 한 규칙 블록 안에서도 필드마다 <b>출처가 다르다.</b> 이걸 구분하지 않으면
@@ -762,12 +762,12 @@ doctype_rules:
   <div class="scroll"><table class="nowrap" id="axsep">
     <tr><th></th><th><span class="ax1">security 규칙</span></th><th><span class="ax2">doctype 규칙</span></th></tr>
     <tr><td>결과 필드</td><td><code>grade: C</code></td><td><code>node: DC0061</code></td></tr>
-    <tr><td><b>파일</b></td><td><code>cso_rules.yaml</code></td><td><code>doc_rule.yaml</code> <span class="def">(3-2)</span></td></tr>
+    <tr><td><b>파일</b></td><td><code>cso_rule.yaml</code></td><td><code>doc_rule.yaml</code> <span class="def">(3-2)</span></td></tr>
     <tr><td>섹션</td><td><code>keywords</code> · <code>regex_pii</code> · <code>sensitive</code> · <code>stamps</code> · <code>paths</code></td>
         <td><code>doctype_rules</code></td></tr>
     <tr><td>한 규칙이 둘 다?</td><td colspan="2"><b>파일이 다르므로 애초에 불가능하다</b> — <code>grade:</code> 와
         <code>node:</code> 를 한 블록에 같이 적을 방법 자체가 없다. 같은 키워드를 두 축에 쓰고 싶으면
-        <code>cso_rules.yaml</code> 과 <code>doc_rule.yaml</code> 에 각각 규칙을 적는다
+        <code>cso_rule.yaml</code> 과 <code>doc_rule.yaml</code> 에 각각 규칙을 적는다
         <span class="def">(중복처럼 보이지만, 어휘가 겹칠 뿐 판단 근거가 다르다 — 나중에 한쪽만 고칠 일이 반드시 생긴다)</span>.
         <a href="#validate">8장 T4</a> 는 <b>단일 파일 시절의 방어선이었으나 이제 구조적으로 불필요</b>하다 —
         검증 목록에서 제거한다</td></tr>
@@ -938,7 +938,7 @@ for dc_id in 이웃들이 가진 모든 분류:
     <tr><th>명령</th><th>계산하는 것</th><th>결과</th><th>속도</th></tr>
     <tr><td><code>--axis security</code></td>
         <td>PII 검출 · 키워드 · 스탬프 · 경로 · 파일명</td>
-        <td><code>labels.security</code> 만<br><span class="def">= 지금의 CSOClassify</span></td>
+        <td><code>labels.security</code> 만<br><span class="def">= 지금의 MpowerClassify</span></td>
         <td>기준</td></tr>
     <tr><td><code>--axis doctype</code></td>
         <td>키워드 · 경로 · 파일명 <b>only</b><br>
@@ -955,10 +955,10 @@ for dc_id in 이웃들이 가진 모든 분류:
     <tr><th><code>doc_rule.yaml</code> + <code>doc_taxonomy.yaml</code></th><th><code>--axis</code> 생략 시 동작</th></tr>
     <tr><td>둘 다 있음</td><td>두 축 모두 처리</td></tr>
     <tr><td>하나라도 없음</td><td><b>security 만</b> 처리(경고 1줄, 종료코드 0) —
-        <b>지금의 CSOClassify 와 정확히 같은 동작</b></td></tr>
+        <b>지금의 MpowerClassify 와 정확히 같은 동작</b></td></tr>
   </table></div>
   이래야 <a href="#split">3-2</a>의 하위호환 원칙(“<code>doc_rule.yaml</code> 이 없으면
-  <code>cso_rules.yaml</code> 만으로 지금과 100% 같이 돈다”)이 <b>실행 옵션 레벨에서도</b> 그대로 성립한다 —
+  <code>cso_rule.yaml</code> 만으로 지금과 100% 같이 돈다”)이 <b>실행 옵션 레벨에서도</b> 그대로 성립한다 —
   기존 사용자는 인자를 하나도 안 바꿔도, doctype 관련 파일을 배포에 안 넣는 한 결과가 달라지지 않는다.
   반대로 <code>--axis doctype</code> 처럼 <b>명시적으로</b> 요청했는데 파일이 없으면, 그건 “못 하는 일을
   시켰다”는 뜻이므로 조용히 넘기지 않고 <b>종료코드 4</b>로 막는다(4-6 표).</div>
@@ -987,6 +987,35 @@ for dc_id in 이웃들이 가진 모든 분류:
 <h2 id="output"><span class="n">7</span> 출력 스키마 · 결과 파일 운영</h2>
 <section class="card">
   <h3>7-1. 레코드</h3>
+  <div class="note"><b>[2026-09-10 개정] <code>labels</code> 껍데기를 없애고 두 축을 최상위로 올렸다.</b>
+  아래 원안은 '축을 한 상자에 모은다'는 뜻은 맞았지만, 실제 구현에서는 하위호환을 위해
+  <b>같은 값을 최상위에도 한 벌 더</b> 두게 됐다(<code>grade</code>·<code>confidence</code>·
+  <code>method</code>·<code>decided_by</code>·<code>seed_eligible</code>). 두 벌이 되면
+  <b>한쪽만 갱신되는 사고</b>가 가능해진다 — 실제로 전파는 한동안 <code>labels.security</code>
+  만 다시 만들었다. 지금은 축마다 한 벌만 둔다.
+<pre><code>{
+  "file": …, "hash": …, "doc_id": …, "doc_id_source": …,
+  "security": { "grade", "confidence", "method", "decided_by",
+                "seed_eligible", "signals": {…} },       <span class="cmt">← cardinality: 1</span>
+  "doctype":  { "values": […], "strategy", "status",
+                "truncated", "conflicts", "embed"? },    <span class="cmt">← cardinality: n</span>
+  "meta":     { "rule_version", "doctype_rule_version",
+                "taxonomy_version", "ts" }
+}</code></pre>
+  <b>바뀐 것 셋.</b>
+  ① <code>value</code> → <code>grade</code>(최상위에서 쓰던 이름을 그대로 쓴다).
+  ② <code>strategy</code> 제거 — 등급 축은 늘 <code>max</code> 고정이라 문서마다 적어도 새 정보가 없다.
+  ③ <code>candidates</code> 제거 — <code>signals</code> 에서 '등급이 있는 것만' 추리면 같은 값이라
+  두 번 적던 것이다(감사 목적은 <code>signals</code> 가 그대로 수행한다).
+  또 최상위 <code>doctype</code>(dc_id 목록)은 <code>values</code> 에서 기계적으로 나오는 세 번째
+  사본이라 없앴고, 근거는 각자 자기 축 안으로 옮겼다(<code>security.signals</code> /
+  <code>doctype.embed</code>) — 예전에는 등급 신호와 <code>doctype_embed</code> 가 같은 상자에 섞여
+  있어 축이 둘이라는 사실이 레코드 모양에서 드러나지 않았다.
+  <br><b>판정은 달라지지 않았다</b>(실측: 변경 전 배포본과 등급·업무분류 후보가 전 건 동일).
+  <b>옛 결과 파일은 그대로 읽는다</b> — 흡수를 <code>csoclassify/record.py</code>·
+  <code>Rust/src/record.rs</code> 한 자리에 모아 뒀다.
+  <br><b><code>--simple</code> 은 그대로다</b> — 받는 쪽과의 계약이라 손대지 않았다.</div>
+  <p class="muted">아래는 개정 전 원안이다(기록용).</p>
 <pre><code>{
   "file":    "D:/collected/법무/용역계약서_한빛테크_2026.docx",
   "key":     "D:/collected/법무/용역계약서_한빛테크_2026.docx",   <span class="cmt">정규화 경로(7-5-3)</span>
@@ -1020,14 +1049,21 @@ for dc_id in 이웃들이 가진 모든 분류:
   },
 
   "signals": { … },                                <span class="cmt">기존 그대로(감사 근거)</span>
-  "rule_version": "cso-2026.09.1",                  <span class="cmt">← cso_rules.yaml 버전(security)</span>
+  "rule_version": "cso-2026.09.1",                  <span class="cmt">← cso_rule.yaml 버전(security)</span>
   "doctype_rule_version": "doc-2026.09.1",          <span class="cmt">← doc_rule.yaml 버전(3-2, 파일이 분리돼 버전도 따로 간다)</span>
   "taxonomy_version": "20260824110743",             <span class="cmt">← doc_taxonomy.yaml 스냅샷 시각(어휘)</span>
-  "ts": "…"
+  "ts": "2026-09-07T14:11:45+09:00"           <span class="cmt">← 이 레코드를 만든 시각(로컬 타임존, 초 단위)</span>
 }</code></pre>
   <p class="def">버전이 세 개로 늘어난 것은 <b>파일이 세 개(3-2 + 4-1)이기 때문</b>이다 —
-  <code>cso_rules.yaml</code>(규칙·security) · <code>doc_rule.yaml</code>(규칙·doctype) ·
+  <code>cso_rule.yaml</code>(규칙·security) · <code>doc_rule.yaml</code>(규칙·doctype) ·
   <code>doc_taxonomy.yaml</code>(어휘). 셋 중 무엇이 바뀌어서 결과가 달라졌는지 줄 하나로 구분된다.</p>
+
+  <div class="note"><b><code>ts</code> — 이 레코드를 만든 시각</b> <span class="def">2026-09-07 정의</span><br>
+  <b>모양</b>: ISO-8601 <b>초 단위 + 로컬 타임존 오프셋</b> (<code>2026-09-07T14:11:45+09:00</code>). 밀리초를 붙이지 않고, UTC 라도 <code>Z</code> 가 아니라 <code>+00:00</code> 으로 쓴다.
+  <br><b>언제</b>: 레코드를 조립하는 시점마다 새로 찍는다 — 한 실행 안에서도 줄마다 값이 다를 수 있다(같은 실행을 묶는 것은 <code>ts</code> 가 아니라 위의 <b>세 버전 필드</b>다).
+  <br><b>어디에</b>: 정상 판정·추출 실패·보류·<b>압축 집계(7-1b)</b> 레코드까지 <b>모든 줄</b>에 있다. 한쪽에만 시각이 있으면 같은 실행의 레코드끼리 모양이 갈린다.
+  <br><br><b>왜 UTC 가 아니라 로컬인가</b> — 사람이 "언제 분류했나"를 보는 값이고, 오프셋이 붙어 있어 시점 비교에도 애매함이 없다. 저장·비교가 목적인 필드가 아니라 <b>감사 흔적</b>이다.
+  <br><b>두 판이 같은 값을 낸다</b> — 파이썬 <code>classify.engine.now_iso()</code>, Rust <code>main.rs::now_iso()</code>. <span class="def">Rust 판은 2026-09-07 이전까지 이 필드를 <code>null</code> 로 두었다 — 그때 나온 결과 파일에는 <code>"ts": null</code> 이 들어 있다.</span></div>
 
   <div class="note"><b><code>candidates</code> 를 왜 남기나</b> — <code>max</code> 로 하나를 고르는 순간
   나머지 근거가 사라진다. 검토자가 “왜 C 인가”를 되짚으려면 후보 목록이 필요하다.
@@ -1035,6 +1071,55 @@ for dc_id in 이웃들이 가진 모든 분류:
   <b>이 필드가 “충돌하는 신호를 모두 보고 싶다”를 충족한다</b> — 보안 등급 값은 <code>max</code> 로
   <b>하나만</b> 내면서도, 어떤 신호가 어떤 등급을 주장했는지는 <b>전부</b> 남는다.
   등급을 여러 개 낼 필요가 없다.</div>
+
+  <h3>7-1b. 압축파일 '자체' 레코드 — 업무분류는 <b>분포</b>로 싣는다
+      <span class="def">2026-09-07 추가</span></h3>
+  <p>압축파일을 넣으면 내부 문서가 <b>각각</b> 분류되고(그 레코드는 7-1 과 완전히 같다),
+  압축파일 자체에는 집계 레코드 한 건이 뒤에 붙는다. 이 레코드에서 두 축은
+  <b>다르게 다뤄야 한다</b>.</p>
+
+<pre><code>{
+  "file": "D:/자료/2026계약.zip",
+  "archive": true,
+  "method": "archive_rollup",
+  "decided_by": ["archive"],
+  "grade": "C",                      <span class="cmt">← 보안등급: 내부 <b>최고 위험</b> 하나</span>
+  "contains":         {"total":4, "C":1, "S":2, "O":1, "unclassified":0},
+  "contains_doctype": {"DC_001_001":2, "DC_003_002":1, "unclassified":1},
+                                     <span class="cmt">↑ 업무분류: 대표를 고르지 않고 <b>분포</b></span>
+  "ts": "2026-09-07T14:11:49+09:00"  <span class="cmt">← 집계 레코드에도 똑같이 붙는다</span>
+}</code></pre>
+
+  <div class="note"><b>왜 한쪽은 값 하나이고 다른 쪽은 분포인가</b><br>
+  <b>보안등급</b>은 <code>C &gt; S &gt; O</code> <b>서열이 있다</b>. 그래서 '가장 높은 위험'이
+  자명한 롤업이 된다 — 평균이나 다수결을 쓰면 C 문서 1건이 O 문서 99건에 묻히는데,
+  거버넌스에서 문제는 정확히 그 1건이다(6장 충돌 해소의 <code>max</code> 와 같은 정신).
+  <br><br>
+  <b>업무분류</b>는 <b>서열이 없고</b>, 7-1 에서 보듯 <b>cardinality: n</b> — 한 문서가
+  여러 라벨을 갖는다. '계약서 3건 + 보고서 5건이 든 압축'의 업무분류가 무엇인지에는
+  자명한 답이 없다. 대표를 하나 고르면 <b>반드시 무언가를 버린다</b>.
+  그래서 고르지 않고 <b>건수를 그대로</b> 보여준다 — 화면은 그것으로
+  "이 압축엔 계약서와 보고서가 섞여 있다"를 바로 말할 수 있다.</div>
+
+  <div class="scroll"><table class="nowrap">
+    <tr><th>규칙</th><th>내용</th><th>이유</th></tr>
+    <tr><td>세는 값</td><td><b><code>dc_id</code></b> (경로 제목이 아니라)</td>
+        <td>제목은 분류체계를 다시 내보내면 바뀔 수 있다. <code>dc_id</code> 는 그 분류의
+            이름표라 바뀌지 않는다</td></tr>
+    <tr><td>다중 라벨</td><td>라벨마다 <b>각각</b> 센다</td>
+        <td>한 문서가 라벨 2개면 둘 다 세므로, 분포의 합계가
+            <code>contains.total</code> 보다 <b>클 수 있다</b></td></tr>
+    <tr><td>라벨 없음</td><td><code>"unclassified"</code> 로 따로 센다</td>
+        <td>축은 돌았는데 못 맞힌 것도 사실이다 — 감추면 분포가 실제보다 좋아 보인다</td></tr>
+    <tr><td>축 미사용</td><td><b>키 자체를 넣지 않는다</b></td>
+        <td>7-1 의 <code>labels.doctype</code> · <code>--simple</code> 의 <code>doctype</code> 과
+            같은 규칙 — "분류 못 함"과 "축을 안 씀"은 다른 상태다</td></tr>
+  </table></div>
+
+  <p class="def">구현: <code>cli._archive_record()</code> · <code>cli._collect_archive_doctype()</code>,
+  Rust <code>main.rs::archive_record()</code>. 두 판이 같은 값을 낸다(실측 대조 완료).
+  압축 확장 자체와 해제 상한은 <a href="문서크기-상한-설계-20260904.html">문서 크기 상한 설계서</a> 의
+  G4 를 본다.</p>
 
   <h3>7-2. 하위호환 — 기존 <code>grade</code> 필드</h3>
   <div class="scroll"><table class="nowrap">
@@ -1190,9 +1275,9 @@ cso_override.jsonl  17건   키 예: 'd:\collected\HWP\…'   <span class="cmt">
   우리는 그 정의를 따르기만 하면 된다. ②·③은 <b>ID 를 못 얻은 문서에서만</b> 쓰인다.</div>
 
   <h4 id="getsfile">7-5-2-1. <code>sfile_id</code> 획득 — 입력 목록 방식 <span class="pill">A 확정 2026-08-24</span></h4>
-  <p>CSOClassify 는 파일시스템을 스캔하고 <code>sfile_id</code> 는 MpowerV11 이 안다.
+  <p>MpowerClassify 는 파일시스템을 스캔하고 <code>sfile_id</code> 는 MpowerV11 이 안다.
   둘을 <b>목록 파일</b>로 잇는다. MpowerV11 이 <code>{경로, sfile_id}</code> 목록을 뽑아 주면,
-  CSOClassify 는 그 목록을 읽어 <code>doc_id</code> 를 채운다.</p>
+  MpowerClassify 는 그 목록을 읽어 <code>doc_id</code> 를 채운다.</p>
   <div class="ok"><b>이 방식을 고른 이유</b> —
   <b>OS 를 가리지 않고</b>(리눅스 배포본도 그대로 동작) · <b>오프라인이 유지되며</b> ·
   <b>파일을 건드리지 않는다</b>(원본 무변경). 대안이었던 NTFS ADS 는 Windows 전용에 복사·메일 전송 시
@@ -1381,7 +1466,7 @@ CREATE INDEX IX_DOC_CLASSIFICATION_MAP_01 ON Mpower10U.DOC_CLASSIFICATION_MAP (D
     <tr><td><s>T9</s></td><td><s><code>required: true</code> 인 축에 규칙이 하나도 없는가</s>
         <span class="def">— <code>required</code> 는 3-2-1 로 파일에서 사라졌다(security 는 항상 필수·doctype 은
         항상 선택, 둘 다 코드에 고정). 다만 “security 규칙이 하나도 없는 배포”는 다른 층의 문제이므로
-        기존 <code>cso_rules.yaml</code> 검증(V-시리즈, Phase 0)이 이미 다룬다</span></td>
+        기존 <code>cso_rule.yaml</code> 검증(V-시리즈, Phase 0)이 이미 다룬다</span></td>
         <td class="def">해당 없음</td></tr>
     <tr><td>T10</td><td><code>top_n</code> 인데 <code>n</code> 이 없거나 &lt; 1 인가</td><td>종료</td></tr>
     <tr><td>T11</td><td><code>--conflict</code> 로 <b>security 축</b>을 덮어쓰려 했는가</td>
@@ -1411,7 +1496,7 @@ CREATE INDEX IX_DOC_CLASSIFICATION_MAP_01 ON Mpower10U.DOC_CLASSIFICATION_MAP (D
   </table></div>
 
   <h4>보고문 예 (설계안)</h4>
-<pre><code>[규칙셋 오류] cso_rules.yaml — 검증 실패 3건. 분류를 시작하지 않았습니다.
+<pre><code>[규칙셋 오류] cso_rule.yaml — 검증 실패 3건. 분류를 시작하지 않았습니다.
 
   축: security(ordered/max) · doctype(taxonomy/all)
   분류체계: doc_taxonomy.yaml  노드 22개  내보낸시각 20260824110743
@@ -1442,7 +1527,7 @@ CREATE INDEX IX_DOC_CLASSIFICATION_MAP_01 ON Mpower10U.DOC_CLASSIFICATION_MAP (D
         <td>전략 6종 구현. 입력=후보 목록, 출력=선택 결과. <b>순수 함수</b>라 단위 테스트가 쉽다</td>
         <td><span class="tag must">필수</span></td><td>중</td></tr>
     <tr><td><code>classify/rules.py</code></td>
-        <td><code>cso_rules.yaml</code>(security) 파싱 — <b>3-2 결정으로 axes·doctype_rules 는 안 들어온다.
+        <td><code>cso_rule.yaml</code>(security) 파싱 — <b>3-2 결정으로 axes·doctype_rules 는 안 들어온다.
             기존 파싱 로직 사실상 무변경</b></td>
         <td><span class="tag must">필수</span></td><td>소</td></tr>
     <tr><td><code>classify/doc_rules.py</code> <span class="def">신규</span></td>
@@ -1454,7 +1539,7 @@ CREATE INDEX IX_DOC_CLASSIFICATION_MAP_01 ON Mpower10U.DOC_CLASSIFICATION_MAP (D
         <td><span class="tag must">필수</span></td><td>중</td></tr>
     <tr><td><code>classify/engine.py</code></td><td><code>labels</code> 조립, <code>grade</code> 복사(하위호환)</td>
         <td><span class="tag must">필수</span></td><td>중</td></tr>
-    <tr><td><code>cli.py</code></td><td><code>--taxonomy</code> · <code>--doc-rules</code>(기본값: <code>cso_rules.yaml</code> 옆
+    <tr><td><code>cli.py</code></td><td><code>--taxonomy</code> · <code>--doc-rules</code>(기본값: <code>cso_rule.yaml</code> 옆
             <code>doc_rule.yaml</code> 자동 탐색, 3-2) · <code>--conflict</code> · <code>--axis</code>(축 선택 실행) · 집계 롤업</td>
         <td><span class="tag must">필수</span></td><td>중</td></tr>
     <tr><td><code>classify/propagate.py</code></td>
@@ -1511,7 +1596,7 @@ D0  문서 식별자 doc_id         <span class="cmt">7-5 — doc_id 자리 + �
 D1  분류체계 스냅샷           <span class="cmt">export_taxonomy.py + doc_taxonomy.yaml + 트리 로드/검증</span>
    │                        <span class="cmt">→ 이 단계만으로도 "트리가 코드에 들어왔다"는 성과</span>
    ▼
-D2  doc_rule.yaml 로더        <span class="cmt">doc_rules.py 신설 · conflict: 파싱(3-2-1) · cso_rules.yaml 은 무변경(3-2)</span>
+D2  doc_rule.yaml 로더        <span class="cmt">doc_rules.py 신설 · conflict: 파싱(3-2-1) · cso_rule.yaml 은 무변경(3-2)</span>
    │                        <span class="cmt">→ security 쪽 결과는 이 단계에서 손 안 댄다. 되돌릴 위험이 가장 낮은 지점</span>
    ▼
 D3  충돌 전략 분리            <span class="cmt">conflict.py — max 를 전략 하나로 빼내고 all·top_n 추가</span>
@@ -1555,8 +1640,8 @@ D5 출력·집계   D6 UI        D7 전파 확장
   <div class="phase">
     <h4>D2 — <code>doc_rule.yaml</code> 로더 <span class="def">(선행: 없음 · D1 과 병렬 가능)</span></h4>
     <p><code>classify/doc_rules.py</code> 신설, 최상위 <code>conflict:</code> 파싱(3-2-1), <code>doc_rule.yaml</code> 부재 시
-    doctype 축 비활성(T16). <code>cso_rules.yaml</code> 은 <b>3-2 결정에 따라 손대지 않는다.</b></p>
-    <p class="def"><b>완료 판정</b> — <code>doc_rule.yaml</code> 이 없어도 기존 <code>cso_rules.yaml</code> 만으로
+    doctype 축 비활성(T16). <code>cso_rule.yaml</code> 은 <b>3-2 결정에 따라 손대지 않는다.</b></p>
+    <p class="def"><b>완료 판정</b> — <code>doc_rule.yaml</code> 이 없어도 기존 <code>cso_rule.yaml</code> 만으로
     돌린 결과가 <b>완전히 동일</b>(security-only 배포 회귀 없음).</p>
   </div>
   <div class="phase">
@@ -1610,7 +1695,7 @@ D5 출력·집계   D6 UI        D7 전파 확장
     <tr><td>R6</td><td>트리 <b>순환</b>(A→B→A)</td><td>경로 계산 무한루프 · 프로세스 정지</td>
         <td>T7 로 로드 시 차단</td></tr>
     <tr><td>R7</td><td>두 축의 규칙이 <b>서로 섞임</b></td><td>어느 축 결과인지 추적 불가</td>
-        <td><span class="def">3-2 결정으로 <code>cso_rules.yaml</code>/<code>doc_rule.yaml</code> 파일 자체가 갈려
+        <td><span class="def">3-2 결정으로 <code>cso_rule.yaml</code>/<code>doc_rule.yaml</code> 파일 자체가 갈려
         구조적으로 차단됨(T4 폐지) — 섹션 분리(5-3)</span></td></tr>
     <tr><td>R8</td><td>Python·Rust <b>전략 구현 불일치</b></td><td>같은 입력에 다른 분류</td>
         <td>전략별 <b>공통 테스트 벡터</b> — 후보 목록 → 기대 출력을 JSON 으로 고정하고 양쪽에서 실행</td></tr>
@@ -1754,7 +1839,7 @@ D5 출력·집계   D6 UI        D7 전파 확장
       <li><b>OS 를 가리지 않는다</b> — 리눅스 배포본도 같은 방식으로 동작한다.
         ADS 방식이었다면 Windows 전용 코드가 갈라졌을 것이다.</li>
       <li><b>원본 파일을 건드리지 않는다</b> — 분류 도구가 문서를 수정하지 않는다는 성질이 유지된다.</li>
-      <li><b>목록 생성은 MpowerV11 몫</b>이다. CSOClassify 는 읽기만 한다.</li>
+      <li><b>목록 생성은 MpowerV11 몫</b>이다. MpowerClassify 는 읽기만 한다.</li>
     </ul>
     <div class="warn" style="margin:8px 0 0"><b>남은 확인 — <code>sfile_id</code> 의 형식과 최대 길이</b><br>
     <code>VARCHAR(40)</code> 에 들어가면 7-5-5 초안 그대로 쓰고, 넘으면 매핑 테이블의
@@ -1764,7 +1849,7 @@ D5 출력·집계   D6 UI        D7 전파 확장
   </div>
 
   <div class="q" style="border-style:solid;border-color:var(--o)">
-    <p><b>Q7. 업무분류 규칙을 <code>cso_rules.yaml</code> 에 <code>axes:</code> 로 합칠 것인가,
+    <p><b>Q7. 업무분류 규칙을 <code>cso_rule.yaml</code> 에 <code>axes:</code> 로 합칠 것인가,
     <code>doc_rule.yaml</code> 로 따로 뺄 것인가?</b>
     <b style="color:var(--o)">→ 결정됨 (2026-08-24) — 파일을 축별로 분리한다</b></p>
     <p><b>설계 반영</b> — <a href="#split">3-2</a>(파일 분리 결정·비교표·JSON 원본 파이프라인) ·
@@ -1772,11 +1857,11 @@ D5 출력·집계   D6 UI        D7 전파 확장
     8장 T4 폐지·T16 신설 · 9장(<code>doc_rules.py</code> 신설, <code>rules.py</code> 는 사실상 무변경) ·
     로드맵 D2·D4 갱신.</p>
     <ul style="margin:6px 0">
-      <li><b>기존 <code>cso_rules.yaml</code> 은 글자 하나 안 바뀐다</b> — <code>axes:</code> 블록도
+      <li><b>기존 <code>cso_rule.yaml</code> 은 글자 하나 안 바뀐다</b> — <code>axes:</code> 블록도
         <code>doctype_rules:</code> 섹션도 들어오지 않는다. 지금 배포와 <b>완전히 동일</b>.</li>
       <li>“한 규칙이 두 축을 동시에 갖는다”는 실수가 <b>검증이 아니라 파일 구조로</b> 막힌다
         (<code>grade:</code> 와 <code>node:</code> 를 같은 곳에 적을 수가 없다) — T4 폐지.</li>
-      <li>업무분류 규칙만 자주 바뀌는 초기 단계에서, <code>cso_rules.yaml</code> 의 git diff 가
+      <li>업무분류 규칙만 자주 바뀌는 초기 단계에서, <code>cso_rule.yaml</code> 의 git diff 가
         조용히 유지된다.</li>
       <li>MPOWER 원본이 <code>doc_classification_export.json</code> 처럼 <b>JSON</b> 이어도
         파이프라인은 그대로다 — <code>export_taxonomy.py</code> 가 그 JSON 을 읽어
@@ -1789,7 +1874,7 @@ D5 출력·집계   D6 UI        D7 전파 확장
 </section>
 
 <footer>
-  CSOClassify — 문서 분류 체계 연동 · 분류 규칙 설계서 · 2026-08-24<br>
+  MpowerClassify — 문서 분류 체계 연동 · 분류 규칙 설계서 · 2026-08-24<br>
   근거: <code>C:\Users\bong9\Desktop\2025 문서 분류 체계\수정.pptx</code> (슬라이드 3매) ·
   코드 인용은 2026-08-24 기준 저장소 상태 · <b>설계만 담으며 구현 변경을 포함하지 않는다</b>
 </footer>

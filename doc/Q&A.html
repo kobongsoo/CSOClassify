@@ -185,7 +185,7 @@
 <h2><span class="n">2.</span> 실행 · 연동(CLI)</h2>
 
 <div class="qa" id="q4">
-  <div class="q"><span class="mark">Q</span><span>다른 프로그램에서 <code>csoclassify.exe</code> 를 불러 쓰려고 합니다.
+  <div class="q"><span class="mark">Q</span><span>다른 프로그램에서 <code>MpowerClassify.exe</code> 를 불러 쓰려고 합니다.
   이런 것을 CLI 프로그램이라고 해도 되나요?</span></div>
   <div class="a"><span class="mark">A</span><div>
     <p><b>예, CLI 도구(command-line tool) 가 맞습니다.</b> 명령줄 인자를 받아 실행되고,
@@ -236,7 +236,7 @@ if r.returncode != 0:
   <div class="a"><span class="mark">A</span><div>
     <p><b>언어는 상관없습니다.</b> 프로세스를 실행할 수 있으면 됩니다 — Java·C#·스케줄러·다른 서버.
     주고받는 것이 <b>명령줄 인자와 JSON 파일</b> 뿐이라 언어에 매이지 않습니다.
-    Rust 판(<code>csoclassify-rs.exe</code>)이 <b>같은 인자·같은 출력 형식</b>을 쓰는 것도 그래서 가능합니다 —
+    Rust 판(<code>MpowerClassify-rs.exe</code>)이 <b>같은 인자·같은 출력 형식</b>을 쓰는 것도 그래서 가능합니다 —
     부르는 쪽을 고치지 않고 <b>실행 파일만 바꿔 낄 수</b> 있습니다.</p>
     <p><b>속도는 부르는 방식이 좌우합니다.</b> 임베딩을 쓰면 모델 적재가 가장 큰 비용입니다.</p>
     <div class="scroll"><table>
@@ -246,11 +246,11 @@ if r.returncode != 0:
       <tr><td>임베딩이 필요 없다</td><td><code>--rule-only</code> — 모델을 아예 안 읽습니다(가장 빠름)</td></tr>
       <tr><td>한 건씩 자주 부른다</td><td><b>데몬</b>을 켜 두세요 — 모델이 메모리에 남습니다</td></tr>
     </table></div>
-    <div class="note"><b>규칙을 바꿔도 다시 빌드하지 않습니다.</b> 규칙셋(<code>cso_rules.yaml</code> ·
+    <div class="note"><b>규칙을 바꿔도 다시 빌드하지 않습니다.</b> 규칙셋(<code>cso_rule.yaml</code> ·
     <code>doc_rule.yaml</code>)과 분류 체계는 <b>실행 파일 옆의 외장 파일</b>이라, 파일만 바꾸면
     다음 실행부터 적용됩니다. 바꾼 뒤에는 <code>--check-rules</code> 로 먼저 검사하세요 —
     규칙이 잘못됐으면 <b>분류를 시작하지 않고</b> 종료코드 <code>4</code> 로 멈춥니다.</div>
-    <p class="muted">인자·종료코드의 전체 목록은 <b>실행가이드</b>(<code>doc/csoclassify-실행가이드.html</code>) 5·6장에 있습니다.</p>
+    <p class="muted">인자·종료코드의 전체 목록은 <b>실행가이드</b>(<code>doc/MpowerClassify-실행가이드.html</code>) 5·6장에 있습니다.</p>
   </div></div>
 </div>
 
@@ -358,9 +358,9 @@ cli._load_doctype_axis(args, _fake_log())
     <p><b>화면으로도 보고 싶다면</b> — 진단 출력에 <b>stdout 을 쓰면 안 됩니다.</b>
     stdout 은 결과 JSON 전용이라 한 줄만 섞여도 이 CLI 출력을 파싱하는 쪽이 깨집니다.
     <code>--filelist</code> 안내처럼 <b>stderr</b> 로 내세요.</p>
-<pre><code>    print(f"[csoclassify] 대상 수집 {len(files)}건", file=sys.stderr)
+<pre><code>    print(f"[MpowerClassify] 대상 수집 {len(files)}건", file=sys.stderr)
     for f in files:
-        print(f"[csoclassify]   {f}", file=sys.stderr)</code></pre>
+        print(f"[MpowerClassify]   {f}", file=sys.stderr)</code></pre>
     <div class="note"><code>--progress</code> 가 이미 stderr 로 파일별 진행을 내므로,
     접두사를 <code>[progress]</code> 와 <b>겹치지 않게</b> 두는 편이 낫습니다.</div>
 
@@ -379,30 +379,30 @@ cli._load_doctype_axis(args, _fake_log())
     소스가 <code>src/</code> 아래에 있으므로 <b><code>src</code> 를 파이썬 경로에 넣어 줘야</b> 합니다.</p>
 
     <p><b>PowerShell</b></p>
-<pre><code>cd D:\Project\CSOClassify
+<pre><code>cd D:\Project\MpowerClassify
 $env:PYTHONPATH="src"
 python -m csoclassify --dir D:\sample</code></pre>
     <p><code>$env:PYTHONPATH</code> 는 <b>그 PowerShell 창에서만</b> 유지됩니다. 창을 새로 열면 다시 줘야 합니다.
     매번 치기 싫으면 한 줄로:</p>
-<pre><code>$env:PYTHONPATH="D:\Project\CSOClassify\src"; python -m csoclassify --dir D:\sample --verbose</code></pre>
+<pre><code>$env:PYTHONPATH="D:\Project\MpowerClassify\src"; python -m csoclassify --dir D:\sample --verbose</code></pre>
 
     <p><b>cmd 창</b></p>
-<pre><code>cd /d D:\Project\CSOClassify
+<pre><code>cd /d D:\Project\MpowerClassify
 set PYTHONPATH=src
 python -m csoclassify --dir D:\sample</code></pre>
 
     <div class="note"><b>경로가 잡혔는지 먼저 확인</b> —
     <code>$env:PYTHONPATH="src"; python -c "import csoclassify; print(csoclassify.__file__)"</code><br>
-    <code>D:\Project\CSOClassify\src\csoclassify\__init__.py</code> 가 찍히면 정상입니다.</div>
+    <code>D:\Project\MpowerClassify\src\csoclassify\__init__.py</code> 가 찍히면 정상입니다.</div>
 
-    <div class="warn"><b><code>csoclassify.exe</code> 로는 코드 수정이 확인되지 않습니다.</b>
+    <div class="warn"><b><code>MpowerClassify.exe</code> 로는 코드 수정이 확인되지 않습니다.</b>
     exe 는 <b>빌드 시점의 코드</b>라, 방금 고친 내용은 재빌드 전까지 반영되지 않습니다.
     소스 수정을 확인할 때는 반드시 위의 <code>PYTHONPATH</code> + <code>python -m</code> 으로 실행하세요.</div>
   </div></div>
 </div>
 
-<footer>CSOClassify · Q&amp;A · 2026-09-04<br>
-<span class="def">실행 방법과 인자는 <a href="csoclassify-실행가이드.html">실행 가이드</a>,
+<footer>MpowerClassify · Q&amp;A · 2026-09-04<br>
+<span class="def">실행 방법과 인자는 <a href="MpowerClassify-실행가이드.html">실행 가이드</a>,
 변경 이력과 운영 정책은 <a href="부록.html">부록</a> 에 있습니다.</span></footer>
 
 </div>

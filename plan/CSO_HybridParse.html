@@ -99,19 +99,19 @@
     <li><a href="#road">16. 구현 로드맵</a></li>
     <li><a href="#compat">17. 호환성 · 롤백</a></li>
   </ul>
-  <p class="muted" style="margin-top:8px">관련 문서: <a href="csoclassify-실행가이드.html">실행 가이드</a> · <a href="CSO_Rule.html">cso_rules.yaml 항목 설명</a></p>
+  <p class="muted" style="margin-top:8px">관련 문서: <a href="../doc/MpowerClassify-실행가이드.html">실행 가이드</a> · <a href="../doc/CSO_Rule.html">cso_rule.yaml 항목 설명</a></p>
 </section>
 
 <!-- 1 -->
 <h2 id="bg"><span class="n">1</span> 배경과 목적</h2>
 <section class="card">
-  <p>현재 CSOClassify 는 모든 문서를 <b>사이냅 문서필터(snf_exe)</b> 하나로 추출한다. 이는 <b>HWP/HWPX 를 포함한 전 포맷을 안정적으로</b> 처리하는 검증된 방식이지만, 두 가지 개선 여지가 있다.</p>
+  <p>현재 MpowerClassify 는 모든 문서를 <b>사이냅 문서필터(snf_exe)</b> 하나로 추출한다. 이는 <b>HWP/HWPX 를 포함한 전 포맷을 안정적으로</b> 처리하는 검증된 방식이지만, 두 가지 개선 여지가 있다.</p>
   <ul>
     <li><b>속도</b> — Office/PDF 계열은 순수 Rust 오픈소스 추출기가 snf 대비 3~20배 빠르다(실측).</li>
     <li><b>라이선스 의존</b> — snf 는 상용이라 재배포·라이선스키 제약이 있다. 오픈소스로 대체 가능한 포맷은 의존을 줄일 수 있다.</li>
   </ul>
   <p>다만 <b>한국어 HWP 계열</b>은 오픈소스 성숙도가 낮아 <u>전면 교체는 위험</u>하다. 따라서 <b>기본 동작은 지금 그대로 두고</b>, 실험적 opt-in 플래그 <code>--hybridparse</code> 로만 확장자별 최적 엔진 라우팅을 켠다. 이 문서는 그 추출 계층의 <b>설계</b>를 정의한다(구현은 별도).</p>
-  <div class="note"><b>한 줄 요지(최종 구현)</b> — <code>--hybridparse</code> 는 <b>파일 내용을 감지</b>해 포맷별 오픈소스 파서로 사이냅 없이 추출한다: pdf→pypdfium2, hwp→HWP5, hwpx→zip/OWPML, 구형 doc/ppt→자체 olefile 파서, xls→xlrd, 현대 docx/xlsx/pptx→zip/OOXML 직접파싱(stdlib), text→직접읽기. 각 파서 실패 시 <b>snf 폴백</b>(snf 없으면 그 파일만 미분류). 전부 순수 파이썬/소형 wheel 이라 <b>Windows·Linux(CentOS 7) 동일 번들</b>이고, 결과가 비면 snf 로 떨어져 커버리지가 줄지 않는다.</p></div>
+  <div class="note"><b>한 줄 요지(최종 구현)</b> — <code>--hybridparse</code> 는 <b>파일 내용을 감지</b>해 포맷별 오픈소스 파서로 사이냅 없이 추출한다: pdf→pypdfium2, hwp→HWP5, hwpx→zip/OWPML, 구형 doc/ppt→자체 olefile 파서, xls→xlrd, 현대 docx/xlsx/pptx→zip/OOXML 직접파싱(stdlib), text→직접읽기. 각 파서 실패 시 <b>snf 폴백</b>(snf 없으면 그 파일만 미분류). 전부 순수 파이썬/소형 wheel 이라 <b>Windows·Linux(CentOS 7) 동일 번들</b>이고, 결과가 비면 snf 로 떨어져 커버리지가 줄지 않는다.</div>
   <div class="warn"><b>아키텍처 변천(요약)</b> — HWP: libhwp(Rust, 패닉·wheel 문제) → <b>순수 파이썬 HWP5 파서로 확정</b>. 그 외 포맷: xberg(Rust, 117MB·CentOS7 불가·PDF 느림/저품질) 검토 후 <b>기각</b> → <b>포맷별 조립형 스택(pypdfium2·xlrd·stdlib OOXML 파서·자체 doc/ppt 파서)으로 확정</b>. 확장자가 아니라 <b>내용 기반 감지</b>로 라우팅한다. 아래 §5·§6·§10 은 이 최종안 기준으로 갱신됨(그 전 절들엔 검토 이력이 남아 있다).</div>
 </section>
 
@@ -503,7 +503,7 @@ def build_extractor(*, hybrid=False) -> TextExtractor:
 </section>
 
 <footer>
-  CSOClassify · <code>--hybridparse</code> 하이브리드 추출기 설계 (설계 문서 · 구현 아님) · 근거: <code>tests/compare_extractors_4way.ipynb</code>
+  MpowerClassify · <code>--hybridparse</code> 하이브리드 추출기 설계 (설계 문서 · 구현 아님) · 근거: <code>tests/compare_extractors_4way.ipynb</code>
 </footer>
 
 </div>

@@ -40,7 +40,7 @@ except ImportError as _e:      # pragma: no cover - 미설치 환경에서만
 
 
 # Rust src/pii.rs 의 kept_dets() 가 실제로 구현한 20라벨. 이 목록이 곧 검증 범위다.
-# (NAME/PERSON·BIRTH·HEALTH 등은 Rust 미포팅이고 cso_rules.yaml 도 안 쓰므로 제외.)
+# (NAME/PERSON·BIRTH·HEALTH 등은 Rust 미포팅이고 cso_rule.yaml 도 안 쓰므로 제외.)
 LABELS = [
     "RRN", "FRN", "CARD", "BUSINESS_REG", "CORP_REG", "PHONE", "EMAIL", "ACCOUNT",
     "PASSPORT", "IP", "URL", "VEHICLE", "NATIONALITY", "ADDRESS", "DRIVER_LICENSE",
@@ -51,7 +51,7 @@ LABELS = [
 # 검사 문장 목록(코퍼스)을 YAML 에서 읽는다
 #=> 코퍼스는 '코드'가 아니라 '데이터'다. 사례를 넣고 빼는 일은 파이썬을 모르는
 #   사람도 해야 하므로, 스크립트 안에 박아 두지 않고 밖의 YAML 로 뺐다
-#   (이 프로젝트가 cso_rules.yaml·doc_rule.yaml 을 외장으로 두는 것과 같은 결).
+#   (이 프로젝트가 cso_rule.yaml·doc_rule.yaml 을 외장으로 두는 것과 같은 결).
 #    1) Rust/tests/pii_corpus.yaml 을 읽는다 — 정답표와 짝이므로 같은 폴더에 둔다
 #    2) name/text 두 칸만 쓴다(note 는 사람이 읽는 설명이라 검출에 안 쓴다)
 #    3) 파일이 없거나 모양이 틀리면 '무엇을 고치라'까지 알리고 멈춘다

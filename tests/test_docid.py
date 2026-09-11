@@ -8,6 +8,7 @@
 import io
 import json
 import os
+import pathlib
 import sys
 
 import pytest
@@ -142,22 +143,26 @@ def test_resolve_doc_id_priority(tmp_path):
     f = tmp_path / "a.txt"
     f.write_text("내용", encoding="utf-8")
 
-    # 목록이 없으면 내용 해시(②).
-    did, src, key, matched = F.resolve_doc_id(str(f))
-    assert src == "content" and len(did) == F.DOC_ID_LEN and matched is None
+    # 목록이 없으면 doc_id 는 비운다 — 지어내지 않고, 지문으로 문서를 가린다.
+    did, src, key, matched, h = F.resolve_doc_id(str(f))
+    assert did is None, "sfile_id 가 아니면 doc_id 를 채우면 안 된다"
+    assert src == "content" and matched is None
     assert key == F.normalize_key(str(f))
+    assert h and len(h) == 64, "SHA-256 전체(64자)여야 한다"
 
-    # 목록에 있으면 sfile_id(①) — 해시를 계산조차 하지 않는다.
+    # 목록에 있으면 sfile_id. 지문은 그래도 함께 구한다 — 결합 키이자
+    # '원본이 바뀌었나'의 근거라, 번호가 있다고 없어도 되는 값이 아니다.
     lst = tmp_path / "l.jsonl"
-    lst.write_text(json.dumps({"path": str(f), "sfile_id": "SF-1"}) + "\n", encoding="utf-8")
+    lst.write_text(json.dumps({"path": str(f), "sfile_id": "SF-1"}) + chr(10),
+                   encoding="utf-8")
     fl = F.load(str(lst))
-    did, src, _key, _m = F.resolve_doc_id(str(f), None, fl)
+    did, src, _key, _m, h2 = F.resolve_doc_id(str(f), None, fl)
     assert (did, src) == ("SF-1", "sfile_id")
+    assert h2 == h, "같은 파일이면 지문도 같아야 한다"
 
-    # 내용도 못 읽으면 경로 해시(③).
-    did, src, _key, _m = F.resolve_doc_id(str(tmp_path / "없는파일.txt"))
-    assert src == "path" and len(did) == F.DOC_ID_LEN
-
+    # 내용도 못 읽으면 둘 다 없다 — 남은 단서는 경로뿐이다.
+    did, src, _key, _m, h3 = F.resolve_doc_id(str(tmp_path / "없는파일.txt"))
+    assert did is None and src == "path" and h3 is None
 
 #------------------------------------------------------------------
 # 목록 로드 — jsonl/csv, 상대경로, 대소문자 표기 차이
@@ -257,3 +262,116 @@ def test_f7_duplicate_sfile_id_warns_only(tmp_path):
     assert len(fl) == 2
     assert fl.stats["dup_sfile_id"] == 1
     assert any("F7" in w for w in fl.warnings)
+
+
+#------------------------------------------------------------------
+# 주석 판정 — '#' 뒤에 공백이 있어야 주석이다
+#=> 목록에 설명을 적어 둘 수 있어야 하지만, `#외부유출금지_회사규정#` 같은
+#   폴더가 실제로 있으므로 '#' 뒤가 글자면 경로로 읽어야 한다.
+#   Rust 판 `filelist.rs::주석줄은_건너뛰고_샾으로_시작하는_경로는_읽는다` 와
+#   같은 것을 본다 — 한쪽만 고치면 두 판이 같은 목록을 다르게 읽는다.
+#
+# -in: 없음
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_is_comment_keeps_paths_starting_with_hash():
+    assert F._is_comment("# 설명")
+    assert F._is_comment("## 제목")
+    assert F._is_comment("   #\t들여쓴 주석")
+    assert F._is_comment("#")
+    # '#' 뒤가 글자면 경로다 — 주석이 아니다.
+    assert not F._is_comment("#외부유출금지#/a.docx,SF-1")
+    assert not F._is_comment('{"path": "#a/b.txt", "sfile_id": "SF-1"}')
+
+
+#------------------------------------------------------------------
+# 주석 줄은 건너뛰되 F1(파싱 실패)로 세지 않는다
+#=> 주석을 '해석 못 한 줄'로 세면 멀쩡한 목록에서 F1 경고가 쏟아진다.
+#   주석뿐인 파일은 '빈 파일'과 원인이 달라 메시지도 달라야 한다.
+#
+# -in: tmp_path = pytest 임시 폴더
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_comment_lines_are_skipped_not_counted_as_bad(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("x", encoding="utf-8")
+
+    lst = tmp_path / "l.jsonl"
+    lst.write_text(
+        "# 이 줄은 주석\n"
+        "##\n"
+        "\n"
+        + json.dumps({"path": str(f), "sfile_id": "SF-A"}) + "\n",
+        encoding="utf-8")
+    fl = F.load(str(lst))
+    assert len(fl) == 1
+    assert fl.stats["lines"] == 1 and fl.stats["comments"] == 2
+    assert fl.stats["bad_lines"] == 0, "주석을 파싱 실패로 세면 안 된다"
+    assert not any("F1" in w for w in fl.warnings)
+
+    # csv 도 같다 — 주석은 헤더 판정 전에 빠져야 한다.
+    csv_lst = tmp_path / "l.csv"
+    csv_lst.write_text(
+        "# 필수 열은 path, sfile_id 두 개다\n"
+        "path,sfile_id\n"
+        f"{f},SF-A\n",
+        encoding="utf-8")
+    fl2 = F.load(str(csv_lst))
+    assert len(fl2) == 1 and fl2.stats["comments"] == 1
+    assert fl2.lookup(str(f))[0].sfile_id == "SF-A"
+
+    # 주석뿐이면 '빈 파일'과 다른 이유를 알려 준다.
+    only = tmp_path / "only.jsonl"
+    only.write_text("# 아무 데이터도 없다\n# 정말로\n", encoding="utf-8")
+    with pytest.raises(F.FileListError) as e:
+        F.load(str(only))
+    assert "주석" in str(e.value)
+
+
+#------------------------------------------------------------------
+# 배포에 같이 나가는 샘플 목록이 실제로 읽힌다
+#=> 샘플은 사용자가 제일 먼저 여는 파일이라, 이게 안 읽히면 첫인상이
+#   "고장난 도구"가 된다. 주석을 잔뜩 단 뒤로는 더 그렇다.
+#   Rust 판 `filelist.rs::배포_샘플_목록이_읽힌다` 와 짝이다.
+#
+# -in: 없음
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_shipped_sample_filelist_parses():
+    sample = (pathlib.Path(__file__).resolve().parents[1]
+              / "Rust" / "dist-onedir" / "windows" / "sample" / "filelist.sample.txt")
+    fl = F.load(str(sample))
+    assert fl.stats["loaded"] == 7, "데이터 줄 7건이 적재돼야 한다"
+    assert fl.stats["bad_lines"] == 0, "주석을 파싱 실패로 세면 안 된다"
+    assert fl.stats["no_id"] == 0
+    assert fl.stats["comments"] > 0, "주석이 있어야 한다"
+    # 폴더 이름이 '#' 로 시작하는 줄도 살아 있어야 한다.
+    assert any("/#외부유출금지" in k for k in fl.entries), \
+        "'#' 로 시작하는 폴더 경로가 주석으로 먹히면 안 된다"
+
+
+#------------------------------------------------------------------
+# 오류 메시지의 줄번호는 '편집기에서 보이는 줄'이다
+#=> 주석·빈 줄을 걷어낸 뒤의 순번을 쓰면, 주석이 많은 목록에서 F3 이 났을 때
+#   엉뚱한 줄을 가리켜 사람이 찾아가지 못한다.
+#
+# -in: tmp_path = pytest 임시 폴더
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_f3_reports_physical_line_number(tmp_path):
+    lst = tmp_path / "l.jsonl"
+    # 1~3줄이 주석/빈 줄 → 충돌이 나는 줄은 물리 5번째다.
+    lst.write_text(
+        "# 머리말\n"
+        "\n"
+        "# 또 주석\n"
+        + json.dumps({"path": "D:/a.txt", "sfile_id": "AAA"}) + "\n"
+        + json.dumps({"path": r"d:\a.txt", "sfile_id": "BBB"}) + "\n",
+        encoding="utf-8")
+    with pytest.raises(F.FileListError) as e:
+        F.load(str(lst))
+    assert "5번째 줄" in str(e.value), str(e.value)

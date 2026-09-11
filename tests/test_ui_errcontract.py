@@ -87,7 +87,7 @@ def test_json_errors는_한_번만_붙는다():
 #------------------------------------------------------------------
 def test_실행해서_실패를_계약으로_받는다(tmp_path):
     import pytest
-    exe = os.path.join(ROOT, "Rust", "target", "release", "csoclassify-rs.exe")
+    exe = os.path.join(ROOT, "Rust", "target", "release", "MpowerClassify-rs.exe")
     if not os.path.isfile(exe):
         pytest.skip("Rust exe 없음(cargo build --release 먼저)")
     # 정책 폴더를 짚어 준다 — 안 그러면 규칙셋을 못 찾아(exe 옆에 없다) 이 시험이

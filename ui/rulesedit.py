@@ -1,5 +1,5 @@
 #------------------------------------------------------------------
-# 규칙셋(cso_rules.yaml) 편집 — 주석 보존 round-trip
+# 규칙셋(cso_rule.yaml) 편집 — 주석 보존 round-trip
 #=> 규칙 설정 화면(Phase 0)이 쓰는 로드/편집/저장/버전/미리보기 로직.
 #   ruamel.yaml 로 한글 주석·서식을 보존하며 편집한다. 기존 항목은 "제자리 수정"
 #   해서 그 항목에 달린 경고 주석(예: "인사" 과매칭 주의)이 사라지지 않게 한다.
@@ -21,9 +21,9 @@ _yaml.width = 4096
 
 #------------------------------------------------------------------
 # 규칙셋 문서 로드(round-trip)
-#=> cso_rules.yaml 을 주석까지 담은 편집 가능한 문서 객체로 읽는다.
+#=> cso_rule.yaml 을 주석까지 담은 편집 가능한 문서 객체로 읽는다.
 #
-# -in: path = cso_rules.yaml 경로
+# -in: path = cso_rule.yaml 경로
 # -out: doc = ruamel 문서(dict 처럼 접근)
 # -out: error = 파일 없음/문법 오류 시 예외 전파
 #------------------------------------------------------------------
@@ -113,77 +113,34 @@ def apply_keyword_edits(doc, rows):
             continue
         seen.add(rid)
         terms = _split_terms(row.get("terms"))
+        # 파일명 칸은 비워 둘 수 있다 — 비우면 그 규칙은 파일 이름을 보지 않는다
+        # (본문 단어를 빌려 쓰지 않는다, 2026-09-08).
+        fnames = _split_terms(row.get("filename"))
         grade = _s(row.get("base_grade")) or "S"
         seed = bool(row.get("seed"))
         if rid in by_id:
             g = by_id[rid]
             g["terms"] = terms
+            # 비었으면 키를 지운다 — 빈 목록을 남기는 것보다 없는 편이 읽기 쉽다.
+            if fnames:
+                g["filename"] = fnames
+            else:
+                g.pop("filename", None)
             g["base_grade"] = grade
             g["seed_eligible"] = seed
             nm = _s(row.get("name"))
             if nm:
                 g["name"] = nm
         else:
-            kw.append({"id": rid, "name": _s(row.get("name")) or rid, "terms": terms,
-                       "base_grade": grade, "weight": "medium", "seed_eligible": seed})
+            item = {"id": rid, "name": _s(row.get("name")) or rid, "terms": terms,
+                    "base_grade": grade, "weight": "medium", "seed_eligible": seed}
+            if fnames:
+                item["filename"] = fnames
+            kw.append(item)
     # 표에서 빠진 id 삭제.
     for i in range(len(kw) - 1, -1, -1):
         if _s(kw[i].get("id")) not in seen:
             del kw[i]
-
-
-#------------------------------------------------------------------
-# 경로 규칙 편집 반영(제자리 수정)
-#=> 편집 표 행들을 doc['paths'] 에 반영한다(키워드와 동일한 방식).
-#
-# -in: doc  = 규칙 문서
-# -in: rows = data_editor 행 리스트({id,name,match,grade,seed}) — acl 은 UI에서 안 다룸
-# -out: 없음(doc 변형)
-# -out: error = 없음
-#------------------------------------------------------------------
-def apply_path_edits(doc, rows):
-    paths = doc.setdefault("paths", [])
-    by_id = {_s(p.get("id")): p for p in paths}
-    seen = set()
-    for row in rows:
-        rid = _s(row.get("id"))
-        if not rid:
-            continue
-        seen.add(rid)
-        match = _split_terms(row.get("match"))
-        grade = _s(row.get("grade")) or "S"
-        seed = bool(row.get("seed"))
-        if rid in by_id:
-            p = by_id[rid]
-            p["match"] = match
-            p["grade"] = grade
-            p["seed_eligible"] = seed
-            # acl_restricted 는 UI에서 편집하지 않으므로 기존 값 보존.
-            if "acl" in row:
-                p["acl_restricted"] = bool(row.get("acl"))
-            nm = _s(row.get("name"))
-            if nm:
-                p["name"] = nm
-        else:
-            paths.append({"id": rid, "name": _s(row.get("name")) or rid, "match": match,
-                          "grade": grade, "acl_restricted": bool(row.get("acl", False)),
-                          "weight": "high", "seed_eligible": seed})
-    for i in range(len(paths) - 1, -1, -1):
-        if _s(paths[i].get("id")) not in seen:
-            del paths[i]
-
-
-# ko-pii(1.15.2)가 "실제로 내보내는" PII 라벨(대문자). 편집기 드롭다운·검증에 쓴다.
-# ⚠ 패턴 파일명(prescription)과 방출 라벨(PRESCRIPTION_ID)이 다를 수 있으므로,
-#   파일명이 아니라 방출 라벨(ko_pii.labels.ALL_LABELS)을 기준으로 삼아야 한다.
-#   아래는 ko-pii 를 못 불러올 때만 쓰는 폴백(ALL_LABELS 스냅샷, 방출 라벨 기준).
-_KOPII_FALLBACK = [
-    "ACCOUNT", "ADDRESS", "AGE", "BUSINESS_REG", "CARD", "CORP_REG", "COURT_CASE",
-    "DOC_ID", "DRIVER_LICENSE", "DT_BIRTH", "EDI_DRUG", "EDUCATION", "EMAIL",
-    "EMPLOYEE_ID", "FAX", "FRN", "HEIGHT", "IP", "MAJOR", "MEDICAL_INSURANCE",
-    "NATIONALITY", "PASSPORT", "PERSON", "PETITION_ID", "PHONE", "PNU", "POSITION",
-    "POSTAL_CODE", "PRESCRIPTION_ID", "RRN", "URL", "VEHICLE", "WEIGHT",
-]
 
 
 #------------------------------------------------------------------
@@ -297,21 +254,19 @@ def validate_regex_rules(doc):
 
 #------------------------------------------------------------------
 # 편집 일괄 반영
-#=> 기본값(bulk_threshold)·키워드·경로 편집을 doc 에 모두 반영한다(미리보기/저장 공용).
+#=> 기본값(bulk_threshold)·키워드 편집을 doc 에 모두 반영한다(미리보기/저장 공용).
 #
 # -in: doc          = 규칙 문서
 # -in: bulk         = bulk 임계값(int)
 # -in: keyword_rows = 키워드 편집 행
-# -in: path_rows    = 경로 편집 행
 # -in: regex_rows   = 정규식 편집 행(없으면 정규식은 건드리지 않음)
 # -out: 없음(doc 변형)
 # -out: error = 없음
 #------------------------------------------------------------------
-def apply_all(doc, bulk, keyword_rows, path_rows, regex_rows=None):
+def apply_all(doc, bulk, keyword_rows, regex_rows=None):
     d = doc.setdefault("defaults", {})
     d["bulk_threshold"] = int(bulk)
     apply_keyword_edits(doc, keyword_rows)
-    apply_path_edits(doc, path_rows)
     if regex_rows is not None:
         apply_regex_edits(doc, regex_rows)
 

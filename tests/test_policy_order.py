@@ -16,7 +16,7 @@ import pytest
 from csoclassify.classify import rules as R
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RS_EXE = os.path.join(ROOT, "Rust", "target", "release", "csoclassify-rs.exe")
+RS_EXE = os.path.join(ROOT, "Rust", "target", "release", "MpowerClassify-rs.exe")
 POLICY = os.path.join(ROOT, "resources", "policy")
 
 
@@ -31,7 +31,7 @@ POLICY = os.path.join(ROOT, "resources", "policy")
 #------------------------------------------------------------------
 def test_환경변수가_먼저다(monkeypatch, tmp_path):
     monkeypatch.setenv("CSOCLASSIFY_POLICY_DIR", str(tmp_path))
-    assert R.default_rules_path() == os.path.join(str(tmp_path), "cso_rules.yaml")
+    assert R.default_rules_path() == os.path.join(str(tmp_path), "cso_rule.yaml")
 
 
 #------------------------------------------------------------------
@@ -51,12 +51,12 @@ def test_환경변수가_먼저다(monkeypatch, tmp_path):
 def test_두_판이_같은_규칙셋을_고른다():
     if not os.path.isfile(RS_EXE):
         pytest.skip("Rust exe 없음(cargo build --release 먼저)")
-    beside = os.path.join(os.path.dirname(RS_EXE), "cso_rules.yaml")
+    beside = os.path.join(os.path.dirname(RS_EXE), "cso_rule.yaml")
     if os.path.exists(beside):
         pytest.skip(f"exe 옆에 이미 파일이 있다(건드리지 않는다): {beside}")
 
     # 진짜 규칙셋을 그대로 복사해 둔다 — 내용이 유효해야 --check-rules 가 통과한다.
-    shutil.copyfile(os.path.join(POLICY, "cso_rules.yaml"), beside)
+    shutil.copyfile(os.path.join(POLICY, "cso_rule.yaml"), beside)
     try:
         env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
                    PYTHONIOENCODING="utf-8", CSOCLASSIFY_POLICY_DIR=POLICY)
@@ -70,6 +70,6 @@ def test_두_판이_같은_규칙셋을_고른다():
             picked[name] = os.path.normcase(os.path.abspath(head.split(": ", 1)[1].strip()))
     finally:
         os.remove(beside)
-    want = os.path.normcase(os.path.join(POLICY, "cso_rules.yaml"))
+    want = os.path.normcase(os.path.join(POLICY, "cso_rule.yaml"))
     assert picked["python"] == want, "파이썬 판이 환경변수를 무시했다"
     assert picked["rust"] == want, "Rust 판이 환경변수를 무시했다(2026-09-01 이전 버그)"

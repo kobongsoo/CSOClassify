@@ -25,8 +25,8 @@ from csoclassify import errcodes
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 개발 중에는 debug, 배포 검증에는 release 를 쓴다. 있는 쪽을 집는다.
 _CANDIDATES = [
-    os.path.join(ROOT, "Rust", "target", "release", "csoclassify-rs.exe"),
-    os.path.join(ROOT, "Rust", "target", "debug", "csoclassify-rs.exe"),
+    os.path.join(ROOT, "Rust", "target", "release", "MpowerClassify-rs.exe"),
+    os.path.join(ROOT, "Rust", "target", "debug", "MpowerClassify-rs.exe"),
 ]
 RS_EXE = next((p for p in _CANDIDATES if os.path.isfile(p)), None)
 
@@ -111,7 +111,7 @@ def test_daemon은_경고만_하고_계속한다(tmp_path):
     doc = tmp_path / "문서.txt"
     doc.write_text("월간 운영 보고\n\n정기 점검을 예정대로 수행했습니다.\n",
                    encoding="utf-8")
-    rules = os.path.join(ROOT, "resources", "policy", "cso_rules.yaml")
+    rules = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
     r = _run("--daemon", "--file", str(doc), "--rules", rules,
              "--rule-only", "--format", "jsonl", "--nosummary", "--no-timing")
     assert r.returncode == 0, f"exit={r.returncode} :: {r.stderr[-300:]}"
@@ -133,7 +133,7 @@ def test_no_daemon은_조용하다(tmp_path):
     doc = tmp_path / "문서.txt"
     doc.write_text("월간 운영 보고\n\n정기 점검을 예정대로 수행했습니다.\n",
                    encoding="utf-8")
-    rules = os.path.join(ROOT, "resources", "policy", "cso_rules.yaml")
+    rules = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
     r = _run("--no-daemon", "--file", str(doc), "--rules", rules,
              "--rule-only", "--format", "jsonl", "--nosummary", "--no-timing")
     assert r.returncode == 0, f"exit={r.returncode} :: {r.stderr[-300:]}"
@@ -173,7 +173,7 @@ def test_hybridparse는_조용하다(tmp_path):
     doc = tmp_path / "문서.txt"
     doc.write_text("월간 운영 보고" + chr(10) * 2 +
                    "정기 점검을 예정대로 수행했습니다." + chr(10), encoding="utf-8")
-    rules = os.path.join(ROOT, "resources", "policy", "cso_rules.yaml")
+    rules = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
     r = _run("--hybridparse", "--file", str(doc), "--rules", rules,
              "--rule-only", "--format", "jsonl", "--nosummary", "--no-timing")
     assert r.returncode == 0, f"exit={r.returncode} :: {r.stderr[-300:]}"

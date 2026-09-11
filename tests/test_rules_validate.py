@@ -1,6 +1,6 @@
 #------------------------------------------------------------------
 # 규칙셋 등급 검증(Phase 0 — fail-open 제거) 단위 테스트
-#=> cso_rules.yaml 에 잘못된 등급이 적혔을 때 '조용히 무시'하지 않고 확실히
+#=> cso_rule.yaml 에 잘못된 등급이 적혔을 때 '조용히 무시'하지 않고 확실히
 #   실패하는지 검증한다. 예전 동작은 모르는 등급을 건너뛰어 그 규칙이 판정에서
 #   통째로 빠졌고, 결과적으로 문서 등급이 실제보다 낮게 나왔다(보안 사고).
 #   여기서는 그 회귀를 막는 것이 목적이다.
@@ -50,7 +50,7 @@ def codes(violations):
 
 #------------------------------------------------------------------
 # 실제 배포 규칙셋은 검증을 통과해야 한다
-#=> 지금 쓰고 있는 cso_rules.yaml 에 이미 오타가 있으면 배포 즉시 분류가 멈춘다.
+#=> 지금 쓰고 있는 cso_rule.yaml 에 이미 오타가 있으면 배포 즉시 분류가 멈춘다.
 #   그런 일이 없도록 저장소의 규칙셋 자체를 회귀 테스트로 묶어 둔다.
 #
 # -in: 없음
@@ -137,7 +137,7 @@ def test_공백_붙은_등급은_V5_위반이다():
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_모르는_등급은_힌트없이_위반이다():
-    data = mk(paths=[{"id": "p1", "grade": "비밀"}])
+    data = mk(stamps=[{"id": "p1", "grade": "비밀"}])
     v = R.validate_rules_data(data)
     assert codes(v) == ["V5"]
     assert v[0]["hint"] is None
@@ -181,19 +181,18 @@ def test_등급이_문자열이_아니면_위반이다():
 # -out: 없음(단언)
 # -out: error = 없음
 #------------------------------------------------------------------
-def test_여섯_섹션_모두_검사한다():
+def test_다섯_섹션_모두_검사한다():
     data = mk(
         regex_pii=[{"id": "r", "label": "RRN", "base_grade": "x"}],
         pii_combos=[{"id": "c", "grade": "x"}],
         keywords=[{"id": "k", "base_grade": "x"}],
         sensitive=[{"id": "s", "grade": "x"}],
         stamps=[{"id": "t", "grade": "x"}],
-        paths=[{"id": "p", "grade": "x"}],
     )
     v = R.validate_rules_data(data)
-    assert codes(v) == ["V5"] * 6
+    assert codes(v) == ["V5"] * 5
     assert {x["section"] for x in v} == {
-        "regex_pii", "pii_combos", "keywords", "sensitive", "stamps", "paths"}
+        "regex_pii", "pii_combos", "keywords", "sensitive", "stamps"}
 
 
 #------------------------------------------------------------------
@@ -205,7 +204,7 @@ def test_여섯_섹션_모두_검사한다():
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_위반을_전부_모아_보고한다():
-    data = mk(paths=[{"id": "p1", "grade": "x"},
+    data = mk(stamps=[{"id": "p1", "grade": "x"},
                      {"id": "p2", "grade": "y"},
                      {"id": "p3", "grade": "z"}])
     assert len(R.validate_rules_data(data)) == 3
@@ -270,7 +269,7 @@ def test_오타일_때_V6를_중복보고하지_않는다():
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_섹션이_목록이_아니면_V0_위반이다():
-    data = mk(paths={"id": "p1", "grade": "C"})
+    data = mk(stamps={"id": "p1", "grade": "C"})
     assert codes(R.validate_rules_data(data)) == ["V0"]
 
 
@@ -380,137 +379,51 @@ def test_validate_False_면_검증을_건너뛴다(tmp_path):
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_보고문_형식():
-    data = mk(paths=[{"id": "p1", "grade": "x"}])
+    data = mk(stamps=[{"id": "p1", "grade": "x"}])
     text = R.format_violations("C:/rules.yaml", R.validate_rules_data(data))
     assert "C:/rules.yaml" in text
     assert "검증 실패 1건" in text
     assert "O < S < C" in text
-    assert "paths[p1].grade" in text
+    assert "stamps[p1].grade" in text
     assert "고치는 법" in text
 
 
-# ── V12 : 경로 규칙의 grade / acl_restricted ──────────────────────
+# ── V12 : 이제 안 쓰는 블록(paths) 안내 ──────────────────────────
 # [A안, 2026-08-24] 경로 규칙은 grade 를 생략하고 acl_restricted: true 만 적을 수 있다.
 #   그런 규칙은 스스로 등급을 내지 않고, 다른 신호가 전혀 없을 때에만 fail-safe 로
 #   최고 등급을 만든다. 예전에는 grade 를 생략하면 조용히 "S" 가 되어 이 표현이
 #   아예 불가능했고, 그 탓에 fuse 의 failsafe_acl 분기가 죽어 있었다.
 
-#------------------------------------------------------------------
-# acl_restricted 만 있는 경로 규칙은 통과
-#=> A안의 핵심 형태. "이 폴더인 건 분명하지만 등급은 내용을 보고 정하라"는 뜻.
-#
-# -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
-#------------------------------------------------------------------
-def test_등급없이_acl만_있는_경로규칙은_통과한다():
-    data = mk(paths=[{"id": "p1", "match": ["/secret/"], "acl_restricted": True}])
-    assert R.validate_rules_data(data) == []
-
 
 #------------------------------------------------------------------
-# 등급도 acl 도 없으면 V12
-#=> 그런 규칙은 매칭돼도 아무 등급을 만들지 않는다 — 있으나 마나다.
+# 옛 paths 블록이 남아 있으면 알린다 (V12 의 새 뜻)
+#=> 이 파서는 모르는 최상위 키를 조용히 무시한다. 그대로 두면 경로로 C 가
+#   붙던 문서가 아무 말 없이 등급을 잃는다 — 배포된 규칙셋 3벌에 실제로
+#   paths: 가 들어 있었으므로, 이 안내가 없으면 현장에서 조용히 바뀐다.
 #
 # -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
 #------------------------------------------------------------------
-def test_등급도_acl도_없는_경로규칙은_V12_위반이다():
-    data = mk(paths=[{"id": "p1", "match": ["/x/"]}])
+def test_옛_paths_블록은_사유를_알린다():
+    data = mk(paths=[{"id": "p", "match": ["/인사/"], "grade": "S"}])
     v = R.validate_rules_data(data)
-    assert codes(v) == ["V12"]
-    assert v[0]["value_text"] == "(없음)"
+    hits = [x for x in v if x["code"] == "V12"]
+    assert hits, v
+    assert "더 이상 쓰지 않는 블록" in hits[0]["detail"], hits[0]
+    # 보고문에도 '지우라'는 안내가 붙는다.
+    txt = R.format_violations("D:/x/cso_rule.yaml", v)
+    assert "통째로 지우세요" in txt and "--failsafe" in txt, txt
 
 
 #------------------------------------------------------------------
-# acl_restricted 가 false 여도 V12
-#=> true 여야 생략이 허용된다. false 는 '없음'과 같다.
+# 빈 paths 블록은 알리지 않는다
+#=> 블록만 남고 내용이 없으면 판정에 영향이 없다. 알릴 것이 없는데 알리면
+#   진짜 문제가 있는 경고 사이에 묻힌다.
 #
 # -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
 #------------------------------------------------------------------
-def test_acl이_false면_등급생략은_V12_위반이다():
-    data = mk(paths=[{"id": "p1", "acl_restricted": False}])
-    assert codes(R.validate_rules_data(data)) == ["V12"]
-
-
-#------------------------------------------------------------------
-# 등급이 null 이어도 acl 이 true 면 통과
-#=> 'grade:' 를 명시적으로 비워 두는 표기도 생략과 같게 본다.
-#
-# -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
-#------------------------------------------------------------------
-def test_등급이_null이어도_acl이_true면_통과한다():
-    data = mk(paths=[{"id": "p1", "grade": None, "acl_restricted": True}])
-    assert R.validate_rules_data(data) == []
-
-
-#------------------------------------------------------------------
-# 등급을 적었으면 acl 여부와 무관하게 등급 검사를 그대로 받는다
-#=> 생략 허용이 '오타까지 봐준다'는 뜻은 아니다.
-#
-# -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
-#------------------------------------------------------------------
-def test_등급을_적었으면_acl이어도_오타는_잡힌다():
-    data = mk(paths=[{"id": "p1", "grade": "c", "acl_restricted": True}])
-    assert codes(R.validate_rules_data(data)) == ["V5"]
-
-
-#------------------------------------------------------------------
-# V12 가 있으면 보고문에 해결 방법이 따로 안내된다
-#=> "등급 값을 O/S/C 로 맞추라"는 안내만으로는 V12 를 고칠 수 없다.
-#
-# -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
-#------------------------------------------------------------------
-def test_V12_보고문에_전용_안내가_붙는다():
-    data = mk(paths=[{"id": "p1"}])
-    text = R.format_violations("r.yaml", R.validate_rules_data(data))
-    assert "acl_restricted: true 중 하나 이상" in text
-
-
-# ── failsafe_acl 분기가 실제로 살아났는지 ─────────────────────────
-
-#------------------------------------------------------------------
-# 등급 없는 acl 경로 신호만 있으면 fail-safe 로 최고 등급
-#=> A안의 목적 자체. 이 테스트가 깨지면 안전망이 다시 죽은 것이다.
-#
-# -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
-#------------------------------------------------------------------
-def test_등급없는_acl_경로만_있으면_failsafe_acl_이_동작한다():
-    from csoclassify.classify.context import PathSignal
-    from csoclassify.classify.fuse import fuse_signals
-    sig = PathSignal(grade=None, confidence=0.0, seed_eligible=False,
-                     acl_restricted=True, source="secure_server")
-    r = fuse_signals([("path", sig)])
-    assert r.method == "failsafe_acl"
-    assert r.grade == "C"
-    # 위치에서 나온 등급이라 전파 씨앗으로는 쓰지 않는다(내용 근거가 없다).
-    assert r.seed_eligible is False
-
-
-#------------------------------------------------------------------
-# 등급이 있는 acl 경로는 예전처럼 일반 융합
-#=> 기존 규칙셋(secure_server: grade C + acl true)의 동작이 바뀌지 않아야 한다.
-#
-# -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
-#------------------------------------------------------------------
-def test_등급있는_acl_경로는_일반_융합이다():
-    from csoclassify.classify.context import PathSignal
-    from csoclassify.classify.fuse import fuse_signals
-    sig = PathSignal(grade="C", confidence=0.9, seed_eligible=False,
-                     acl_restricted=True, source="secure_server")
-    r = fuse_signals([("path", sig)])
-    assert r.method == "fusion"
-    assert r.grade == "C"
+def test_빈_paths_는_알리지_않는다():
+    assert not [x for x in R.validate_rules_data(mk(paths=[])) if x["code"] == "V12"]

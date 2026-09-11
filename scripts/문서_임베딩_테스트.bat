@@ -1,17 +1,17 @@
 @echo off
 chcp 65001 >nul
-title CSOClassify 문서 임베딩 테스트
+title MpowerClassify 문서 임베딩 테스트
 cd /d "%~dp0"
 
 rem ============================================================
-rem  이 .bat 는 같은 폴더의 csoclassify.exe 를 호출하는 테스트용 실행기다.
+rem  이 .bat 는 같은 폴더의 MpowerClassify.exe 를 호출하는 테스트용 실행기다.
 rem  사용법 1) 이 .bat 아이콘 위로 문서 파일을 끌어다 놓기(드래그&드롭)
 rem  사용법 2) 그냥 더블클릭 → 문서 경로를 물어봄
 rem ============================================================
 
-if not exist "csoclassify.exe" (
-  echo [오류] 이 .bat 와 같은 폴더에 csoclassify.exe 가 없습니다.
-  echo        csoclassify.exe 가 있는 폴더에 이 파일을 두고 실행하세요.
+if not exist "MpowerClassify.exe" (
+  echo [오류] 이 .bat 와 같은 폴더에 MpowerClassify.exe 가 없습니다.
+  echo        MpowerClassify.exe 가 있는 폴더에 이 파일을 두고 실행하세요.
   echo.
   pause
   exit /b 1
@@ -20,7 +20,7 @@ if not exist "csoclassify.exe" (
 set "DOC=%~1"
 if "%DOC%"=="" (
   echo ============================================
-  echo   CSOClassify 문서 임베딩 테스트
+  echo   MpowerClassify 문서 임베딩 테스트
   echo ============================================
   echo.
   echo  문서 파일 경로를 입력하고 Enter 를 누르세요.
@@ -30,9 +30,9 @@ if "%DOC%"=="" (
 )
 
 echo.
-echo [실행] csoclassify.exe --embed --file "%DOC%"
+echo [실행] MpowerClassify.exe --embed --file "%DOC%"
 echo ------------------------------------------------------------
-csoclassify.exe --embed --file "%DOC%"
+MpowerClassify.exe --embed --file "%DOC%"
 set "RC=%ERRORLEVEL%"
 echo ------------------------------------------------------------
 if "%RC%"=="0" (

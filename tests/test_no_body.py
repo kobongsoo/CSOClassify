@@ -16,7 +16,7 @@ from csoclassify import cli
 from csoclassify import config
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RS_EXE = os.path.join(ROOT, "Rust", "target", "release", "csoclassify-rs.exe")
+RS_EXE = os.path.join(ROOT, "Rust", "target", "release", "MpowerClassify-rs.exe")
 
 
 #------------------------------------------------------------------
@@ -59,11 +59,10 @@ def test_임계값_언저리():
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_이미_등급이_있으면_그대로_둔다():
-    rec = {"grade": "C", "method": "fusion",
-           "labels": {"security": {"method": "fusion"}}}
+    rec = {"grade": "C", "why": {"security": {"method": "fusion"}}}
     cli._mark_no_body(rec, 3)
-    assert rec["grade"] == "C" and rec["method"] == "fusion"
-    assert rec["labels"]["security"]["method"] == "fusion"
+    assert rec["grade"] == "C"
+    assert rec["why"]["security"]["method"] == "fusion"
     assert rec["error"]["stage"] == "extract" and rec["error"]["text_len"] == 3
 
 
@@ -77,11 +76,9 @@ def test_이미_등급이_있으면_그대로_둔다():
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_미분류였다면_추출실패로_바꾼다():
-    rec = {"grade": None, "method": "unclassified",
-           "labels": {"security": {"method": "unclassified"}}}
+    rec = {"grade": None, "why": {"security": {"method": "unclassified"}}}
     cli._mark_no_body(rec, 3)
-    assert rec["method"] == "extract_failed"
-    assert rec["labels"]["security"]["method"] == "extract_failed"
+    assert rec["why"]["security"]["method"] == "extract_failed"
 
 
 #------------------------------------------------------------------
@@ -121,7 +118,7 @@ def test_두_엔진이_본문없음을_같게_알린다(engine, tmp_path):
 
 #------------------------------------------------------------------
 # --simple 로 줄여도 '못 읽었다'는 남는다
-#=> --simple 은 file/grade/hash/doctype 네 칸뿐이라, 못 읽은 문서가 '읽었는데
+#=> --simple 은 file/hash/grade/doctype/doc_id 다섯 칸뿐이라, 못 읽은 문서가 '읽었는데
 #   미분류'와 글자 그대로 같은 모습으로 나갔다. --simple 만 받는 쪽(문서중앙화)은
 #   스캔본을 영영 못 가려낸다. 실패한 문서에만 error 칸을 더한다 — 성공한 문서의
 #   모양은 그대로라 기존 호출부가 깨지지 않는다.
@@ -204,7 +201,7 @@ def test_파이썬전용_옵션은_통과한다(tmp_path):
 #------------------------------------------------------------------
 # 전체 레코드도 '읽는 차례'로 나온다
 #=> 만들어진 순서 그대로면 가장 궁금한 업무분류가 labels 안에 묻혀 열 번째에
-#   있고, 판정 근거(signals)가 결과보다 먼저 나온다. 앞 네 칸을 --simple 과
+#   있고, 판정 근거(signals)가 결과보다 먼저 나온다. 앞 다섯 칸을 --simple 과
 #   같게 두어, 축약본이 전체의 '앞부분만 떼어낸 것'이 되게 한다.
 #
 # -in: 없음
@@ -228,16 +225,28 @@ def test_전체레코드도_읽는_차례로_나온다(engine, tmp_path):
                        encoding="utf-8")
     rec = json.loads([l for l in r.stdout.splitlines() if '"file"' in l][0])
     keys = list(rec)
-    # 앞 네 칸은 --simple 과 같아야 한다.
-    assert keys[:4] == ["file", "hash", "grade", "doctype"], keys
-    # 결과가 근거보다 앞에 온다.
-    assert keys.index("labels") < keys.index("signals"), keys
-    assert keys.index("grade") < keys.index("labels"), keys
-    # 버전 세 칸은 흩어지지 않고 붙어 있다.
-    vers = [k for k in keys if k.endswith("version")]
-    assert vers == ["rule_version", "taxonomy_version", "doctype_rule_version"], keys
-    i = keys.index("rule_version")
-    assert keys[i:i + 3] == vers, keys
-    # 최상위 doctype 은 labels 안의 값에서 뽑은 것이다 — 어긋나면 안 된다.
-    inner = [v["dc_id"] for v in rec["labels"]["doctype"]["values"]]
-    assert rec["doctype"] == inner, (rec["doctype"], inner)
+    # [2026-09-10] labels 껍데기를 없애고 축을 최상위로 올렸다.
+    #   ① 무엇을      file · hash · doc_id · doc_id_source
+    #   ② 어떻게 됐나  security · doctype (축마다 판정과 근거가 한 덩어리)
+    #   ③ 부속        meta(버전·시각) · elapsed_ms
+    # --simple 은 이제 '앞부분을 떼어낸 것'이 아니라 그 축들에서 뽑은 별도
+    # 축약본이다(받는 쪽 계약이라 모양을 바꾸지 않았다) — 대신 신원 세 칸이
+    # 두 모양 모두에서 맨 앞에 온다는 것은 그대로 지킨다.
+    assert keys[:3] == ["file", "hash", "doc_id"], keys
+    # [2026-09-10 오후] 판정을 맨 앞으로 올렸다 — 파일을 열면 가장 먼저 보고 싶은
+    # 것은 판정이지 그 근거가 아니다. 근거는 why 한 덩어리로 뒤에 둔다.
+    assert keys.index("grade") < keys.index("why"), keys
+    assert keys.index("doctype") < keys.index("why"), keys
+    assert keys.index("why") < keys.index("meta"), keys
+    # 축이 둘이라는 사실이 근거 묶음에서도 그대로 드러난다.
+    assert list(rec["why"]) == ["security", "doctype"], list(rec["why"])
+    # 등급값은 한 벌뿐 — why 안에는 근거만 있다.
+    assert "grade" not in rec["why"]["security"]
+    # 버전 칸은 레코드에 없다 — 맨 앞 실행 헤더 한 줄이 한 번만 적는다(2026-09-10).
+    assert [k for k in keys if k.endswith("version")] == [], keys
+    assert [k for k in rec["meta"] if k.endswith("version")] == [], rec["meta"]
+    head = [json.loads(l) for l in r.stdout.splitlines()
+            if l.strip().startswith("{") and '"run"' in l]
+    assert head, "실행 헤더 줄이 없다"
+    assert list(head[0]["run"]) == ["rule_version", "doctype_rule_version",
+                                    "taxonomy_version", "started_at"], head[0]

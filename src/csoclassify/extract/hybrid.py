@@ -12,8 +12,12 @@
 #   미분류(ExtractError)로 둔다(크래시 없음).
 #------------------------------------------------------------------
 
+import re
+
+from .. import config
 from ..logsetup import get_logger
-from .base import TextExtractor, ExtractError, save_extracted_text
+from . import notes
+from .base import TextExtractor, ExtractError, check_size_limit, save_extracted_text
 from .detect import detect_format
 
 log = get_logger(__name__)
@@ -79,13 +83,26 @@ class HybridExtractor(TextExtractor):
         # _route 호출
         # => 내부적으로 detect_format() 호출해서 문서포멧 얻어옴.
         ftype, chain = self._route(input_path)
+
+        # 크기 상한(G1·G2) — 설계: plan/문서크기-상한-설계-20260904.html
+        # 엔진 사슬을 돌기 '전에' 막는다. 여기서 막아야 전용 파서와 snf 폴백 둘 다
+        # 안 돌고, 분류·--embed·데몬 세 경로가 모두 추출기를 거치므로 한 곳에서
+        # 막으면 세 경로가 같은 상한을 갖는다.
+        # _route 가 이미 판별한 ftype 을 넘겨 중복 판별을 피한다.
+        check_size_limit(input_path, ftype)
+
         # 시도할 엔진이 하나도 없으면(전용 엔진도 snf 도 없음) 그 파일은 미분류.
         if not chain:
             raise ExtractError(f"사용 가능한 추출기 없음(감지={ftype})")
         primary = chain[0][0]
         reasons = []
+        best_short = None   # 짧지만 비어 있진 않은 결과 중 가장 긴 것
 
         for name, engine in chain:
+            # 엔진마다 표식을 비운다 — 1차 파서가 '부분 추출' 표식을 남기고 실패해
+            # snf 로 폴백했는데 그 표식이 살아 있으면, 정상적으로 전문을 읽은 snf
+            # 결과에 "일부만 읽었다"가 붙는다(G5 관측용 notes 모듈).
+            notes.reset()
             try:
                 text = engine.extract(input_path, save_dir=None)
             except ExtractError as e:
@@ -100,12 +117,40 @@ class HybridExtractor(TextExtractor):
                 reasons.append(f"{name}:empty")
                 continue
 
+            # '성공했지만 본문이라 할 게 없는' 결과도 폴백 대상으로 본다.
+            #=> 예전에는 완전히 빈 문자열일 때만 다음 엔진으로 넘어갔다. 그래서 전용
+            #   파서가 장식기호 몇 개를 돌려주면 그것을 '성공'으로 받아들이고 snf 를
+            #   써 보지도 않았다. 분류 쪽에서는 같은 임계로 '본문 없음' 판정을 하므로,
+            #   결과적으로 snf 가 읽을 수 있는 문서가 미분류로 나갔다.
+            #   [실측] D:\분류함 비교에서 '(신규)문서중앙화 제품소개-1.pdf' 가 이 경우였다 —
+            #   pdfium 은 본문을 못 뽑았지만 사이냅은 읽어 C 로 분류했다(2026-09-04).
+            n_chars = len(re.sub(r'\s', '', text))
+            if n_chars < config.MIN_TEXT_LEN:
+                # 마지막 엔진이어도 여기서 붙잡아 둔다 — 그래야 아래에서 '가장 긴'
+                # 결과를 고를 수 있다. 마지막 것을 그냥 채택하면 더 많이 뽑은 앞
+                # 엔진의 결과를 버리게 된다.
+                reasons.append(f"{name}:short({n_chars}자)")
+                if best_short is None or len(text) > len(best_short[1]):
+                    best_short = (name, text)
+                continue
+
             if name != primary:
                 log.info("추출 폴백 from=%s to=%s file=%s reason=%s",
                          primary, name, input_path, ";".join(reasons))
             else:
                 log.info("추출 engine=%s(감지=%s) file=%s chars=%d",
                          name, ftype, input_path, len(text))
+            if save_dir:
+                save_extracted_text(save_dir, input_path, text)
+            return text
+
+        # 모든 엔진이 짧은 결과만 냈으면, 그중 가장 긴 것을 돌려준다 — 예전에도
+        # 그런 문서는 (짧은 채로) 성공이었으므로 여기서 실패로 바꾸면 회귀가 된다.
+        # 분류 쪽이 같은 임계로 '본문 없음' 표식을 달아 사람이 확인하게 한다.
+        if best_short is not None:
+            name, text = best_short
+            log.info("추출 짧은결과채택 engine=%s file=%s chars=%d reason=%s",
+                     name, input_path, len(text), ";".join(reasons))
             if save_dir:
                 save_extracted_text(save_dir, input_path, text)
             return text

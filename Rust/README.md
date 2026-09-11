@@ -34,13 +34,14 @@ pdfium)은 바이너리에 넣지 않고 **exe 옆 외부 파일로 런타임 �
 
 ## 무엇을 포팅했나
 
-**규칙 엔진(전부 포팅)** — `cso_rules.yaml`을 그대로 읽어(데이터는 포팅 대상 아님):
+**규칙 엔진(전부 포팅)** — `cso_rule.yaml`을 그대로 읽어(데이터는 포팅 대상 아님):
 - L1 PII + 결합식별성(combo), L2 키워드(제외어·bulk 상향), 민감정보군(Signal F),
   스탬프(머리/반복 게이트, Signal E), 경로(Signal C), 파일명(Signal D)
 - 보수적 max + fail-safe 융합(`fuse`), 신뢰도표, 등급서열(C>S>O)
 - 레코드/신호 JSON 이 Python 과 동일 스키마
 
 **추출(PoC 지원)** — text · html(태그제거) · docx · xlsx · pptx · hwpx (zip+XML) · **pdf(pdfium-render)**
+**압축 확장** — zip · tar(+gz/bz2/xz) · gz · bz2 · xz · 7z · rar (`src/archive.rs`)
 - docx/pptx 는 **문단 인식**(런 이어붙임)으로 Python 과 동일 — 런 경계로 값이 갈라지는 오탐 방지.
 - xlsx 는 공유문자열표 + **워크시트 인라인 문자열(inlineStr)** 까지 읽음(sharedStrings 없는 파일 대응).
 - PDF 는 pdfium 동적 라이브러리 필요(아래). pypdfium2 의 `pdfium.dll` 을 그대로 재사용 가능.
@@ -78,10 +79,10 @@ pdfium)은 바이너리에 넣지 않고 **exe 옆 외부 파일로 런타임 �
 
 ```bat
 cargo build --release           REM → target\release\csoclassify-rs.exe (2.3MB)
-csoclassify-rs --dir "D:\분류함" --rules cso_rules.yaml --simple --nosummary --format jsonl
-csoclassify-rs --file a.docx    --rules cso_rules.yaml
+csoclassify-rs --dir "D:\분류함" --rules cso_rule.yaml --simple --nosummary --format jsonl
+csoclassify-rs --file a.docx    --rules cso_rule.yaml
 ```
-옵션: `--file/--dir · --rules · --format json|jsonl · --out · --simple · --hash · --with-pii · --rule-only · --vector-only · --with-vector · --embed-needed · --auto-propagate · --seeds · --summary · --nosummary · --failsafe`
+옵션: `--file/--dir · --files-from · --filelist · --rules · --format json|jsonl · --out · --simple · --hash · --with-pii · --rule-only · --vector-only · --with-vector · --embed-needed · --auto-propagate · --seeds · --summary · --nosummary · --failsafe · --no-doc-id · --report-missing-id`
 - `--format json|jsonl` : **안 주면 `--out` 확장자를 따른다**(`.jsonl`/`.ndjson`→jsonl, `.json`→json,
   모르는 확장자·`--out` 없음→json). 추론되면 stderr 에 한 줄 알린다. `--format` 을 직접 주면 확장자와 달라도 그 값이 이긴다.
   파이썬 판 `resolve_format()` 과 같은 표를 쓴다.
@@ -119,6 +120,46 @@ csoclassify-rs --file a.docx    --rules cso_rules.yaml
 - `--doctype-vector-only` : 업무분류(doctype) 1차 규칙 스캔을 건너뛰고 기준 문서 비교로만 분류. 규칙 파일의 `embed`·`conflict`·`defaults` 는 그대로 쓴다. security 축은 영향 없음.
 - `--check-rules` : 규칙셋의 등급 값만 검사하고 종료(문서를 읽지 않음). 정상 0, 검증 실패 4.
 
+### 입력 목록과 문서 식별자(doc_id)
+
+경로가 비슷한 두 옵션은 **하는 일이 다르다.** `--files-from` 은 "무엇을 처리할지"만 정하고,
+`--filelist` 는 거기에 더해 "그 문서가 누구인지"(`sfile_id`)를 알려준다.
+
+| 옵션 | 형식 | `sfile_id` | 역할 |
+|---|---|---|---|
+| `--files-from <목록>` | 텍스트, 한 줄에 경로 하나(`-` 면 stdin) | 없음 | 대상 지정만 |
+| `--filelist <목록>` | jsonl 또는 csv (`path` + `sfile_id`) | 있음 | `doc_id` 주입 (+대상 지정) |
+
+- `--filelist <목록>` : MpowerV11 이 뽑아 준 `{path, sfile_id}` 목록으로 결과 레코드의
+  `doc_id` 를 채운다(설계 §7-5-2-1 · [src/filelist.rs](src/filelist.rs)).
+  `--file/--dir` 과 **함께** 주면 대상은 그쪽이 정하고 목록은 'ID 사전' 역할만 하며,
+  **단독**으로 주면 목록에 적힌 파일이 대상이 된다.
+  ```jsonl
+  {"path": "D:/collected/법무/용역계약서_한빛테크_2026.docx", "sfile_id": "SF20260724110743001"}
+  {"path": "D:/collected/인사/임직원_명부_2026.xlsx",        "sfile_id": "SF20260724110812007"}
+  ```
+  csv 도 받는다 — 첫 줄이 헤더이고 `path`·`sfile_id` 열이 있으면 된다(열 순서 무관).
+  `hash` 열은 선택 — 주면 실제 파일과 대조해 어긋난 건수만 센다(F6, 처리는 계속).
+  상대경로는 **목록 파일이 있는 폴더** 기준으로 푼다.
+  <br>매칭은 정규화 경로 키(`/` 통일 · `..`/`.` 해소 · 드라이브 문자만 대문자)로 하고,
+  못 찾으면 대소문자를 접어 한 번 더 본다 — 그렇게 이어진 건은 `rematched_by:"case"` 로 남긴다.
+  <br>목록이 깨져 있으면 **문서를 한 건도 읽기 전에 멈춘다** — 파일 없음 1010,
+  내용 잘못됨(F1 전부 파싱 실패 · F3 한 경로에 두 `sfile_id`) 1011. 절반쯤 잘못된 ID 가
+  붙은 결과가 나가는 것이 최악이기 때문이다. F2·F4·F7 은 경고만 내고 계속한다.
+- `--no-doc-id` : 결과 레코드에 `doc_id`/`key` 를 넣지 않는다(보안등급만 볼 때).
+  기본은 넣는다 — 계산 비용이 사실상 0 이고, 사람이 고친 등급을 결과와 잇는 데도 쓰인다.
+- `--report-missing-id <경로>` : `sfile_id` 를 못 얻어 폴백으로 채운 문서 목록을 jsonl 로 쓴다.
+  그 문서들은 **매핑 테이블 적재 대상이 아니다**(R14).
+
+`doc_id` 는 ① 목록의 `sfile_id` → ② 파일 내용 SHA-256 앞 40자 → ③ 정규화 경로 SHA-256 앞 40자
+순으로 정하고, 어느 것을 썼는지 `doc_id_source`(`sfile_id`|`content`|`path`)로 남긴다.
+②·③ 은 MpowerV11 문서와 이어지지 않으므로 적재는 `doc_id_source == "sfile_id"` 인 행만 넣는다.
+요약 끝줄에 출처별 건수가 뜬다: `[summary][문서 ID] sfile_id 121 · 폴백(content) 6 · 폴백(path) 1`.
+
+값은 **파이썬 판 [`filelist.py`](../src/csoclassify/filelist.py) 와 반드시 같아야 한다** — 두 판이
+다른 `doc_id` 를 내면 같은 문서가 매핑 테이블에 두 건으로 들어간다. `src/filelist.rs` 의 단위
+테스트가 정규화·해시·F3 판정을 파이썬 판과 같은 값으로 묶어 둔다.
+
 **규칙셋 검증(fail-closed)** — 로드 시점에 등급 값을 검사한다. 정의되지 않은 등급(`base_grade: c` 오타 등)이나
 `bulk_grade` 가 `base_grade` 보다 낮은 역전이 있으면 문서를 한 건도 읽지 않고 위반을 전부 모아 보고하고
 **종료코드 4** 로 끝난다. 보고문·종료코드는 Python 판과 동일하다(바이트 단위 일치 확인).
@@ -141,9 +182,19 @@ cargo build --release        # → target/release/csoclassify-rs (5.4MB, glibc 2
 
 PDF 추출은 pdfium 동적 라이브러리가 필요하다(pdfium-render). 다음 순서로 찾는다:
 `CSO_PDFIUM` 환경변수 → **exe 옆 `pdfium.dll`**(리눅스 `libpdfium.so`) → 시스템 라이브러리.
-가장 쉬운 방법: pypdfium2 가 쓰는 `pdfium.dll` 을 exe 옆에 복사(≈7MB).
+**개발 빌드는 손댈 필요가 없다** — `build.rs` 가 빌드할 때마다 정본을 exe 옆
+(`target/debug`·`target/release`)으로 자동 복사한다. `cargo clean` 으로 지워져도 다음
+빌드에서 저절로 복구된다. 원본 후보는 `dist-onedir/<os>/` → (없으면) 파이썬 배포본
+`../dist/csoclassify/_internal/pypdfium2_raw/` 순이며, 둘 다 없으면 빌드는 그대로 되고
+`cargo:warning` 으로 "PDF 추출이 비활성됩니다" 만 알린다.
+
+> **주의** — DLL 만 지우고 `cargo build` 를 하면 복구되지 않을 수 있다. cargo 가
+> 빌드 스크립트를 다시 돌릴 이유(입력 변화)를 못 찾아 캐시된 결과를 쓰기 때문이다.
+> `cargo clean` 이나 `touch build.rs` 로 다시 돌리면 된다.
+
+배포본을 직접 꾸릴 때는 수동 복사(≈7MB):
 ```
-copy dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll  target\release\
+copy dist-onedir\windows\pdfium.dll  target\release\
 ```
 ※ 이 pdfium.dll 은 pypdfium2 와 동일 엔진이라 Python(pypdfium2)과 추출 결과가 일치.
 
@@ -164,7 +215,7 @@ copy dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll  target\release\
 - **html 추출(정규식 기반)의 한계**: `<script>` 내부에 마크업 문자열이 박힌 Marp/JS-heavy
   export 는 정규식으로 완전 분리 불가 → 누출된 JS 조각이 L2 키워드에 오매칭될 수 있음
   (실측 유일 1건 diff). 완전 해소는 실제 DOM 파서 필요(단일 바이너리 목표와 상충 → 보류).
-- **ko-pii 미포팅 라벨(0 반환)**: NAME/PERSON·BIRTH·HEALTH 등 — CSOClassify 의 cso_rules.yaml
+- **ko-pii 미포팅 라벨(0 반환)**: NAME/PERSON·BIRTH·HEALTH 등 — CSOClassify 의 cso_rule.yaml
   이 등급판정에 쓰지 않는 라벨이라 포팅 대상 아님(현 20라벨로 등급 parity 충족).
 - **PERSON 사전(surnames/hanja/romanization) 미포팅**: 위와 같은 이유로 스코프 밖.
 - ~~문자 정규화(NFKC·대시류·안 보이는 문자) 미포팅~~ → **2026-09-02 해소.** `src/pii_fold.rs`
@@ -217,7 +268,33 @@ copy dist-onedir\windows\_internal\pypdfium2_raw\pdfium.dll  target\release\
   ※ 측정 주의: 배치 3회 반복의 산포가 컸다(Rust 32.6~57.0s, Python 데몬 66.6~143.0s — 디스크
   캐시 워밍 영향). 200회 개별 호출은 1회만 쟀다. **배수(7배)와 대소 관계는 견고하지만 초 단위
   절대값은 ±30% 로 보라.**
-- **압축 확장**: 후속(현재 압축파일은 추출 스킵).
+- ~~**압축 확장**: 후속(현재 압축파일은 추출 스킵).~~ → **2026-09-04 해소.**
+  `src/archive.rs` 로 포팅했다. 압축 1건을 내부 문서 N건으로 펼쳐 **파일별로 등급**을
+  내고, 압축 자체에는 내부 최고 위험을 매긴 집계 레코드(`archive: true`)를 덧붙인다.
+  지원: **zip · tar · tar.gz · tar.bz2 · tar.xz · gz · bz2 · xz · 7z**
+  (새 의존은 전부 순수 Rust — `tar`·`bzip2-rs`·`lzma-rs`·`sevenz-rust2`. C 라이브러리를
+  안 끌어와 정적 단일 바이너리 목표를 지킨다).
+  <br>**rar 은 2026-09-07 지원 시작** — `rars`(MIT/Apache-2.0, 순수 Rust). 다른 길인
+  `unrar` 크레이트는 **UnRAR C 소스를 빌드에 포함**해 C 컴파일이 생기고 라이선스
+  조건을 따로 확인해야 해서 피했다.
+  <br>넣기 전에 참조 구현(번들 `unrar.exe`)과 픽스처 177개를 바이트 단위로 대조했다 —
+  단일 아카이브 131건 기준 **판정 일치 95.4%**, **참조가 푸는데 rars 가 못 푼 경우 0건**,
+  손상 입력 117건에서 **패닉·멈춤 0건**. 실제 분류 대조에서는 공통 554건의 **등급이
+  100% 일치**했다.
+  <br>남은 한계 둘은 **표식으로 드러낸다** — 분할 볼륨(`kind=split_volume`)과
+  하드링크·심볼릭링크(`stats.partial` → "압축 일부 누락"). 실측 차이 7건이 정확히
+  이 둘이었다(분할 2 · 하드링크 3 · 심볼릭 2).
+  <br>**7z 는 2026-09-07 지원 시작** — `sevenz-rust2`(Apache-2.0, 순수 Rust).
+  파이썬 판(py7zr)과 실측 대조에서 레코드 9건(내부 8 + 집계 1)이 **등급까지 전부 일치**했고,
+  해제 상한(G4)도 7z 에 똑같이 걸린다.
+  <br>다만 **조용히 넘기지 않는다** — 결과 레코드에 `archive_unsupported: true` 와
+  사유를 싣고 요약에 `압축미지원=N` 으로 띄운다.
+  <br>해제 상한(G4 `--max-archive-mb` · `--max-archive-members`)도 함께 동작하며,
+  상한에 걸려 못 펼친 압축은 `archive_unexpanded: true` 로 표시된다.
+  <br>실측 대조(zip 12개 내부 문서): 파이썬 판과 **레코드 13건(내부 12 + 집계 1)
+  전부 일치**(등급·contains 분포·요약줄).
+  <br>※ 남은 차이: 상한에 걸려 **안 펼친** 압축을 파이썬은 사이냅으로 '합본 1건'
+  텍스트를 읽어 등급을 내지만(실측 90만 자), 이 판은 사이냅이 없어 추출실패로 둔다.
   ※ **임베딩 전파(Signal B)·--vector-only 는 포팅 완료**(외부 ONNX 로딩).
 
 ## parity 검증 방법

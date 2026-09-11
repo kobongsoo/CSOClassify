@@ -10,11 +10,15 @@
 #   [재설계 1단계 반영] 내용 신호를 위치별로 쪼개고 점수를 누적한다.
 #     · title  : 첫 비어있지 않은 줄       — 가장 강한 증거
 #     · head   : 앞 head_chars 자(표제부)  — 강한 증거
-#     · form   : 서식 필드어 세트          — 강한 증거
-#     · structure : 구조 정규식            — 보조(단독 채택 불가)
 #     · body   : 문서 전체 terms           — 약한 증거(단독 채택 불가)
-#     · name/path : 파일명·경로            — 중간 증거
+#     · name   : 파일명                    — 중간 증거
 #   결합은 noisy-OR(1 - Π(1-c))라 근거가 쌓일수록 점수가 오른다.
+#
+#   [2026-09-07 제거] 재설계 7장에는 form(서식 필드어)·structure(구조 정규식)·
+#   path(폴더 경로) 세 신호도 있었지만, 규칙(doctype_rules)이 그 필드를 한 번도
+#   채우지 않아 실제로는 한 번도 돌지 않았다. 도는 코드와 안 도는 코드가 섞여
+#   있으면 읽는 사람이 매번 "이건 도는 건가"를 되짚어야 해서 걷어냈다.
+#   다시 필요해지면 _backup/before-remove-form-path-structure-20260907.tgz.
 #
 #   [scoring 모드] defaults.scoring 이
 #     · "legacy"(기본) — 종전과 동일. body 1건이면 히트, 신호 결합은 max.
@@ -34,11 +38,10 @@ from .conflict import resolve_doctype
 # security 축의 같은 이름 상수와 값을 맞춘다. 두 축이 "같은 확신 수준은 같은
 # 숫자"를 쓰게 해, 결과를 함께 볼 때 신뢰도가 서로 다른 잣대로 보이지 않게 한다.
 _DT_KEYWORD_CONF = {"high": 0.85, "medium": 0.70, "low": 0.50}
-_DT_PATH_CONF = {"high": 0.90, "medium": 0.70, "low": 0.50}
 _DT_NAME_CONF = 0.60
 
 # ── staged 모드 신호별 신뢰도 (재설계 8-2, 실측 전 잠정치) ───────────
-# 상대 순서(title ≳ head ≳ form > path ≳ name > body ≳ structure)가 핵심이며,
+# 상대 순서(title ≳ head > name > body)가 핵심이며,
 # 절대값은 16장 검증셋 측정 후 재보정 대상이다.
 #
 # => 계산법 : 예) title(0.65) + name(0.30) → 1 - 0.35×0.70 = 0.755
@@ -47,17 +50,16 @@ _DT_NAME_CONF = 0.60
 # 종전 max() 의 "근거가 쌓여도 점수 제자리" 문제를 푸는 게 목적입니다.
 #
 # [표 읽는 법]
-#   세로줄(title/head/…) = "문서의 어디를 보고 맞혔나" — 신호원 7가지.
+#   세로줄(title/head/…) = "문서의 어디를 보고 맞혔나" — 신호원 4가지.
 #   가로줄(high/medium/low) = 그 규칙에 적힌 weight. 규칙을 만든 사람이
 #     "이 규칙은 얼마나 믿을 만한가"를 3단계로 고른 값이다(기본 medium).
 #   칸의 숫자 = 그 신호 하나가 갖는 확신. 이 값들을 위 noisy-OR 로 합친다.
 #
-# [7가지 신호원 — 무엇을 어디서 보는가]
+# [4가지 신호원 — 무엇을 어디서 보는가]
 #   아래 설명의 예시로 쓸 규칙 하나(weight: medium 이라 가운데 칸이 쓰인다):
 #     node: DC_계약서
 #     title_terms: [계약서]        head_terms: [계약기간]   terms: [갑, 을]
-#     filename: [계약]             paths: ["/계약/"]
-#     form: {all_of: [갑, 을, 계약기간]}   structure: ["제\\s*\\d+\\s*조"]
+#     filename: [계약]
 #
 #   title (0.65) — 문서의 '첫 비어있지 않은 줄'에 title_terms 가 있나.
 #       예) 첫 줄이 "용역 계약서" → 걸림. 사람이 문서 맨 위에 일부러 적어 둔
@@ -69,15 +71,6 @@ _DT_NAME_CONF = 0.60
 #       예) 제목 줄에는 없어도 "… 계약기간: 2026-01-01 …" 이 문서 앞머리에
 #           나오면 걸림. 제목 다음으로 문서 성격이 잘 드러나는 구간이다.
 #
-#   form (0.50) — '그 양식에만 있는 항목명'이 세트로 나오나(all_of / any_of+min_types).
-#       예) 갑·을·계약기간이 모두 나오면 걸림. 회의록 본문에 "계약서"라는 말이
-#           언급될 수는 있어도 이 세 항목이 함께 나오지는 않는다 — 그것이
-#           종류명보다 양식이 세다고 보는 근거다.
-#
-#   path (0.30) — 문서가 들어 있는 '폴더 경로'에 paths 조각이 있나.
-#       예) D:\사업\계약\2026\x.hwp → '/계약/' 포함 → 걸림. 폴더는 담당자가
-#           옮기기도 하고 하위 문서가 통째로 물려받기도 해서 파일명만큼 믿지 않는다.
-#
 #   name (0.30) — 폴더를 뺀 '파일 이름'에 filename 조각이 있나.
 #       예) "2026_계약_최종.hwp" → 걸림. 짧고 일부러 붙인 이름이라 우연 일치는
 #           드물다. 다만 이 신호 하나만으로는 t_low(0.35)를 못 넘어 후보가 되지
@@ -87,54 +80,31 @@ _DT_NAME_CONF = 0.60
 #       예) 본문 어딘가에 '갑'·'을'이 나옴. 어느 문서에나 나올 수 있는 말이라
 #           가장 약하고, 단독으로는 후보를 만들지 못한다(_WEAK_ONLY).
 #
-#   structure (0.20) — 어휘가 아니라 '문서 골격'을 정규식으로 잡는다.
-#       예) "제1조"·"제 2 조" 같은 조문 번호가 있나. 한국어 어휘와 겹치지 않는
-#           독립 축이라 form 과 잘 붙지만, 단독 판별력은 약해 보조로만 쓴다.
+# [name 의 세 칸이 같은 값인 이유]
+#   표가 우연히 같은 게 아니라, 코드가 name 만 weight 를 보지 않고 "medium"
+#   칸을 직접 집어 쓴다(_scan_rule 의 name 분기). 파일명은 '이름에 그 말이
+#   있다'는 사실 하나뿐이라 규칙의 자신감으로 등급을 나눌 근거가 없다.
+#   세 칸을 같은 값으로 채워 둔 것은, 나중에 등급을 주기로 하면 코드 한 줄만
+#   고치면 되도록 자리를 비워 둔 것이다.
 #
-# [name·structure 의 세 칸이 같은 값인 이유]
-#   표가 우연히 같은 게 아니라, 코드가 이 둘만 weight 를 보지 않고 "medium"
-#   칸을 직접 집어 쓴다(_scan_rule 의 name·structure 분기). 파일명은 '이름에
-#   그 말이 있다', 정규식은 '맞았다' 라는 사실 하나뿐이라 규칙의 자신감으로
-#   등급을 나눌 근거가 없다. 세 칸을 같은 값으로 채워 둔 것은, 나중에 등급을
-#   주기로 하면 코드 한 줄만 고치면 되도록 자리를 비워 둔 것이다.
-#
-# [지금 실제로 도는 신호] 현재 doc_rule.yaml 규칙들은 form·structure·paths 를
-#   채우지 않아 title·head·body·name 4개만 동작한다. 나머지 셋은 규칙에 그
-#   필드를 넣는 순간 이 표의 값 그대로 자동으로 살아난다.
+# [이 네 개가 전부다] 값은 doc_rule.yaml 의 signals: 로 바꿀 수 있다
+#   (본보기와 설명은 doc_rule_template.yaml).
 _SIG_CONF = {
     "title":     {"high": 0.80, "medium": 0.65, "low": 0.50},
     "head":      {"high": 0.70, "medium": 0.55, "low": 0.40},
-    "form":      {"high": 0.65, "medium": 0.50, "low": 0.35},
-    "path":      {"high": 0.40, "medium": 0.30, "low": 0.20},
     "name":      {"high": 0.30, "medium": 0.30, "low": 0.30},
     "body":      {"high": 0.25, "medium": 0.15, "low": 0.10},
-    "structure": {"high": 0.20, "medium": 0.20, "low": 0.20},
 }
 
 # 이 신호들은 단독으로 후보를 만들지 못한다(재설계 8-4). 반드시 다른 신호와
 # 결합해야 한다 — 이 규칙이 없으면 신뢰도를 아무리 낮춰도 conflict: all 에서
 # 약한 후보가 그대로 남아 P1(본문 단어 1건 = 확정)이 재발한다.
-_WEAK_ONLY = frozenset({"structure", "body"})
+_WEAK_ONLY = frozenset({"body"})
 
 # 첫 줄이 제목이 아닌 포맷 — title 신호를 건너뛴다(재설계 6-3, 실측 근거).
 #   .ppt   : 첫 줄이 제목인 비율 16.7%(도형 순서가 시각 순서와 다름)
 #   .xls/.xlsx : 50%(첫 행이 데이터 행이라 제목 개념이 없음)
 _TITLE_UNSAFE_EXTS = frozenset({".ppt", ".xls", ".xlsx"})
-
-
-#------------------------------------------------------------------
-# 경로 정규화
-#=> context.py 의 _norm 과 동일한 규약(역슬래시→'/', 소문자). doc_rule.yaml 의
-#   paths 는 이미 load_doc_rules 가 정규화해 뒀으므로, 여기서는 매칭 대상인
-#   "문서의 실제 경로"만 같은 규약으로 맞추면 된다.
-#
-# -in: s = 경로 문자열
-#
-# -out: str = 정규화된 경로
-# -out: error = 없음
-#------------------------------------------------------------------
-def _norm_path(s):
-    return (s or "").replace("\\", "/").lower()
 
 
 #------------------------------------------------------------------
@@ -264,77 +234,6 @@ def _find_terms(scope, terms, exclude, compact=False):
 
 
 #------------------------------------------------------------------
-# 서식 필드어 세트 판정 — DoctypeRule.form
-#=> 문서종류명이 아니라 '그 양식에만 있는 항목명'의 조합을 본다(재설계 7장).
-#   회의록 본문에 "계약서"가 언급될 수는 있어도 갑·을·제O조·계약기간이 함께
-#   나오지는 않는다 — 이것이 양식 판별력의 근거다.
-#    1) all_of 가 있으면 그 항목이 전부 있어야 한다
-#    2) any_of + min_types 가 있으면 '서로 다른' 항목이 그 종수 이상이어야 한다
-#    3) 둘 다 적혀 있으면 둘 다 만족해야 한다(AND)
-#   탐색 범위는 문서 전체다 — 필드어는 종류명과 달리 다른 문서에 우연히
-#   함께 등장하지 않으므로 범위를 좁힐 이유가 없다.
-#
-# -in: text    = 정제된 문서 텍스트
-# -in: form    = FormSpec | None
-# -in: exclude = 제외어 목록
-#
-# -out: (bool, list[str]) = (성립 여부, 걸린 항목 목록)
-# -out: error = 없음
-#------------------------------------------------------------------
-def _match_form(text, form, exclude):
-    if form is None or not form.usable or not text:
-        return False, []
-
-    hay = text.lower()
-    ex_spans = R._exclude_spans(hay, exclude, True)
-
-    def present(item):
-        return bool(item) and _count_term(hay, str(item).lower(), ex_spans) > 0
-
-    matched = []
-    if form.all_of:
-        missing = [x for x in form.all_of if not present(x)]
-        if missing:
-            return False, []
-        matched += list(form.all_of)
-
-    if form.any_of and form.min_types > 0:
-        # '건수'가 아니라 '서로 다른 항목의 종수'를 센다 — 같은 단어가 여러 번
-        # 나오는 것은 서식의 증거가 아니기 때문이다.
-        found = [x for x in form.any_of if present(x)]
-        if len(found) < form.min_types:
-            return False, []
-        matched += found
-
-    return True, matched
-
-
-#------------------------------------------------------------------
-# 구조 신호 판정 — DoctypeRule.structure
-#=> "제N조"·금액표·서명란처럼 어휘가 아닌 문서 골격을 정규식으로 잡는다.
-#   한국어 어휘에 걸리지 않는 독립 축이라 form 과 잘 붙지만, 단독 판별력은
-#   약해 보조 증거로만 쓴다(_WEAK_ONLY).
-#
-# -in: text     = 정제된 문서 텍스트
-# -in: patterns = 정규식 문자열 목록(로드 시 T22 로 컴파일 가능함을 확인해 둠)
-#
-# -out: list[str] = 실제로 걸린 패턴 목록
-# -out: error = 없음 (컴파일 실패 패턴은 조용히 건너뛴다 — 로드 단계에서 이미 막았다)
-#------------------------------------------------------------------
-def _match_structure(text, patterns):
-    if not patterns or not text:
-        return []
-    hits = []
-    for pat in patterns:
-        try:
-            if re.search(pat, text, re.IGNORECASE):
-                hits.append(pat)
-        except re.error:
-            continue
-    return hits
-
-
-#------------------------------------------------------------------
 # 규칙별 임계값 고르기
 #=> 규칙에 값이 적혀 있으면 그것을, 없으면 전역 defaults 값을 쓴다.
 #   "규칙이 전역을 이긴다"는 한 줄 규약을 한 곳에 모아 둔다.
@@ -395,28 +294,10 @@ def _match_filename(file, rule):
 
 
 #------------------------------------------------------------------
-# 경로 매칭 — DoctypeRule.paths
-#=> context.py 의 scan_path 와 같은 부분일치 방식. security 의 path_rules 와
-#   달리 "첫 매칭에서 멈추는" 정책은 여기 없다 — doctype 은 노드마다 독립적으로
-#   판단하므로 이 규칙 하나가 걸리는지만 보면 된다.
-#
-# -in: norm_path = _norm_path() 로 정규화된 문서 경로
-# -in: rule      = DoctypeRule(paths 는 load_doc_rules 가 이미 정규화해 둠)
-#
-# -out: list[str] = 걸린 경로 조각들
-# -out: error = 없음
-#------------------------------------------------------------------
-def _match_paths(norm_path, rule):
-    if not rule.paths:
-        return []
-    return [p for p in rule.paths if p in norm_path]
-
-
-#------------------------------------------------------------------
 # 규칙 1개 스캔 — 신호원 수집 + 점수화 (핵심)
 #=> 한 규칙(=노드)에 대해 모든 신호원을 확인하고, 점수·근거·구성요소를 만든다.
 #   scoring 모드에 따라 결합 방식이 달라진다.
-#    1) 신호원별 매칭 — title/head/form/structure/body/name/path
+#    1) 신호원별 매칭 — title/head/body/name
 #    2) legacy: 종전과 동일하게 max 결합, body 1건이면 히트
 #       staged: noisy-OR 결합 + 단독 채택 금지(8-4) + t_low 미만 탈락(8-3)
 #    3) 근거(evidence)는 두 모드 모두 남긴다 — P6(근거 미보존) 해소는
@@ -424,15 +305,17 @@ def _match_paths(norm_path, rule):
 #
 # -in: text      = 정제된 문서 텍스트
 # -in: file      = 파일 경로
-# -in: norm_path = _norm_path(file) (반복 계산을 피하려 미리 넘긴다)
 # -in: rule      = DoctypeRule(active=True 인 것만 호출자가 넘겨야 함)
 # -in: defaults  = doc_rules.Defaults
 # -in: allow_title = False 면 title 신호를 건너뛴다(ppt/xls/xlsx, 6-3)
+# -in: sig        = 신호별 신뢰도 표(doc_rule.yaml 의 signals:). None 이면 _SIG_CONF
 #
 # -out: dict | None = {score, sources, evidence, parts} — 후보가 아니면 None
 # -out: error = 없음
 #------------------------------------------------------------------
-def _scan_rule(text, file, norm_path, rule, defaults, allow_title=True):
+def _scan_rule(text, file, rule, defaults, allow_title=True, sig=None):
+    # 정책 파일의 signals: 블록이 있으면 그 표를, 없으면 코드 기본값을 쓴다.
+    sig = sig or _SIG_CONF
     staged = getattr(defaults, "scoring", "legacy") == "staged"
     evidence = {}
     parts = []
@@ -445,7 +328,7 @@ def _scan_rule(text, file, norm_path, rule, defaults, allow_title=True):
     if allow_title and rule.title_terms:
         hits = _find_terms(_first_line(text), rule.title_terms, rule.exclude, compact=True)
         if hits:
-            add("title", _SIG_CONF["title"].get(rule.weight, 0.65),
+            add("title", sig["title"].get(rule.weight, 0.65),
                 {"terms": [{"term": t, "count": c} for t, c in hits]})
 
     # ── head: 앞 head_chars 자 ─────────────────────────────────
@@ -453,29 +336,8 @@ def _scan_rule(text, file, norm_path, rule, defaults, allow_title=True):
         n = _thr(rule, defaults, "head_chars")
         hits = _find_terms((text or "")[:n], rule.head_terms, rule.exclude, compact=True)
         if hits:
-            add("head", _SIG_CONF["head"].get(rule.weight, 0.55),
+            add("head", sig["head"].get(rule.weight, 0.55),
                 {"terms": [{"term": t, "count": c} for t, c in hits], "window": n})
-
-    # ── form: 서식 필드어 세트 ─────────────────────────────────
-    # [설계 단계 구현] 계약서(갑·을·제O조·계약기간)처럼 서식 필드어를 판정하는
-    # 신호다. 재설계 7장의 설계에는 포함되지만, 현재 doc_rule.yaml 의 규칙에서
-    # form 필드를 채우지 않았으므로 rule.form = None → 신호 생성 안 함.
-    # 향후 규칙에 form 을 추가하면 이 코드가 자동 활용된다.
-    ok, matched = _match_form(text, rule.form, rule.exclude)
-    if ok:
-        add("form", _SIG_CONF["form"].get(rule.weight, 0.50),
-            {"matched": matched,
-             "all_of": list(rule.form.all_of),
-             "min_types": rule.form.min_types})
-
-    # ── structure: 구조 정규식 ─────────────────────────────────
-    # [설계 단계 구현] 제N조·금액표·서명란처럼 어휘가 아닌 문서 골격을 정규식
-    # 으로 판정하는 보조 신호다(재설계 7장). 현재 doc_rule.yaml 의 규칙에서
-    # structure 필드를 채우지 않았으므로 rule.structure = () → 신호 생성 안 함.
-    # 향후 규칙에 structure 를 추가하면 이 코드가 자동 활용된다.
-    st = _match_structure(text, rule.structure)
-    if st:
-        add("structure", _SIG_CONF["structure"]["medium"], {"matched": st})
 
     # ── body: 문서 전체 terms ──────────────────────────────────
     if rule.terms:
@@ -485,7 +347,7 @@ def _scan_rule(text, file, norm_path, rule, defaults, allow_title=True):
         need_d = _thr(rule, defaults, "min_distinct")
         need_c = _thr(rule, defaults, "min_count")
         if hits and distinct >= need_d and total >= need_c:
-            conf = (_SIG_CONF["body"].get(rule.weight, 0.15) if staged
+            conf = (sig["body"].get(rule.weight, 0.15) if staged
                     else _DT_KEYWORD_CONF.get(rule.weight, 0.6))
             add("body", conf,
                 {"terms": [{"term": t, "count": c} for t, c in hits],
@@ -495,19 +357,8 @@ def _scan_rule(text, file, norm_path, rule, defaults, allow_title=True):
     # ── name: 파일명 ───────────────────────────────────────────
     nm = _match_filename(file, rule)
     if nm:
-        conf = _SIG_CONF["name"]["medium"] if staged else _DT_NAME_CONF
+        conf = sig["name"]["medium"] if staged else _DT_NAME_CONF
         add("name", conf, {"terms": [t for t, _c in nm]})
-
-    # ── path: 폴더 경로 ────────────────────────────────────────
-    # [설계 단계 구현] /contract/, /board/notice/ 처럼 폴더 경로로 문서 종류를
-    # 판정하는 신호다(재설계 7장). 현재 doc_rule.yaml 의 규칙에서 paths 필드를
-    # 채우지 않았으므로 rule.paths = () → 신호 생성 안 함.
-    # 향후 규칙에 paths 를 추가하면 이 코드가 자동 활용된다.
-    ph = _match_paths(norm_path, rule)
-    if ph:
-        conf = (_SIG_CONF["path"].get(rule.weight, 0.30) if staged
-                else _DT_PATH_CONF.get(rule.weight, 0.7))
-        add("path", conf, {"matched": ph})
 
     if not parts:
         return None
@@ -556,17 +407,84 @@ def _absorb_ancestors(dc_ids, taxonomy):
 
 
 #------------------------------------------------------------------
+# 근거 두 칸(evidence·score_parts)을 신호별 한 덩어리로 합친다
+#=> 예전에는 후보 하나에 근거가 두 군데로 흩어져 있었다.
+#     evidence    = {"head": {무슨 말이 몇 번}, "body": {...}}
+#     score_parts = [{"signal":"head","c":0.55}, {"signal":"body","c":0.15}]
+#   둘 다 열쇠가 '신호 이름'으로 같아서, 읽는 쪽은 매번 {이름:점수} 표를 만들어
+#   이름으로 맞춰 붙여야 했다(화면이 실제로 그렇게 했다). 합쳐서 내보내면
+#   "head 신호는 0.55점이고 이런 말이 걸렸다"가 한 덩어리로 읽힌다.
+#
+#   [c 가 없을 수 있다] 전파(embed)가 이미 있는 후보에 근거만 더하는 경로가
+#   있다 — 그때는 점수 몫이 따로 없다. 그런 신호는 "c" 키를 만들지 않는다
+#   (0.0 으로 채우면 "0점 기여"라는 없는 사실을 말하게 된다).
+#
+# -in: evidence = {신호이름: 근거dict} 또는 None
+# -in: parts    = [{"signal":이름,"c":점수}] 또는 None
+#
+# -out: dict = {신호이름: {"c":점수(있을 때만), **근거필드}} — 순서는 evidence
+#               가 만들어진 순서(title→head→body→name→embed)를 그대로 따른다
+# -out: error = 없음
+#------------------------------------------------------------------
+def _merge_signals(evidence, parts):
+    ev = dict(evidence or {})
+    conf_by = {p["signal"]: round(float(p["c"]), 3)
+               for p in (parts or []) if isinstance(p, dict)}
+    out = {}
+    for name, block in ev.items():
+        one = {}
+        # 점수를 앞에 둔다 — "얼마나 셌나"를 먼저 읽고 "왜"를 뒤에 읽는다.
+        if name in conf_by:
+            one["c"] = conf_by[name]
+        one.update(block or {})
+        out[name] = one
+    # 근거 없이 점수만 있는 신호는 없어야 하지만, 있으면 잃지 않고 담는다.
+    for name, c in conf_by.items():
+        if name not in out:
+            out[name] = {"c": c}
+    return out
+
+
+#------------------------------------------------------------------
+# 합쳐진 signals 를 다시 evidence·score_parts 로 되돌린다
+#=> 엔진 속 계산(_finalize·전파 병합)은 여전히 두 칸으로 다룬다 — 레코드에
+#   적는 모양만 바꿨기 때문이다. 레코드를 다시 읽어 전파를 돌릴 때 이 함수로
+#   원래 모양을 되찾는다.
+#   [옛 레코드] signals 가 없으면 예전 두 칸을 그대로 읽는다 — 안 그러면
+#   전파를 한 번 거친 옛 문서가 "왜 이 라벨인지"를 통째로 잃는다.
+#
+# -in: v = 레코드에 적힌 후보 dict
+#
+# -out: (evidence, parts) = 엔진 내부가 쓰는 두 칸
+# -out: error = 없음
+#------------------------------------------------------------------
+def _split_signals(v):
+    sigs = v.get("signals")
+    if not isinstance(sigs, dict):
+        return dict(v.get("evidence") or {}), list(v.get("score_parts") or [])
+    evidence, parts = {}, []
+    for name, one in sigs.items():
+        one = dict(one or {})
+        c = one.pop("c", None)
+        evidence[name] = one
+        if c is not None:
+            parts.append({"signal": name, "c": c})
+    return evidence, parts
+
+
+#------------------------------------------------------------------
 # doctype 축 결과(labels.doctype)
 #=> 설계서 7-1 의 labels.doctype 레코드를 그대로 담는다.
 #
 # -필드: values    = 채택된 후보 dict 튜플. 각 항목
-#                     {dc_id, path, path_ids, confidence, from, stage,
-#                      evidence, score_parts}
-# -필드: strategy  = 실제로 적용된 전략("all"|"top_n")
+#                     {dc_id, path, path_ids, confidence, from, stage, signals}
+# -필드: strategy  = 실제로 적용된 전략("all"|"top_n"). 레코드에는 --conflict 로
+#                     덮어썼을 때만 실린다(그때만 규칙 파일에서 되짚을 수 없다)
 # -필드: status    = 항상 "proposed"(자동 판정은 확정하지 않는다, 설계서 7-4-1).
-#                     사람이 검토 화면에서 확정하면 "confirmed"가 되지만, 그
-#                     상태 전이는 이 모듈이 아니라 검토 UI(D6)의 몫이다
-# -필드: truncated = top_n 으로 잘려나간 후보 수(all 이면 항상 0)
+#                     값이 하나뿐이라 2026-09-10 부터 레코드에는 싣지 않는다.
+#                     사람이 확정한 결과는 cso_override.jsonl 에 따로 쌓인다
+# -필드: truncated = top_n 으로 잘려나간 후보 수(all 이면 항상 0).
+#                     레코드에는 0보다 클 때만 실린다
 # -필드: conflicts = 계층 정합성 경고 목록(재설계 11-3). 자동으로 후보를 버리지
 #                     않고 검토 큐 우선순위 신호로만 쓴다
 #------------------------------------------------------------------
@@ -586,8 +504,10 @@ class DoctypeSignal:
     #
     # -in: 없음
     #
-    # -out: dict = {values:[{dc_id,path,path_ids,confidence,from,stage,
-    #               evidence,score_parts}], strategy, status, truncated, conflicts}
+    # -out: dict = {values:[{dc_id,path,path_ids,confidence,from,stage,signals}]
+    #               [, truncated][, conflicts]}
+    #               — truncated/conflicts 는 값이 있을 때만. strategy 는
+    #                 --conflict 로 덮어썼을 때 cli 가 따로 각인한다.
     # -out: error = 없음
     #------------------------------------------------------------------
     def as_dict(self):
@@ -600,25 +520,31 @@ class DoctypeSignal:
                 "confidence": round(v["confidence"], 3),
                 "from": list(v["from"]),
             }
-            # 아래 세 칸은 재설계 13-2 의 근거 블록. 없으면(구버전 경로로 만든
+            # 아래 두 칸은 재설계 13-2 의 근거 블록. 없으면(구버전 경로로 만든
             # 후보) 키 자체를 만들지 않아, 소비자가 "안 씀"과 "비었음"을 구분할 수 있다.
             if v.get("stage"):
                 item["stage"] = v["stage"]
-            if v.get("evidence"):
-                item["evidence"] = v["evidence"]
-            if v.get("score_parts"):
-                item["score_parts"] = [
-                    {"signal": p["signal"], "c": round(float(p["c"]), 3)}
-                    for p in v["score_parts"]
-                ]
+            sigs = _merge_signals(v.get("evidence"), v.get("score_parts"))
+            if sigs:
+                item["signals"] = sigs
             out.append(item)
-        return {
-            "values": out,
-            "strategy": self.strategy,
-            "status": self.status,
-            "truncated": self.truncated,
-            "conflicts": list(self.conflicts),
-        }
+        res = {"values": out}
+        # [2026-09-10] 값이 하나뿐이던 칸들을 걷어냈다.
+        #  · status  : 엔진은 "proposed" 말고 다른 값을 낼 수 없다. 확정은 검토
+        #    화면의 몫이고 그 결정은 cso_override.jsonl 에 쌓인다(원본 레코드는
+        #    고치지 않는다). 문서마다 같은 글자를 적어도 새로 알려 주는 게 없다.
+        #  · truncated: 안 잘렸으면 0이다. 없으면 '아무것도 안 잘림' 이라는 뜻이고,
+        #    **잘렸을 때는 반드시 보인다** — 무엇이 왜 빠졌는지는 숨기면 안 된다.
+        #  · conflicts: 비었으면 적지 않는다(같은 이유).
+        #  · strategy : 규칙 파일에 적힌 값을 그대로 옮기던 칸이다. 새 정보는
+        #    '실행 시 --conflict 로 덮어썼다'는 사실뿐이라, 그때만 cli 가 각인한다
+        #    (6-5 재현성). 없으면 "규칙 파일이 정한 대로" —
+        #    어느 규칙 파일인지는 meta.doctype_rule_version 이 가리킨다.
+        if self.truncated:
+            res["truncated"] = self.truncated
+        if self.conflicts:
+            res["conflicts"] = list(self.conflicts)
+        return res
 
 
 #------------------------------------------------------------------
@@ -655,17 +581,19 @@ def _title_allowed(file):
 # -out: error = 없음 (문서에 아무 신호도 없으면 그냥 빈 결과)
 #------------------------------------------------------------------
 def scan_doctype(text, file, doc_rule_set, taxonomy):
-    norm_path = _norm_path(file)
     defaults = getattr(doc_rule_set, "defaults", None)
     if defaults is None:
         from .doc_rules import Defaults
         defaults = Defaults()
     allow_title = _title_allowed(file)
+    # 신호별 신뢰도는 정책 파일에서 덮어쓸 수 있다(doc_rule.yaml 의 signals:).
+    # 없으면 None 이라 _scan_rule 이 코드 기본값으로 돈다.
+    sig = getattr(doc_rule_set, "signals", None)
 
     merged = {}   # dc_id -> {"confidence","from","evidence","parts"}
 
     for rule in doc_rule_set.active_rules:
-        hit = _scan_rule(text, file, norm_path, rule, defaults, allow_title)
+        hit = _scan_rule(text, file, rule, defaults, allow_title, sig)
         if hit is None:
             continue
         node = taxonomy.get(rule.node)
@@ -791,11 +719,14 @@ def _finalize(merged, taxonomy, conflict):
 def merge_embed_candidates(values, embed_signal, taxonomy, conflict, embed_cap=None):
     merged = {}
     for v in values or ():
+        # 레코드에는 근거가 signals 한 칸으로 합쳐져 있다(2026-09-10).
+        # 엔진 속 계산은 두 칸으로 다루므로 여기서 되돌린다.
+        evidence, parts = _split_signals(v)
         merged[v["dc_id"]] = {
             "confidence": v["confidence"],
             "from": set(v.get("from") or ()),
-            "evidence": dict(v.get("evidence") or {}),
-            "parts": list(v.get("score_parts") or []),
+            "evidence": evidence,
+            "parts": parts,
         }
 
     for ev in embed_signal.values:

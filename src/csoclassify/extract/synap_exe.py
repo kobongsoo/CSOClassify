@@ -11,7 +11,7 @@ import uuid
 
 from .. import config
 from .. import resources
-from .base import TextExtractor, ExtractError
+from .base import TextExtractor, ExtractError, check_size_limit
 
 
 class SynapExeExtractor(TextExtractor):
@@ -87,6 +87,11 @@ class SynapExeExtractor(TextExtractor):
         if not os.path.isfile(input_path):
             # 경로는 호출부(cli 의 file=<경로>)가 붙이므로 여기선 사유만 담는다(중복 방지).
             raise ExtractError("입력 파일 없음")
+
+        # 크기 상한(G1·G2). --synap-only 로 하이브리드를 끄고 도는 경로가 상한을
+        # 우회하면 안 되므로 여기서도 본다. 하이브리드의 폴백으로 불릴 때는 이미
+        # 통과한 파일이라 곧바로 통과한다(getsize 한 번이라 비용이 없다).
+        check_size_limit(input_path)
 
         out_path, keep = self._decide_output(input_path, save_dir)
 

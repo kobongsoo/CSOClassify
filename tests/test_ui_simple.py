@@ -55,7 +55,30 @@ def test_축을_안_쓰면_키가_없다():
     rec = {"file": "a.doc", "grade": "O", "hash": "h", "labels": {"security": "O"}}
     out = app.simple_record(rec)
     assert "doctype" not in out
+    assert "doc_id" not in out
     assert out == _simple_record(rec)
+
+
+#------------------------------------------------------------------
+# doc_id 도 화면과 엔진이 같은 규칙으로 고른다
+#=> 화면이 만든 축약본에는 doc_id 가 있는데 CLI 축약본에는 없다면(또는 그 반대면)
+#   "화면에서 만든 파일"과 "CLI 로 만든 파일"이 갈려 적재 결과가 달라진다.
+#   폴백을 None 으로 두는 규칙까지 두 쪽이 같아야 한다.
+#
+# -in: 없음
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_doc_id_도_같은_규칙으로_고른다():
+    base = {"file": "a.doc", "grade": "O", "hash": "h", "labels": {"security": "O"}}
+
+    got = dict(base, doc_id="SF_2026", doc_id_source="sfile_id")
+    assert app.simple_record(got) == _simple_record(got)
+    assert app.simple_record(got)["doc_id"] == "SF_2026"
+
+    fallback = dict(base, doc_id="abc123", doc_id_source="content")
+    assert app.simple_record(fallback) == _simple_record(fallback)
+    assert app.simple_record(fallback)["doc_id"] is None
 
 
 #------------------------------------------------------------------

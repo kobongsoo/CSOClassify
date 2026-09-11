@@ -171,7 +171,7 @@ pub fn propagate(vec: &[f32], seeds: &SeedIndex) -> EmbedSignal {
 // propagate_doctype 포팅(로드맵 D7). security 의 SeedIndex 와 같은 구조이지만
 // seed 하나가 등급 하나가 아니라 dc_id "집합"을 가진다 — 확정된 문서가 여러
 // 분류에 동시에 속할 수 있어서다(설계서 5-4: "사본 상속... 라벨 집합 전체 상속").
-// class_seed.jsonl 의 labels.doctype 필드를 읽는다 — security 의 grade 필드와는
+// class_seed.jsonl 의 doctype 필드를 읽는다(v3). security 의 grade 필드와는
 // 다른 키라 SeedIndex 와 파일을 공유해도 서로 간섭하지 않는다("한 파일에 두 축").
 // ============================================================================
 
@@ -190,9 +190,10 @@ impl DoctypeSeedIndex {
         self.label_sets.len()
     }
 
-    /// 외부 seed 저장소(class_seed.jsonl): labels.doctype 이 있는 줄만 담는다.
-    /// grade 만 있는(security 전용) 줄이나 labels.doctype 이 비어 있는 줄은
+    /// 외부 seed 저장소(class_seed.jsonl): doctype 이 있는 줄만 담는다.
+    /// grade 만 있는(security 전용) 줄이나 doctype 이 비어 있는 줄은
     /// 조용히 건너뛴다 — doctype 축을 안 쓰는 배포의 seed 파일을 그대로 읽어도 안전하다.
+    /// v3 는 평평한 doctype 칸, v1/v2 는 labels.doctype — 둘 다 읽는다.
     pub fn from_seed_file(path: &str) -> Self {
         let mut vecs = vec![]; let mut label_sets = vec![]; let mut files = vec![];
         if let Ok(txt) = fs::read_to_string(path) {
@@ -200,7 +201,11 @@ impl DoctypeSeedIndex {
                 let line = line.trim();
                 if line.is_empty() { continue; }
                 let e: Value = match serde_json::from_str(line) { Ok(v) => v, Err(_) => continue };
-                let dc_ids: Vec<String> = match e.get("labels").and_then(|l| l.get("doctype")).and_then(|d| d.as_array()) {
+                // v3 는 doctype 이 평평한 칸이다. 옛 파일(v1/v2)은 labels.doctype
+                // 에 있으므로 그것도 본다 — 배포판이 여러 벌 도는 동안 둘 다 돈다.
+                let dt = e.get("doctype")
+                    .or_else(|| e.get("labels").and_then(|l| l.get("doctype")));
+                let dc_ids: Vec<String> = match dt.and_then(|d| d.as_array()) {
                     Some(a) => a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect(),
                     None => continue,
                 };

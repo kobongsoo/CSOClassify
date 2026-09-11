@@ -66,7 +66,8 @@ def rec(f, dc="DC_001_001", conf=0.91, frm=("title", "name"), extra=(), vector=(
 def test_고신뢰_단일라벨_문서는_씨앗이_된다():
     seeds, st = seedgen.select_doctype_seeds([rec(r"D:\a\보고서.hwp")], mk_tax())
     assert len(seeds) == 1
-    assert seeds[0]["labels"]["doctype"] == ["DC_001_001"]
+    assert seeds[0]["doctype"] == ["DC_001_001"]   # 스키마 v3 — 평평한 칸
+    assert seeds[0]["v"] == 3
     assert seeds[0]["vector"] == [0.1, 0.2]
     assert st["채택"] == 1
 
@@ -221,18 +222,48 @@ def test_보안등급_씨앗은_보존된다(tmp_path):
     with open(p, "w", encoding="utf-8") as f:
         f.write(json.dumps({"file": "a.doc", "grade": "S", "vector": [0.1]}) + "\n")
         f.write(json.dumps({"file": "b.doc", "grade": "C", "vector": [0.2]}) + "\n")
-        # 이전 회차의 업무분류 씨앗 — 새 것으로 갈아 끼워져야 한다.
-        f.write(json.dumps({"file": "c.doc", "labels": {"doctype": ["DC_001_002"]},
+        # 지난 회차에 이 명령이 만든 씨앗 — 새 것으로 갈아 끼워져야 한다.
+        f.write(json.dumps({"v": 3, "file": "c.doc", "doctype": ["DC_001_002"],
+                            "source": seedgen.SEED_SOURCE, "vector": [0.3]}) + "\n")
+        # 사람이 화면에서 넣은 업무분류 씨앗 — 절대 지우면 안 된다.
+        f.write(json.dumps({"v": 3, "file": "d.doc", "doctype": ["DC_001_002"],
+                            "source": "phase6", "approved_by": "고봉수",
+                            "vector": [0.4]}) + "\n")
+
+    seeds, _ = seedgen.select_doctype_seeds([rec(r"D:\a\보고서.hwp")], mk_tax())
+    out = seedgen.merge_into(seeds, p)
+    assert out == {"기존유지": 3, "이전doctype제거": 1, "신규": 1,
+                   "출처없는업무분류": 0}
+
+    lines = [json.loads(x) for x in open(p, encoding="utf-8") if x.strip()]
+    assert [x.get("grade") for x in lines[:2]] == ["S", "C"]
+    assert len(lines) == 4
+    # 사람이 넣은 줄은 그대로 남았다 — 이것이 이 시험의 핵심이다.
+    assert lines[2]["file"] == "d.doc" and lines[2]["approved_by"] == "고봉수"
+    assert lines[3]["doctype"] == ["DC_001_001"]
+
+
+#------------------------------------------------------------------
+# 출처를 모르는 옛 씨앗은 지우지 않고 세어서 알린다 <중요>
+#=> 2026-09-08 이전 판이 만든 줄에는 source 가 없다. 그래서 "이 명령이 만든 것"
+#   인지 "사람이 넣은 것"인지 구분할 방법이 없다. 지우는 쪽을 택하면 사람이
+#   확정한 기준이 말없이 사라진다 — 그쪽이 훨씬 나쁘므로 남긴다.
+#   대신 몇 건이 그렇게 남았는지 세어, 호출부가 사람에게 알릴 수 있게 한다
+#   (조용히 쌓이면 왜 씨앗이 늘어나는지 아무도 모른다).
+#------------------------------------------------------------------
+def test_출처_모르는_옛_씨앗은_남기고_센다(tmp_path):
+    p = str(tmp_path / "class_seed.jsonl")
+    with open(p, "w", encoding="utf-8") as f:
+        # 옛 v1 줄 — source 가 없다.
+        f.write(json.dumps({"file": "old.doc", "labels": {"doctype": ["DC_001_002"]},
                             "vector": [0.3]}) + "\n")
 
     seeds, _ = seedgen.select_doctype_seeds([rec(r"D:\a\보고서.hwp")], mk_tax())
     out = seedgen.merge_into(seeds, p)
-    assert out == {"기존유지": 2, "이전doctype제거": 1, "신규": 1}
-
+    assert out["이전doctype제거"] == 0        # 지우지 않았다
+    assert out["출처없는업무분류"] == 1        # 대신 세었다
     lines = [json.loads(x) for x in open(p, encoding="utf-8") if x.strip()]
-    assert [x.get("grade") for x in lines[:2]] == ["S", "C"]
-    assert len(lines) == 3
-    assert lines[2]["labels"]["doctype"] == ["DC_001_001"]
+    assert len(lines) == 2
 
 
 #------------------------------------------------------------------

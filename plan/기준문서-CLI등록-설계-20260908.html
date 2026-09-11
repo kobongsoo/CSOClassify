@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기준 문서 CLI 등록(--seed-add) 설계</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  .kbd{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;background:var(--chip);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:.9em}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700;border:1px solid var(--line)}
+  .tag.c{color:var(--c)} .tag.s{color:var(--s)} .tag.o{color:var(--o)}
+  .ok{color:var(--o);font-weight:700}
+  .bad{color:var(--c);font-weight:700}
+  .mid{color:var(--s);font-weight:700}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .danger{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .gate{font-weight:800;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>기준 문서 CLI 등록 <span class="kbd">--seed-add</span></h1>
+  <p>화면 없이 <code>MpowerClassify.exe</code> 한 번으로 <b>기준 문서(class_seed.jsonl)를 등록</b>한다.
+  웹·배치 등 다른 프로세스가 UI 를 거치지 않고 부를 수 있게 하는 것이 목적이다.
+  <span class="pill ok">2026-09-08 구현 완료</span></p>
+  <p class="muted" style="margin-top:8px">작성 2026-09-08 · <b>2026-09-08 개정(스키마 v3)</b> ·
+  대상 <code>csoclassify</code>(Python) / <code>MpowerClassify-rs</code>(Rust) ·
+  관련 <a href="기준문서-seed저장소-v3평탄화-설계-20260908.html">저장소 v3 평탄화 설계</a> ·
+  <a href="기준문서-두축-seed저장소-설계.html">기준 문서 저장소 설계</a></p>
+  <div class="warn" style="margin-top:14px"><b>개정 이유 — 저장소가 v3(평평한 한 줄)로 바뀌었다</b>
+  <span class="pill">2026-09-08 확정·구현 완료</span><br>
+  이 설계서는 처음에 <b>v2(중첩 <code>axes</code>)</b> 를 전제로 썼다. 그 사이 저장소가 v3 로
+  확정·구현됐으므로 그대로 두면 <b>구현하는 사람이 이미 없어진 모양을 만들게 된다</b>.
+  특히 v3 에서 <b>뜻이 새로 생긴 두 칸이 이 설계서에 아예 없었다</b>:
+  <br>· <code>doc_id</code> — 외부 시스템의 문서 식별자. <b>목록 파일에 받을 자리를 만들어야 한다</b>(7-2)
+  <br>· <code>hash</code> — 원본이 바뀌었는지 보는 <b>유일한</b> 근거.
+  <b>벡터만이 아니라 지문도 구해야 한다</b>(8장)
+  <br>바뀐 대목: 1 · 5 · 6 · 7-2 · 8 · 9 · 13-3 · 15 · 16장.</div>
+  <div class="note"><b>상태 — 2026-09-08 Q1~Q6 확정·두 판 구현 완료</b><br>
+  파이썬·Rust 양쪽에 <code>--seed-add</code>·<code>--seed-add-from</code> 을 넣었고,
+  <code>seedstore</code> 를 라이브러리로 옮겼으며, <code>--make-doctype-seeds</code> 를
+  같은 writer 로 통일했다. 테스트는 <b>파이썬 658건 · Rust 182건</b> 통과.
+  <b>같은 문서를 두 판으로 등록해 대조했더니 <code>ts</code>·<code>vector</code>·
+  <code>engine</code> 을 뺀 나머지가 키 차례까지 같았다</b>(T1b).
+  실측 결과는 15장에, 만들면서 설계서가 틀렸던 두 곳은 13-4·10장에 적었다.</div>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:16px">목차</h3>
+  <ul class="toc">
+    <li><a href="#bg">1. 배경 — writer 가 이미 둘이다 <span class="pill">핵심</span></a></li>
+    <li><a href="#goal">2. 목표와 비목표</a></li>
+    <li><a href="#principle">3. 설계 원칙</a></li>
+    <li><a href="#move">4. 1부 — <code>seedstore</code> 를 라이브러리로</a></li>
+    <li><a href="#unify">5. 2부 — <code>--make-doctype-seeds</code> 를 v3 로</a></li>
+    <li><a href="#cli">6. 3부 — <code>--seed-add</code> 옵션</a></li>
+    <li><a href="#multi">7. 문서마다 다른 등급·분류 주기 <span class="pill">핵심</span></a></li>
+    <li><a href="#flow">8. 처리 흐름 (UI 와 같아야 한다)</a></li>
+    <li><a href="#out">9. 출력 — 파일 · stdout</a></li>
+    <li><a href="#concur">10. 동시 쓰기 <span class="pill">주의</span></a></li>
+    <li><a href="#exit">11. 실패와 종료코드</a></li>
+    <li><a href="#audit">12. 감사 기록</a></li>
+    <li><a href="#rust">13. Rust 판도 지원한다</a></li>
+    <li><a href="#scope">14. 영향 범위</a></li>
+    <li><a href="#test">15. 테스트 계획</a></li>
+    <li><a href="#open">16. 미결정</a></li>
+  </ul>
+</section>
+
+<!-- 1 -->
+<h2 id="bg"><span class="n">1</span> 배경 — writer 가 이미 둘이고, 모양이 다르다</h2>
+<section class="card">
+  <p>지금도 CLI 는 <code>class_seed.jsonl</code> 을 쓴다(<code>--make-doctype-seeds</code>).
+  그런데 <b>UI 와 다른 모양</b>으로 쓴다.</p>
+  <div class="scroll"><table>
+    <tr><th>누가</th><th>어디</th><th>쓰는 모양</th><th>어떻게 쓰나</th></tr>
+    <tr><td>화면</td><td><code>ui/seedstore.py</code> <span class="def">함수 38개</span></td>
+        <td class="ok">v3 — <code>v·file·doc_id·hash·grade·doctype·source·<br>
+            approved_by·note·ts·dim·(hold)·vector</code></td>
+        <td class="ok"><code>save_seeds()</code> 한 곳</td></tr>
+    <tr><td>CLI</td><td><code>classify/seedgen.py::merge_into</code></td>
+        <td class="ok">v3 <span class="def">— 2026-09-08 맞춤</span><br>
+            <span class="def">다만 <code>hash</code>·<code>doc_id</code>·<code>approved_by</code> 는 못 채운다</span></td>
+        <td class="bad"><b><code>json.dumps</code> 로 직접</b><br>
+            <span class="def">seedstore 를 거치지 않는다</span></td></tr>
+  </table></div>
+  <p class="muted">즉 <b>모양은 같아졌지만 쓰는 길이 아직 둘</b>이다. 아래가 그래서 남은 문제다.</p>
+
+  <div class="note"><b>표의 '지금'은 v3 이전 상태다</b> <span class="pill">2026-09-08 갱신</span> —
+  화면은 이제 <b>v3(평평)</b> 로 쓰고, <code>seedgen</code> 도 v3 모양으로 쓰도록 함께 고쳤다.
+  <b>모양은 맞췄지만 writer 는 아직 둘이다</b> — <code>seedgen.merge_into()</code> 가
+  <code>seedstore</code> 를 거치지 않고 여전히 <b>직접 파일을 쓴다</b>. 아래 문제는 그대로 남아 있다.</div>
+
+  <div class="danger"><b>지금 무슨 일이 벌어지고 있나</b><br>
+  <code>--make-doctype-seeds</code> 로 만든 줄에는 <b>누가 넣었는지가 없다</b>
+  (<code>source: "make-doctype-seeds"</code> 와 <code>ts</code> 는 v3 전환 때 넣었지만,
+  <code>approved_by</code> 는 여전히 비어 있다 — CLI 가 검토자를 받을 수단이 없어서다).
+  기준 문서는 다른 문서의 등급을 정하는 잣대라, 출처가 없다는 것은 가볍지 않다.</div>
+
+  <div class="note"><b>그래서 이 작업의 본체는 CLI 옵션이 아니다.</b>
+  여기에 세 번째 writer 를 붙이면 상태가 더 나빠진다. <b>writer 를 하나로 합치는 것</b>이
+  먼저이고, <code>--seed-add</code> 는 그 위에 얹는 얇은 껍데기다.
+  <br><span class="def">다행히 <code>ui/seedstore.py</code> 는 <code>json·os·datetime·numpy</code> 만
+  쓴다 — <b>streamlit 의존이 전혀 없어</b> 그대로 옮길 수 있다(실측 확인).</span></div>
+</section>
+
+<!-- 2 -->
+<h2 id="goal"><span class="n">2</span> 목표와 비목표</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>목표</th><th>내용</th></tr>
+    <tr><td>G1</td><td>웹·배치가 <b>exe 한 번</b>으로 기준 문서를 등록할 수 있다(화면 불필요)</td></tr>
+    <tr><td>G2</td><td>검토자·메모를 CLI 로 받아 <b>출처가 남는</b> 기준 문서를 만든다</td></tr>
+    <tr><td>G3</td><td>결과를 <b>파일에 병합</b>하거나 <b>stdout 으로</b> 낼 수 있다</td></tr>
+    <tr><td>G4</td><td>화면으로 넣든 CLI 로 넣든 <b>같은 줄</b>이 나온다(writer 하나)</td></tr>
+  </table></div>
+  <div class="scroll"><table>
+    <tr><th>비목표</th><th>이유</th></tr>
+    <tr><td>기준 문서 <b>수정·해제·삭제</b>를 CLI 로</td>
+        <td>이번 범위는 '등록'이다. 수정은 사람이 화면에서 앞뒤를 보고 하는 일이라,
+            자동화 대상이 아니다</td></tr>
+    <tr><td>여러 프로세스의 동시 파일 쓰기를 완전히 보장</td>
+        <td>9장 — 원자적 교체와 잠금까지는 하되, "여러 대에서 동시에"까지는 이 도구의 몫이 아니다</td></tr>
+  </table></div>
+</section>
+
+<!-- 3 -->
+<h2 id="principle"><span class="n">3</span> 설계 원칙</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>#</th><th>원칙</th><th>뜻</th></tr>
+    <tr><td>P1</td><td><b>writer 는 하나</b></td>
+        <td>화면·CLI·<code>--make-doctype-seeds</code> 가 같은 <code>seedstore</code> 를 쓴다.
+            모양이 갈리면 어느 쪽이 맞는지 아무도 모른다</td></tr>
+    <tr><td>P2</td><td><b>출처 없는 기준 문서를 만들지 않는다</b></td>
+        <td><code>--seed-reviewer</code> 는 <b>필수</b>. 화면이 검토자 없이는 등록을 막는 것과 같은 규약</td></tr>
+    <tr><td>P3</td><td><b>반쪽 파일을 남기지 않는다</b></td>
+        <td>전체 다시 쓰기라 중간에 죽으면 파일이 깨진다 — 임시파일 + 원자적 교체(12장)</td></tr>
+    <tr><td>P4</td><td><b>부분 실패가 숨지 않는다</b></td>
+        <td>10건 중 3건이 벡터를 못 얻으면 <b>7건 성공·3건 실패</b>가 종료코드와 요약에 드러난다</td></tr>
+    <tr><td>P5</td><td><b>stdout 은 기계가 읽는 것</b></td>
+        <td>stdout 에는 <b>jsonl 만</b> 나간다. 사람이 읽는 안내·진행률은 전부 stderr</td></tr>
+  </table></div>
+</section>
+
+<!-- 4 -->
+<h2 id="move"><span class="n">4</span> 1부 — <code>seedstore</code> 를 라이브러리로 옮긴다</h2>
+<section class="card">
+<pre><code>ui/seedstore.py  →  src/csoclassify/seedstore.py</code></pre>
+  <div class="scroll"><table>
+    <tr><th>확인</th><th>결과</th></tr>
+    <tr><td>UI 의존</td><td class="ok">없음 — <code>json · os · datetime · numpy</code> 뿐</td></tr>
+    <tr><td>exe 포함</td><td class="ok">패키지 안이라 PyInstaller 가 자동으로 담는다</td></tr>
+    <tr><td>화면 쪽 수정</td><td><code>ui/app.py</code> · <code>ui/doctype_review.py</code> ·
+        <code>ui/uiwords.py</code> 의 import 한 줄씩</td></tr>
+    <tr><td>테스트</td><td><code>test_ui_seedstore.py</code> 등 4개 파일의 import 경로</td></tr>
+  </table></div>
+  <div class="note"><b>화면에서 지우지 않고 '옮긴다'</b> — <code>ui/seedstore.py</code> 를 남겨 두고
+  라이브러리를 다시 내보내는 얇은 파일로 만들면 import 를 안 고쳐도 되지만, <b>그렇게 하지 않는다</b>.
+  같은 이름의 모듈이 두 곳에 보이면 다음 사람이 "어느 쪽이 진짜인가"를 매번 되짚는다.
+  import 를 고치는 편이 한 번의 수고로 끝난다.</div>
+</section>
+
+<!-- 5 -->
+<h2 id="unify"><span class="n">5</span> 2부 — <code>--make-doctype-seeds</code> 도 v3 로</h2>
+<section class="card">
+  <p><b>절반은 이미 됐다</b> — v3 전환 때 <code>seedgen</code> 이 쓰는 줄의 <b>모양</b>을 맞췄다.
+  남은 절반은 <b><code>seedstore.save_seeds()</code> 를 거치게 하는 것</b>이다
+  (지금은 <code>merge_into()</code> 가 <code>json.dumps</code> 로 직접 쓴다 — writer 가 둘인 상태).</p>
+<pre><code><span class="cmt">:: 옛 모양(v1) — 2026-09-08 이전</span>
+{"file": "...", "labels": {"doctype": ["DC_0061"]}, "vector": [...]}
+
+<span class="cmt">:: 지금(v3) — 모양은 맞췄다</span>
+{"v": 3, "file": "...", "doctype": ["DC_0061"],
+ "source": "make-doctype-seeds", "ts": "2026-09-08 10:00:00",
+ "dim": 384, "vector": [...]}
+
+<span class="cmt">:: 이 작업 뒤 — 지문·문서ID·검토자까지 채운다</span>
+{"v": 3, "file": "...", "doc_id": "&lt;sfile_id 를 얻었을 때만&gt;",
+ "hash": "2438eafe…", "doctype": ["DC_0061"],
+ "source": "make-doctype-seeds",
+ "approved_by": "&lt;--seed-reviewer 또는 빈값&gt;",
+ "ts": "2026-09-08 10:00:00", "dim": 384, "vector": [...]}</code></pre>
+  <div class="danger"><b>지금 이 명령을 운영 파일에 돌리면 사람이 넣은 기준 18건이 지워진다</b>
+  <span class="pill">실측</span><br>
+  <code>merge_into()</code> 는 <b><code>doctype</code> 이 있는 줄을 전부</b> '이전 회차의 씨앗'으로 보고 버린다.
+  운영 파일 <code>ui/policy/class_seed.jsonl</code> 을 재어 보면:
+<pre style="margin:8px 0"><code>전체 19행 · doctype 있는 줄 18행
+그 중 source 가 make-doctype-seeds 인 줄  :  0행
+사람이 화면에서 넣은 줄(phase4+phase6·upload) : 18행   ← <b>전부 지워진다</b></code></pre>
+  이 파일에는 자동 생성 씨앗이 한 줄도 없는데, 명령을 돌리면 <b>18행이 통째로 사라진다</b>.
+  아래 표의 '갈아 끼우기 기준'을 <code>source</code> 로 바꾸는 일이 <b>이 작업에서 가장 급한 대목</b>이다.</div>
+  <div class="scroll"><table>
+    <tr><th>지켜야 할 것</th><th>내용</th></tr>
+    <tr><td><b>기존 파일 호환</b></td>
+        <td>이미 있는 v1/v2 줄은 <code>ensure_v3</code> 가 올려 읽는다 — <b>깨지지 않는다</b>.
+            다만 그 줄들의 <code>approved_by</code> 는 여전히 비어 있다(없던 정보를 지어내지 않는다)</td></tr>
+    <tr><td><b>'갈아 끼우기' 동작 유지</b></td>
+        <td>지금 <code>merge_into</code> 는 <b>이전 회차의 doctype 씨앗을 지우고</b> 새로 넣는다.
+            이 뜻은 그대로 둔다 — 다만 <b>판단 기준을 "doctype 이 있는 줄"이 아니라
+            <code>source</code> 에 <code>make-doctype-seeds</code> 가 든 줄</b>로 바꿔,
+            <b>사람이 손으로 넣은 doctype 씨앗을 지우지 않게</b> 한다
+            <span class="def">지금은 사람이 넣은 것도 함께 지워진다 — 이 참에 고친다</span></td></tr>
+    <tr><td><b>보안등급 씨앗</b></td><td>건드리지 않는다(지금도 그렇다)</td></tr>
+  </table></div>
+</section>
+
+<!-- 6 -->
+<h2 id="cli"><span class="n">6</span> 3부 — <code>--seed-add</code> 옵션</h2>
+<section class="card">
+<pre><code>MpowerClassify.exe --seed-add "D:\문서\계약서.docx" "D:\문서\보고서.hwp" \
+                --seed-grade C \
+                --seed-doctype DC_006_001,DC_001_003 \
+                --seed-reviewer "고봉수" \
+                --seed-note "표준 계약서 본보기" \
+                --seeds "D:\policy\class_seed.jsonl"</code></pre>
+  <div class="scroll"><table>
+    <tr><th>옵션</th><th>값</th><th>뜻</th></tr>
+    <tr><td><code>--seed-add</code></td><td>파일 경로 <b>1개 이상</b></td>
+        <td>등록할 문서. 여러 개를 <b>한 번에</b> 임베딩한다(모델을 한 번만 올린다).
+            아래 축 값이 <b>모든 파일에 그대로</b> 적용된다</td></tr>
+    <tr><td><code>--seed-add-from</code></td><td>목록 파일 또는 <code>-</code></td>
+        <td><b>문서마다 다른 값</b>을 줄 때(7장). 한 줄에 한 문서인 jsonl.
+            <code>--seed-add</code> 와 <b>배타</b></td></tr>
+    <tr><td><code>--seed-grade</code></td><td><code>C</code>·<code>S</code>·<code>O</code></td>
+        <td>보안등급 축</td></tr>
+    <tr><td><code>--seed-doctype</code></td><td><code>dc_id</code> 콤마 나열</td>
+        <td>업무분류 축(여러 개 가능)</td></tr>
+    <tr><td><code>--seed-reviewer</code></td><td>이름</td>
+        <td><b>필수</b> — 없으면 <code>bad_args</code> 로 끝낸다(P2)</td></tr>
+    <tr><td><code>--seed-note</code></td><td>메모</td><td>선택</td></tr>
+    <tr><td><code>--filelist</code> <span class="pill">기존 옵션</span></td><td><code>{path, sfile_id}</code> 목록</td>
+        <td><b><code>doc_id</code> 를 채우는 유일한 정당한 출처.</b> 주면 그 목록에서 찾아
+            <code>doc_id</code> 를 적고, 못 찾으면 <b>적지 않는다</b>(아래 상자)</td></tr>
+    <tr><td><code>--seeds</code></td><td>경로</td>
+        <td><b>기존 옵션 재사용.</b> 주면 그 파일에 병합, <b>안 주면 stdout</b>(9장)</td></tr>
+  </table></div>
+  <div class="warn"><b><code>doc_id</code> 는 지어내지 않는다</b> <span class="pill">v3</span> —
+  분류 레코드는 <code>doc_id</code> 를 <b><code>sfile_id</code> 로 채워진 경우에만</b> 싣는다.
+  <span class="def">2026-09-10 부터는 분류 레코드도 같은 규칙이라
+  (<code>doc_id</code> = <code>sfile_id</code> 뿐), 아래 서술의 '폴백 doc_id' 는 그 이전 이야기입니다.</span>
+  폴백(<code>content</code>)은 <b>파일 해시 앞 40자</b>였고 그 값을 한 칸 더 실으면
+  <b>MpowerV11 문서 ID 처럼 생긴 값이 적재 쪽으로 흘러가 같은 문서가 두 건으로 들어간다</b>.
+  <span class="def">이 규약은 이미 <code>cli.py::_simple_record</code> 에 그렇게 구현돼 있다.</span>
+  <br><b>기준 문서도 같은 규약을 따른다</b> — <code>doc_id</code> 를 얻는 길은 두 가지뿐이고,
+  둘 다 실패하면 <b>그 칸을 아예 안 적는다</b>(받는 쪽은 "없으면 <code>hash</code> 로 가린다"):
+  <br>① 목록 파일(<code>--seed-add-from</code>)의 <code>doc_id</code> 칸 — <b>웹이 직접 준다(권장)</b>
+  <br>② <code>--filelist</code> 로 준 <code>{path, sfile_id}</code> 매핑에서 찾기</div>
+
+  <div class="scroll"><table>
+    <tr><th>인자 검사(문서를 읽기 전에)</th><th>결과</th></tr>
+    <tr><td><code>--seed-reviewer</code> 없음</td><td><code>bad_args</code> · exit 3</td></tr>
+    <tr><td>등급도 업무분류도 없음</td><td><code>bad_args</code> · exit 3
+        <span class="def">축을 하나도 안 정하면 아무 뜻이 없는 줄이 된다</span></td></tr>
+    <tr><td><code>--seed-grade</code> 가 C/S/O 가 아님</td><td><code>bad_failsafe</code> 와 같은 결
+        — 새 코드 없이 <code>bad_args</code></td></tr>
+    <tr><td><code>--seed-doctype</code> 이 분류체계에 없는 <code>dc_id</code></td>
+        <td><b>막는다</b>(<code>bad_args</code>) — 없는 분류로 씨앗을 만들면 전파가 조용히 헛돈다.
+            <span class="def"><code>--taxonomy</code> 가 있을 때만 검사하고, 없으면 경고 후 진행</span></td></tr>
+    <tr><td><code>--seed-add</code> 와 <code>--file</code>/<code>--dir</code> 을 함께</td>
+        <td>배타 — <code>mode_conflict</code> · exit 3</td></tr>
+    <tr><td>목록 줄의 <code>doc_id</code> 가 서로 다른 문서에 같은 값</td>
+        <td>막는다(<code>bad_args</code>) — 같은 신분증을 두 문서에 붙이면
+            받는 쪽에서 한 문서가 다른 문서를 덮는다</td></tr>
+  </table></div>
+</section>
+
+<!-- 7 -->
+<h2 id="multi"><span class="n">7</span> 문서마다 다른 등급·분류 주기 <span class="pill">핵심</span></h2>
+<section class="card">
+  <p>여러 문서를 한 번에 넣을 때 <b>문서마다 등급과 업무분류가 다른 것이 보통</b>이다.
+  이것을 어떻게 받을지가 이 옵션 설계에서 가장 조심할 지점이다.</p>
+
+  <h3>7-1. 나란한 목록(positional)은 쓰지 않는다</h3>
+<pre><code><span class="cmt">:: 이렇게 하자는 안 — 채택하지 않는다</span>
+--seed-add "a.txt" "b.txt" "c.txt" \
+--seed-grade C,S,S \
+--seed-doctype "DC_006,DC_005_001" "DC_004" "DC_006_003,DC_005"</code></pre>
+  <div class="danger"><b>이 방식은 틀려도 성공한 것처럼 보인다.</b>
+  파일이 3개인데 등급을 2개만 적으면(또는 하나가 밀리면) <b>모든 문서의 등급이 한 칸씩 어긋난다</b>.
+  그런데 실행은 정상 종료하고 "3건 등록"이라고 나온다 — <b>잘못된 등급이 잣대로 들어앉는다</b>.
+  기준 문서는 다른 문서의 등급을 정하는 값이라, 이 실수의 대가가 특히 크다.</div>
+  <div class="scroll"><table>
+    <tr><th>문제</th><th>내용</th></tr>
+    <tr><td><b>조용한 어긋남</b></td>
+        <td>개수가 맞기만 하면 <b>순서가 틀려도 아무도 모른다</b>. 파일 이름과 등급이
+            떨어져 있어 사람이 눈으로 검토하기도 어렵다</td></tr>
+    <tr><td><b>따옴표 지옥</b></td>
+        <td>업무분류는 '문서마다 여러 개'라 <b>목록의 목록</b>이 된다.
+            <code>"DC_006,DC_005_001" "DC_004"</code> — 셸·PowerShell·<code>subprocess</code> 마다
+            따옴표 처리가 달라, 웹에서 부를 때 가장 깨지기 쉬운 부분이다</td></tr>
+    <tr><td><b>빈 칸 표현 불가</b></td>
+        <td>"이 문서는 업무분류를 안 준다"를 어떻게 적나? <code>""</code> 를 넣으면
+            셸이 지워 버리는 경우가 있다</td></tr>
+    <tr><td><b>메모도 문서마다</b></td>
+        <td>메모까지 나란한 목록으로 만들면 목록이 넷이 된다 — 관리 불가</td></tr>
+  </table></div>
+
+  <h3>7-2. 채택 — 문서마다 한 줄(jsonl) <span class="ok">권고</span></h3>
+  <p>여러 문서에 <b>서로 다른</b> 값을 줄 때는 <b>목록 파일</b>로 받는다.
+  이 프로젝트에는 이미 같은 규약이 있다 — <code>--files-from -</code> 가 표준입력을 받는다.</p>
+<pre><code>MpowerClassify.exe --seed-add-from list.jsonl --seed-reviewer "고봉수" --seeds "…/class_seed.jsonl"
+
+<span class="cmt">:: list.jsonl — 한 줄에 문서 하나</span>
+{"file":"a.txt","doc_id":"SF-100231","grade":"C","doctype":["DC_006","DC_005_001"],"note":"표준 계약서"}
+{"file":"b.txt","doc_id":"SF-100232","grade":"S","doctype":["DC_004"]}
+{"file":"c.txt","doctype":["DC_006_003","DC_005"]}          <span class="cmt">← 등급 없이 업무분류만 · doc_id 없음</span>
+{"file":"d.txt","grade":"O"}                                <span class="cmt">← 등급만</span></code></pre>
+  <div class="scroll"><table>
+    <tr><th>칸</th><th>필수</th><th>뜻</th></tr>
+    <tr><td><code>file</code></td><td class="req">필수</td><td>등록할 문서 경로</td></tr>
+    <tr><td><code>doc_id</code> <span class="pill">v3 신설</span></td><td class="opt">선택</td>
+        <td><b>외부 시스템(MpowerV11)의 문서 식별자.</b> 주면 그대로 적는다.
+            <b>안 주면 만들어 내지 않고 칸을 비운다</b>(6장) —
+            <code>--filelist</code> 를 함께 주면 거기서 찾아 채운다</td></tr>
+    <tr><td><code>grade</code></td><td class="opt">선택</td><td><code>C</code>·<code>S</code>·<code>O</code></td></tr>
+    <tr><td><code>doctype</code></td><td class="opt">선택</td><td><code>dc_id</code> 배열(문자열 하나도 허용 — 배열로 정규화)</td></tr>
+    <tr><td><code>note</code></td><td class="opt">선택</td><td>이 문서의 메모(없으면 <code>--seed-note</code>)</td></tr>
+    <tr><td><code>reviewer</code></td><td class="opt">선택</td><td>이 문서의 검토자(없으면 <code>--seed-reviewer</code>)</td></tr>
+  </table></div>
+  <div class="note"><b><code>hash</code> 칸은 받지 않는다 — CLI 가 직접 잰다</b> <span class="pill">v3</span><br>
+  <code>hash</code> 는 "지금 이 파일의 내용"이어야 뜻이 있다. 부르는 쪽이 준 값을 그대로 믿으면,
+  값이 낡았거나 다른 파일의 것이어도 알 수 없고 <b>원본 변경 판정(stale)이 조용히 헛돈다</b>.
+  어차피 문서를 열어 임베딩하므로 <b>지문은 그 김에 공짜로 얻는다</b>(8장 ③).</div>
+  <p><code>--seed-add-from -</code> 로 <b>표준입력</b>도 받는다 — 웹이 임시파일을 만들지 않아도 된다.</p>
+  <div class="note"><b>왜 이 방식인가</b><br>
+  ① <b>짝이 한 줄 안에 있다</b> — 파일과 등급이 붙어 있어 사람이 눈으로 검토할 수 있고,
+  개수가 어긋날 수가 없다.
+  <br>② <b>따옴표 문제가 없다</b> — 웹이 만드는 것은 JSON 이지 셸 문자열이 아니다.
+  <br>③ <b>늘리기 쉽다</b> — 나중에 칸을 더해도 기존 호출이 안 깨진다.
+  <span class="def">실제로 그렇게 됐다 — v3 전환으로 <code>doc_id</code> 칸이 늘었지만,
+  그 칸을 안 주는 옛 호출은 그대로 돈다.</span>
+  <br>④ 받는 쪽(웹)은 이미 JSON 을 다룬다 — 새로 배울 문법이 없다.</div>
+
+  <h3>7-3. 간단한 경우는 지금 플래그 그대로</h3>
+  <p><b>모두 같은 등급</b>이면 목록 파일이 과하다. 6장의 플래그를 그대로 쓴다.</p>
+<pre><code><span class="cmt">:: 세 문서 모두 C · 같은 업무분류 — 이건 지금도 자연스럽다</span>
+--seed-add "a.txt" "b.txt" "c.txt" --seed-grade C --seed-doctype DC_006 --seed-reviewer "고봉수"</code></pre>
+  <div class="scroll"><table>
+    <tr><th>쓰는 법</th><th>언제</th></tr>
+    <tr><td><code>--seed-add &lt;파일…&gt;</code> + <code>--seed-grade</code>/<code>--seed-doctype</code></td>
+        <td>여러 문서가 <b>같은 값</b>일 때 — 그 값이 <b>모든 파일에 그대로</b> 적용된다</td></tr>
+    <tr><td><code>--seed-add-from &lt;목록&gt;</code> 또는 <code>-</code></td>
+        <td>문서마다 <b>다른 값</b>일 때 — <b>웹에서 부를 때 권장</b></td></tr>
+  </table></div>
+  <div class="warn"><b>둘을 섞으면 어떻게 되나</b> — <code>--seed-add</code> 와
+  <code>--seed-add-from</code> 을 함께 주면 <b>거절한다</b>(<code>mode_conflict</code> · exit 3).
+  "목록에도 있고 인자에도 있는데 값이 다르면 무엇이 이기나"를 사람이 매번 되짚어야 하는
+  상태를 만들지 않는다.
+  <br>다만 <code>--seed-reviewer</code>·<code>--seed-note</code> 는 <b>목록의 기본값</b>으로 함께 쓴다 —
+  줄마다 검토자를 반복해 적지 않아도 되게.</div>
+
+  <h3>7-4. 그래도 나란한 목록을 쓰고 싶다면</h3>
+  <p>지금은 <b>만들지 않는다</b>. 만약 나중에 넣는다면 <b>개수가 정확히 같지 않으면 거절</b>하는
+  조건이 반드시 함께 가야 한다 — 그것만으로도 7-1 의 '조용한 어긋남'은 막힌다.
+  다만 <b>순서가 틀린 것</b>은 여전히 못 잡는다.</p>
+</section>
+
+<!-- 8 -->
+<h2 id="flow"><span class="n">8</span> 처리 흐름 — 화면과 같은 7단계</h2>
+<section class="card">
+  <p>화면(<code>ui/app.py::render_seed_add</code>)이 하는 일을 <b>그대로</b> 한다.
+  같은 함수를 쓰므로 결과가 갈릴 수 없다.</p>
+<pre><code>① 인자 검사        검토자·축·경로 (6장)
+② 대상 확인        파일이 실제로 있나 — 없으면 그 건만 실패로 세고 계속
+③ 지문·벡터        한 번 읽어 <b>둘 다</b> 얻는다
+                   · hash    = SHA-256 (cli.py::_file_hash) — <b>--hash 옵션과 무관하게 항상</b>
+                   · vector  = --with-vector 와 같은 경로로 임베딩
+                   <span class="cmt">화면은 exe 를 다시 불러 얻지만, CLI 는 이미 그 안이라 바로 계산한다</span>
+④ 문서 ID          목록의 doc_id → 없으면 --filelist 에서 찾기 → 둘 다 없으면 <b>칸을 안 적는다</b> (6장)
+⑤ 축 얹기          seedstore.set_axis(..., doc={"hash": …}) 를 축마다 — security · doctype 따로
+⑥ 감사 기록        seedstore.append_seed_audit(...) 를 축마다 (12장)
+⑦ 저장             --seeds 있으면 save_seeds(원자적 교체) · 없으면 stdout (9·10장)
+⑧ 요약·종료코드    stderr 에 성공/실패 건수, exit 코드로 결과 구분 (12장)</code></pre>
+  <div class="danger"><b>지문(<code>hash</code>)을 빠뜨리면 그 기준 문서는 영영 늙지 않는다</b>
+  <span class="pill">v3 에서 중요해진 대목</span><br>
+  v3 는 <b>원본이 바뀌었는지 보는 근거가 <code>hash</code> 하나뿐</b>이다
+  (<code>size</code>·<code>mtime</code> 은 읽는 코드가 없어 뺐다).
+  지문 없이 등록된 줄은 <code>check_seeds()</code> 의 <code>stale</code> 판정에서
+  <b>"모르면 조용히 넘어간다"</b> 가지에 걸려, 원본이 아무리 바뀌어도
+  <b>경고 한 줄 없이 옛 벡터로 계속 전파한다</b>.
+  <br>그래서 <code>--hash</code> 를 안 줘도 <b>--seed-add 경로에서는 항상 잰다</b>.
+  파일을 어차피 열어 읽으므로 추가 비용이 사실상 없다.
+  <span class="def">화면은 이미 그렇게 한다 — <code>ui/app.py::seed_doc_meta()</code> 가
+  분류 레코드의 <code>hash</code> 를 그대로 실어 준다.</span></div>
+  <div class="note"><b>화면보다 단순해지는 지점</b> — 화면은 벡터를 얻으려고
+  <b>exe 를 자식 프로세스로 다시 띄운다</b>(<code>gerunner.embed_files</code>: 임시폴더에
+  번호를 붙여 하드링크 → <code>--dir</code> 실행 → 파일명 앞 번호로 원본과 다시 잇기).
+  CLI 는 <b>이미 그 프로세스 안</b>이라 그 왕복이 통째로 사라진다 — 번호 붙이기·되잇기도 필요 없다.</div>
+  <div class="warn"><b>저장되는 <code>file</code> 값</b> — 화면은 업로드라 <b>파일 이름만</b> 남긴다
+  (임시 경로를 적으면 다음 실행 때 '원본 없음'이 되므로). CLI 는 <b>진짜 경로가 있으므로 경로를 그대로</b> 남긴다.
+  그래야 나중에 원본 점검·재임베딩이 된다. <span class="def">두 경로가 섞여도 문제없다 —
+  <code>norm_file</code> 이 비교를 맡고, 업로드 줄은 이미 '이름만' 형태로 취급된다.</span></div>
+</section>
+
+<!-- 9 -->
+<h2 id="out"><span class="n">9</span> 출력 — 파일 · stdout</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th><code>--seeds</code></th><th>동작</th><th>쓰임</th></tr>
+    <tr><td><b>줬을 때</b></td>
+        <td>그 파일을 읽어 <b>병합</b>하고 전체를 다시 쓴다(원자적 교체).
+            stdout 에는 아무것도 안 나간다</td>
+        <td>배치·운영 스크립트</td></tr>
+    <tr><td><b>안 줬을 때</b></td>
+        <td>등록된 줄만 <b>jsonl 로 stdout</b>. 파일은 건드리지 않는다</td>
+        <td><b>웹에서 부르기 — 권장.</b> 파일을 안 만지므로 동시성 사고가 원천적으로 없다</td></tr>
+  </table></div>
+<pre><code><span class="cmt">:: stdout 모드 — 한 줄에 한 문서(벡터는 맨 뒤)</span>
+{"v":3,"file":"D:/문서/계약서.docx","doc_id":"SF-100231",
+ "hash":"2438eafeea3011f854a704ef2e8c13b3ad27eabd5585ca7f24c9e601d1f9c1cb",
+ "grade":"C","doctype":["DC_006_001"],
+ "source":"cli","approved_by":"고봉수","note":"표준 계약서 본보기",
+ "ts":"2026-09-08 10:00:00","dim":384,"vector":[...]}</code></pre>
+  <div class="note"><b>칸 차례는 <code>seedstore._ordered()</code> 가 정한다</b> —
+  <code>무엇인가(file·doc_id·hash) → 무엇으로 정했나(grade·doctype) →
+  누가 언제(source·approved_by·note·ts) → 벡터</code>.
+  CLI 가 직접 <code>json.dumps</code> 하지 않고 같은 함수를 거쳐야
+  화면이 쓴 줄과 <b>키 순서까지</b> 같아진다(P1 · 15장 T1).</div>
+  <div class="note"><b><code>source</code> 는 <code>"cli"</code></b> — 화면은 <code>"upload"</code>,
+  문서함 선택은 <code>"phase4"</code> 를 쓴다. 어디서 들어온 씨앗인지 나중에 셀 수 있어야 한다.</div>
+  <div class="warn"><b>stdout 모드에서도 <code>--seeds</code> 로 준 기존 파일을 읽지 않는다</b> —
+  즉 <b>중복 검사를 안 한다</b>. 이미 있는 문서를 또 넣으면 받는 쪽이 병합하며 정리해야 한다.
+  <span class="def">중복까지 봐 주려면 기존 파일을 읽어야 하는데, 그러면 "파일을 안 만진다"는
+  이 모드의 장점이 사라진다. 대신 <b>같은 실행 안에서의 중복</b>(같은 파일을 두 번 준 경우)은 합친다.</span></div>
+</section>
+
+<!-- 10 -->
+<h2 id="concur"><span class="n">10</span> 동시 쓰기 <span class="pill">주의</span></h2>
+<section class="card">
+  <div class="danger"><b>지금 저장 방식은 동시 쓰기에 안전하지 않다.</b>
+  <code>save_seeds</code> 는 <code>open(path,"w")</code> — <b>전체 다시 쓰기</b>다.
+  화면에서만 쓸 때는 사람이 한 번에 하나씩 눌러 문제가 없었지만,
+  <b>웹에서 부르면 두 요청이 겹치는 것이 정상</b>이다. 그대로 열면 한쪽 등록이
+  <b>아무 말 없이 사라진다</b>.</div>
+  <div class="scroll"><table>
+    <tr><th>장치</th><th>내용</th></tr>
+    <tr><td><b>원자적 교체</b></td>
+        <td>같은 폴더의 임시파일에 다 쓴 뒤 <code>os.replace()</code> 로 바꾼다.
+            중간에 죽어도 <b>반쪽 파일이 남지 않는다</b>(P3)</td></tr>
+    <tr><td><b>파일 잠금</b></td>
+        <td>읽기~쓰기 구간을 잠근다(윈도우 <code>msvcrt.locking</code> · 리눅스 <code>fcntl.flock</code>).
+            <b>잠금 파일은 <code>&lt;seeds&gt;.lock</code></b> — 대상 파일 자체를 잠그면 교체가 막힌다</td></tr>
+    <tr><td><b>대기 상한</b></td>
+        <td>기본 10초. 넘으면 <code>output_write_failed</code> 로 <b>실패</b>한다 —
+            무한정 기다려 배치를 세우지 않는다</td></tr>
+    <tr><td><b>stdout 모드</b></td><td>파일을 안 만지므로 이 장치가 필요 없다(9장)</td></tr>
+  </table></div>
+  <div class="danger"><b>두 판의 잠금은 서로를 막지 못한다</b>
+  <span class="pill">2026-09-08 구현하며 확인</span><br>
+  파이썬은 운영체제의 <b>바이트 잠금</b>(<code>msvcrt.locking</code>·<code>fcntl.flock</code>)을 쓰고,
+  Rust 는 <b>잠금 파일</b>(<code>&lt;파일&gt;.lock</code> 을 '이미 있으면 실패'로 만들기)을 쓴다.
+  Rust 에서 같은 방식을 쓰려면 플랫폼 FFI 의존이 하나 늘어나는데,
+  "정적 단일 바이너리"와 CentOS 7 빌드 조건 때문에 의존을 늘리지 않기로 했다.
+  <br><b>결과</b>: <b>같은 판끼리는 서로를 막지만, 파이썬 판과 Rust 판이 동시에
+  같은 <code>class_seed.jsonl</code> 을 쓰는 경우는 막지 못한다.</b>
+  지금 운영에서는 한 번에 한 판만 부르므로 문제가 되지 않지만,
+  두 판을 같은 파일에 동시에 붙이려면 <b>먼저 이 대목을 맞춰야 한다</b>.
+  <span class="def">막지 못하는 것을 막는 것처럼 적어 두면 나중에 원인을 못 찾는다 —
+  그래서 여기 적어 둔다.</span></div>
+  <div class="note">화면(<code>ui/app.py</code>)도 같은 <code>save_seeds</code> 를 쓰므로
+  <b>이 개선이 화면에도 그대로 적용</b>된다 — 지금 화면이 갖고 있던 같은 위험도 함께 사라진다.</div>
+</section>
+
+<!-- 11 -->
+<h2 id="exit"><span class="n">11</span> 실패와 종료코드</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>상황</th><th>종료코드</th><th>코드 이름</th></tr>
+    <tr><td>전부 등록됨</td><td><b>0</b></td><td>—</td></tr>
+    <tr><td><b>일부만</b> 등록됨(벡터를 못 얻은 문서가 있음)</td><td><b>1</b></td>
+        <td><code>extract_failed</code> <span class="def">3001 — 이미 있는 코드를 쓴다</span></td></tr>
+    <tr><td><b>한 건도</b> 등록 못 함</td><td><b>2</b></td>
+        <td><code>embed_failed</code> <span class="def">3003</span></td></tr>
+    <tr><td>인자가 틀림(검토자 없음·축 없음·모드 충돌)</td><td><b>3</b></td>
+        <td><code>bad_args</code> · <code>mode_conflict</code></td></tr>
+    <tr><td>파일을 못 씀(권한·잠금 대기 초과)</td><td><b>1</b></td>
+        <td><code>output_write_failed</code> <span class="def">4001</span></td></tr>
+  </table></div>
+  <div class="note"><b>새 오류 코드를 만들지 않는다.</b> 이 계약은 "code 를 늘리는 것이지
+  종료코드를 늘리는 것이 아니다"라고 이미 정해 두었고, 여기서 벌어지는 실패는 전부
+  기존 코드로 정확히 표현된다. <code>--json-errors</code> 를 주면 그 한 줄이 stdout 으로 나간다.</div>
+  <div class="warn"><b>부분 실패를 종료코드로 구분하는 이유</b> — 받는 쪽이 stdout 줄 수만 세면
+  "3건 넣었는데 2줄"을 못 알아챈다. <b>0 과 1 이 다르다</b>는 것을 계약으로 못박는다(P4).
+  stderr 요약도 함께 낸다:
+  <code>[seed-add] 7건 등록 · 3건 실패(벡터 없음) → D:\policy\class_seed.jsonl</code></div>
+</section>
+
+<!-- 12 -->
+<h2 id="audit"><span class="n">12</span> 감사 기록</h2>
+<section class="card">
+  <p>화면은 등록할 때마다 <code>class_seed_audit.jsonl</code> 에 한 줄을 남긴다.
+  <b>CLI 로 넣은 것만 기록이 없으면 감사 구멍이 된다.</b></p>
+<pre><code>{"ts":"2026-09-08 10:00:00","action":"add","axis":"security",
+ "file":"D:/문서/계약서.docx","before":null,"after":"C",
+ "reviewer":"고봉수","reason":"CLI --seed-add"}</code></pre>
+  <div class="scroll"><table>
+    <tr><th>규칙</th><th>내용</th></tr>
+    <tr><td>어디에</td><td><code>--seeds</code> 파일과 <b>같은 폴더</b>의
+        <code>class_seed_audit.jsonl</code>(화면과 같은 규약)</td></tr>
+    <tr><td>언제</td><td><code>--seeds</code> 를 준 경우에만. <b>stdout 모드는 안 쓴다</b> —
+        파일을 안 만지는 모드이므로</td></tr>
+    <tr><td>몇 줄</td><td>축마다 한 줄(security·doctype 각각) — 화면과 같다</td></tr>
+    <tr><td>실패하면</td><td>감사 기록 실패로 <b>등록을 되돌리지 않는다.</b> stderr 로 알리고 계속
+        <span class="def">씨앗은 이미 저장됐는데 기록만 못 남긴 상태를, 조용히 넘기지도 되돌리지도 않는다</span></td></tr>
+  </table></div>
+</section>
+
+<!-- 13 -->
+<h2 id="rust"><span class="n">13</span> Rust 판도 지원한다</h2>
+<section class="card">
+  <p>두 판이 같은 일을 하는 것이 이 프로젝트의 규약이다. <code>--seed-add</code> 도
+  <b>Rust 판에서 똑같이 동작</b>한다.</p>
+
+  <h3>13-1. 이미 있는 것 — 새로 만들 것</h3>
+  <div class="scroll"><table>
+    <tr><th>필요한 조각</th><th>Rust 현황</th></tr>
+    <tr><td>문서 → 벡터</td><td class="ok">있다 — <code>embed.rs::embed_document()</code>
+        (<code>--with-vector</code> 가 쓰는 그 경로)</td></tr>
+    <tr><td>분류체계 로딩(<code>dc_id</code> 검증)</td><td class="ok">있다 —
+        <code>axes.rs::load_taxonomy()</code> · <code>Taxonomy::get()</code></td></tr>
+    <tr><td><code>class_seed.jsonl</code> <b>읽기</b></td><td class="ok">있다 —
+        <code>propagate.rs</code> 가 전파에 쓴다</td></tr>
+    <tr><td><code>class_seed.jsonl</code> <b>쓰기</b></td><td class="bad">없다 —
+        <b><code>src/seedstore.rs</code> 신설</b>이 이 작업의 Rust 쪽 본체</td></tr>
+    <tr><td>원자적 교체·파일 잠금</td><td class="bad">없다 — 표준 라이브러리로 구현
+        (<code>fs::rename</code> · 잠금 파일)</td></tr>
+  </table></div>
+
+  <h3>13-2. 가장 조심할 것 — writer 가 다시 둘이 된다</h3>
+  <div class="danger"><b>1장에서 지적한 문제가 형태만 바꿔 돌아온다.</b>
+  파이썬 <code>seedstore.py</code> 와 Rust <code>seedstore.rs</code> 가 <b>같은 파일 형식을 각자
+  구현</b>하게 된다. 한쪽이 칸을 하나 빠뜨리거나 순서가 달라지면, 두 판으로 만든 기준 문서가
+  <b>미묘하게 다른 모양</b>이 되고 그것을 아무도 눈치채지 못한다.</div>
+  <div class="note"><b>그래서 시험으로 묶는다</b> — 같은 문서·같은 축·같은 검토자로
+  <b>두 판이 각각 등록</b>한 뒤, <code>ts</code> 를 뺀 <b>JSON 이 완전히 같은지</b> 대조한다(15장 T1b).
+  <code>ts</code>·부동소수 벡터를 뺀 나머지가 <b>키 순서까지</b> 같아야 한다.
+  <br><span class="def">이미 레코드 칸 차례·signals 표·ts 모양을 같은 방식으로 묶어 왔다 —
+  새로운 방식이 아니라 하던 대로 하는 것이다.</span></div>
+
+  <h3>13-3. 벡터가 두 판에서 같지 않다는 점</h3>
+  <div class="warn"><b>같은 문서라도 두 판의 벡터는 완전히 같지 않다.</b>
+  추출기가 다르고(파이썬=사이냅·하이브리드, Rust=순수 Rust 파서), 플랫폼이 다르면
+  부동소수 마지막 자리가 갈린다 — 이미 실측으로 확인해 실행가이드에 적어 둔 사실이다.
+  <br>그래서 <b>대조 시험은 벡터 값을 비교하지 않는다</b>(차원만 본다). 대신
+  <b>어느 판으로 만든 씨앗인지</b>가 결과에 남아야 한다 —
+  <b>평평한 <code>engine</code> 칸</b>에 <code>"python"</code>/<code>"rust"</code> 를 적는다
+  <span class="def">(v3 에는 <code>embed</code> 블록이 없다 — <code>dim</code> 만 평평하게 남았다)</span>.
+  <b>이것은 v3 에 없는 새 칸이다</b> — 16장 Q5 에서 정한다.</div>
+
+  <h3>13-3b. 얼마나 갈리나 — 실측 <span class="pill">2026-09-08</span></h3>
+  <p>"갈린다"는 짐작 위에 칸을 하나 늘리는 것이라, 실제로 쟀다.
+  같은 18개 문서를 두 판이 각각 추출·임베딩한 결과다.</p>
+  <div class="scroll"><table>
+    <tr><th>잰 것</th><th>결과</th></tr>
+    <tr><td><b>추출한 글자</b>가 같은가</td>
+        <td class="bad"><b>0 / 18 — 전부 다르다.</b> 길이 차이 최대 18.5%
+            <span class="def">(<code>03.경조사지원규정.doc</code> py 816자 · rs 967자)</span></td></tr>
+    <tr><td><b>벡터</b>가 비트까지 같은가</td><td>4 / 18</td></tr>
+    <tr><td>벡터 코사인 유사도</td>
+        <td class="ok">17 / 18 이 <b>1.000000</b>
+            <span class="def">(차이가 <code>~1e-8</code> — 부동소수 마지막 자리)</span><br>
+            나머지 1건만 <b>0.980</b>
+            <span class="def">(<code>12.원격지 근무자 비품 구매 관련 지침.docx</code>, 최대 차 <code>3.4e-2</code>)</span></td></tr>
+    <tr><td>전파 임계에 걸리나</td>
+        <td class="ok"><b>한 건도 안 걸린다</b> — 최악 0.980 이 사본 상속 문턱
+            <code>DUP_THRESHOLD 0.950</code> 보다 위다</td></tr>
+  </table></div>
+  <div class="note"><b>뜻밖의 결과 — 추출은 다 다른데 벡터는 거의 같다.</b>
+  두 추출기가 뽑은 글자는 <b>18건 전부</b> 달랐지만(표·머리말 처리가 다르다),
+  임베딩 모델이 그 차이를 대부분 흡수했다. 즉 <b>두 판이 같은 저장소에 써도
+  전파 결과가 갈릴 위험은 실측상 낮다</b>.
+  <span class="def">다만 이 코퍼스는 <code>doc</code> 7 · <code>docx</code> 10 · <code>pptx</code> 1 로,
+  두 판의 추출기가 가장 크게 갈리는 <b>PDF(사이냅 vs pdfium)·HWP 는 들어 있지 않다</b>.
+  그 종류에서는 더 벌어질 수 있다 — 이 숫자를 "모든 문서에서 안전하다"로 읽으면 안 된다.</span></div>
+
+  <h3>13-4. 범위</h3>
+  <div class="scroll"><table>
+    <tr><th>항목</th><th>Rust</th></tr>
+    <tr><td><code>--seed-add</code> · <code>--seed-add-from</code></td><td class="ok">지원</td></tr>
+    <tr><td>파일 병합 · stdout</td><td class="ok">지원(9장과 동일)</td></tr>
+    <tr><td>원자적 교체 · 잠금</td><td class="ok">지원(10장과 동일)</td></tr>
+    <tr><td>감사 기록</td><td class="ok">지원(12장과 동일)</td></tr>
+    <tr><td><code>--make-doctype-seeds</code></td>
+        <td class="bad"><b>Rust 에는 없다</b> — 설계서가 틀렸다(아래 상자)</td></tr>
+  </table></div>
+  <div class="danger"><b>설계서가 틀렸던 곳 — Rust 는 이 옵션을 '조용히 삼키고' 있었다</b>
+  <span class="pill">2026-09-08 구현하며 발견</span><br>
+  이 표에는 원래 "Rust 에도 이미 있다"고 적혀 있었다. 코드를 보니 그렇지 않았다 —
+  <code>main.rs</code> 의 '값까지 삼키고 아무 일도 안 하는' 목록에 들어 있었다:
+<pre style="margin:8px 0"><code>"--model" | "--max-tokens" | … | "--make-doctype-seeds" | "--seed-per-dir"
+| "--seed-per-node" =&gt; { take(false); }   <span class="cmt">← 값만 먹고 끝</span></code></pre>
+  <b>오류도 경고도 없이 종료코드 0</b> 이고 <code>class_seed.jsonl</code> 은 그대로였다.
+  사용자는 "왜 씨앗이 안 생기지"를 알아낼 방법이 없다 — 이 도구가 가장 나쁘게 보는
+  실패다(<code>--save-text</code> 때와 같은 종류).
+  <br><b>고친 방법</b>: 삼키지 않고 <b>무엇을 대신 쓰면 되는지까지 말하고 멈춘다</b>
+  (<code>bad_args</code> · exit 3).
+<pre style="margin:8px 0"><code>[MpowerClassify-rs] --make-doctype-seeds 는 이 판(Rust)에 없습니다.
+                 파이썬 판(csoclassify)으로 만드세요 — 만든 파일은 이 판도 그대로 읽습니다.
+                 문서 하나씩 등록하려면 --seed-add 를 쓰세요(두 판 모두 있습니다).</code></pre>
+  <span class="def">Rust 에 씨앗 자동 생성을 새로 넣는 것은 이번 범위가 아니다 —
+  그 기능은 <code>doc_rule</code> 신뢰도·상한 규칙을 통째로 옮겨야 해서 별건이다.</span></div>
+</section>
+
+<!-- 14 -->
+<h2 id="scope"><span class="n">14</span> 영향 범위</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>대상</th><th>내용</th></tr>
+    <tr><td><b>이동</b></td><td><code>ui/seedstore.py</code> → <code>src/csoclassify/seedstore.py</code></td></tr>
+    <tr><td>화면</td><td><code>ui/app.py</code>·<code>ui/doctype_review.py</code>·<code>ui/uiwords.py</code> import</td></tr>
+    <tr><td>라이브러리</td><td><code>classify/seedgen.py</code>(merge_into → save_seeds) ·
+        <code>cli.py</code>(옵션·핸들러) · <code>seedstore.py</code>(원자적 교체·잠금)</td></tr>
+    <tr><td><b>Rust</b></td><td><b><code>src/seedstore.rs</code> 신설</b>(v3 쓰기·원자적 교체·잠금·감사) ·
+        <code>main.rs</code>(옵션·핸들러·도움말) · <code>--make-doctype-seeds</code> 통일 (13장)</td></tr>
+    <tr><td>테스트</td><td>import 경로 4개 파일 + 새 시험(15장)</td></tr>
+    <tr><td>문서</td><td>실행가이드(옵션 표·새 절) · 빌드가이드(파이썬 전용 표시)</td></tr>
+  </table></div>
+  <div class="note"><b>되돌릴 수단</b> — 손대기 전에
+  <code>_backup/before-seed-cli-20260908.tgz</code> 로 대상 파일을 통째로 남긴다.</div>
+</section>
+
+<!-- 15 -->
+<h2 id="test"><span class="n">15</span> 테스트 계획</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>#</th><th>무엇을 지키나</th></tr>
+    <tr><td>T1</td><td><b>화면과 CLI 가 같은 줄</b>을 만든다 — 같은 파일·같은 축·같은 검토자로
+        넣고 <code>ts</code> 를 뺀 나머지가 <b>완전히 같다</b>(P1·G4)</td></tr>
+    <tr><td>T1b</td><td><b>두 판이 같은 줄</b>을 만든다 — 파이썬·Rust 가 각각 등록한 뒤
+        <code>ts</code>·<code>vector</code> 를 뺀 JSON 이 <b>키 순서까지</b> 같다 (13-2)
+        <span class="def">벡터는 추출기가 달라 값이 같지 않다 — 차원만 본다(13-3)</span></td></tr>
+    <tr><td>T2</td><td><code>--seeds</code> 없이 부르면 <b>stdout 에 jsonl</b>, 파일은 안 생긴다</td></tr>
+    <tr><td>T3</td><td><code>--seeds</code> 주면 <b>기존 줄을 지우지 않고</b> 병합된다</td></tr>
+    <tr><td>T4</td><td>검토자 없이 부르면 <code>bad_args</code> · exit 3, <b>파일이 안 바뀐다</b></td></tr>
+    <tr><td>T5</td><td>축을 하나도 안 주면 거절된다</td></tr>
+    <tr><td>T6</td><td>없는 <code>dc_id</code> 는 거절된다(<code>--taxonomy</code> 가 있을 때)</td></tr>
+    <tr><td>T7</td><td><b>부분 실패</b> — 3건 중 1건이 글자를 못 뽑으면 exit 1, 2줄만 저장</td></tr>
+    <tr><td>T8</td><td><b>전부 실패</b> — exit 2</td></tr>
+    <tr><td>T9</td><td>쓰기 중 죽어도 <b>반쪽 파일이 안 남는다</b>(원자적 교체 — 임시파일을 남겨 두고 검사)</td></tr>
+    <tr><td>T10</td><td><b>동시 실행</b> 2개가 각각 다른 문서를 넣으면 <b>둘 다 남는다</b>(잠금)</td></tr>
+    <tr><td>T11</td><td>감사 로그가 축마다 한 줄 쌓인다</td></tr>
+    <tr><td>T12</td><td><code>--make-doctype-seeds</code> 가 <b>seedstore 를 거쳐</b> 쓰고,
+        <b>사람이 손으로 넣은 doctype 씨앗을 지우지 않는다</b>(5장)
+        <span class="def">지금은 18행이 지워진다 — 실측</span></td></tr>
+    <tr><td>T13</td><td>옛 v1/v2 파일을 읽어도 <b>깨지지 않는다</b>(<code>ensure_v3</code>)</td></tr>
+    <tr><td>T16</td><td><b>지문이 항상 들어간다</b> — <code>--hash</code> 를 <b>안 줘도</b>
+        등록된 줄에 <code>hash</code> 가 있고, 그 값이 그 파일의 SHA-256 과 같다 (8장)</td></tr>
+    <tr><td>T17</td><td><b>지문으로 늙음이 잡힌다</b> — CLI 로 등록한 뒤 원본을 고치고
+        <code>check_seeds()</code> 를 부르면 그 줄이 <code>stale</code> 로 잡힌다</td></tr>
+    <tr><td>T18</td><td><b><code>doc_id</code> 를 지어내지 않는다</b> — 목록에도 없고
+        <code>--filelist</code> 도 없으면 <code>doc_id</code> 칸이 <b>아예 없다</b>.
+        목록에 주면 그 값이 그대로 들어간다 (6장)</td></tr>
+    <tr><td>T19</td><td>같은 <code>doc_id</code> 를 두 문서에 주면 <b>거절된다</b></td></tr>
+    <tr><td>T14</td><td><b>목록 입력</b>(<code>--seed-add-from</code>)이 문서마다 다른 등급·분류를
+        제대로 얹는다 · <code>-</code>(표준입력)도 같다 (7장)</td></tr>
+    <tr><td>T15</td><td><code>--seed-add</code> 와 <code>--seed-add-from</code> 을 함께 주면 거절된다</td></tr>
+  </table></div>
+
+  <h3>실측 결과 <span class="pill">2026-09-08 실행</span></h3>
+  <div class="scroll"><table>
+    <tr><th></th><th>돌린 것</th><th>결과</th></tr>
+    <tr><td>T1b</td><td>같은 문서·축·검토자로 두 판이 각각 등록</td>
+        <td class="ok"><b>키 차례까지 같다.</b> <code>ts</code>·<code>vector</code> 를 뺐을 때
+        다른 칸은 <code>engine</code> 하나뿐 — 그 칸의 존재 이유가 바로 그것이다
+        <br><span class="def">차례: <code>v · file · hash · grade · doctype · source ·
+        approved_by · note · ts · dim · engine · vector</code></span></td></tr>
+    <tr><td>T4·T5·<br>T15 외</td><td>인자 검사 5가지를 두 판에 각각</td>
+        <td class="ok"><b>다섯 가지 모두 문구·종료코드(3)가 같다</b>
+        <span class="def">검토자 없음 · 축 없음 · 모드 충돌 · 이상한 등급 · 분류모드 혼용</span></td></tr>
+    <tr><td>T3·T7·<br>T11</td><td>목록 2건(1건은 없는 파일)을 파일 모드로</td>
+        <td class="ok">두 판 모두 <b>1건 등록 · 1건 실패 · exit 1</b>,
+        기존 19줄 보존, 감사 기록 축마다 한 줄, 잠금 파일 정리됨</td></tr>
+    <tr><td>T2</td><td><code>--seeds</code> 없이</td>
+        <td class="ok">stdout 에 <b>등록될 줄만</b> 나가고 파일은 안 생긴다.
+        분류 레코드·요약은 stdout 에 섞이지 않는다(P5)</td></tr>
+    <tr><td>T12</td><td><code>--make-doctype-seeds</code> 가 사람이 넣은 씨앗을 지우는가</td>
+        <td class="ok">안 지운다 — 판단 기준을 <code>source</code> 로 바꿨다.
+        <span class="mid">출처를 모르는 옛 줄은 <b>지우지 않고 세어서</b> 알린다(아래)</span></td></tr>
+    <tr><td>—</td><td>전체 테스트</td>
+        <td class="ok"><b>파이썬 658건 · Rust 182건</b> 통과(신규 파이썬 15 · Rust 6)</td></tr>
+  </table></div>
+  <div class="warn"><b>출처를 모르는 옛 씨앗은 지우지 않는다</b> — 2026-09-08 이전 판이
+  만든 줄에는 <code>source</code> 가 없어, "이 명령이 만든 것"인지 "사람이 넣은 것"인지
+  구분할 방법이 없다. 지우는 쪽을 택하면 사람이 확정한 기준이 말없이 사라지므로 남긴다.
+  대신 <b>몇 건이 그렇게 남았는지 세어</b>(<code>출처없는업무분류</code>) 호출부가 알린다 —
+  조용히 쌓이면 왜 씨앗이 늘어나는지 아무도 모른다.</div>
+</section>
+
+<!-- 16 -->
+<h2 id="open"><span class="n">16</span> 결정 <span class="sig">2026-09-08 확정</span></h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>#</th><th>물음</th><th>확정 <span class="muted">(권고안 그대로 구현)</span></th></tr>
+    <tr><td>Q1</td><td>이미 등록된 문서를 다시 <code>--seed-add</code> 하면?</td>
+        <td><b>덮어쓴다</b>(축 값·검토자·메모 갱신). <code>set_axis</code> 가 원래 그렇게 동작하고,
+            화면도 같다. 감사 로그의 <code>before</code> 에 옛 값이 남으므로 추적된다</td></tr>
+    <tr><td class="muted">Q2</td>
+        <td class="muted"><s>여러 파일에 <b>서로 다른 등급</b>을 주고 싶으면?</s></td>
+        <td><b class="ok">철회 — 7장에서 이미 답이 나왔다.</b>
+            <code>--seed-add-from &lt;목록&gt;</code> 이 바로 그 물음의 답이다:
+            한 줄에 <code>file·doc_id·grade·doctype·note</code> 가 함께 있어
+            <b>문서마다 다른 값을 한 번의 호출로</b> 준다.
+            <br><span class="def">이 물음은 7장을 넣기 <b>전에</b> 적힌 것이다("여러 번 부른다"는
+            그때의 답). 7장을 뒤에 붙이면서 이 줄을 지우지 않아
+            <b>같은 문서 안에서 앞뒤가 어긋나 있었다</b> — 2026-09-08 정정.</span></td></tr>
+    <tr><td>Q3</td><td>등록만 하고 <b>벡터는 나중에</b> 채우는 모드가 필요한가</td>
+        <td><b>안 만든다.</b> 벡터 없는 기준 문서는 비교 대상이 못 되므로 저장할 이유가 없다
+            (화면과 같은 판단)</td></tr>
+    <tr><td>Q4</td><td>잠금 대기 상한 10초가 적당한가</td>
+        <td>기본 10초, <code>--seed-lock-wait</code> 같은 옵션은 <b>안 만든다</b>(필요해지면 그때)</td></tr>
+    <tr><td>Q5 <span class="pill">v3 신규</span></td>
+        <td><code>class_seed.jsonl</code> 한 줄에 <code>engine</code> 칸
+            (<code>"python"</code>/<code>"rust"</code>)을 <b>새로 넣나</b></td>
+        <td><b>넣는다 — 단, 그 칸을 읽는 곳을 같은 변경에 함께 만든다.</b>
+            <br>실측(13-3b)으로 보면 두 판 벡터 차이는 <b>최악 0.980</b> 로 전파 임계
+            (<code>0.950</code>)에 안 걸린다 — <b>지금 당장의 위험 때문이 아니다</b>.
+            넣는 이유는 <b>되돌릴 수 없어서</b>다: Rust 판이 쓰기 시작한 뒤에는
+            이미 쌓인 줄이 어느 판 것인지 <b>영영 알아낼 수 없고</b>, 차원이 같아
+            점검에도 안 걸린다.
+            <br><b>조건</b> — <code>check_seeds()</code> 가 <code>dim</code> 을 세듯
+            <b>섞인 <code>engine</code> 을 세어 화면에 띄우는 것</b>까지 같이 한다.
+            읽는 곳 없이 칸만 늘리면 <b>v3 에서 <code>size</code>·<code>mtime</code> 을
+            걷어낸 것과 똑같은 실수</b>를 되풀이하는 것이다.
+            <span class="def">값이 없으면 안 적는 선택 칸이라 기존 줄과 옛 판은 그대로 돈다.</span></td></tr>
+    <tr><td>Q6 <span class="pill">v3 신규</span></td>
+        <td>감사 로그를 어디에 쓰나 — 12장은 "<code>--seeds</code> 와 같은 폴더"다</td>
+        <td><b>그대로 두되 화면과 갈릴 수 있음을 적어 둔다.</b> 화면의 기본값은
+            <code>ui/class_seed_audit.jsonl</code> 인데 사용자가 기준 문서 경로만
+            <code>ui/policy/</code> 로 바꿔 두면 <b>둘이 다른 파일에 쓴다</b>.
+            <code>--seed-audit</code> 로 명시할 수 있게 열어 둔다</td></tr>
+  </table></div>
+  <div class="note"><b>Q1~Q6 전부 위 생각대로 확정·구현했다</b>
+  <span class="pill">2026-09-08</span> — 두 판이 같은 줄을 내는지는 15장에서
+  실측으로 대조했다.</div>
+  <div class="warn"><b>남은 것</b> — 실행가이드·빌드가이드에 이 옵션과 v3 스키마를
+  아직 반영하지 않았다. 배포본(윈도우·리눅스 각 두 판)도 이 변경 전에 만든 것이라
+  <code>--seed-add</code> 가 들어 있지 않다.</div>
+</section>
+
+<footer>MpowerClassify · 기준 문서 CLI 등록(--seed-add) 설계 · 2026-09-08 작성 · 2026-09-08 스키마 v3 개정 · 2026-09-08 구현 완료</footer>
+</div>
+</body>
+</html>

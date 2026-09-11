@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .. import record
+
 # ============================================================================
 # 전파 임계값 — "얼마나 비슷해야 등급을 옮길지" 기준 (운영 중 튜닝 대상)
 # ----------------------------------------------------------------------------
@@ -170,9 +172,11 @@ class SeedIndex:
         vecs, grades, files = [], [], []
         for r in records:
             v = r.get("vector")
-            g = r.get("grade")
+            # 새 모양은 security 칸, 옛 결과 파일은 최상위 — record 가 흡수한다.
+            sec = record.security_of(r)
+            g = sec.get("grade")
             # 고신뢰(seed_eligible) + 유효 등급 + 벡터 존재만 씨앗으로.
-            if v and g in ("C", "S", "O") and r.get("seed_eligible"):
+            if v and g in ("C", "S", "O") and sec.get("seed_eligible"):
                 vecs.append(v)
                 grades.append(g)
                 files.append(r.get("file"))
@@ -437,7 +441,9 @@ class DoctypeSeedIndex:
                     except json.JSONDecodeError:
                         continue
                     v = e.get("vector")
-                    dc_ids = (e.get("labels") or {}).get("doctype")
+                    # v3 는 doctype 이 평평한 칸이다. 옛 파일(v1/v2)은 labels.doctype
+                    # 에 있으므로 그것도 본다 — 배포판이 여러 벌 도는 동안 둘 다 돈다.
+                    dc_ids = e.get("doctype") or (e.get("labels") or {}).get("doctype")
                     if v and dc_ids:
                         vecs.append(v)
                         label_sets.append(tuple(dc_ids))

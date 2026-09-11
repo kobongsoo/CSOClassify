@@ -100,7 +100,7 @@ def test_file_created_on_error(tmp_path):
 def test_fail_helper_logs_and_returns_code(tmp_path, capsys):
     err = tmp_path / "err.log"
     logsetup.setup_logging(log_path=None, verbose=False, err_log_path=str(err))
-    code = cli.fail_code("[csoclassify] 처리할 파일이 없습니다.\n  --dir 을 지정하세요", 3)
+    code = cli.fail_code("[MpowerClassify] 처리할 파일이 없습니다.\n  --dir 을 지정하세요", 3)
     assert code == 3
     # 화면(stderr)에는 여러 줄 그대로.
     assert "처리할 파일이 없습니다" in capsys.readouterr().err

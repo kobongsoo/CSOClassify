@@ -84,9 +84,9 @@
 
 <header class="hero">
   <h1>분류 라벨 사용자정의 설계서</h1>
-  <p>1차 개인정보(L1 PII) + <code>cso_rules.yaml</code> 규칙 분류의 결과 라벨을,
+  <p>1차 개인정보(L1 PII) + <code>cso_rule.yaml</code> 규칙 분류의 결과 라벨을,
   고정된 <b>C/S/O</b> 대신 <b>관리자가 임의로 정의</b>할 수 있게 만드는 설계</p>
-  <div class="meta">작성 2026-08-24 · 대상 <code>CSOClassify</code>(Python) 및 <code>Rust/</code>(csoclassify-rs) · <b>설계만, 구현 없음</b></div>
+  <div class="meta">작성 2026-08-24 · 대상 <code>MpowerClassify</code>(Python) 및 <code>Rust/</code>(MpowerClassify-rs) · <b>설계만, 구현 없음</b></div>
 </header>
 
 <section class="card">
@@ -113,8 +113,8 @@
 
 <h2 id="bg"><span class="n">1</span> 배경 · 문제 정의</h2>
 <section class="card">
-  <p>현재 CSOClassify 는 문서를 <b>C(기밀) · S(민감) · O(공개)</b> 세 등급으로만 분류한다.
-  이 세 글자는 규칙 파일(<code>cso_rules.yaml</code>) 안에서는 단순한 <b>문자열</b>이지만,
+  <p>현재 MpowerClassify 는 문서를 <b>C(기밀) · S(민감) · O(공개)</b> 세 등급으로만 분류한다.
+  이 세 글자는 규칙 파일(<code>cso_rule.yaml</code>) 안에서는 단순한 <b>문자열</b>이지만,
   <b>코드 안에서는 상수로 박혀 있다</b>. 그래서 조직마다 다른 분류 체계를 요구할 때 대응할 수 없다.</p>
 
   <h3>실제로 들어오는 요구</h3>
@@ -126,13 +126,13 @@
     <tr><td>기존 조직 용어 유지</td><td>1급 · 2급 · 3급 · 대외비</td><td>불가</td></tr>
   </table></div>
 
-  <div class="note"><b>왜 지금 다루는가</b> — 규칙 데이터(<code>cso_rules.yaml</code>)는 이미
+  <div class="note"><b>왜 지금 다루는가</b> — 규칙 데이터(<code>cso_rule.yaml</code>)는 이미
   <code>base_grade: S</code> 처럼 <b>문자열로 라벨을 적는 구조</b>다. 즉 데이터 쪽은 이미 절반쯤 열려 있다.
   막고 있는 것은 코드에 흩어진 <b>서열표·기본값·집계 키·UI 상수</b> 뿐이다.
   이것들을 규칙 파일로 끌어내리면 라벨 체계 자체가 <b>운영 데이터</b>가 된다.</div>
 
   <div class="bad"><b>지금 손대지 않으면 생기는 더 큰 문제</b><br>
-  라벨을 자유화하지 않은 채 조직마다 <code>cso_rules.yaml</code> 의 <code>grade</code> 값만 다른 문자열로 바꿔 쓰면
+  라벨을 자유화하지 않은 채 조직마다 <code>cso_rule.yaml</code> 의 <code>grade</code> 값만 다른 문자열로 바꿔 쓰면
   (예: <code>grade: 대외비</code>), 현재 코드는 이를 <b>오류로 잡지 않고 조용히 무시</b>한다
   (<a href="#validate">6장</a> 참조). 결과는 “등급이 낮게 나오는” 형태의 <b>보안 사고</b>다.
   라벨 자유화 설계는 이 fail-open 을 fail-closed 로 바꾸는 작업을 반드시 포함해야 한다.
@@ -171,7 +171,7 @@
         <td>검출기(ko-pii)가 제공하는 고정 어휘다. 이번 대상은 <b>분류 결과 라벨</b>이다</td></tr>
   </table></div>
 
-  <div class="warn"><b>용어 충돌 주의</b> — <code>cso_rules.yaml</code> 의 <code>regex_pii[].label</code> 은
+  <div class="warn"><b>용어 충돌 주의</b> — <code>cso_rule.yaml</code> 의 <code>regex_pii[].label</code> 은
   ko-pii 의 <b>검출 라벨</b>(<code>RRN</code>, <code>CARD</code>, <code>ADDRESS</code>…)이며
   이번에 다루는 <b>분류 라벨</b>과 전혀 다르다. 그래서 새 블록 이름을 <code>label</code> 단독이 아니라
   <b><code>label_set</code></b> 으로 잡고, 규칙 안에서 라벨을 가리키는 필드명은
@@ -185,7 +185,7 @@
   <p>결합 지점을 성격별로 네 계층으로 나눈다. <b>계층이 아래로 갈수록 고치기 쉽다.</b></p>
 
   <h3>계층 A — 규칙 데이터 <span class="tag may">이미 열려 있음</span></h3>
-  <p><code>cso_rules.yaml</code> 의 <code>base_grade</code> / <code>bulk_grade</code> / <code>grade</code> 는
+  <p><code>cso_rule.yaml</code> 의 <code>base_grade</code> / <code>bulk_grade</code> / <code>grade</code> 는
   전부 문자열이다. <b>스키마 변경 없이 값만 바꾸면</b> 다른 라벨을 적을 수 있다. 문제는 코드가 그 값을 모른다는 것.</p>
 
   <h3>계층 B — 서열 · 융합 로직 <span class="tag must">핵심 변경 대상</span></h3>
@@ -248,7 +248,7 @@
   <p>규칙 파일 최상단에 <b>라벨 체계 선언 블록</b>을 새로 둔다. 코드에 흩어진 계층 B·C 상수를 전부 이리로 옮긴다.</p>
 
   <h3>4-1. 스키마</h3>
-<pre><code><span class="cmt"># cso_rules.yaml</span>
+<pre><code><span class="cmt"># cso_rule.yaml</span>
 version: "cso-2026.08.3"
 
 label_set:
@@ -538,7 +538,7 @@ fuse_signals(signals, failsafe)   →  fuse_signals(signals, label_set, failsafe
   <div class="bad"><b>현재 동작(확인됨)</b><br>
   <code>classify/rules.py:312</code> 의 <code>_GRADE_RANK.get(g, -1)</code> 는
   <b>모르는 등급 문자열을 rank −1 로 취급해 조용히 건너뛴다.</b>
-  즉 <code>cso_rules.yaml</code> 에 <code>base_grade: c</code>(소문자 오타)라고 적으면,
+  즉 <code>cso_rule.yaml</code> 에 <code>base_grade: c</code>(소문자 오타)라고 적으면,
   그 규칙은 아무 오류 없이 <b>등급 판정에서 통째로 빠진다</b>. 문서는 더 낮은 등급을 받거나 미분류가 된다.
   Rust 판도 <code>Grade::from_str</code> 이 <code>None</code> 을 반환해 같은 결과가 된다.<br>
   <b>라벨을 관리자가 자유 입력하게 되면 이 오타 확률이 크게 올라간다.</b> 자유화의 전제 조건으로 이 동작을 바꾼다.</div>
@@ -579,7 +579,7 @@ fuse_signals(signals, failsafe)   →  fuse_signals(signals, label_set, failsafe
   </table></div>
 
   <h4>오류 출력 예 (설계안)</h4>
-<pre><code>[규칙셋 오류] cso_rules.yaml — 라벨 검증 실패 6건. 분류를 시작하지 않았습니다.
+<pre><code>[규칙셋 오류] cso_rule.yaml — 라벨 검증 실패 6건. 분류를 시작하지 않았습니다.
 
   정의된 라벨: 일반 &lt; 대외주의 &lt; 비밀3 &lt; 비밀2 &lt; 비밀1   (label_set.id=gov5, revision=1)
 
@@ -837,7 +837,7 @@ map:
 
 <span class="cmt"># 사용</span>
 csoclassify --migrate-labels --map label_map.yaml \
-            --rules cso_rules.yaml --seeds class_seed.jsonl --dry-run</code></pre>
+            --rules cso_rule.yaml --seeds class_seed.jsonl --dry-run</code></pre>
   <p><code>--dry-run</code> 은 “무엇이 몇 건 바뀌는지”만 보고하고 파일을 건드리지 않는다.
   <b>1:N 이 필요한 매핑은 도구가 거부</b>하고, 사람이 재분류해야 한다고 안내한다.</p>
 
@@ -969,7 +969,7 @@ Phase 2        Phase 3        Phase 4          <span class="cmt">Phase 1 이후 
         위치에서 나온 등급을 내용 전파의 씨앗으로 쓰지 않는다</li>
     </ul></div>
     <p class="def">효과 — 지금 있는 규칙 파일의 오타를 즉시 발견한다. 뒤 단계의 전제가 되며, 되돌릴 일이 없다.
-    저장소의 <code>cso_rules.yaml</code> 은 위반 0건으로 확인됐고, 회귀 테스트로 묶어 뒀다.</p>
+    저장소의 <code>cso_rule.yaml</code> 은 위반 0건으로 확인됐고, 회귀 테스트로 묶어 뒀다.</p>
   </div>
 
   <div class="phase">
@@ -1229,7 +1229,7 @@ Phase 2        Phase 3        Phase 4          <span class="cmt">Phase 1 이후 
 </section>
 
 <footer>
-  CSOClassify — 분류 라벨 사용자정의 설계서 · 2026-08-24<br>
+  MpowerClassify — 분류 라벨 사용자정의 설계서 · 2026-08-24<br>
   본 문서는 설계만 담으며 구현 변경을 포함하지 않는다. 인용한 파일·라인은 2026-08-24 기준 저장소 상태.
 </footer>
 

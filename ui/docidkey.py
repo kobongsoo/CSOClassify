@@ -9,14 +9,20 @@
 17건 중 4건이 그렇게 반영되지 않고 있었다. 아무 오류도 나지 않아 알아채기 어려운,
 거버넌스 도구에서 가장 나쁜 종류의 실패다.
 
-이 모듈은 그 잇기를 4단계로 바꾼다.
+이 모듈은 그 잇기를 5단계로 바꾼다.
 
-    ① doc_id 가 같다               → 같은 문서
-    ② 없으면 key(정규화 경로)가 같다 → 같은 문서, rematched_by="path"
-    ③ 그래도 없고 대소문자만 다르다  → 같은 문서, rematched_by="case"
-    ④ 전부 실패                     → 새 문서
+    ① doc_id(sfile_id) 가 같다      → 같은 문서
+    ② 내용 지문(hash)이 같다        → 같은 문서, rematched_by="hash"
+    ③ 정규화 경로가 같다            → 같은 문서, rematched_by="path"
+    ④ 대소문자만 다르다             → 같은 문서, rematched_by="case"
+    ⑤ 전부 실패                     → 새 문서
 
-[왜 ②·③을 기록하나] 조용히 같게 취급하지 않기 위해서다. 나중에 "왜 이 수정이
+[2026-09-10 변경] 예전에는 ①의 doc_id 가 'sfile_id 아니면 내용 해시 앞 40자'
+였다. 그래서 같은 이름의 칸이 출력 모드마다 다른 뜻을 갖는 문제가 있었다.
+이제 doc_id 는 sfile_id 뿐이고, 지문으로 잇던 몫은 ②가 맡는다 — 목록(--filelist)
+없이 도는 실행에서는 ②가 사실상 주된 결합 키다.
+
+[왜 ②~④를 기록하나] 조용히 같게 취급하지 않기 위해서다. 나중에 "왜 이 수정이
 이 문서에 붙었나"를 설명할 수 있어야 한다.
 
 [코어와의 관계] normalize_key 는 csoclassify.filelist.normalize_key 와 **같은 값**을
@@ -67,19 +73,24 @@ def normalize_key(path):
 #   그런 자리에서 ③으로 구제하면 남의 수정을 엉뚱한 문서에 붙이게 되므로,
 #   모호한 키는 아예 색인에서 제외해 ④(새 문서)로 보낸다.
 #
-# -필드: by_doc_id = {doc_id: 저장된 파일키}
+# -필드: by_doc_id = {doc_id(sfile_id): 저장된 파일키}
+# -필드: by_hash   = {내용 지문: 저장된 파일키}
 # -필드: by_key    = {정규화 경로: 저장된 파일키}
 # -필드: by_fold   = {소문자 접힘 경로: 저장된 파일키} — 유일할 때만
 #------------------------------------------------------------------
 class OverrideIndex(dict):
     def __init__(self, by_file=None):
         super().__init__(by_file or {})
-        self.by_doc_id, self.by_key = {}, {}
+        self.by_doc_id, self.by_hash, self.by_key = {}, {}, {}
         fold = {}
         for f, e in self.items():
-            did = (e or {}).get("doc_id")
+            e = e or {}
+            did = e.get("doc_id")
             if did:
                 self.by_doc_id.setdefault(did, f)
+            h = e.get("hash")
+            if h:
+                self.by_hash.setdefault(h, f)
             k = normalize_key(f)
             self.by_key.setdefault(k, f)
             fold.setdefault(k.casefold(), []).append(f)
@@ -92,7 +103,7 @@ class OverrideIndex(dict):
     # -in: rec = 분류 레코드 dict(또는 경로 문자열)
     #
     # -out: (파일키, how) = 찾았으면 저장된 키와 이은 방법
-    #        (None|"doc_id"|"path"|"case"), 못 찾으면 (None, None)
+    #        (None|"doc_id"|"hash"|"path"|"case"), 못 찾으면 (None, None)
     # -out: error = 없음
     #--------------------------------------------------------------
     def resolve(self, rec):
@@ -100,22 +111,36 @@ class OverrideIndex(dict):
             rec = {"file": rec}
         rec = rec or {}
         f = rec.get("file")
-        # ① doc_id — 문서를 옮기거나 이름을 바꿔도 이어지는 유일한 길.
+        # ① doc_id(sfile_id) — 시스템이 정한 번호. 내용을 고쳐도 안 변해 가장 세다.
         did = rec.get("doc_id")
         if did and did in self.by_doc_id:
             return self.by_doc_id[did], "doc_id"
+        # ② 내용 지문 — 목록을 안 준 실행에서는 이것이 주된 결합 키다.
+        #    옮기거나 이름을 바꿔도 유지된다(내용을 고치면 끊기는데, 그때는
+        #    사람이 다시 봐야 하는 것이 맞다).
+        h = rec.get("hash")
+        if h:
+            if h in self.by_hash:
+                return self.by_hash[h], "hash"
+            # 2026-09-10 이전에 쌓은 기록은 doc_id 칸에 '지문 앞 40자'가 들어
+            # 있다. 그 기록이 조용히 끊기면 사람이 고쳐 둔 등급이 사라지므로,
+            # 같은 값을 만들어 한 번 더 찾아본다.
+            old_id = h[:40]
+            if old_id in self.by_doc_id:
+                return self.by_doc_id[old_id], "hash"
         # 옛 기록은 경로가 키다. 정확히 같으면 더 볼 것 없다.
         if f in self:
             return f, None
-        k = normalize_key(rec.get("key") or f)
-        # ② 정규화 경로 — 구분자·'..'·드라이브 문자 표기 차이를 흡수한다.
+        # key 칸은 2026-09-10 에 없앴다 — file 로 그때그때 만든다(값은 같다).
+        k = normalize_key(f)
+        # ③ 정규화 경로 — 구분자·'..'·드라이브 문자 표기 차이를 흡수한다.
         if k in self.by_key:
             return self.by_key[k], "path"
-        # ③ 대소문자만 다른 경우. 저장소의 4건이 정확히 여기서 구제된다.
+        # ④ 대소문자만 다른 경우. 저장소의 4건이 정확히 여기서 구제된다.
         f2 = self.by_fold.get(k.casefold())
         if f2 is not None:
             return f2, "case"
-        return None, None            # ④ 새 문서
+        return None, None            # ⑤ 새 문서
 
     #--------------------------------------------------------------
     # 레코드의 최신 오버라이드 가져오기

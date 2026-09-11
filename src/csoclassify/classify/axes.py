@@ -3,9 +3,9 @@
 #=> MpowerV11 DOC_CLASSIFICATION 을 내보낸 doc_taxonomy.yaml 스냅샷을 읽어,
 #   dc_id 색인과 전체경로(예: "기술/개발 > 설계문서 > 요구사항정의서")를 만든다.
 #   security(C/S/O) 축과 달리 이 축은 트리(kind: taxonomy)이고 서열이 없다.
-#   CSOClassify 는 오프라인 CLI 이므로 DB 를 직접 보지 않고, 이 스냅샷 파일 하나만
+#   MpowerClassify 는 오프라인 CLI 이므로 DB 를 직접 보지 않고, 이 스냅샷 파일 하나만
 #   본다. 스냅샷을 만드는 쪽(MPOWER JSON → doc_taxonomy.yaml 변환)도 이 파일에
-#   함께 둔다 — csoclassify.exe(--export-taxonomy)와 scripts/export_taxonomy.py
+#   함께 둔다 — MpowerClassify.exe(--export-taxonomy)와 scripts/export_taxonomy.py
 #   (개발용 스크립트) 가 이 로직을 그대로 공유해야, exe 로 얼려도(소스 트리의
 #   scripts/ 는 PyInstaller 번들에 안 들어간다) 같은 동작을 낼 수 있다.
 #   (설계: 문서분류체계 연동 설계서 §3·4, 로드맵 D1)
@@ -23,7 +23,7 @@ from ..resources import resource_path, exe_dir
 
 # doc_taxonomy.yaml 은 고정 파일명이다 — 내보낼 때마다 같은 경로를 덮어쓴다.
 # 타임스탬프를 파일명에 넣지 않는 이유는 설계서 4-2-1 참조(실행기가 "어디를
-# 읽어야 할지"를 항상 명확하게 하기 위함 — cso_rules.yaml 과 같은 규약).
+# 읽어야 할지"를 항상 명확하게 하기 위함 — cso_rule.yaml 과 같은 규약).
 TAXONOMY_FILENAME = "doc_taxonomy.yaml"
 
 
@@ -443,7 +443,7 @@ def format_taxonomy_violations(path, violations):
 #------------------------------------------------------------------
 # 분류체계 스냅샷 위반 예외
 #=> doc_taxonomy.yaml 을 읽는 데는 성공했지만 내용이 규칙에 맞지 않을 때 던진다.
-#   cso_rules.yaml 의 RuleSetValidationError 와 같은 역할이다.
+#   cso_rule.yaml 의 RuleSetValidationError 와 같은 역할이다.
 #
 # -필드: path       = 문제의 스냅샷 파일 경로
 # -필드: violations = 위반 목록. 각 항목은 dict {code, dc_id, field, value, detail}
@@ -468,7 +468,7 @@ class TaxonomyValidationError(Exception):
 
 #------------------------------------------------------------------
 # 분류체계 스냅샷 기본 경로
-#=> cso_rules.yaml 의 default_rules_path() 와 완전히 같은 규약을 따른다 —
+#=> cso_rule.yaml 의 default_rules_path() 와 완전히 같은 규약을 따른다 —
 #   "규칙셋과 같은 취급"(설계서 4-1)이라는 결정 그대로다.
 #    1) 환경변수 CSOCLASSIFY_POLICY_DIR 이 있으면 그 폴더
 #    2) exe(PyInstaller) 로 얼린 실행이면 'exe 옆'
@@ -552,7 +552,7 @@ def load_taxonomy(path=None, validate=True):
 
 #------------------------------------------------------------------
 # MPOWER JSON 내보내기 원본 기본 경로
-#=> MpowerV11 관리 화면/배치가 그대로 뽑은 파일(사람이 손대지 않음). cso_rules.yaml
+#=> MpowerV11 관리 화면/배치가 그대로 뽑은 파일(사람이 손대지 않음). cso_rule.yaml
 #   과 같은 "policy" 폴더에 두되, 이건 '원본'이라 doc_taxonomy.yaml(파생 스냅샷)
 #   과는 성격이 다르다 — exe 옆에 있을 수도, 없을 수도 있는 입력 자료다.
 #
@@ -595,7 +595,7 @@ def _convert_export_node(raw):
 #   파이썬 dict 를 만든다.
 #    1) source 는 원본 JSON 값을 그대로 옮긴다(예: "Mpower10U.DOC_CLASSIFICATION")
 #    2) exported_at 은 "지금"(이 변환을 실행한 시각) — DB 조회 시각이 아니라
-#       "CSOClassify 가 이 스냅샷을 받아들인 시각"이 감사에 더 값지다
+#       "MpowerClassify 가 이 스냅샷을 받아들인 시각"이 감사에 더 값지다
 #    3) node_count 는 원본 값이 있으면 쓰되, 실제 nodes 길이와 다르면 경고만
 #       하고 진행한다(원본이 이미 낡았을 수 있어도, 변환 자체는 막을 이유가 없다)
 #
@@ -658,7 +658,7 @@ def write_taxonomy_yaml(snapshot, out_path):
 
 #------------------------------------------------------------------
 # MPOWER JSON → doc_taxonomy.yaml 내보내기(핵심 진입점)
-#=> 입력 JSON 경로 하나로 변환·저장·round-trip 검증까지 끝낸다. csoclassify.exe
+#=> 입력 JSON 경로 하나로 변환·저장·round-trip 검증까지 끝낸다. MpowerClassify.exe
 #   (--export-taxonomy)와 scripts/export_taxonomy.py 가 이 함수 하나를 공유해
 #   "exe 로 얼려도 스크립트와 똑같이 동작"을 보장한다.
 #    1) JSON 을 읽는다(BOM 허용)
