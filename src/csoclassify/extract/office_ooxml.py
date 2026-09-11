@@ -21,7 +21,12 @@ log = get_logger(__name__)
 
 # 본문 section/slide/sheet 파일명 매칭용(번호 정렬에 사용).
 _PPTX_SLIDE = re.compile(r"ppt/slides/slide(\d+)\.xml$", re.I)
+# 발표자 노트 — 노트도 슬라이드와 같은 <a:p>/<a:t> 구조라 같은 수집기를 쓴다.
+_PPTX_NOTES = re.compile(r"ppt/notesSlides/notesSlide(\d+)\.xml$", re.I)
 _XLSX_SHEET = re.compile(r"xl/worksheets/sheet(\d+)\.xml$", re.I)
+# 셀 메모 — 옛 방식(xl/comments1.xml)과 새 방식(스레드 댓글) 둘 다 받는다.
+_XLSX_COMMENTS = re.compile(r"xl/comments(\d*)\.xml$", re.I)
+_XLSX_TCOMMENTS = re.compile(r"xl/threadedComments/threadedComment(\d*)\.xml$", re.I)
 
 
 #------------------------------------------------------------------
@@ -197,6 +202,8 @@ class XlsxExtractor(TextExtractor):
                                           "sheets", i, len(sheets))
                         break
                     out.extend(self._read_sheet(z.read(n), shared, styles))
+                # 셀 메모는 셀 값이 아니라 따로 담긴다 — 시트를 다 읽은 뒤 이어 붙인다.
+                out.extend(self._read_comments(z, names))
                 return "\n".join(out)
         except FileNotFoundError:
             raise ExtractError("입력 파일 없음")
@@ -362,19 +369,99 @@ class XlsxExtractor(TextExtractor):
             break   # <cellXfs> 는 하나뿐이다
         return out
 
+    #------------------------------------------------------------------
+    # 셀 메모(주석) 모으기
+    #=> 엑셀의 '메모'는 셀 값이 아니라 xl/comments*.xml 에 따로 들어간다. 그래서
+    #   시트만 읽으면 통째로 사라졌다 — 실측에서 셀 값은 완벽히 뽑고도 작성 안내·
+    #   주의사항이 메모에만 있어 재현율 48.7% 가 된 신청서가 있었다. 신청서·양식류는
+    #   '어떻게 적어라'가 전부 메모에 있는 일이 흔하다.
+    #    1) 옛 방식(xl/comments1.xml)과 새 방식(스레드 댓글)을 모두 모은다
+    #    2) 번호순으로 읽어 메모마다 한 줄씩 만든다
+    #
+    # -in: z     = 열린 ZipFile
+    # -in: names = zip 항목 이름 목록
+    #
+    # -out: list[str] = 메모 줄 목록(없으면 빈 목록)
+    # -out: error = 항목을 못 읽어도 예외 없이 그만큼만 돌려준다
+    #------------------------------------------------------------------
+    def _read_comments(self, z, names):
+        picked = []
+        for n in names:
+            if _XLSX_COMMENTS.search(n):
+                picked.append((n, False))
+            elif _XLSX_TCOMMENTS.search(n):
+                picked.append((n, True))
+        # 번호순으로 읽어 시트 차례를 따른다(comments10 이 comments2 뒤에 오게).
+        picked.sort(key=lambda it: _num_key(
+            it[0], _XLSX_TCOMMENTS if it[1] else _XLSX_COMMENTS))
+        out = []
+        for n, threaded in picked:
+            try:
+                out.extend(_comment_lines(z.read(n), threaded))
+            except (KeyError, OSError):
+                continue
+        return out
+
+
+#------------------------------------------------------------------
+# 메모 XML 한 장에서 메모마다 한 줄 뽑기
+#=> 옛 방식과 새 방식(스레드 댓글)의 태그 이름만 다르고 하는 일은 같다.
+#    1) 메모 하나(<comment> 또는 <threadedComment>)를 한 덩이로 본다
+#    2) 그 안의 글자 태그를 모두 이어 붙인다
+#
+#   [왜 이어 붙이나] 옛 방식은 서식 때문에 <r><t> 로 잘게 쪼개져 온다. 태그마다
+#   줄을 끊으면 한 낱말이 갈라져, 붙어 있어야 성립하는 검출이 어긋난다.
+#   작성자 이름(authors)은 본문이 아니라 넣지 않는다.
+#
+# -in: data     = comments*.xml 또는 threadedComment*.xml 바이트
+# -in: threaded = 새 방식(스레드 댓글)이면 True
+#
+# -out: list[str] = 메모마다 한 줄
+# -out: error = XML 손상 시 빈 목록
+#------------------------------------------------------------------
+def _comment_lines(data, threaded):
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return []
+    # 새 방식은 <threadedComment><text>글자</text>, 옛 방식은 <comment>…<t>글자</t>.
+    outer = "threadedComment" if threaded else "comment"
+    inner = "text" if threaded else "t"
+    lines = []
+    for c in root.iter():
+        if _local(c.tag) != outer:
+            continue
+        txt = "".join(e.text or "" for e in c.iter() if _local(e.tag) == inner)
+        # 메모 하나가 한 덩이로 보이게 앞뒤 공백만 다듬는다(안쪽 줄바꿈은 그대로).
+        txt = txt.strip()
+        if txt:
+            lines.append(txt)
+    return lines
+
 
 class PptxExtractor(TextExtractor):
     #------------------------------------------------------------------
     # pptx → 텍스트 (핵심)
-    #=> 모든 슬라이드(ppt/slides/slide*.xml)의 텍스트 런(<a:t>)을 문단(<a:p>) 단위로 모은다.
+    #=> 모든 슬라이드(ppt/slides/slide*.xml)의 텍스트 런(<a:t>)을 문단(<a:p>) 단위로 모으고,
+    #   이어서 발표자 노트(ppt/notesSlides/notesSlide*.xml)를 같은 방식으로 뽑아 뒤에 붙인다.
     #    1) 슬라이드 파일을 번호순 정렬(발표 순서 유지)
     #    2) 각 슬라이드에서 문단(<a:p>)마다 <a:t> 텍스트를 이어 한 줄로
     #       (도형·표 셀의 텍스트도 결국 <a:p>/<a:t> 구조라 같은 순회로 포함)
+    #    3) 노트도 같은 수집기로 읽어 뒤에 잇는다
+    #
+    #   [왜 노트를 읽나] 노트는 발표자만 보는 자리라 오히려 단가·설계 상세·내부 사정이
+    #   적히는 일이 잦다. 실측에서 본문 812자를 정확히 뽑고도 노트 2,000자를 놓쳐
+    #   사이냅 대비 재현율이 24.9% 까지 떨어진 문서가 있었다.
+    #
+    #   [왜 슬라이드 사이에 끼우지 않고 뒤에 붙이나] 슬라이드 N 과 노트 N 을 번갈아
+    #   끼우는 편이 문맥상 자연스럽지만, 둘의 짝은 파일 번호가 아니라 rels 로 맺어져
+    #   있어 번호만 보고 맞추면 어긋날 수 있다. 잘못 끼워 문맥을 왜곡하느니 순서대로
+    #   뒤에 붙여 '있는 글자를 다 본다'를 택했다(Rust 판과 같은 선택).
     #
     # -in: input_path = .pptx 경로
     # -in: save_dir   = (호환용) 사용 안 함
     #
-    # -out: text = 슬라이드 본문 텍스트(문단 개행 구분)
+    # -out: text = 슬라이드 본문 다음에 발표자 노트가 이어진 텍스트
     # -out: error = 파일없음/ZIP아님 시 ExtractError(→ snf 폴백)
     #------------------------------------------------------------------
     def extract(self, input_path, save_dir=None):
@@ -393,6 +480,13 @@ class PptxExtractor(TextExtractor):
                         # 결과를 보는 사람에게 닿도록 레코드까지 표식을 보낸다.
                         notes.set_partial(f"시간 상한({deadline.seconds}s)",
                                           "slides", i, len(slides))
+                        break
+                    out.extend(self._read_slide(z.read(n)))
+                # 노트는 없는 문서가 더 많다 — 없으면 조용히 본문만 돌려준다.
+                notes_names = sorted((n for n in z.namelist() if _PPTX_NOTES.search(n)),
+                                     key=lambda n: _num_key(n, _PPTX_NOTES))
+                for n in notes_names:
+                    if deadline.expired():
                         break
                     out.extend(self._read_slide(z.read(n)))
                 return "\n".join(out)
