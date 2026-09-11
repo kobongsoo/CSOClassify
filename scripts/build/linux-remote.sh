@@ -22,11 +22,17 @@
 
 WHICH="${1:-both}"
 
-PY_BUILD=/MOCOMSYS/.csoclassify/build_slim
-RS_BUILD=/MOCOMSYS/dev/bong/cso_rust_build
-MODEL_SRC=/MOCOMSYS/.csoclassify/CSOClassify/models/e5-small-ko
-CONDA_SP=/MOCOMSYS/anaconda3/envs/bong/lib/python3.13/site-packages
-CONDA_LIB=/MOCOMSYS/anaconda3/envs/bong/lib
+# 서버 안쪽 경로는 설정에서 읽는다(코드에 박지 않는다 - 저장소가 공개다).
+# 이 파일은 서버 /tmp 에서 도므로 설정도 거기로 함께 올라온다.
+load_server_env "$(dirname "$0")/server.env"
+PY_BUILD="$BUILD_PY_DIR"
+RS_BUILD="$BUILD_RS_DIR"
+MODEL_SRC="$MODEL_SRC_DIR"
+# site-packages 는 파이썬 판올림마다 폴더 이름이 바뀐다(python3.13 → 3.14 …).
+# 이름을 박아 두면 조용히 못 찾으므로, 있는 것을 찾아서 쓴다.
+CONDA_LIB="$CONDA_ENV_DIR/lib"
+CONDA_SP="$(ls -d "$CONDA_LIB"/python*/site-packages 2>/dev/null | head -1)"
+[ -n "$CONDA_SP" ] || die "conda 환경에서 site-packages 를 찾지 못했습니다: $CONDA_LIB"
 
 
 #------------------------------------------------------------------
@@ -56,8 +62,8 @@ build_python() {
 
     step "리눅스 · 파이썬 빌드"
     # shellcheck disable=SC1091
-    . /MOCOMSYS/anaconda3/etc/profile.d/conda.sh || die "conda 를 찾지 못했습니다"
-    conda activate bong || die "conda 환경 bong 을 켜지 못했습니다"
+    . "$CONDA_PROFILE" || die "conda 초기화 스크립트를 찾지 못했습니다: $CONDA_PROFILE"
+    conda activate "$CONDA_ENV_NAME" || die "conda 환경을 켜지 못했습니다: $CONDA_ENV_NAME"
     pyinstaller -y build/csoclassify.spec > build.log 2>&1 \
         || die "PyInstaller 빌드 실패 — $PY_BUILD/build.log 를 보세요"
     [ -f dist/MpowerClassify/MpowerClassify ] || die "빌드 결과에 실행본체가 없습니다"
@@ -96,7 +102,7 @@ build_python() {
 #------------------------------------------------------------------
 build_rust() {
     step "리눅스 · Rust 소스 풀기"
-    export PATH=/MOCOMSYS/.cargo/bin:$PATH
+    export PATH="$CARGO_BIN_DIR:$PATH"
     cd "$RS_BUILD" || die "빌드 폴더가 없습니다: $RS_BUILD"
     [ -f rustsrc.tgz ] || die "rustsrc.tgz 가 없습니다 (윈도우 쪽에서 먼저 올리세요)"
     rm -rf src tests resources

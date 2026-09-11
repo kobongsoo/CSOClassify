@@ -96,3 +96,32 @@ swap_dir() {
     fi
     echo "$bak"
 }
+
+
+#------------------------------------------------------------------
+# 빌드서버 설정 읽기
+#=> 서버 주소·계정·안쪽 경로는 코드가 아니라 설정이다. 저장소가 공개라
+#   코드에 박아 두면 내부 인프라가 그대로 노출된다.
+#   값은 scripts/build/server.env 에 두고, 보기는 server.env.sample 에 있다.
+#
+# -in: $1 = 설정 파일 경로
+#
+# -out: 없음(읽은 값을 환경변수로 export 한다)
+# -out: error = 파일이 없거나 필요한 값이 비면 종료코드 1
+#------------------------------------------------------------------
+load_server_env() {
+    local f="$1"
+    [ -f "$f" ] || die "빌드서버 설정이 없습니다: $f
+       scripts/build/server.env.sample 을 server.env 로 복사해 값을 채우세요.
+       (이 파일은 .gitignore 로 막혀 있어 저장소에 올라가지 않습니다)"
+    # 주석·빈 줄을 걸러 KEY=VALUE 만 읽는다. 값에 공백이 있어도 그대로 담는다.
+    while IFS='=' read -r k v; do
+        case "$k" in ''|\#*) continue ;; esac
+        v="${v%$'\r'}"                      # 윈도우에서 편집하면 붙는 캐리지리턴
+        export "$k=$v"
+    done < "$f"
+    for k in BUILD_PY_DIR BUILD_RS_DIR MODEL_SRC_DIR CONDA_ENV_DIR \
+             CONDA_PROFILE CONDA_ENV_NAME CARGO_BIN_DIR; do
+        eval "[ -n \"\${$k:-}\" ]" || die "빌드서버 설정에 $k 가 없습니다: $f"
+    done
+}

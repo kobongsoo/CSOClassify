@@ -172,8 +172,8 @@ README.txt</div>
 <h2 id="prep"><span class="n">2</span> 준비물</h2>
 <section class="card">
   <div class="scroll"><table>
-    <tr><th>항목</th><th>Windows (내 PC)</th><th>Linux (빌드서버 10.10.4.10)</th></tr>
-    <tr><td>Rust 컴파일러</td><td>rustup 으로 설치 <span class="def">(확인: 1.98.0)</span></td><td>이미 설치됨 <code>/MOCOMSYS/.cargo/bin</code> <span class="def">(1.95.0)</span></td></tr>
+    <tr><th>항목</th><th>Windows (내 PC)</th><th>Linux (빌드서버 &lt;빌드서버&gt;)</th></tr>
+    <tr><td>Rust 컴파일러</td><td>rustup 으로 설치 <span class="def">(확인: 1.98.0)</span></td><td>이미 설치됨 <code>&lt;cargo&gt;/bin</code> <span class="def">(1.95.0)</span></td></tr>
     <tr><td>C/C++ 컴파일러</td><td>Visual Studio Build Tools<br>(C++ 데스크톱 개발 워크로드)</td><td><code>gcc</code> (이미 있음)</td></tr>
     <tr><td>OS</td><td>Windows 10/11 x64</td><td>CentOS 7.9 / glibc 2.17 / x86_64</td></tr>
     <tr><td>인터넷</td><td>필요 <span class="def">(crates.io 에서 의존 크레이트 다운로드)</span></td><td>필요 <span class="def">(확인됨)</span></td></tr>
@@ -312,6 +312,16 @@ $zip.Dispose()</code></pre>
 
 
 <h2 id="linux"><span class="n">4</span> Linux 배포본 만들기</h2>
+<div class="note"><b>실제 값은 저장소에 두지 않습니다</b> <span class="pill">2026-09-11</span> —
+아래 <code>&lt;빌드서버&gt;</code>·<code>&lt;계정&gt;</code>·<code>&lt;빌드루트&gt;</code> 같은 표기는 자리표시입니다.
+이 저장소는 공개라 내부 주소·계정·경로를 본문에 적지 않습니다.
+<br>· <b>접속 정보</b>(주소·계정·비밀번호) — 프로젝트 최상위 <code>.env_vllm</code>
+  (<code>SSH_SERVER</code>·<code>SSH_USER_ID</code>·<code>SSH_USER_PWD</code>)
+<br>· <b>서버 안쪽 경로</b>(빌드 폴더·모델 원본·conda) — <code>scripts/build/server.env</code>
+  <span class="def">보기는 <code>server.env.sample</code> 에 있습니다. 복사해서 값만 채우세요.</span>
+<br>둘 다 <code>.gitignore</code> 로 막혀 있어 저장소에 올라가지 않습니다.
+빌드 스크립트가 이 두 파일에서 값을 읽으므로, 아래 절차를 손으로 칠 일은 거의 없습니다.</div>
+
 <div class="note"><b>스크립트로 하세요</b> <span class="pill">2026-09-11</span> —
 아래 절차는 <code>scripts/build/linux-build.sh</code> 가 그대로 합니다(소스 전송 → 원격 빌드 →
 내려받기). <b>실패하면 그 자리에서 멈추고</b>, 내려받기가 실패하면 옛 배포본을 되돌립니다.
@@ -326,12 +336,12 @@ bash scripts/build/linux-build.sh rust  <span class="cmt"># 한 판만</span></c
 
   <h3>접속 정보 <span class="def">(<code>MpowerClassify\.env_vllm</code>)</span></h3>
   <div class="scroll"><table>
-    <tr><th>서버</th><td><code>10.10.4.10</code> (포트 22) · 호스트명 <code>devgpu</code></td></tr>
-    <tr><th>계정</th><td><code>mpower</code></td></tr>
+    <tr><th>서버</th><td><code>&lt;빌드서버&gt;</code> (포트 22) · 호스트명 <code>&lt;호스트&gt;</code></td></tr>
+    <tr><th>계정</th><td><code>&lt;계정&gt;</code></td></tr>
     <tr><th>비밀번호</th><td><code>.env_vllm</code> 의 <code>SSH_USER_PWD</code> 값</td></tr>
     <tr><th>OS</th><td>CentOS 7.9 · glibc 2.17 · x86_64 · 32코어</td></tr>
-    <tr><th>Rust</th><td>설치됨 — <code>/MOCOMSYS/.cargo/bin/cargo</code> (1.95.0)</td></tr>
-    <tr><th>작업 폴더</th><td><code>/MOCOMSYS/dev/bong/cso_rust_build</code></td></tr>
+    <tr><th>Rust</th><td>설치됨 — <code>&lt;cargo&gt;/bin/cargo</code> (1.95.0)</td></tr>
+    <tr><th>작업 폴더</th><td><code>&lt;Rust빌드폴더&gt;</code></td></tr>
   </table></div>
   <p class="def">Windows 에서 접속·전송에는 PuTTY 의 <code>plink</code>/<code>pscp</code> 를 씁니다
   (<code>C:\Program Files\PuTTY\</code>). OpenSSH 의 <code>ssh</code>/<code>scp</code> 를 써도 됩니다.</p>
@@ -346,8 +356,8 @@ tar -czf /tmp/rustsrc.tgz Cargo.toml Cargo.lock build.rs src resources tests REA
 <span class="cmt"># src 에는 2026-09-08 부터 seedstore.rs · seedcli.rs 가 함께 들어간다(--seed-add).</span>
 
 <span class="cmt"># 서버에 작업 폴더 만들고 업로드</span>
-plink -batch -ssh -l mpower -pw '&lt;비밀번호&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build"
-pscp  -batch -pw '&lt;비밀번호&gt;' /tmp/rustsrc.tgz mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/</code></pre>
+plink -batch -ssh -l &lt;계정&gt; -pw '&lt;비밀번호&gt;' &lt;빌드서버&gt; "mkdir -p &lt;Rust빌드폴더&gt;"
+pscp  -batch -pw '&lt;비밀번호&gt;' /tmp/rustsrc.tgz &lt;계정&gt;@&lt;빌드서버&gt;:&lt;Rust빌드폴더&gt;/</code></pre>
     <p class="def"><code>Cargo.lock</code> 을 꼭 함께 보내세요. “어떤 라이브러리를 <b>정확히 어느 버전으로</b> 썼는지” 기록한
     파일이라, 이게 있어야 Windows 빌드와 <b>같은 결과</b>가 나옵니다.</p>
   </div>
@@ -355,10 +365,10 @@ pscp  -batch -pw '&lt;비밀번호&gt;' /tmp/rustsrc.tgz mpower@10.10.4.10:/MOCO
   <div class="step">
     <h4><span class="num">2</span> 서버에서 빌드</h4>
     <p>서버에 접속해 압축을 풀고 빌드합니다. <b>환경변수 <code>RUSTFLAGS</code> 가 핵심</b>입니다.</p>
-<pre><code>ssh mpower@10.10.4.10
+<pre><code>ssh &lt;계정&gt;@&lt;빌드서버&gt;
 
-export PATH=/MOCOMSYS/.cargo/bin:$PATH
-cd /MOCOMSYS/dev/bong/cso_rust_build
+export PATH=&lt;cargo&gt;/bin:$PATH
+cd &lt;Rust빌드폴더&gt;
 tar xzf rustsrc.tgz
 
 <span class="cmt"># ★ 실행파일에 "내 옆 폴더에서 .so 를 찾아라" 규칙(RPATH)을 새겨 넣는다</span>
@@ -386,11 +396,11 @@ readelf -d target/release/MpowerClassify-rs | grep -i rpath</code></pre>
 
   <div class="step">
     <h4><span class="num">3</span> 서버에서 배포본 폴더 조립</h4>
-    <p>필요한 <code>.so</code> 는 서버의 conda 환경 <code>bong</code> 안에 이미 다 있습니다. 거기서 복사합니다.</p>
-<pre><code>B=/MOCOMSYS/dev/bong/cso_rust_build
+    <p>필요한 <code>.so</code> 는 서버의 conda 환경 <code>&lt;환경이름&gt;</code> 안에 이미 다 있습니다. 거기서 복사합니다.</p>
+<pre><code>B=&lt;Rust빌드폴더&gt;
 D=$B/dist-onedir/linux
-CONDA=/MOCOMSYS/anaconda3/envs/bong/lib/python3.13/site-packages
-L=/MOCOMSYS/anaconda3/envs/bong/lib
+CONDA=&lt;conda환경&gt;/lib/python3.x/site-packages
+L=&lt;conda환경&gt;/lib
 
 rm -rf $D &amp;&amp; mkdir -p $D/models
 
@@ -411,7 +421,7 @@ strip --strip-unneeded $D/libstdc++.so.6      <span class="cmt"># 14MB → 2MB</
 chmod +x $D/*.so $D/*.so.*
 
 <span class="cmt"># (5) 임베딩 모델</span>
-cp -r /MOCOMSYS/.csoclassify/CSOClassify/models/e5-small-ko $D/models/
+cp -r &lt;모델원본&gt;/e5-small-ko $D/models/
 chmod -R u+rwX,go+rX $D/models
 
 <span class="cmt"># (6) ★ 규칙셋·분류체계·seed·README — 1단계에서 assets/ 로 함께 올려 둔 것</span>
@@ -425,17 +435,17 @@ ls -la $D</code></pre>
     <span class="def">(2026-08-25 배포본에서 실제로 빠져 있었습니다)</span>.
     1단계에서 아래를 함께 올려 두세요.</div>
 <pre><code><span class="cmt"># Windows(Git Bash) — 1단계에 같이</span>
-plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build/assets"
+plink -batch -ssh -l &lt;계정&gt; -pw '&lt;PW&gt;' &lt;빌드서버&gt; "mkdir -p &lt;Rust빌드폴더&gt;/assets"
 cd /d/Project/MpowerClassify
 <span class="cmt"># 업무분류 두 파일은 ui/policy 가 갱신되는 쪽 — 파이썬 빌드가이드 4장 '정책 파일 정본 확인' 참고</span>
 pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rule.yaml ui/policy/doc_taxonomy.yaml \
      ui/policy/doc_rule.yaml Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
-     mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/assets/</code></pre>
+     &lt;계정&gt;@&lt;빌드서버&gt;:&lt;Rust빌드폴더&gt;/assets/</code></pre>
   </div>
 
   <div class="step">
     <h4><span class="num">4</span> 서버에서 동작 확인</h4>
-<pre><code>cd /MOCOMSYS/dev/bong/cso_rust_build/dist-onedir/linux
+<pre><code>cd &lt;Rust빌드폴더&gt;/dist-onedir/linux
 ./MpowerClassify-rs --help
 
 <span class="cmt"># 규칙만 (임베딩·PDF 없이도 동작해야 함)</span>
@@ -453,11 +463,11 @@ pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rule.yaml ui/policy/doc_tax
     <h4><span class="num">5</span> Windows 로 내려받아 최종 배포본 완성</h4>
     <p>서버에서 만든 것 중 <b>바이너리 6개만</b> 내려받고, 모델·규칙셋은 Windows 쪽 것을 복사합니다(같은 파일).</p>
 <pre><code>cd /d/Project/MpowerClassify/Rust/dist-onedir/linux
-R=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir/linux
+R=&lt;Rust빌드폴더&gt;/dist-onedir/linux
 
 for f in MpowerClassify-rs libonnxruntime.so libonnxruntime_providers_shared.so \
          libpdfium.so libstdc++.so.6 libgcc_s.so.1; do
-  pscp -batch -q -pw '&lt;비밀번호&gt;' "mpower@10.10.4.10:$R/$f" .
+  pscp -batch -q -pw '&lt;비밀번호&gt;' "&lt;계정&gt;@&lt;빌드서버&gt;:$R/$f" .
 done
 
 <span class="cmt"># 규칙셋·seed·모델은 Windows 배포본에서 그대로 복사(OS 무관 동일 파일)</span>
@@ -475,7 +485,7 @@ cp -r windows/models/e5-small-ko linux/models/</code></pre>
     <p>폴더째 복사하면 실행권한이 날아가므로, <b>리눅스에서 <code>tar</code> 로 묶어</b> 전달하는 편이 안전합니다.
     받는 쪽은 압축만 풀면 <code>chmod</code> 없이 바로 실행됩니다.</p>
 <pre><code><span class="cmt"># 서버에서 — 배포용 이름의 폴더로 복사한 뒤 묶는다 (-a 로 권한 보존)</span>
-B=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir
+B=&lt;Rust빌드폴더&gt;/dist-onedir
 rm -rf /tmp/pkg &amp;&amp; mkdir -p /tmp/pkg
 cp -a $B/linux /tmp/pkg/MpowerClassify-rs-linux
 chmod +x /tmp/pkg/MpowerClassify-rs-linux/MpowerClassify-rs
@@ -488,7 +498,7 @@ ls -lh /tmp/MpowerClassify-rs-linux.tgz          <span class="cmt"># 약 95MB</s
 tar tzvf /tmp/MpowerClassify-rs-linux.tgz</code></pre>
 <pre><code><span class="cmt"># Windows(Git Bash) 로 내려받기 — 배포본 폴더 안에 둔다(구버전이 있으면 덮어쓴다)</span>
 cd /d/Project/MpowerClassify/Rust/dist-onedir/linux
-pscp -batch -q -pw '&lt;비밀번호&gt;' mpower@10.10.4.10:/tmp/MpowerClassify-rs-linux.tgz .
+pscp -batch -q -pw '&lt;비밀번호&gt;' &lt;계정&gt;@&lt;빌드서버&gt;:/tmp/MpowerClassify-rs-linux.tgz .
 
 <span class="cmt"># 전송 중 깨지지 않았는지 해시 대조(양쪽 값이 같아야 함)</span>
 sha256sum MpowerClassify-rs-linux.tgz</code></pre>
@@ -521,7 +531,7 @@ cd MpowerClassify-rs-linux
       <td><code>libonnxruntime.so</code><br><code>libonnxruntime_providers_shared.so</code></td>
       <td>파이썬 <code>onnxruntime</code> 패키지의 <code>capi/</code> 폴더.<br>
           Win: <code>dist-onedir\windows\_internal\onnxruntime\capi\</code><br>
-          Linux: <code>…/envs/bong/lib/python3.13/site-packages/onnxruntime/capi/</code><br>
+          Linux: <code>…/envs/&lt;환경이름&gt;/lib/python3.x/site-packages/onnxruntime/capi/</code><br>
           <span class="def">없으면 <code>pip install onnxruntime</code> 후 그 폴더에서 꺼내면 됩니다.</span></td>
     </tr>
     <tr>
@@ -535,7 +545,7 @@ cd MpowerClassify-rs-linux
       <td>C++ 런타임<br><span class="def">(Linux 전용)</span></td>
       <td>불필요 <span class="def">(윈도우는 VC++ 런타임이 DLL 에 정적 포함)</span></td>
       <td><code>libstdc++.so.6</code><br><code>libgcc_s.so.1</code></td>
-      <td>conda 환경의 <code>lib/</code>.<br><code>/MOCOMSYS/anaconda3/envs/bong/lib/libstdc++.so.6.0.34</code></td>
+      <td>conda 환경의 <code>lib/</code>.<br><code>&lt;conda환경&gt;/lib/libstdc++.so.6.0.34</code></td>
     </tr>
     <tr>
       <td>임베딩 모델</td>
@@ -749,22 +759,22 @@ tar -czf /tmp/rustsrc.tgz Cargo.toml Cargo.lock build.rs src resources tests REA
 <span class="cmt"># build.rs 는 pdfium 자동 복사, tests 는 골든 정답표(pii_golden.json 등)를 담는다.</span>
 <span class="cmt"># 둘 다 빠뜨리면 빌드는 되지만 pdfium 이 안 붙고 cargo test 가 8건 실패한다.</span>
 <span class="cmt"># src 에는 2026-09-08 부터 seedstore.rs · seedcli.rs 가 함께 들어간다(--seed-add).</span>
-plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/dev/bong/cso_rust_build/assets"
-pscp  -batch -pw '&lt;PW&gt;' /tmp/rustsrc.tgz mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/
+plink -batch -ssh -l &lt;계정&gt; -pw '&lt;PW&gt;' &lt;빌드서버&gt; "mkdir -p &lt;Rust빌드폴더&gt;/assets"
+pscp  -batch -pw '&lt;PW&gt;' /tmp/rustsrc.tgz &lt;계정&gt;@&lt;빌드서버&gt;:&lt;Rust빌드폴더&gt;/
 
 <span class="cmt"># ★ 규칙셋·분류체계·seed·README 도 함께 — 이게 있어야 tgz 가 완전해진다(4-3 경고)</span>
 cd /d/Project/MpowerClassify
 <span class="cmt"># 업무분류 두 파일은 ui/policy 가 갱신되는 쪽 — 파이썬 빌드가이드 4장 '정책 파일 정본 확인' 참고</span>
 pscp -batch -q -pw '&lt;PW&gt;' resources/policy/cso_rule.yaml ui/policy/doc_taxonomy.yaml \
      ui/policy/doc_rule.yaml Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
-     mpower@10.10.4.10:/MOCOMSYS/dev/bong/cso_rust_build/assets/</code></pre>
+     &lt;계정&gt;@&lt;빌드서버&gt;:&lt;Rust빌드폴더&gt;/assets/</code></pre>
 
   <h3><span class="def">(2) 서버에서 빌드 + 조립</span></h3>
-<pre><code>export PATH=/MOCOMSYS/.cargo/bin:$PATH
-B=/MOCOMSYS/dev/bong/cso_rust_build
+<pre><code>export PATH=&lt;cargo&gt;/bin:$PATH
+B=&lt;Rust빌드폴더&gt;
 D=$B/dist-onedir/linux
-CONDA=/MOCOMSYS/anaconda3/envs/bong/lib/python3.13/site-packages
-L=/MOCOMSYS/anaconda3/envs/bong/lib
+CONDA=&lt;conda환경&gt;/lib/python3.x/site-packages
+L=&lt;conda환경&gt;/lib
 
 cd $B &amp;&amp; tar xzf rustsrc.tgz
 export RUSTFLAGS='-C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,--disable-new-dtags'
@@ -779,7 +789,7 @@ cp $L/libstdc++.so.6.0.34 $D/libstdc++.so.6
 cp $L/libgcc_s.so.1       $D/
 strip --strip-unneeded $D/libstdc++.so.6
 chmod +x $D/*.so $D/*.so.*
-cp -r /MOCOMSYS/.csoclassify/CSOClassify/models/e5-small-ko $D/models/
+cp -r &lt;모델원본&gt;/e5-small-ko $D/models/
 chmod -R u+rwX,go+rX $D/models
 cp $B/assets/cso_rule.yaml $B/assets/doc_taxonomy.yaml $B/assets/doc_rule.yaml \
    $B/assets/class_seed.jsonl $B/assets/README.txt $D/
@@ -792,10 +802,10 @@ cd $D &amp;&amp; ./MpowerClassify-rs --dir /경로/샘플 --rules cso_rule.yaml 
 
   <h3><span class="def">(3) Windows 로 내려받아 마무리</span></h3>
 <pre><code>cd /d/Project/MpowerClassify/Rust/dist-onedir/linux
-R=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir/linux
+R=&lt;Rust빌드폴더&gt;/dist-onedir/linux
 for f in MpowerClassify-rs libonnxruntime.so libonnxruntime_providers_shared.so \
          libpdfium.so libstdc++.so.6 libgcc_s.so.1; do
-  pscp -batch -q -pw '&lt;PW&gt;' "mpower@10.10.4.10:$R/$f" .
+  pscp -batch -q -pw '&lt;PW&gt;' "&lt;계정&gt;@&lt;빌드서버&gt;:$R/$f" .
 done
 
 cd ..
@@ -804,7 +814,7 @@ mkdir -p linux/models &amp;&amp; cp -r windows/models/e5-small-ko linux/models/<
 
   <h3><span class="def">(4) tgz 로 묶어 내려받기 — 권장 배포 형태</span></h3>
 <pre><code><span class="cmt"># 서버에서</span>
-B=/MOCOMSYS/dev/bong/cso_rust_build/dist-onedir
+B=&lt;Rust빌드폴더&gt;/dist-onedir
 rm -rf /tmp/pkg &amp;&amp; mkdir -p /tmp/pkg
 cp -a $B/linux /tmp/pkg/MpowerClassify-rs-linux
 chmod +x /tmp/pkg/MpowerClassify-rs-linux/MpowerClassify-rs
@@ -812,7 +822,7 @@ cd /tmp/pkg &amp;&amp; tar czf /tmp/MpowerClassify-rs-linux.tgz MpowerClassify-r
 tar tzvf /tmp/MpowerClassify-rs-linux.tgz | head</code></pre>
 <pre><code><span class="cmt"># Windows(Git Bash) 에서</span>
 cd /d/Project/MpowerClassify/Rust/dist-onedir/linux
-pscp -batch -q -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/MpowerClassify-rs-linux.tgz .
+pscp -batch -q -pw '&lt;PW&gt;' &lt;계정&gt;@&lt;빌드서버&gt;:/tmp/MpowerClassify-rs-linux.tgz .
 sha256sum MpowerClassify-rs-linux.tgz     <span class="cmt"># 서버 값과 대조</span></code></pre>
 
   <h3><span class="def">(5) 배포 대상 리눅스에서 설치</span></h3>
@@ -895,7 +905,7 @@ cd MpowerClassify-rs-linux
       <code>Developer: Reload Window</code>).</li>
   </ol>
 
-  <div class="note"><b>빌드서버(10.10.4.10)에서 고칠 때</b>는 서버에 VS Code 를 설치하지 말고,
+  <div class="note"><b>빌드서버(&lt;빌드서버&gt;)에서 고칠 때</b>는 서버에 VS Code 를 설치하지 말고,
   내 PC VS Code 의 <b>Remote-SSH</b> 확장으로 접속하는 쪽이 편합니다. 이때 rust-analyzer 는
   <b>서버 쪽에 다시 설치</b>되므로(원격 확장), 폐쇄망이면 위 <code>linux-x64.vsix</code> 를 서버에 올려
   <code>code --install-extension</code> 으로 깔면 됩니다.</div>
@@ -972,7 +982,7 @@ cd MpowerClassify-rs-linux
     <tr><td><code>vadimcn.vscode-lldb</code></td><td>CodeLLDB — Rust 실행파일에 <b>중단점 걸고 디버깅</b>. rust-analyzer 의 <code>Debug</code> CodeLens 가 이 확장을 사용합니다.</td></tr>
     <tr><td><code>tamasfe.even-better-toml</code></td><td><code>Cargo.toml</code> 문법 강조·자동완성</td></tr>
     <tr><td><code>fill-labs.dependi</code></td><td>의존 크레이트의 <b>최신 버전</b>을 <code>Cargo.toml</code> 옆에 표시 (구 <code>serayuzgur.crates</code> 후속)</td></tr>
-    <tr><td><code>ms-vscode-remote.remote-ssh</code></td><td>빌드서버(10.10.4.10)에 직접 붙어 편집·빌드 → <a href="#linux">4장</a></td></tr>
+    <tr><td><code>ms-vscode-remote.remote-ssh</code></td><td>빌드서버(&lt;빌드서버&gt;)에 직접 붙어 편집·빌드 → <a href="#linux">4장</a></td></tr>
   </table></div>
 
   <div class="bad"><b>주의 — rust-analyzer 는 빌드 도구가 아닙니다.</b><br>

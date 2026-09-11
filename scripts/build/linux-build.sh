@@ -19,8 +19,10 @@
 cd "$(dirname "$0")/../.." || die "프로젝트 최상위로 이동하지 못했습니다"
 WHICH="${1:-both}"
 
-PY_BUILD=/MOCOMSYS/.csoclassify/build_slim
-RS_BUILD=/MOCOMSYS/dev/bong/cso_rust_build
+# 서버 안쪽 경로는 설정에서 읽는다(코드에 박지 않는다 - 저장소가 공개다).
+load_server_env "$(dirname "$0")/server.env"
+PY_BUILD="$BUILD_PY_DIR"
+RS_BUILD="$BUILD_RS_DIR"
 
 command -v plink >/dev/null || die "plink 를 찾을 수 없습니다 (PuTTY 설치·PATH 확인)"
 command -v pscp  >/dev/null || die "pscp 를 찾을 수 없습니다"
@@ -45,7 +47,7 @@ for k in ("SSH_SERVER", "SSH_USER_ID", "SSH_USER_PWD"):
 # 비밀번호는 파일로만 넘긴다 — 화면·명령행 인자에 남기지 않는다.
 io.open(sys.argv[1] + "/.pw", "w", encoding="utf-8", newline="").write(d["SSH_USER_PWD"])
 # [newline="" 가 핵심] 윈도우 파이썬은 기본으로 "\n" 을 "\r\n" 으로 바꿔 쓴다.
-# 그러면 read 가 읽은 사용자명이 "mpower\r" 이 되고, plink/pscp 가 그 이름으로
+# 그러면 read 가 읽은 사용자명 끝에 "\r" 이 붙고, plink/pscp 가 그 이름으로
 # 붙어 **인증만 조용히 거부**된다("Access denied"). 비밀번호는 멀쩡한데 비밀번호를
 # 의심하게 되는, 찾기 고약한 실패였다(2026-09-11 실측).
 # 끝에 개행은 넣는다 — read 가 개행 없이 EOF 를 만나면 값을 제대로 채우고도
@@ -78,8 +80,9 @@ tar -czf "$TMP/assets.tgz" -C . \
 
 pscp -batch -q -pw "$PW" "$TMP/cso_src.tgz" "$USER_ID@$HOST:$PY_BUILD/"  || die "파이썬 소스 전송 실패"
 pscp -batch -q -pw "$PW" "$TMP/rustsrc.tgz" "$USER_ID@$HOST:$RS_BUILD/"  || die "Rust 소스 전송 실패"
+# 서버에서 도는 쪽도 같은 설정을 쓴다 - 함께 올린다.
 pscp -batch -q -pw "$PW" scripts/build/_lib.sh scripts/build/linux-remote.sh \
-     "$USER_ID@$HOST:/tmp/" || die "빌드 스크립트 전송 실패"
+     scripts/build/server.env "$USER_ID@$HOST:/tmp/" || die "빌드 스크립트 전송 실패"
 
 # 외장 자산(규칙셋·분류체계·seed·유의어·README)도 함께 올린다 — 빠지면
 # 배포본이 오류 없이 반쪽이 된다.

@@ -162,8 +162,8 @@ README.txt</div>
 <h2 id="prep"><span class="n">2</span> 준비물</h2>
 <section class="card">
   <div class="scroll"><table>
-    <tr><th>항목</th><th>Windows (내 PC)</th><th>Linux (빌드서버 10.10.4.10)</th></tr>
-    <tr><td>Python</td><td>3.12.x <span class="def">(확인: 3.12.10)</span></td><td>conda 환경 <code>bong</code> <span class="def">(3.13.5)</span></td></tr>
+    <tr><th>항목</th><th>Windows (내 PC)</th><th>Linux (빌드서버 &lt;빌드서버&gt;)</th></tr>
+    <tr><td>Python</td><td>3.12.x <span class="def">(확인: 3.12.10)</span></td><td>conda 환경 <code>&lt;환경이름&gt;</code> <span class="def">(3.13.5)</span></td></tr>
     <tr><td>PyInstaller</td><td>6.x <span class="def">(확인: 6.22.0)</span></td><td>6.22.0 <span class="def">(이미 설치)</span></td></tr>
     <tr><td>OS</td><td>Windows 10/11 x64</td><td>CentOS 7.9 · glibc 2.17 · x86_64</td></tr>
     <tr><td>인터넷</td><td>필요 <span class="def">(pip 설치 시)</span></td><td>필요 <span class="def">(패키지가 이미 깔려 있으면 불필요)</span></td></tr>
@@ -339,17 +339,27 @@ MpowerClassify.exe --file "샘플.hwp"</code></pre>
 
 
 <h2 id="linux"><span class="n">4</span> Linux 배포본 만들기</h2>
+<div class="note"><b>실제 값은 저장소에 두지 않습니다</b> <span class="pill">2026-09-11</span> —
+아래 <code>&lt;빌드서버&gt;</code>·<code>&lt;계정&gt;</code>·<code>&lt;빌드루트&gt;</code> 같은 표기는 자리표시입니다.
+이 저장소는 공개라 내부 주소·계정·경로를 본문에 적지 않습니다.
+<br>· <b>접속 정보</b>(주소·계정·비밀번호) — 프로젝트 최상위 <code>.env_vllm</code>
+  (<code>SSH_SERVER</code>·<code>SSH_USER_ID</code>·<code>SSH_USER_PWD</code>)
+<br>· <b>서버 안쪽 경로</b>(빌드 폴더·모델 원본·conda) — <code>scripts/build/server.env</code>
+  <span class="def">보기는 <code>server.env.sample</code> 에 있습니다. 복사해서 값만 채우세요.</span>
+<br>둘 다 <code>.gitignore</code> 로 막혀 있어 저장소에 올라가지 않습니다.
+빌드 스크립트가 이 두 파일에서 값을 읽으므로, 아래 절차를 손으로 칠 일은 거의 없습니다.</div>
+
 <section class="card">
   <p>리눅스 배포본은 <b>리눅스 서버에서 빌드</b>하고, 결과를 <code>.tgz</code> 로 묶어 Windows 로 내려받습니다.</p>
 
   <h3>접속 정보 <span class="def">(<code>MpowerClassify\.env_vllm</code>)</span></h3>
   <div class="scroll"><table>
-    <tr><th>서버</th><td><code>10.10.4.10</code> (포트 22) · 호스트명 <code>devgpu</code></td></tr>
-    <tr><th>계정</th><td><code>mpower</code></td></tr>
+    <tr><th>서버</th><td><code>&lt;빌드서버&gt;</code> (포트 22) · 호스트명 <code>&lt;호스트&gt;</code></td></tr>
+    <tr><th>계정</th><td><code>&lt;계정&gt;</code></td></tr>
     <tr><th>비밀번호</th><td><code>.env_vllm</code> 의 <code>SSH_USER_PWD</code> 값</td></tr>
     <tr><th>OS</th><td>CentOS 7.9 · glibc 2.17 · x86_64</td></tr>
-    <tr><th>파이썬</th><td>conda 환경 <code>bong</code> — <code>/MOCOMSYS/anaconda3/envs/bong</code> (3.13.5, PyInstaller 6.22.0)</td></tr>
-    <tr><th>작업 폴더</th><td><code>/MOCOMSYS/.csoclassify/build_slim</code></td></tr>
+    <tr><th>파이썬</th><td>conda 환경 <code>&lt;환경이름&gt;</code> — <code>&lt;conda환경&gt;</code> (3.13.5, PyInstaller 6.22.0)</td></tr>
+    <tr><th>작업 폴더</th><td><code>&lt;파이썬빌드폴더&gt;</code></td></tr>
   </table></div>
 
   <div class="step">
@@ -358,44 +368,44 @@ MpowerClassify.exe --file "샘플.hwp"</code></pre>
 <pre><code>cd /d/Project/MpowerClassify
 tar -czf /tmp/cso_src.tgz src build requirements.txt
 
-plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/.csoclassify/build_slim"
-pscp  -batch -pw '&lt;PW&gt;' /tmp/cso_src.tgz mpower@10.10.4.10:/MOCOMSYS/.csoclassify/build_slim/</code></pre>
+plink -batch -ssh -l &lt;계정&gt; -pw '&lt;PW&gt;' &lt;빌드서버&gt; "mkdir -p &lt;파이썬빌드폴더&gt;"
+pscp  -batch -pw '&lt;PW&gt;' /tmp/cso_src.tgz &lt;계정&gt;@&lt;빌드서버&gt;:&lt;파이썬빌드폴더&gt;/</code></pre>
   </div>
 
   <div class="step">
     <h4><span class="num">2</span> 서버에서 환경 준비</h4>
-<pre><code>ssh mpower@10.10.4.10
+<pre><code>ssh &lt;계정&gt;@&lt;빌드서버&gt;
 
-source /MOCOMSYS/anaconda3/etc/profile.d/conda.sh
-conda activate bong
+source &lt;conda&gt;/etc/profile.d/conda.sh
+conda activate &lt;환경이름&gt;
 python -V                <span class="cmt"># Python 3.13.5</span>
 pyinstaller --version    <span class="cmt"># 6.22.0</span>
 
-cd /MOCOMSYS/.csoclassify/build_slim
+cd &lt;파이썬빌드폴더&gt;
 tar xzf cso_src.tgz</code></pre>
     <p>패키지가 빠져 있으면 설치합니다.</p>
 <pre><code>pip install -r requirements.txt</code></pre>
-    <div class="note"><b>conda 환경 <code>bong</code> 을 쓰는 이유</b> — 이 환경에는 CentOS 7 시스템보다 <b>훨씬 최신인
+    <div class="note"><b>conda 환경 <code>&lt;환경이름&gt;</code> 을 쓰는 이유</b> — 이 환경에는 CentOS 7 시스템보다 <b>훨씬 최신인
     <code>libstdc++.so.6</code>(6.0.34)</b> 이 들어 있습니다. spec 파일이 이걸 자동으로 찾아 배포본에 넣어줍니다
     (<a href="#trouble">8-①</a>). 시스템 파이썬으로 빌드하면 이 부분이 빠져 실행이 안 됩니다.</div>
   </div>
 
   <div class="step">
     <h4><span class="num">3</span> 빌드</h4>
-<pre><code>cd /MOCOMSYS/.csoclassify/build_slim
+<pre><code>cd &lt;파이썬빌드폴더&gt;
 pyinstaller build/csoclassify.spec 2&gt;&amp;1 | tee build.log</code></pre>
     <p>결과물은 <code>dist/MpowerClassify/</code> 입니다.</p>
 <pre><code>ls -la dist/MpowerClassify/
 <span class="cmt"># MpowerClassify (약 8.5MB, ELF) + _internal/</span></code></pre>
     <div class="note"><b>venv 로 빌드한다면</b> — <code>--system-site-packages</code> venv 에서는
     <code>sys.prefix/lib</code> 에 <code>libstdc++.so.6</code> 가 없습니다. 이때는 conda 라이브러리 경로를 직접 알려줍니다.
-<pre style="margin:8px 0 0"><code>export CSO_EXTRA_LIBDIR=/MOCOMSYS/anaconda3/envs/bong/lib
+<pre style="margin:8px 0 0"><code>export CSO_EXTRA_LIBDIR=&lt;conda환경&gt;/lib
 pyinstaller build/csoclassify.spec</code></pre></div>
   </div>
 
   <div class="step">
     <h4><span class="num">4</span> 서버에서 동작 확인</h4>
-<pre><code>cd /MOCOMSYS/.csoclassify/build_slim/dist/MpowerClassify
+<pre><code>cd &lt;파이썬빌드폴더&gt;/dist/MpowerClassify
 ./MpowerClassify --help
 ./MpowerClassify --classify --file /tmp/샘플.txt --rules /경로/cso_rule.yaml</code></pre>
     <div class="bad"><code>ImportError: … CXXABI_1.3.9 not found</code> 가 나오면
@@ -406,12 +416,12 @@ pyinstaller build/csoclassify.spec</code></pre></div>
     <h4><span class="num">5</span> tgz 로 묶어 Windows 로 내려받기</h4>
     <p>심볼릭 링크와 실행권한을 보존하려면 <b>반드시 리눅스에서 tar 로 묶어야</b> 합니다.</p>
 <pre><code><span class="cmt"># 서버에서</span>
-cd /MOCOMSYS/.csoclassify/build_slim/dist
+cd &lt;파이썬빌드폴더&gt;/dist
 tar czf /tmp/MpowerClassify-onedir-linux.tgz MpowerClassify
 ls -lh /tmp/MpowerClassify-onedir-linux.tgz     <span class="cmt"># 약 52MB</span></code></pre>
 <pre><code><span class="cmt"># Windows(Git Bash) 에서 내려받기</span>
 cd /d/Project/MpowerClassify/dist-onedir/linux
-pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/MpowerClassify-onedir-linux.tgz .</code></pre>
+pscp -batch -pw '&lt;PW&gt;' &lt;계정&gt;@&lt;빌드서버&gt;:/tmp/MpowerClassify-onedir-linux.tgz .</code></pre>
     <div class="warn"><b>이 tgz 를 Windows 에서 풀지 마세요.</b> <code>_internal</code> 안의 심볼릭 링크가 깨져
     리눅스에서 실행이 안 됩니다. 배포 대상 리눅스로 옮긴 뒤 그곳에서 <code>tar xzf</code> 하세요.</div>
   </div>
@@ -642,7 +652,7 @@ python scripts/quantize_onnx.py --model e5-small-ko</code></pre>
   spec 이 자동으로 넣어주지만, 찾지 못하면 조용히 건너뜁니다. 확인:</p>
 <pre><code>ls -la dist/MpowerClassify/_internal/libstdc++.so.6</code></pre>
   <p>없다면 conda 환경(<code>bong</code>)으로 빌드하거나, venv 라면 경로를 알려주고 다시 빌드하세요.</p>
-<pre><code>export CSO_EXTRA_LIBDIR=/MOCOMSYS/anaconda3/envs/bong/lib
+<pre><code>export CSO_EXTRA_LIBDIR=&lt;conda환경&gt;/lib
 pyinstaller build/csoclassify.spec</code></pre>
 
   <h3>② 리눅스에서 실행하면 <code>.so</code> 를 못 찾음 <span class="os">Linux</span></h3>
@@ -723,14 +733,14 @@ dist-onedir\windows\MpowerClassify.exe --help</code></pre>
   <h3>B. Linux <span class="def">(1) Windows(Git Bash) 에서 업로드</span></h3>
 <pre><code>cd /d/Project/MpowerClassify
 tar -czf /tmp/cso_src.tgz src build requirements.txt
-plink -batch -ssh -l mpower -pw '&lt;PW&gt;' 10.10.4.10 "mkdir -p /MOCOMSYS/.csoclassify/build_slim"
-pscp  -batch -pw '&lt;PW&gt;' /tmp/cso_src.tgz mpower@10.10.4.10:/MOCOMSYS/.csoclassify/build_slim/</code></pre>
+plink -batch -ssh -l &lt;계정&gt; -pw '&lt;PW&gt;' &lt;빌드서버&gt; "mkdir -p &lt;파이썬빌드폴더&gt;"
+pscp  -batch -pw '&lt;PW&gt;' /tmp/cso_src.tgz &lt;계정&gt;@&lt;빌드서버&gt;:&lt;파이썬빌드폴더&gt;/</code></pre>
 
   <h3><span class="def">(2) 서버에서 빌드 + 패키징</span></h3>
-<pre><code>source /MOCOMSYS/anaconda3/etc/profile.d/conda.sh
-conda activate bong
+<pre><code>source &lt;conda&gt;/etc/profile.d/conda.sh
+conda activate &lt;환경이름&gt;
 
-cd /MOCOMSYS/.csoclassify/build_slim
+cd &lt;파이썬빌드폴더&gt;
 tar xzf cso_src.tgz
 pyinstaller build/csoclassify.spec 2&gt;&amp;1 | tee build.log
 
@@ -740,7 +750,7 @@ ls -lh /tmp/MpowerClassify-onedir-linux.tgz</code></pre>
 
   <h3><span class="def">(3) Windows 로 내려받아 마무리</span></h3>
 <pre><code>cd /d/Project/MpowerClassify/dist-onedir/linux
-pscp -batch -pw '&lt;PW&gt;' mpower@10.10.4.10:/tmp/MpowerClassify-onedir-linux.tgz .
+pscp -batch -pw '&lt;PW&gt;' &lt;계정&gt;@&lt;빌드서버&gt;:/tmp/MpowerClassify-onedir-linux.tgz .
 
 cp ../../resources/policy/cso_rule.yaml .
 <span class="cmt"># 업무분류 두 파일은 ui/policy 가 갱신되는 쪽 — 4장 '정책 파일 정본 확인' 참고</span>
