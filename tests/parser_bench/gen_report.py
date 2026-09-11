@@ -509,6 +509,11 @@ footer{{margin-top:46px;padding:22px 56px 0;border-top:1px solid var(--line);
     (xls 85종·xlsx 41종 전부 일치). 구형 xls 쪽은 이미 서식을 읽고 있는
     <code>xlrd</code> 의 판정을 쓰고 출력 모양만 맞췄다 — 같은 일을 두 번 하면
     두 해석이 어긋날 여지만 생긴다.</p>
+    <p style="margin:.5em 0 0"><b>덤으로 드러난 것.</b> 파이썬 판은 <code>xlrd</code> 가
+    준 실수를 그대로 찍어 수량 9 를 <code>9.0</code>, 연도 2024 를 <code>2024.0</code> 으로
+    내놓고 있었다 — 엑셀 화면에도 사이냅 출력에도 없는 글자다. 날짜와 무관한 기존
+    결함이지만 같은 자리라 함께 고쳤고, 그 결과 <b>xls 표본 15건에서 두 판의 낱말이
+    완전히 같아졌다</b>(자카드 1.000).</p>
   </div>
 </div>
 

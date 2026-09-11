@@ -181,6 +181,31 @@ class PptExtractor(TextExtractor):
         return txt.replace("\x0b", "\n").replace("\r", "\n")
 
 
+#------------------------------------------------------------------
+# 숫자를 사람이 보던 대로 — Rust 판 xls.rs 의 num_str 과 같은 규칙
+#=> xlrd 는 모든 숫자를 실수로 돌려준다. 그대로 str() 하면 수량 9 가 "9.0",
+#   연도 2024 가 "2024.0" 으로 나온다 — 엑셀 화면에도, 사이냅 출력에도,
+#   Rust 판에도 없는 글자다. 본문에 없던 ".0" 이 붙으면 낱말이 달라져
+#   "수량 9" 같이 붙어 있어야 성립하는 규칙이 어긋난다.
+#    1) 소수점 아래가 없으면 정수로 적는다
+#    2) 아주 큰 수(1e15 이상)는 정수로 바꾸면 정밀도를 잃으므로 실수 표기를 쓴다
+#       (Rust 판이 i64 로 바꾸는 경계와 같은 값이다)
+#
+# -in: v = xlrd 가 준 숫자(실수)
+#
+# -out: str = 표시용 문자열
+# -out: error = 숫자가 아니면 str() 결과를 그대로 돌려준다
+#------------------------------------------------------------------
+def _num_str(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if f.is_integer() and abs(f) < 1e15:
+        return str(int(f))
+    return repr(f)
+
+
 class XlsExtractor(TextExtractor):
     #------------------------------------------------------------------
     # xls → 텍스트 (핵심)
@@ -242,4 +267,6 @@ class XlsExtractor(TextExtractor):
             if (hh, mi, ss) == (0, 0, 0):
                 return "%04d-%02d-%02d" % (y, mo, d)
             return "%04d-%02d-%02d %02d:%02d:%02d" % (y, mo, d, hh, mi, ss)
+        if sh.cell_type(r, c) == xlrd.XL_CELL_NUMBER:
+            return _num_str(v)
         return str(v)

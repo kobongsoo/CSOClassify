@@ -230,3 +230,27 @@ def test_xlsx_사용자지정_서식을_문자열로_판단(tmp_path):
     p = tmp_path / "e.xlsx"
     p.write_bytes(_make_xlsx(styles, sheet))
     assert XlsxExtractor().extract(str(p)) == "2012-12-31\t41274"
+
+
+#------------------------------------------------------------------
+# xls 숫자 표기 — Rust 판 num_str 과 같은 규칙인가
+#=> xlrd 는 모든 숫자를 실수로 준다. 그대로 str() 하면 수량 9 가 "9.0" 이 된다 —
+#   엑셀 화면에도, 사이냅 출력에도, Rust 판에도 없는 글자다. 본문에 없던 ".0"
+#   이 붙으면 낱말이 달라져 "수량 9" 처럼 붙어 있어야 성립하는 규칙이 어긋난다.
+#
+# -in: 없음
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_xls_정수는_소수점_없이_쓴다():
+    from csoclassify.extract.office_legacy import _num_str
+
+    assert _num_str(9.0) == "9"
+    assert _num_str(2024.0) == "2024"
+    assert _num_str(0.0) == "0"
+    assert _num_str(-7.0) == "-7"
+    # 소수는 그대로 둔다 — 값을 바꾸면 안 된다.
+    assert _num_str(1.5) == "1.5"
+    assert _num_str(0.25) == "0.25"
+    # 아주 큰 수는 정수로 바꾸면 정밀도를 잃는다(Rust 판과 같은 1e15 경계).
+    assert "." in _num_str(1e16) or "e" in _num_str(1e16)
