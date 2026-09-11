@@ -45,11 +45,16 @@ AMBIGUOUS = "0220076422"
 # 1만 자를 넘겨 청킹 갈래를 타게 한다. 채우는 글자는 검출기에 안 걸리는 것으로.
 _PAD = ("본 문서는 사내 절차를 설명하는 일반 안내문이며 별도의 첨부는 없습니다. " * 400)
 
+# IPv4 를 품은 IPv6 표기. Rust 판이 뒤쪽 IPv4 만 잡아 값이 갈렸던 자리다
+# (2026-09-11). 건수는 양쪽 다 1건이라 **값까지** 견줘야 회귀를 잡는다.
+IPV6_MAPPED = "::ffff:10.1.100.25"
+
 FIXTURE = (
     "거래처 안내\n"
     "사업자등록번호 %s 로 등록되어 있습니다.\n"
+    "서버 주소는 %s 입니다.\n"
     "%s\n"
-    "문의: 010-1234-5678\n" % (AMBIGUOUS, _PAD)
+    "문의: 010-1234-5678\n" % (AMBIGUOUS, IPV6_MAPPED, _PAD)
 )
 
 
@@ -174,3 +179,6 @@ def test_두_판이_같은_pii_값을_낸다(tmp_path):
     py = sorted((x["label"], x["value"]) for x in (_run("python", tmp_path).get("pii") or []))
     rs = sorted((x["label"], x["value"]) for x in (_run("rust", tmp_path).get("pii") or []))
     assert py == rs, ("두 판의 pii 값이 다르다", py, rs)
+    # IPv6 에 박힌 IPv4 는 **통째로** 잡혀야 한다 — 뒤쪽 IPv4 만 잡아도 건수는
+    # 같아서, 값을 직접 확인하지 않으면 회귀를 놓친다.
+    assert ("IP", IPV6_MAPPED) in py, ("IPv6 매핑 표기가 통째로 안 잡혔다", py)
