@@ -97,9 +97,11 @@ fn extract_raw(path: &Path, fmt: Fmt) -> Option<String> {
         // 문단 인식: 문단 내 런(run)을 이어붙이고 문단 사이만 개행. Python 과 동일하게
         // 하여 런 경계로 쪼개진 값(예: 절번호 "4.2.2.2.")이 갈라져 오탐되는 것을 막는다.
         Fmt::Docx => docx_text(path),
-        Fmt::Pptx => ooxml_prefix_para(path, "ppt/slides/slide", "a:p", "a:t"),
-        // HWPX 는 <hp:t> 태그 단위(실측 sim 1.0) 유지.
-        Fmt::Hwpx => ooxml_prefix_tag(path, "Contents/section", "hp:t"),
+        // 슬라이드 본문 + 발표자 노트. 노트에 설계·단가 같은 기밀이 적히는 일이
+        // 잦아, 본문만 읽으면 그 문서는 등급이 내려앉는다.
+        Fmt::Pptx => pptx_text(path),
+        // HWPX 도 문단 단위로 이어 붙인다 — 태그 단위로 끊던 예전 판은 낱말을 쪼갰다.
+        Fmt::Hwpx => for_prefix(path, "Contents/section", collect_hwpx_paragraphs),
         Fmt::Xlsx => xlsx(path),
         Fmt::Pdf => pdf_text(path),
         // 구형 Office(OLE): 파일 전체를 읽어 CFB 컨테이너에서 본문 스트림을 꺼낸다.
@@ -265,8 +267,6 @@ fn xml_inner_text(inner: &str) -> String {
 ///
 /// [매번 컴파일하지 않는 이유] 예전에는 이 정규식을 html() 안에서 만들어 HTML
 /// 파일 하나당 한 번씩 새로 컴파일했다. 목록은 고정이라 한 번만 만들면 된다.
-static RE_BLOCK_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(
-    r"(?is)</?(?:p|div|br|tr|td|th|li|table|h[1-6]|ul|ol|section|article|header|footer|hr)(?:[\s/][^>]*)?>"
 //
 // [이름 뒤에 경계를 두는 이유]  2026-09-11
 // 예전에는 이름 다음이 바로 `[^>]*` 라, `<pre>` 가 `p` + `re` 로 매칭됐다.
@@ -278,6 +278,8 @@ static RE_BLOCK_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(
 //
 // `(?:[\s/][^>]*)?` 로 "이름 뒤는 `>` 이거나 공백이거나 `/`" 를 강제한다.
 // `/` 를 받는 것은 `<br/>` 때문이다 — 파이썬 HTMLParser 도 그것을 블록으로 본다.
+static RE_BLOCK_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(
+    r"(?is)</?(?:p|div|br|tr|td|th|li|table|h[1-6]|ul|ol|section|article|header|footer|hr)(?:[\s/][^>]*)?>"
 ).unwrap());
 
 /// HTML → 텍스트(태그 제거 + 엔티티 복원).
@@ -409,14 +411,41 @@ fn docx_text(path: &Path) -> Option<String> {
 // 유일한 사용처가 docx 였는데, 머리말·꼬리말(header1.xml 처럼 번호가 붙어 이름이
 // 고정이 아니다)까지 읽게 되면서 docx_text 가 그 일을 직접 하게 됐다.
 
-/// 이름 접두 항목들(정렬)에서 문단 인식 추출.
-fn ooxml_prefix_para(path: &Path, prefix: &str, para_tag: &str, text_tag: &str) -> Option<String> {
-    for_prefix(path, prefix, |data, out| collect_paragraphs(data, para_tag, text_tag, out))
-}
+// (ooxml_prefix_para · ooxml_prefix_tag 제거) — 각각 pptx·hwpx 만 쓰던 한 줄짜리
+// 껍데기였는데, 두 포맷 모두 자기 사정에 맞는 수집기를 직접 부르게 되면서 호출처가
+// 사라졌다. 쓰는 데 없는 함수는 "이 길로도 갈 수 있나" 하는 착각만 남긴다.
 
-/// 이름 접두 항목들(정렬)에서 태그 단위 추출(개행 구분).
-fn ooxml_prefix_tag(path: &Path, prefix: &str, tag: &str) -> Option<String> {
-    for_prefix(path, prefix, |data, out| collect_tag_text(data, tag, out))
+//------------------------------------------------------------------
+// pptx → 텍스트 (슬라이드 본문 + 발표자 노트)
+//=> 예전에는 `ppt/slides/slide*.xml` 만 읽어 **발표자 노트를 통째로 놓쳤다.**
+//   노트는 발표자만 보는 자리라 오히려 단가·설계 상세·내부 사정이 적히는 일이 잦고,
+//   실측에서 본문 812자를 정확히 뽑고도 노트 2,000자를 놓쳐 사이냅 대비 재현율이
+//   24.9% 까지 떨어진 문서가 있었다. 분류 관점에서는 놓치면 안 되는 쪽이다.
+//    1) 슬라이드를 번호순으로 읽어 문단 단위로 뽑는다(예전과 같다)
+//    2) 이어서 `ppt/notesSlides/notesSlide*.xml` 을 같은 방식으로 뽑아 뒤에 붙인다
+//       — 노트도 슬라이드와 같은 `a:p`/`a:t` 구조라 같은 수집기를 그대로 쓴다
+//
+//   [왜 뒤에 붙이나] 슬라이드 N 과 노트 N 을 번갈아 끼우는 편이 문맥상 자연스럽지만,
+//   둘의 짝은 파일 번호가 아니라 rels 로 맺어져 있어 번호만 보고 맞추면 어긋날 수 있다.
+//   잘못 끼워 문맥을 왜곡하느니, 순서대로 뒤에 붙여 '있는 글자를 다 본다'를 택했다.
+//
+// -in: path = pptx 경로
+//
+// -out: 슬라이드 본문 다음에 노트가 이어진 텍스트
+// -out: error = zip 이 아니거나 못 열면 None (노트가 없으면 본문만)
+//------------------------------------------------------------------
+fn pptx_text(path: &Path) -> Option<String> {
+    let mut out = for_prefix(path, "ppt/slides/slide",
+                             |d, o| collect_paragraphs(d, "a:p", "a:t", o))?;
+    // 노트는 없는 문서가 더 많다 — 없으면 조용히 본문만 돌려준다.
+    if let Some(notes) = for_prefix(path, "ppt/notesSlides/notesSlide",
+                                    |d, o| collect_paragraphs(d, "a:p", "a:t", o)) {
+        if !notes.trim().is_empty() {
+            if !out.is_empty() && !out.ends_with('\n') { out.push('\n'); }
+            out.push_str(&notes);
+        }
+    }
+    Some(out)
 }
 
 /// 접두 매칭 항목을 번호순으로 읽어 콜백에 넘긴다(공통).
@@ -476,45 +505,130 @@ fn for_prefix<F: Fn(&str, &mut String)>(path: &Path, prefix: &str, f: F) -> Opti
 /// -out: 없음(out 에 문단마다 한 줄씩 덧붙인다)
 /// -out: error = 없음
 fn collect_docx_paragraphs(xml: &str, out: &mut String) {
-    // 탭 문자는 자기닫힘 `<w:tab/>` 로 온다. tag_re 는 `<태그>…</태그>` 짝만 받으므로
-    // 여기에 쓸 수 없다 — 그것을 몰라 예전 판은 탭을 통째로 놓쳤다.
-    static TAB: Lazy<Regex> = Lazy::new(|| Regex::new(r"<w:tab\b[^>]*>").unwrap());
-    // 빈 문단은 `<w:p/>` 로 온다. tag_re 는 짝이 있는 태그만 받아 이것을 통째로
-    // 놓쳤고, 그만큼 빈 줄이 사라졌다(실측 '15.의료비 지원 규정' 에서 8개).
-    // 자기닫힘 갈래를 **앞에** 둔다 — 뒤에 두면 `<w:p w:rsidR="…"/>` 의 `/` 를
-    // 여는 태그의 속성으로 삼켜, 다음 `</w:p>` 까지의 본문을 통째로 먹는다.
-    static PARA: Lazy<Regex> = Lazy::new(|| Regex::new(
-        r"(?s)<w:p(?:\s[^>]*?)?/>|<w:p(?:\s[^>]*)?>(.*?)</w:p>").unwrap());
-    let run_re = tag_re("w:r");
-    let text_re = tag_re("w:t");
-    for pcap in PARA.captures_iter(xml) {
-        // 자기닫힘 `<w:p/>` 는 안쪽이 없다 — 빈 문단으로 보고 빈 줄을 남긴다.
-        let body = pcap.get(1).map_or("", |m| m.as_str());
-        // (문단 안 위치, 조각) 을 모아 위치순으로 이어야 파이썬의 훑는 차례와 같다.
-        let mut parts: Vec<(usize, String)> = Vec::new();
-        // 런(<w:r>) 안만 본다. <w:pPr><w:tabs> 안의 <w:tab> 은 탭 정지 위치 '정의'
-        // 이지 본문의 탭 문자가 아니다 — 실측에서 한 문단이 그 정의를 32개 갖고
-        // 있었고, 문단 전체를 훑으면 그것이 탭 32개로 새어 들어가 없던 들여쓰기를
-        // 만든다(파이썬 판이 실제로 그랬다). 진짜 탭은 언제나 런 안에 있다.
-        for rcap in run_re.captures_iter(body) {
-            let (rstart, rbody) = match rcap.get(1) {
-                Some(m) => (m.start(), m.as_str()),
-                None => continue,          // 자기닫힘 `<w:r/>` — 내용이 없다
-            };
-            for tcap in text_re.captures_iter(rbody) {
-                let at = rstart + tcap.get(0).map_or(0, |m| m.start());
-                parts.push((at, xml_inner_text(tcap.get(1).map_or("", |m| m.as_str()))));
+    // 관심 있는 자리만 한 번에 훑는다. 자기닫힘 갈래를 **앞에** 둔다 — 뒤에 두면
+    // 여는 태그 쪽이 끝의 '/' 를 속성으로 삼켜 다음 닫는 태그까지를 통째로 먹는다.
+    // `<w:tab\b` 의 \b 는 `<w:tabs>`(탭 정지 위치 '정의' 묶음)를 걸러 준다.
+    static TOK: Lazy<Regex> = Lazy::new(|| Regex::new(concat!(
+        r"(?s)<w:p(?:\s[^>]*?)?/>|<w:p(?:\s[^>]*)?>|</w:p>",
+        r"|<w:r(?:\s[^>]*?)?/>|<w:r(?:\s[^>]*)?>|</w:r>",
+        r"|<w:t(?:\s[^>]*)?>(.*?)</w:t>",
+        r"|<w:tab\b[^>]*>")).unwrap());
+
+    // 문단마다 한 줄. 문단이 '열린 차례'로 담아 두었다가 마지막에 그 차례로 내보낸다
+    // — 안쪽 문단이 먼저 닫힌다고 해서 바깥 문단보다 앞서 나오면 안 된다.
+    let mut lines: Vec<String> = Vec::new();
+    // 지금 열려 있는 문단들: (줄 번호, 그 문단이 열릴 때의 런 깊이).
+    let mut open: Vec<(usize, usize)> = Vec::new();
+    // 지금 몇 겹의 런(<w:r>) 안에 있는가.
+    let mut run_depth: usize = 0;
+
+    for cap in TOK.captures_iter(xml) {
+        let whole = cap.get(0).map_or("", |m| m.as_str());
+        if let Some(t) = cap.get(1) {
+            // <w:t> 글자 — 지금 문단이 '제 런' 안에 있을 때만 담는다.
+            if let Some(&(idx, base)) = open.last() {
+                if run_depth > base {
+                    lines[idx].push_str(&xml_inner_text(t.as_str()));
+                }
             }
-            for m in TAB.find_iter(rbody) {
-                parts.push((rstart + m.start(), "\t".to_string()));
+            continue;
+        }
+        if whole.starts_with("<w:tab") {
+            // 진짜 탭 문자는 런 안의 <w:tab/> 다. 문단 속성(<w:pPr><w:tabs>) 안의
+            // 것은 탭 정지 '위치 정의'라 본문이 아니다 — 런 깊이로 가린다.
+            if let Some(&(idx, base)) = open.last() {
+                if run_depth > base {
+                    lines[idx].push('\t');
+                }
             }
+            continue;
         }
-        parts.sort_by_key(|(at, _)| *at);
-        for (_, s) in parts {
-            out.push_str(&s);
+        if whole.starts_with("</w:p>") {
+            open.pop();
+            continue;
         }
+        if whole.starts_with("<w:p") {
+            // 자기닫힘 <w:p/> 는 빈 문단이다 — 빈 줄 한 개를 남기고 끝낸다.
+            // (빈 문단을 지우면 실측 '15.의료비 지원 규정' 에서 빈 줄 8개가 사라졌다.)
+            if whole.ends_with("/>") {
+                lines.push(String::new());
+            } else {
+                lines.push(String::new());
+                open.push((lines.len() - 1, run_depth));
+            }
+            continue;
+        }
+        if whole.starts_with("</w:r>") {
+            run_depth = run_depth.saturating_sub(1);
+        } else if whole.starts_with("<w:r") && !whole.ends_with("/>") {
+            run_depth += 1;
+        }
+    }
+
+    for l in lines {
+        out.push_str(&l);
         out.push('\n');
     }
+}
+
+//------------------------------------------------------------------
+// HWPX 문단 수집 — 한 문단을 한 줄로
+//=> 예전에는 `<hp:t>` **태그마다 한 줄**로 끊었다. 그런데 HWPX 는 글자 서식이 바뀌는
+//   자리에서 `<hp:t>` 를 갈라 놓기 때문에, 한 낱말이 두 태그에 걸치면 그 자리에서
+//   줄이 끊긴다 — 실측에서 사이냅이 "가치를·개발에·보장한다"로 뽑은 것을 이 판은
+//   "가치 / 를 / 개발 / 에" 로 내놨다(재현율 96.2%·정밀도 95.4%).
+//   낱말이 쪼개지면 **붙어 있어야 성립하는 검출**(전화번호·계좌번호·앵커+값)이
+//   통째로 어긋난다. DOCX·PPTX 는 이미 문단 단위로 이어 붙이고 있었고, HWPX 만
+//   그 보호를 못 받고 있었다.
+//
+//   [왜 공용 collect_paragraphs 를 못 쓰나] HWPX 는 **문단이 문단 안에 들어간다**.
+//   표가 `<hp:p>` 안의 `<hp:tbl>` → `<hp:tc>` → `<hp:subList>` → 또 `<hp:p>` 로
+//   내려가기 때문이다(실측 10개 파일에 중첩 14,413곳). 짝 맞추기 정규식은 바깥
+//   여는 태그와 **안쪽** 닫는 태그를 짝지어 버려 문단 경계가 엉킨다.
+//   그래서 여기서는 짝을 맞추지 않고 **한 번만 훑으면서** 처리한다:
+//    1) `<hp:t>` 글자는 '지금 줄'에 계속 이어 붙인다
+//    2) 문단이 열리거나 닫히는 자리에서 지금 줄을 끊어 낸다
+//       → 안쪽 문단(표 칸)은 제 줄을 갖고, 바깥 문단의 글자도 순서대로 남는다
+//    3) `<hp:lineBreak/>` 는 줄바꿈, `<hp:tab/>` 은 탭으로 살린다
+//       — 없애면 두 줄이 한 낱말로 붙어 없던 말이 생긴다
+//
+// -in: xml = Contents/section*.xml 본문
+// -in: out = 결과를 덧붙일 문자열(제자리에서 늘어난다)
+//
+// -out: 없음(out 에 문단마다 한 줄씩 덧붙인다)
+// -out: error = 없음
+//------------------------------------------------------------------
+fn collect_hwpx_paragraphs(xml: &str, out: &mut String) {
+    // 관심 있는 자리만 한 줄로 훑는다. 자기닫힘 `<hp:p/>` 갈래를 **앞에** 둔다 —
+    // 뒤에 두면 여는 태그 쪽이 끝의 '/' 를 속성으로 삼켜 버린다(docx 에서 겪은 함정).
+    static TOK: Lazy<Regex> = Lazy::new(|| Regex::new(concat!(
+        r"(?s)<hp:p(?:\s[^>]*?)?/>|<hp:p(?:\s[^>]*)?>|</hp:p>",
+        r"|<hp:t(?:\s[^>]*)?>(.*?)</hp:t>",
+        r"|<hp:lineBreak\b[^>]*>|<hp:tab\b[^>]*>")).unwrap());
+    let mut line = String::new();
+    // 지금까지 모은 줄을 끊어 낸다(빈 줄은 버린다 — HWPX 는 빈 문단을 여백으로 쓴다).
+    let flush = |line: &mut String, out: &mut String| {
+        if !line.trim().is_empty() {
+            out.push_str(line.trim_end());
+            out.push('\n');
+        }
+        line.clear();
+    };
+    for cap in TOK.captures_iter(xml) {
+        let whole = cap.get(0).map_or("", |m| m.as_str());
+        if let Some(t) = cap.get(1) {
+            // <hp:t> 안의 글자 — 낱말이 끊기지 않게 '이어' 붙인다.
+            line.push_str(&xml_inner_text(t.as_str()));
+        } else if whole.starts_with("<hp:lineBreak") {
+            line.push('\n');
+        } else if whole.starts_with("<hp:tab") {
+            line.push('\t');
+        } else {
+            // 문단이 열리거나 닫히는 자리 — 여기가 줄 경계다.
+            flush(&mut line, out);
+        }
+    }
+    flush(&mut line, out);
 }
 
 /// 문단 인식: 각 <para>...</para> 안의 <text> 런을 '이어붙여' 한 줄, 문단 사이 개행.
@@ -535,45 +649,343 @@ fn collect_paragraphs(xml: &str, para_tag: &str, text_tag: &str, out: &mut Strin
 
 /// xlsx: 공유문자열표 + 워크시트 인라인 문자열(inlineStr)의 <t> 를 모은다(분류엔 충분).
 /// ※ sharedStrings 없이 시트에 인라인 문자열만 쓰는 파일도 있어 워크시트도 함께 훑는다.
-// 셀·행·공유문자열 항목을 찾는 정규식(네임스페이스 접두 허용, 자기닫힘 <c/> 도 받음).
-//=> `<c r="B2"/>` 처럼 빈 셀은 자기닫힘으로 온다. 이걸 못 받으면 그 자리에서
-//   매치가 어긋나 한 행을 통째로 놓친다.
-static RE_XL_ROW: Lazy<Regex> = Lazy::new(|| Regex::new(
-    r"(?s)<(?:[A-Za-z_][A-Za-z0-9_.\-]*:)?row\b[^>]*?(?:/>|>(.*?)</(?:[A-Za-z_][A-Za-z0-9_.\-]*:)?row>)"
-).unwrap());
-static RE_XL_CELL: Lazy<Regex> = Lazy::new(|| Regex::new(
-    r"(?s)<(?:[A-Za-z_][A-Za-z0-9_.\-]*:)?c\b([^>]*?)(?:/>|>(.*?)</(?:[A-Za-z_][A-Za-z0-9_.\-]*:)?c>)"
-).unwrap());
-static RE_XL_SI: Lazy<Regex> = Lazy::new(|| Regex::new(
-    r"(?s)<(?:[A-Za-z_][A-Za-z0-9_.\-]*:)?si\b[^>]*?(?:/>|>(.*?)</(?:[A-Za-z_][A-Za-z0-9_.\-]*:)?si>)"
-).unwrap());
-static RE_XL_TATTR: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\bt="([^"]*)""#).unwrap());
+//------------------------------------------------------------------
+// 이름공간 접두를 뗀 태그 이름
+//=> <x:row> 도 <row> 로 보게 한다. 정규식 판이 접두를 허용했으므로 같게 맞춘다.
+//
+// -in: name = 이벤트가 준 태그 이름
+//
+// -out: ':' 뒤 부분(접두가 없으면 그대로)
+// -out: error = 없음
+//------------------------------------------------------------------
+fn xl_local(name: &str) -> &str {
+    match name.rfind(':') {
+        Some(i) => &name[i + 1..],
+        None => name,
+    }
+}
 
 //------------------------------------------------------------------
-// 공유문자열표를 순서대로 읽는다
-//=> 워크시트의 문자열 셀은 글자를 직접 담지 않고 `<v>3</v>` 처럼 **번호**만 적는다.
-//   그 번호가 가리키는 곳이 sharedStrings 다. 번호를 글자로 바꾸려면 순서가
-//   그대로 유지된 목록이 필요하다.
-//    1) `<si>` 를 순서대로 훑는다(빈 항목 `<si/>` 도 자리를 차지하므로 같이 센다)
-//    2) 한 `<si>` 안의 `<t>` 를 모두 이어 붙인다(서식이 섞이면 `<r><t>` 로 쪼개져 온다)
+// XML 이벤트의 글자를 본문 문자열로 바꾸기
+//=> 일반 텍스트는 엔티티를 풀고, CDATA 는 이미 날것이라 그대로 쓴다
+//   (정규식 판 xml_inner_text 와 같은 규칙이다).
 //
-// -in: xml = sharedStrings.xml 본문
+//   [왜 quick-xml 의 unescape 를 안 쓰나] 그쪽이 풀어 주는 것은 XML 기본 엔티티
+//   다섯 개뿐이다. 엑셀 파일에는 &#12345; 같은 숫자 참조와 이름 있는 엔티티도
+//   온다. 이 프로젝트의 unescape_entities 가 그 둘을 모두 다루므로, 정규식 판과
+//   **같은 글자**가 나오도록 원문 그대로 받아 그 함수에 넘긴다.
+//
+// -in: raw   = 이벤트가 담고 있는 원문 글자
+// -in: cdata = CDATA 이면 true
+//
+// -out: 본문에 넣을 문자열
+// -out: error = 없음(항상 문자열을 돌려준다)
+//------------------------------------------------------------------
+fn xl_event_text(raw: &str, cdata: bool) -> String {
+    if cdata { raw.to_string() } else { unescape_entities(raw) }
+}
+
+//------------------------------------------------------------------
+// 엔티티 참조 한 개를 원래 글자로
+//=> quick-xml 은 &lt; · &#12345; 같은 참조를 **글자와 따로** 알려 준다.
+//   이걸 받지 않고 흘려보내면 그 글자가 조용히 사라진다 — 실측에서
+//   "4TB &lt; 전체" 가 "4TB 전체" 로 나와 부등호가 통째로 빠졌다.
+//
+//   받은 것은 '&' 와 ';' 를 뺀 알맹이(예: "lt", "#12345")다. 정규식 판과 똑같은
+//   해석기를 태우려고 원래 모양으로 되돌려 unescape_entities 에 넘긴다.
+//
+// -in: name = 참조의 알맹이("lt" · "#x41" 등)
+//
+// -out: 풀어낸 글자(모르는 이름이면 "&이름;" 그대로 — 지우면 본문이 사라진다)
+// -out: error = 없음
+//------------------------------------------------------------------
+fn xl_entity(name: &str) -> String {
+    unescape_entities(&format!("&{};", name))
+}
+
+//------------------------------------------------------------------
+// 시작 태그의 속성 하나 읽기
+//=> t="s" 처럼 칸의 종류를 알려 주는 속성을 꺼낸다.
+//
+// -in: e    = 시작 태그 이벤트
+// -in: want = 찾을 속성 이름(접두는 떼고 견준다)
+//
+// -out: 속성값(없으면 빈 문자열)
+// -out: error = 없음(읽다 실패한 속성은 건너뛴다)
+//------------------------------------------------------------------
+fn xl_attr(e: &quick_xml::events::BytesStart, want: &str) -> String {
+    for a in e.attributes().flatten() {
+        if xl_local(a.key.as_ref()) == want {
+            return a.value.as_ref().to_string();
+        }
+    }
+    String::new()
+}
+
+//------------------------------------------------------------------
+// 공유문자열표를 흘려 읽는다 (SAX)
+//=> 정규식 판 xlsx_shared_strings 와 같은 결과를 내되, 28MB 짜리 표를 통째로
+//   메모리에 올리지 않고 압축을 푸는 족족 처리하고 지나간다.
+//    1) <si> 를 만나면 새 항목을 시작한다(빈 <si/> 도 한 자리를 차지한다)
+//    2) <si> 안의 <t> 글자를 모두 이어 붙인다 — 서식이 섞이면 <r><t> 로 쪼개져 온다
+//
+//   [주의] <rPh>(일본어 읽기 힌트) 안의 <t> 도 함께 담는다. 정규식 판이 그렇게
+//   하고 있었으므로, 결과를 바꾸지 않으려고 일부러 맞춘다.
+//
+// -in: r = sharedStrings.xml 을 읽는 입력
 //
 // -out: 번호 순서대로 담긴 문자열 목록
-// -out: error = 없음(모양이 달라도 빈 목록)
+// -out: error = 모양이 깨지면 그때까지 읽은 만큼 돌려준다(예외 없음)
 //------------------------------------------------------------------
-fn xlsx_shared_strings(xml: &str) -> Vec<String> {
-    let t_re = tag_re("t");
-    let mut out = Vec::new();
-    for m in RE_XL_SI.captures_iter(xml) {
-        let inner = m.get(1).map(|g| g.as_str()).unwrap_or("");
-        let mut s = String::new();
-        for t in t_re.captures_iter(inner) {
-            s.push_str(&xml_inner_text(&t[1]));
+fn xlsx_shared_strings_stream<R: std::io::BufRead>(r: R) -> Vec<String> {
+    let mut rd = quick_xml::Reader::from_reader(r);
+    rd.config_mut().trim_text(false);
+    let mut buf = Vec::new();
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut in_si = false;
+    let mut in_t = 0usize;
+    loop {
+        match rd.read_event_into(&mut buf) {
+            Ok(quick_xml::events::Event::Start(e)) => match xl_local(e.name().as_ref()) {
+                "si" => { in_si = true; cur.clear(); in_t = 0; }
+                "t" if in_si => in_t += 1,
+                _ => {}
+            },
+            // <si/> 는 '빈 문자열 한 칸'이다 — 세지 않으면 뒤 번호가 전부 밀려
+            // 시트의 모든 문자열 칸이 엉뚱한 글자를 가리키게 된다.
+            Ok(quick_xml::events::Event::Empty(e))
+                if xl_local(e.name().as_ref()) == "si" => out.push(String::new()),
+            Ok(quick_xml::events::Event::End(e)) => match xl_local(e.name().as_ref()) {
+                "si" if in_si => { in_si = false; out.push(std::mem::take(&mut cur)); }
+                "t" if in_t > 0 => in_t -= 1,
+                _ => {}
+            },
+            Ok(quick_xml::events::Event::Text(e)) if in_t > 0 =>
+                cur.push_str(&xl_event_text(e.as_ref(), false)),
+            Ok(quick_xml::events::Event::CData(e)) if in_t > 0 =>
+                cur.push_str(&xl_event_text(e.as_ref(), true)),
+            Ok(quick_xml::events::Event::GeneralRef(e)) if in_t > 0 =>
+                cur.push_str(&xl_entity(e.as_ref())),
+            Ok(quick_xml::events::Event::Eof) => break,
+            Ok(_) => {}
+            // 깨진 XML 이라도 그때까지 읽은 것은 쓸모가 있다 — 버리지 않는다.
+            Err(_) => break,
         }
-        out.push(s);
+        buf.clear();
     }
     out
+}
+
+//------------------------------------------------------------------
+// 서식표(styles.xml)를 읽어 '칸 서식 번호 → 날짜 종류' 표를 만든다
+//=> 엑셀은 날짜를 숫자로 저장하고 "날짜처럼 보여라"는 서식을 따로 붙인다.
+//   셀의 s 속성은 이 표의 **몇 번째 칸 서식**인지를 가리킨다. 그래서 두 곳을 읽는다.
+//    1) <numFmts> — 사용자가 만든 서식(164 번 이상)의 번호 → 서식 문자열
+//    2) <cellXfs> — 칸 서식이 **순서대로** 들어 있고, 각자 numFmtId 를 가리킨다
+//
+//   [왜 cellStyleXfs 는 세면 안 되나] 같은 <xf> 이름이 <cellStyleXfs>(이름 있는
+//   스타일의 원본)에도 있다. 그것까지 함께 세면 번호가 밀려 엉뚱한 칸에 날짜
+//   서식이 붙는다 — 멀쩡한 숫자가 날짜로 둔갑한다. <cellXfs> 안의 것만 센다.
+//
+// -in: r = styles.xml 을 읽는 입력
+//
+// -out: 칸 서식 번호(s 속성) 순서대로의 날짜 종류 목록
+// -out: error = 없음(모양이 낯설면 빈 목록 → 아무 칸도 날짜로 보지 않는다)
+//------------------------------------------------------------------
+fn xlsx_style_date_kinds<R: std::io::BufRead>(r: R) -> Vec<crate::xlsdate::DateKind> {
+    use crate::xlsdate::{builtin_kind, code_kind, DateKind};
+    let mut rd = quick_xml::Reader::from_reader(r);
+    rd.config_mut().trim_text(false);
+    let mut buf = Vec::new();
+    // 사용자 지정 서식: 번호 → 종류.
+    let mut custom: std::collections::HashMap<u16, DateKind> = std::collections::HashMap::new();
+    let mut out: Vec<DateKind> = Vec::new();
+    // <cellXfs> 안에 있을 때만 <xf> 를 센다.
+    let mut in_cell_xfs = false;
+    // <numFmt> 는 <cellXfs> 보다 앞에 오지만, 순서를 믿지 않고 둘 다 모은 뒤 맞춘다.
+    let mut raw_ids: Vec<u16> = Vec::new();
+
+    loop {
+        let ev = rd.read_event_into(&mut buf);
+        match ev {
+            Ok(quick_xml::events::Event::Start(ref e))
+            | Ok(quick_xml::events::Event::Empty(ref e)) => {
+                match xl_local(e.name().as_ref()) {
+                    "numFmt" => {
+                        let id = xl_attr(e, "numFmtId").parse::<u16>().unwrap_or(u16::MAX);
+                        let code = xl_attr(e, "formatCode");
+                        if id != u16::MAX { custom.insert(id, code_kind(&code)); }
+                    }
+                    "cellXfs" => in_cell_xfs = true,
+                    "xf" if in_cell_xfs => {
+                        raw_ids.push(xl_attr(e, "numFmtId").parse::<u16>().unwrap_or(0));
+                    }
+                    _ => {}
+                }
+                // 자기닫힘 <cellXfs/> 면 바로 닫힌 것으로 본다.
+                if matches!(ev, Ok(quick_xml::events::Event::Empty(_)))
+                    && xl_local(e.name().as_ref()) == "cellXfs" {
+                    in_cell_xfs = false;
+                }
+            }
+            Ok(quick_xml::events::Event::End(ref e)) => {
+                if xl_local(e.name().as_ref()) == "cellXfs" { in_cell_xfs = false; }
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+        buf.clear();
+    }
+
+    for id in raw_ids {
+        // 사용자 지정이 있으면 그것이 이긴다 — 내장 번호를 덮어쓴 파일이 있다.
+        out.push(match custom.get(&id) {
+            Some(k) => *k,
+            None => builtin_kind(id),
+        });
+    }
+    out
+}
+
+//------------------------------------------------------------------
+// 워크시트 한 장을 흘려 읽어 행 단위 텍스트로 (SAX)
+//=> 정규식 판과 같은 규칙으로 칸을 읽어, 한 행의 칸들을 공백으로 이어 한 줄로
+//   만든다. 셀 종류(t 속성)별 처리는 xlsx() 머리말의 [셀 종류별 처리] 와 같다.
+//    1) <c> 를 만나면 t 속성을 기억하고 그 칸의 <t>·<v> 글자를 모은다
+//    2) </c> 에서 종류에 따라 값을 정하고, 비어 있지 않으면 칸 목록에 넣는다
+//    3) </row> 에서 칸들을 공백으로 이어 한 줄로 내보낸다
+//
+// -in: r      = 시트 XML 을 읽는 입력
+// -in: shared = 공유문자열표(t="s" 인 칸이 번호로 가리킨다)
+// -in: styles = 칸 서식 번호별 날짜 종류(빈 목록이면 날짜 해석을 하지 않는다)
+// -in: out    = 결과를 이어 붙일 곳
+//
+// -out: 없음(out 에 행을 덧붙인다)
+// -out: error = 깨진 XML 은 그때까지 읽은 행까지만 남기고 멈춘다(예외 없음)
+//------------------------------------------------------------------
+fn xlsx_sheet_stream<R: std::io::BufRead>(r: R, shared: &[String],
+                                         styles: &[crate::xlsdate::DateKind],
+                                         out: &mut String) {
+    let mut rd = quick_xml::Reader::from_reader(r);
+    rd.config_mut().trim_text(false);
+    let mut buf = Vec::new();
+    let mut cells: Vec<String> = Vec::new();
+    let mut in_row = false;
+    // 지금 읽고 있는 칸의 상태 — 종류(t 속성), <t> 글자, 첫 <v> 글자.
+    let mut kind = String::new();
+    let mut style: Option<usize> = None;
+    let mut c_t = String::new();
+    let mut c_v = String::new();
+    let mut in_c = false;
+    let mut in_t = 0usize;
+    let mut in_v = 0usize;
+    // <v> 는 첫 것만 쓴다 — 정규식 판의 captures(첫 매치)와 같게 맞춘다.
+    let mut v_done = false;
+
+    loop {
+        match rd.read_event_into(&mut buf) {
+            Ok(quick_xml::events::Event::Start(e)) => match xl_local(e.name().as_ref()) {
+                "row" => { in_row = true; cells.clear(); }
+                "c" => {
+                    in_c = true; c_t.clear(); c_v.clear(); v_done = false;
+                    in_t = 0; in_v = 0;
+                    kind = xl_attr(&e, "t");
+                    // s 는 '몇 번째 칸 서식인가'다 — 날짜 여부가 여기서 갈린다.
+                    style = xl_attr(&e, "s").parse::<usize>().ok();
+                }
+                "t" if in_c => in_t += 1,
+                "v" if in_c && !v_done => in_v += 1,
+                _ => {}
+            },
+            Ok(quick_xml::events::Event::End(e)) => match xl_local(e.name().as_ref()) {
+                "row" if in_row => {
+                    in_row = false;
+                    if !cells.is_empty() {
+                        out.push_str(&cells.join(" "));
+                        out.push('\n');
+                    }
+                }
+                "c" if in_c => {
+                    in_c = false;
+                    let val = xlsx_cell_value(&kind, &c_t, &c_v, shared);
+                    // 숫자 칸이고 서식이 날짜라면 사람이 보는 글자로 바꾼다.
+                    let val = xlsx_as_date(&kind, &val, style, styles).unwrap_or(val);
+                    let val = val.trim();
+                    if !val.is_empty() { cells.push(val.to_string()); }
+                }
+                "t" if in_t > 0 => in_t -= 1,
+                "v" if in_v > 0 => { in_v -= 1; if in_v == 0 { v_done = true; } }
+                _ => {}
+            },
+            Ok(quick_xml::events::Event::Text(e)) => {
+                if in_t > 0 { c_t.push_str(&xl_event_text(e.as_ref(), false)); }
+                else if in_v > 0 { c_v.push_str(&xl_event_text(e.as_ref(), false)); }
+            }
+            Ok(quick_xml::events::Event::CData(e)) => {
+                if in_t > 0 { c_t.push_str(&xl_event_text(e.as_ref(), true)); }
+                else if in_v > 0 { c_v.push_str(&xl_event_text(e.as_ref(), true)); }
+            }
+            Ok(quick_xml::events::Event::GeneralRef(e)) => {
+                if in_t > 0 { c_t.push_str(&xl_entity(e.as_ref())); }
+                else if in_v > 0 { c_v.push_str(&xl_entity(e.as_ref())); }
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+        buf.clear();
+    }
+}
+
+//------------------------------------------------------------------
+// 숫자 칸을 날짜 글자로 (서식이 날짜일 때만)
+//=> 엑셀은 2012-12-31 을 41274 로 저장한다. 서식표에서 이 칸이 날짜 서식임을
+//   확인했을 때만 바꾼다 — 서식을 안 보고 바꾸면 멀쩡한 수량·금액이 날짜가 된다.
+//
+// -in: kind   = 셀의 t 속성(숫자 칸이어야 한다)
+// -in: val    = 지금까지 정해진 칸 값(일련번호 문자열)
+// -in: style  = 셀의 s 속성(칸 서식 번호)
+// -in: styles = 칸 서식별 날짜 종류
+//
+// -out: 바꿀 수 있으면 날짜 글자, 아니면 None(원래 값을 그대로 쓰라는 뜻)
+// -out: error = 없음
+//------------------------------------------------------------------
+fn xlsx_as_date(kind: &str, val: &str, style: Option<usize>,
+                styles: &[crate::xlsdate::DateKind]) -> Option<String> {
+    // 글자 칸(t="s"/"str"/"inlineStr")·오류·논리값은 날짜가 아니다. 서식이 날짜여도
+    // 건드리면 안 된다 — 문자열 "41274" 가 날짜로 둔갑한다.
+    if !(kind.is_empty() || kind == "n") {
+        return None;
+    }
+    let k = *styles.get(style?)?;
+    crate::xlsdate::serial_to_string(val.trim().parse::<f64>().ok()?, k)
+}
+
+//------------------------------------------------------------------
+// 칸 하나를 값으로 확정
+//=> t 속성이 값의 종류를 말해 준다. 규칙은 xlsx() 머리말의 [셀 종류별 처리] 와 같다.
+//
+// -in: kind   = t 속성값("s"/"inlineStr"/"e"/"n"/"str"/"b" 또는 빈 문자열)
+// -in: c_t    = 그 칸에서 모은 <t> 글자
+// -in: c_v    = 그 칸의 첫 <v> 글자
+// -in: shared = 공유문자열표
+//
+// -out: 칸의 본문 값(버릴 칸이면 빈 문자열)
+// -out: error = 없음(번호가 표 밖이면 빈 문자열)
+//------------------------------------------------------------------
+fn xlsx_cell_value(kind: &str, c_t: &str, c_v: &str, shared: &[String]) -> String {
+    match kind {
+        // 수식 오류(#N/A 등)는 본문이 아니다.
+        "e" => String::new(),
+        // t="s" 면 <v> 는 글자가 아니라 공유문자열표의 **번호**다.
+        "s" => c_v.trim().parse::<usize>().ok()
+            .and_then(|i| shared.get(i).cloned())
+            .unwrap_or_default(),
+        // inlineStr 은 <is><t>, 그 밖은 <v>. 둘 다 있으면 글자 쪽을 쓴다.
+        _ => if c_t.is_empty() { c_v.to_string() } else { c_t.to_string() },
+    }
 }
 
 //------------------------------------------------------------------
@@ -623,16 +1035,18 @@ fn xlsx(path: &Path) -> Option<String> {
     // 공유문자열표 먼저(워크시트가 번호로 이걸 가리킨다).
     let mut shared: Vec<String> = Vec::new();
     if has_shared {
-        if let Ok(mut f) = zip.by_name("xl/sharedStrings.xml") {
-            let mut data = String::new();
-            if f.read_to_string(&mut data).is_ok() {
-                shared = xlsx_shared_strings(&data);
-            }
+        if let Ok(f) = zip.by_name("xl/sharedStrings.xml") {
+            // 압축을 푸는 족족 읽는다 — 28MB 짜리 표를 통째로 문자열에 올리지 않는다.
+            shared = xlsx_shared_strings_stream(std::io::BufReader::new(f));
         }
     }
 
-    let t_re = tag_re("t");
-    let v_re = tag_re("v");
+    // 날짜 서식표 — 없으면 빈 목록이고, 그러면 날짜 해석을 하지 않는다(예전 동작).
+    let styles: Vec<crate::xlsdate::DateKind> = match zip.by_name("xl/styles.xml") {
+        Ok(f) => xlsx_style_date_kinds(std::io::BufReader::new(f)),
+        Err(_) => Vec::new(),
+    };
+
     let mut out = String::new();
     // 시간 상한(G5) — 시트가 많거나 한 장이 거대한 통합문서에서 이 루프가 무한정
     // 늘어난다. 넘으면 그때까지 읽은 시트까지만 쓴다(실패 아님).
@@ -646,48 +1060,20 @@ fn xlsx(path: &Path) -> Option<String> {
                                              n_sheets_done, n_sheets);
             break;
         }
-        let mut data = String::new();
         match zip.by_name(name) {
-            Ok(mut f) => { if f.read_to_string(&mut data).is_err() { continue; } }
+            // 시트도 흘려 읽는다 — 33MB 짜리 한 장을 메모리에 올리고 정규식을
+            // 다시 돌리던 것이 큰 엑셀에서 비용의 대부분이었다.
+            Ok(f) => xlsx_sheet_stream(std::io::BufReader::new(f), &shared,
+                                       &styles, &mut out),
             Err(_) => continue,
         }
-        for row in RE_XL_ROW.captures_iter(&data) {
-            let inner = match row.get(1) { Some(g) => g.as_str(), None => continue };
-            let mut cells: Vec<String> = Vec::new();
-            for c in RE_XL_CELL.captures_iter(inner) {
-                let attrs = c.get(1).map(|g| g.as_str()).unwrap_or("");
-                let body = c.get(2).map(|g| g.as_str()).unwrap_or("");
-                if body.is_empty() { continue; }        // 빈 셀
-                let kind = RE_XL_TATTR.captures(attrs)
-                    .map(|m| m[1].to_string()).unwrap_or_default();
-                let val = match kind.as_str() {
-                    "e" => String::new(),               // 수식 오류는 버린다
-                    "s" => v_re.captures(body)
-                        .and_then(|m| xml_inner_text(&m[1]).trim().parse::<usize>().ok())
-                        .and_then(|i| shared.get(i).cloned())
-                        .unwrap_or_default(),
-                    _ => {
-                        // inlineStr 은 <is><t>, 그 밖은 <v>. 둘 다 있으면 글자 쪽을 쓴다.
-                        let mut s = String::new();
-                        for t in t_re.captures_iter(body) {
-                            s.push_str(&xml_inner_text(&t[1]));
-                        }
-                        if s.is_empty() {
-                            if let Some(m) = v_re.captures(body) {
-                                s = xml_inner_text(&m[1]);
-                            }
-                        }
-                        s
-                    }
-                };
-                let val = val.trim();
-                if !val.is_empty() { cells.push(val.to_string()); }
-            }
-            if !cells.is_empty() {
-                out.push_str(&cells.join(" "));
-                out.push('\n');
-            }
-        }
+    }
+
+    // 셀 메모(주석)는 셀 값이 아니라 따로 담긴다 — 시트를 다 읽은 뒤 이어 붙인다.
+    let notes = xlsx_comments(&mut zip);
+    if !notes.is_empty() {
+        if !out.is_empty() && !out.ends_with('\n') { out.push('\n'); }
+        out.push_str(&notes);
     }
 
     // 워크시트에서 한 줄도 못 얻었으면(모양이 낯선 파일) 공유문자열표라도 내놓는다.
@@ -696,6 +1082,77 @@ fn xlsx(path: &Path) -> Option<String> {
         out = shared.join("\n");
     }
     Some(out)
+}
+
+//------------------------------------------------------------------
+// xlsx 셀 메모(주석) 모으기
+//=> 엑셀의 '메모'는 셀 값이 아니라 `xl/comments*.xml` 에 따로 들어간다. 그래서
+//   시트만 읽으면 통째로 사라졌다 — 실측에서 셀 값은 완벽히 뽑고도 작성 안내·
+//   주의사항이 메모에만 있어 재현율 48.7% 가 된 신청서가 있었다. 신청서·양식류는
+//   '어떻게 적어라'가 전부 메모에 있는 일이 흔하다.
+//    1) 옛 방식 메모: `<comments><commentList><comment><text><r><t>글자`
+//    2) 새 방식(스레드 댓글): `xl/threadedComments/threadedComment*.xml` 의 `<text>`
+//    3) 메모 하나를 한 줄로 만든다 — 누가 썼는지(authors)는 본문이 아니라 뺀다
+//
+// -in: zip = 이미 열려 있는 xlsx 압축(여기서 항목을 더 읽는다)
+//
+// -out: 메모마다 한 줄씩 담긴 문자열(없으면 빈 문자열)
+// -out: error = 항목을 못 읽어도 예외 없이 그만큼만 돌려준다
+//------------------------------------------------------------------
+fn xlsx_comments(zip: &mut zip::ZipArchive<fs::File>) -> String {
+    // 이름을 먼저 모은다 — by_name 으로 읽는 동안에는 목록을 훑을 수 없다.
+    let mut names: Vec<String> = Vec::new();
+    for i in 0..zip.len() {
+        if let Ok(zf) = zip.by_index(i) {
+            let n = zf.name().to_string();
+            let old = n.starts_with("xl/comments") && n.ends_with(".xml");
+            let new = n.starts_with("xl/threadedComments/") && n.ends_with(".xml");
+            if old || new { names.push(n); }
+        }
+    }
+    names.sort_by_key(|n| num_in_name(n));
+
+    let mut out = String::new();
+    for name in &names {
+        let mut data = String::new();
+        match zip.by_name(name) {
+            Ok(mut f) => { if f.read_to_string(&mut data).is_err() { continue; } }
+            Err(_) => continue,
+        }
+        out.push_str(&xlsx_comment_lines(&data, name.starts_with("xl/threadedComments/")));
+    }
+    out
+}
+
+//------------------------------------------------------------------
+// 메모 XML 한 장에서 글자만 뽑기
+//=> 압축을 다루는 부분과 떼어 놓아 시험하기 쉽게 만든 알맹이다.
+//    1) 옛 방식이면 `<comment>` 안의 `<t>` 들을 이어 붙인다(서식 때문에 쪼개져 온다)
+//    2) 새 방식이면 `<threadedComment>` 안의 `<text>` 를 그대로 쓴다
+//
+// -in: xml = comments*.xml 또는 threadedComment*.xml 본문
+// -in: threaded = true 면 새 방식(스레드 댓글)으로 읽는다
+//
+// -out: 메모마다 한 줄씩 담긴 문자열
+// -out: error = 모양이 낯설면 빈 문자열(예외 없음)
+//------------------------------------------------------------------
+fn xlsx_comment_lines(xml: &str, threaded: bool) -> String {
+    let re = if threaded { tag_re("threadedComment") } else { tag_re("comment") };
+    let inner_re = if threaded { tag_re("text") } else { tag_re("t") };
+    let mut out = String::new();
+    for cap in re.captures_iter(xml) {
+        let mut line = String::new();
+        for t in inner_re.captures_iter(&cap[1]) {
+            line.push_str(&xml_inner_text(&t[1]));
+        }
+        // 메모 하나가 한 덩이로 보이게 앞뒤 공백만 다듬는다(안쪽 줄바꿈은 그대로).
+        let line = line.trim();
+        if !line.is_empty() {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 //------------------------------------------------------------------
@@ -722,17 +1179,9 @@ fn tag_re(tag: &str) -> Regex {
     Regex::new(&pat).unwrap()
 }
 
-/// 문서 XML 에서 <TAG ...>...</TAG> 안의 텍스트를 뽑아(내부태그 제거·엔티티 복원) out 에 개행으로 추가.
-fn collect_tag_text(xml: &str, tag: &str, out: &mut String) {
-    let re = tag_re(tag);
-    for cap in re.captures_iter(xml) {
-        let text = xml_inner_text(&cap[1]);
-        if !text.is_empty() {
-            out.push_str(&text);
-            out.push('\n');
-        }
-    }
-}
+// (collect_tag_text 제거) — '태그 하나하나를 한 줄로' 뽑던 도우미다. HWPX 가
+// 유일한 사용처였는데 문단 단위로 바뀌면서 부르는 데가 없어졌다. 이 함수가 지키던
+// CDATA·엔티티 회귀는 아래 시험이 collect_paragraphs 로 그대로 이어 받는다.
 
 /// zip 항목 이름 속 숫자(정렬키). 예: section10.xml > section2.xml.
 fn num_in_name(name: &str) -> u32 {
@@ -790,13 +1239,312 @@ fn unescape_entities(s: &str) -> String {
 mod tests {
     use super::*;
 
+    // ── xlsx 흘려읽기(SAX) ───────────────────────────────────────────
+    // 정규식으로 통째로 훑던 것을 흘려읽기로 바꾸면서(2026-09-11) 실제로 겪은
+    // 함정들을 못 박아 둔다. 전부 '조용히 글자가 사라지는' 종류라 눈에 안 띈다.
+
+    //------------------------------------------------------------------
+    // 시트 한 장을 흘려 읽어 문자열로 (시험 도우미)
+    //------------------------------------------------------------------
+    fn sheet(xml: &str, shared: &[String]) -> String {
+        sheet_st(xml, shared, &[])
+    }
+
+    //------------------------------------------------------------------
+    // 시트 한 장을 서식표까지 주고 읽기 (시험 도우미)
+    //------------------------------------------------------------------
+    fn sheet_st(xml: &str, shared: &[String],
+                styles: &[crate::xlsdate::DateKind]) -> String {
+        let mut out = String::new();
+        xlsx_sheet_stream(std::io::BufReader::new(xml.as_bytes()), shared, styles, &mut out);
+        out
+    }
+
+    //------------------------------------------------------------------
+    // 서식표(styles.xml) 읽기 (시험 도우미)
+    //------------------------------------------------------------------
+    fn styles(xml: &str) -> Vec<crate::xlsdate::DateKind> {
+        xlsx_style_date_kinds(std::io::BufReader::new(xml.as_bytes()))
+    }
+
+    // 엑셀은 날짜를 숫자로 저장한다. 서식이 날짜라고 말할 때만 글자로 바꾼다.
+    #[test]
+    fn 날짜서식_숫자칸을_날짜글자로_바꾼다() {
+        use crate::xlsdate::DateKind;
+        let st = [DateKind::None, DateKind::Date];
+        let x = r#"<sheetData><row><c s="1"><v>41274</v></c><c s="0"><v>41274</v></c>
+                   </row></sheetData>"#;
+        // 같은 값이라도 서식이 날짜인 칸만 바뀐다 — 아니면 수량·금액이 날짜가 된다.
+        assert_eq!(sheet_st(x, &[], &st), "2012-12-31 41274
+");
+    }
+
+    // 글자 칸은 서식이 날짜여도 건드리면 안 된다. 문자열 "41274" 가 날짜로 둔갑한다.
+    #[test]
+    fn 글자칸은_날짜서식이어도_두다() {
+        use crate::xlsdate::DateKind;
+        let st = [DateKind::Date];
+        let sh = vec!["41274".to_string()];
+        let x = r#"<sheetData><row><c t="s" s="0"><v>0</v></c>
+                   <c t="inlineStr" s="0"><is><t>41274</t></is></c></row></sheetData>"#;
+        assert_eq!(sheet_st(x, &sh, &st), "41274 41274
+");
+    }
+
+    // <xf> 는 <cellStyleXfs>(이름 있는 스타일의 원본)에도 같은 이름으로 들어 있다.
+    // 그것까지 세면 번호가 밀려 엉뚱한 칸에 날짜 서식이 붙는다.
+    #[test]
+    fn cellStyleXfs_는_세지_않는다() {
+        use crate::xlsdate::DateKind;
+        let xml = r#"<styleSheet>
+          <cellStyleXfs count="2"><xf numFmtId="14"/><xf numFmtId="14"/></cellStyleXfs>
+          <cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs>
+        </styleSheet>"#;
+        // 0번은 일반, 1번만 날짜여야 한다(cellStyleXfs 를 셌다면 전부 날짜가 된다).
+        assert_eq!(styles(xml), vec![DateKind::None, DateKind::Date]);
+    }
+
+    // 사용자 지정 서식(164 이상)은 서식 '문자열'을 보고 판단한다.
+    #[test]
+    fn 사용자지정_서식번호를_문자열로_판단한다() {
+        use crate::xlsdate::DateKind;
+        let xml = r##"<styleSheet>
+          <numFmts count="2">
+            <numFmt numFmtId="176" formatCode="yyyy-mm-dd"/>
+            <numFmt numFmtId="177" formatCode="#,##0"/>
+          </numFmts>
+          <cellXfs count="3"><xf numFmtId="176"/><xf numFmtId="177"/><xf numFmtId="0"/></cellXfs>
+        </styleSheet>"##;
+        assert_eq!(styles(xml), vec![DateKind::Date, DateKind::None, DateKind::None]);
+    }
+
+    // 서식표가 없는 파일(styles.xml 부재)에서는 날짜 해석을 아예 하지 않는다.
+    #[test]
+    fn 서식표가_없으면_숫자를_그대로_둔다() {
+        let x = r#"<sheetData><row><c s="1"><v>41274</v></c></row></sheetData>"#;
+        assert_eq!(sheet_st(x, &[], &[]), "41274
+");
+    }
+
+    // quick-xml 은 `&lt;` 같은 참조를 글자와 **따로** 알려 준다. 이 이벤트를
+    // 받지 않으면 부등호·따옴표가 소리 없이 사라진다 — 실측에서 "4TB &lt; 전체"
+    // 가 "4TB 전체" 로 나왔다. 숫자 참조(&#65;)도 같은 길로 온다.
+    #[test]
+    fn 엔티티_참조를_글자로_되살린다() {
+        let x = r#"<sheetData><row><c t="inlineStr"><is><t>4TB &lt; 전체</t></is></c>
+                   <c t="inlineStr"><is><t>a&amp;b &#65;</t></is></c></row></sheetData>"#;
+        assert_eq!(sheet(x, &[]), "4TB < 전체 a&b A\n");
+    }
+
+    // `<si/>` 는 '빈 문자열 한 칸'이다. 세지 않고 건너뛰면 그 뒤 번호가 전부
+    // 하나씩 밀려, 시트의 모든 문자열 칸이 엉뚱한 글자를 가리키게 된다.
+    #[test]
+    fn 빈_공유문자열도_한_자리를_차지한다() {
+        let xml = r#"<sst><si><t>가</t></si><si/><si><t>나</t></si></sst>"#;
+        let got = xlsx_shared_strings_stream(std::io::BufReader::new(xml.as_bytes()));
+        assert_eq!(got, vec!["가".to_string(), String::new(), "나".to_string()]);
+        // 번호 2 가 "나" 를 가리켜야 한다(밀렸다면 여기서 깨진다).
+        let x = r#"<sheetData><row><c t="s"><v>2</v></c></row></sheetData>"#;
+        assert_eq!(sheet(x, &got), "나\n");
+    }
+
+    // 한 행의 칸은 공백으로 이어 **한 줄**이 돼야 한다. 개행으로 갈라지면
+    // "앵커 낱말 + 숫자"처럼 붙어 있어야 성립하는 검출이 통째로 어긋난다.
+    #[test]
+    fn 한_행은_한_줄로_이어진다() {
+        let sh = vec!["계좌번호".to_string()];
+        let x = r#"<sheetData><row><c t="s"><v>0</v></c><c><v>123456</v></c></row>
+                   <row><c/><c r="B2"/></row></sheetData>"#;
+        // 값이 하나도 없는 행은 줄을 만들지 않는다(빈 줄이 쌓이면 본문이 지저분해진다).
+        assert_eq!(sheet(x, &sh), "계좌번호 123456\n");
+    }
+
+    // t="e" 는 수식 오류(#N/A 등)라 본문이 아니다. 숫자·수식 결과는 <v> 에
+    // 들어오므로 반드시 읽어야 한다 — 하이픈 없는 전화번호가 바로 이 자리다.
+    #[test]
+    fn 셀_종류별로_값을_가려_읽는다() {
+        let x = r#"<sheetData><row><c t="e"><v>#N/A</v></c><c t="n"><v>01012345678</v></c>
+                   <c t="str"><v>합계</v></c></row></sheetData>"#;
+        assert_eq!(sheet(x, &[]), "01012345678 합계\n");
+    }
+
+    // 이름공간 접두가 붙은 문서도 같게 읽어야 한다(정규식 판이 허용하던 동작).
+    #[test]
+    fn 이름공간_접두가_붙어도_읽는다() {
+        let x = r#"<x:sheetData><x:row><x:c t="inlineStr"><x:is><x:t>가나</x:t></x:is></x:c>
+                   </x:row></x:sheetData>"#;
+        assert_eq!(sheet(x, &[]), "가나\n");
+    }
+
+    // 태그 이름 뒤 경계가 없으면 `<pre>` 가 `p`+`re` 로 잡힌다 — 파이썬 판은
+    // 태그 **이름 집합**으로 보므로 pre 는 블록이 아니다. 그 차이로 두 판의
+    // 본문이 갈렸다(2026-09-11). 이름이 접두인 태그 전부를 못 박아 둔다.
+    #[test]
+    fn 이름이_겹치는_태그를_블록으로_보지_않는다() {
+        for t in ["<pre>", "</pre>", "<param a=1>", "<picture>", "<progress>",
+                  "<track>", "<thead>", "</thead>", "<link rel=x>"] {
+            assert!(!RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 봤다");
+        }
+        // 진짜 블록은 그대로 잡혀야 한다(`<br/>` 자기닫힘 포함).
+        for t in ["<p>", "</p>", "<p class=a>", "<br>", "<br/>", "<br />",
+                  "<td>", "</td>", "<th>", "<h3>", "<hr/>", "<TABLE>"] {
+            assert!(RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 못 봤다");
+        }
+    }
+
+    // 파이썬 판은 HTMLParser 라 HTML5 이름 엔티티를 전부 푼다. 손으로 고른
+    // 몇 개만 풀면 목록 밖 엔티티가 나올 때마다 같은 어긋남이 되풀이된다.
+    #[test]
+    fn 이름_엔티티를_표대로_푼다() {
+        assert_eq!(unescape_entities("대시&mdash;점&middot;줄임&hellip;"),
+                   "대시—점·줄임…");
+        // &nbsp; 는 일반 공백이 아니라 U+00A0 이다(파이썬과 같아야 한다).
+        assert_eq!(unescape_entities("공백&nbsp;붙임"), "공백\u{A0}붙임");
+        // 숫자 엔티티(10진·16진)도 푼다.
+        assert_eq!(unescape_entities("&#49;&#x32;&#X33;"), "123");
+        // 모르는 이름은 지우지 않고 그대로 둔다 — 지우면 본문이 조용히 사라진다.
+        assert_eq!(unescape_entities("모름&qqqq;끝"), "모름&qqqq;끝");
+        // 한 번만 훑으므로 &amp;lt; 가 `<` 로 두 번 풀리지 않는다.
+        assert_eq!(unescape_entities("&amp;lt;"), "&lt;");
+    }
+
+    // docx 는 문단이 문단 안에 들어간다 — 텍스트상자(<w:txbxContent>)가 런 안에
+    // 있고 그 안에 또 <w:p> 가 있다. 짝 맞추기 정규식은 바깥 여는 태그와 안쪽
+    // 닫는 태그를 짝지어, 텍스트상자 **뒤에 이어지는 바깥 문단의 글자**를 통째로
+    // 잃었다(실측에서 "1) 개선사항 Summary" 한 줄이 사라졌다).
+    #[test]
+    fn docx_텍스트상자_뒤의_바깥_문단_글자를_잃지_않는다() {
+        let mut out = String::new();
+        collect_docx_paragraphs(
+            "<w:p><w:r><w:t>앞</w:t></w:r>             <w:r><w:pict><w:txbxContent>             <w:p><w:r><w:t>상자안</w:t></w:r></w:p>             </w:txbxContent></w:pict></w:r>             <w:r><w:t>뒤</w:t></w:r></w:p>", &mut out);
+        // 바깥 문단은 제 글자만(앞+뒤), 안쪽 문단은 제 줄. 문단이 열린 차례대로.
+        assert_eq!(out, "앞뒤
+상자안
+");
+    }
+
+    // 문단 속성의 <w:pPr><w:tabs><w:tab/> 은 탭 정지 위치 '정의'이지 본문의 탭이
+    // 아니다. 안쪽 문단의 정의까지 세면 없던 들여쓰기가 생긴다.
+    #[test]
+    fn docx_탭_정의는_탭문자가_아니다() {
+        let mut out = String::new();
+        collect_docx_paragraphs(
+            "<w:p><w:pPr><w:tabs><w:tab w:pos=\"1\"/><w:tab w:pos=\"2\"/></w:tabs></w:pPr>             <w:r><w:t>가</w:t><w:tab/><w:t>나</w:t></w:r></w:p>", &mut out);
+        assert_eq!(out, "가	나
+");
+    }
+
+    // 빈 문단 <w:p/> 은 빈 줄을 남긴다 — 지우면 문서의 여백이 사라진다.
+    #[test]
+    fn docx_빈_문단은_빈_줄로_남는다() {
+        let mut out = String::new();
+        collect_docx_paragraphs(
+            "<w:p><w:r><w:t>가</w:t></w:r></w:p><w:p w:rsidR=\"x\"/>             <w:p><w:r><w:t>나</w:t></w:r></w:p>", &mut out);
+        assert_eq!(out, "가
+
+나
+");
+    }
+
+    // HWPX 는 서식이 바뀌는 자리에서 <hp:t> 를 가른다 — 태그마다 줄을 끊으면
+    // 한 낱말이 쪼개진다("가치를" → "가치" / "를"). 문단 단위로 이어야 한다.
+    #[test]
+    fn hwpx_한_문단은_한_줄로_이어진다() {
+        let mut out = String::new();
+        collect_hwpx_paragraphs(
+            "<hp:p id=\"1\"><hp:run><hp:t>가치</hp:t></hp:run>\
+             <hp:run><hp:t>를 보장한다</hp:t></hp:run></hp:p>\
+             <hp:p id=\"2\"><hp:run><hp:t>다음 문단</hp:t></hp:run></hp:p>", &mut out);
+        assert_eq!(out, "가치를 보장한다\n다음 문단\n");
+    }
+
+    // 표는 문단 안에 문단이 들어간다(hp:p > hp:tbl > hp:tc > hp:subList > hp:p).
+    //=> 짝 맞추기 정규식이면 바깥 여는 태그와 안쪽 닫는 태그를 짝지어 경계가 엉킨다.
+    //   칸마다 제 줄을 갖고, 글자는 문서에 적힌 차례대로 남아야 한다.
+    #[test]
+    fn hwpx_표_안의_문단도_제_줄을_갖는다() {
+        let mut out = String::new();
+        collect_hwpx_paragraphs(
+            "<hp:p id=\"1\"><hp:run><hp:t>표 앞 글</hp:t></hp:run>\
+             <hp:run><hp:tbl><hp:tr>\
+             <hp:tc><hp:subList><hp:p><hp:run><hp:t>왼쪽 칸</hp:t></hp:run></hp:p></hp:subList></hp:tc>\
+             <hp:tc><hp:subList><hp:p><hp:run><hp:t>오른쪽 칸</hp:t></hp:run></hp:p></hp:subList></hp:tc>\
+             </hp:tr></hp:tbl></hp:run></hp:p>", &mut out);
+        assert_eq!(out, "표 앞 글\n왼쪽 칸\n오른쪽 칸\n");
+    }
+
+    // 문단 안 줄바꿈·탭은 살려야 한다 — 없애면 두 줄이 한 낱말로 붙어
+    // 문서에 없던 말("끝다음")이 생긴다.
+    #[test]
+    fn hwpx_줄바꿈과_탭을_살린다() {
+        let mut out = String::new();
+        collect_hwpx_paragraphs(
+            "<hp:p><hp:run><hp:t>끝</hp:t><hp:lineBreak/><hp:t>다음</hp:t>\
+             <hp:tab/><hp:t>칸</hp:t></hp:run></hp:p>", &mut out);
+        assert_eq!(out, "끝\n다음\t칸\n");
+    }
+
+    // 빈 문단(여백용)은 줄을 만들지 않는다 — HWPX 는 빈 문단을 여백으로 쓴다.
+    #[test]
+    fn hwpx_빈_문단은_줄을_만들지_않는다() {
+        let mut out = String::new();
+        collect_hwpx_paragraphs(
+            "<hp:p><hp:run><hp:t>앞</hp:t></hp:run></hp:p><hp:p/>\
+             <hp:p><hp:run></hp:run></hp:p><hp:p><hp:run><hp:t>뒤</hp:t></hp:run></hp:p>",
+            &mut out);
+        assert_eq!(out, "앞\n뒤\n");
+    }
+
+    // 엑셀 '메모'는 셀 값이 아니라 따로 담긴다 — 그래서 통째로 놓치고 있었다.
+    //=> 서식이 섞이면 한 메모가 <r><t> 로 잘게 쪼개져 오므로 이어 붙여야
+    //   한 문장이 된다. 작성자 이름(<authors>)은 본문이 아니라 들어오면 안 된다.
+    #[test]
+    fn 엑셀_셀메모를_한_줄로_모은다() {
+        let xml = "<comments><authors><author>고봉수</author></authors><commentList>\
+                   <comment ref=\"B2\" authorId=\"0\"><text><r><t>셀 서식을 </t></r>\
+                   <r><t>텍스트로</t></r></text></comment>\
+                   <comment ref=\"C3\" authorId=\"0\"><text><t>영구면 9999-12-31</t></text>\
+                   </comment></commentList></comments>";
+        assert_eq!(xlsx_comment_lines(xml, false),
+                   "셀 서식을 텍스트로\n영구면 9999-12-31\n");
+    }
+
+    // 새 방식(스레드 댓글)은 <text> 에 글자가 통으로 들어 있다.
+    #[test]
+    fn 엑셀_스레드댓글도_읽는다() {
+        let xml = "<threadedComments><threadedComment ref=\"A1\" dT=\"2026-01-01T00:00:00\">\
+                   <text>담당자 확인 필요</text></threadedComment></threadedComments>";
+        assert_eq!(xlsx_comment_lines(xml, true), "담당자 확인 필요\n");
+    }
+
+    // 메모가 없는 파일에서 없던 줄이 생기면 안 된다.
+    #[test]
+    fn 메모가_없으면_빈_문자열이다() {
+        assert_eq!(xlsx_comment_lines("<comments><commentList/></comments>", false), "");
+    }
+
+    // 발표자 노트도 슬라이드와 같은 a:p / a:t 구조다 — 같은 수집기로 읽는다.
+    //=> 노트를 안 읽던 시절 실측에서 본문 812자만 뽑고 노트 2,000자를 놓쳤다.
+    #[test]
+    fn 발표자_노트_구조를_문단으로_읽는다() {
+        let mut out = String::new();
+        collect_paragraphs(
+            "<p:notes><p:cSld><p:spTree><p:sp><p:txBody>\
+             <a:p><a:r><a:t>단가는 </a:t></a:r><a:r><a:t>대외비</a:t></a:r></a:p>\
+             <a:p><a:r><a:t>2차 협의 예정</a:t></a:r></a:p>\
+             </p:txBody></p:sp></p:spTree></p:cSld></p:notes>",
+            "a:p", "a:t", &mut out);
+        assert_eq!(out, "단가는 대외비\n2차 협의 예정\n");
+    }
+
     // 회귀 핵심 — CDATA 로 감싼 값이 통째로 사라지면 안 된다.
     // 태그 제거 정규식이 <![CDATA[..]]> 를 '태그 하나'로 삼켜, 엑셀 inlineStr
     // 문서 전체가 빈 텍스트가 되던 버그를 막는다.
     #[test]
     fn cdata_안의_글자를_살린다() {
         let mut out = String::new();
-        collect_tag_text("<t><![CDATA[이름]]></t><t><![CDATA[회사]]></t>", "t", &mut out);
+        collect_paragraphs("<p><t><![CDATA[이름]]></t></p><p><t><![CDATA[회사]]></t></p>",
+                           "p", "t", &mut out);
         assert_eq!(out, "이름\n회사\n");
     }
 
@@ -872,7 +1620,8 @@ mod tests {
     #[test]
     fn cdata가_없으면_종전과_같다() {
         let mut out = String::new();
-        collect_tag_text("<t>보고서</t><t xml:space=\"preserve\"> 초안</t>", "t", &mut out);
+        collect_paragraphs("<p><t>보고서</t></p><p><t xml:space=\"preserve\"> 초안</t></p>",
+                           "p", "t", &mut out);
         assert_eq!(out, "보고서\n 초안\n");
     }
 
@@ -894,35 +1643,4 @@ mod tests {
     }
 }
 
-    // 태그 이름 뒤 경계가 없으면 `<pre>` 가 `p`+`re` 로 잡힌다 — 파이썬 판은
-    // 태그 **이름 집합**으로 보므로 pre 는 블록이 아니다. 그 차이로 두 판의
-    // 본문이 갈렸다(2026-09-11). 이름이 접두인 태그 전부를 못 박아 둔다.
-    #[test]
-    fn 이름이_겹치는_태그를_블록으로_보지_않는다() {
-        for t in ["<pre>", "</pre>", "<param a=1>", "<picture>", "<progress>",
-                  "<track>", "<thead>", "</thead>", "<link rel=x>"] {
-            assert!(!RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 봤다");
-        }
-        // 진짜 블록은 그대로 잡혀야 한다(`<br/>` 자기닫힘 포함).
-        for t in ["<p>", "</p>", "<p class=a>", "<br>", "<br/>", "<br />",
-                  "<td>", "</td>", "<th>", "<h3>", "<hr/>", "<TABLE>"] {
-            assert!(RE_BLOCK_TAG.is_match(t), "{t} 를 블록으로 못 봤다");
-        }
-    }
-
-    // 파이썬 판은 HTMLParser 라 HTML5 이름 엔티티를 전부 푼다. 손으로 고른
-    // 몇 개만 풀면 목록 밖 엔티티가 나올 때마다 같은 어긋남이 되풀이된다.
-    #[test]
-    fn 이름_엔티티를_표대로_푼다() {
-        assert_eq!(unescape_entities("대시&mdash;점&middot;줄임&hellip;"),
-                   "대시—점·줄임…");
-        // &nbsp; 는 일반 공백이 아니라 U+00A0 이다(파이썬과 같아야 한다).
-        assert_eq!(unescape_entities("공백&nbsp;붙임"), "공백\u{A0}붙임");
-        // 숫자 엔티티(10진·16진)도 푼다.
-        assert_eq!(unescape_entities("&#49;&#x32;&#X33;"), "123");
-        // 모르는 이름은 지우지 않고 그대로 둔다 — 지우면 본문이 조용히 사라진다.
-        assert_eq!(unescape_entities("모름&qqqq;끝"), "모름&qqqq;끝");
-        // 한 번만 훑으므로 &amp;lt; 가 `<` 로 두 번 풀리지 않는다.
-        assert_eq!(unescape_entities("&amp;lt;"), "&lt;");
-    }
 

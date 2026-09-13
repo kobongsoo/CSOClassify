@@ -93,7 +93,7 @@ fn overridden(pick: impl Fn(&Overrides) -> Option<u64>) -> Option<u64> {
 // getter 와 테스트가 '같은 하나'를 보게 상수로 뽑아 둔다. 숫자를 양쪽에 적어 두면
 // 한쪽만 고쳐도 테스트가 통과해 버려, 정합을 지키라는 테스트가 무력해진다.
 pub const DEFAULT_MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
-pub const DEFAULT_MAX_FILE_BYTES_TEXT: u64 = 20 * 1024 * 1024;
+pub const DEFAULT_MAX_FILE_BYTES_TEXT: u64 = 100 * 1024 * 1024;
 pub const DEFAULT_MAX_TEXT_CHARS: u64 = 2_000_000;
 pub const DEFAULT_PARSER_TIMEOUT: u64 = 60;
 pub const DEFAULT_MAX_PDF_PAGES: u64 = 3000;
@@ -108,8 +108,14 @@ pub fn max_file_bytes() -> u64 {
         .unwrap_or_else(|| env_u64("CSOCLASSIFY_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES))
 }
 
-/// G2 — 텍스트 계열(txt/csv/tsv/json/html) 전용 상한(기본 20MB).
-/// 이 포맷군만은 '바이트 수 = 글자 수'라 바이트가 비용을 정확히 대변한다.
+/// G2 — 텍스트 계열(txt/csv/tsv/json/html) 전용 상한(기본 100MB = G1 과 같은 값).
+/// [왜 20MB 에서 올렸나] 이 게이트는 문서를 **버린다**. 그런데 바로 뒤의 G3 는 같은
+/// 상황에서 버리지 않고 앞부분만 읽고 '일부만 봤다' 표식을 단다. 텍스트만 20MB 에서
+/// 통째로 버리면 설계 원칙("진짜 상한은 G3, 바이트는 느슨한 안전핀")과 어긋난다.
+/// 실측(D:\분류함 305건)에서 46~82MB 짜리 tsv·json 4건이 본문 한 글자도 못 남기고
+/// 빠졌는데, 사이냅은 같은 파일을 읽어냈다 — 상한이 파서 실력처럼 보이던 자리다.
+/// [비용이 늘지 않는 이유] PII 정규식·분류가 실제로 훑는 길이는 G3(200만 자)가
+/// 잡는다. 올려서 늘어나는 일은 디스크에서 더 읽고 디코드하는 몫뿐이다.
 pub fn max_file_bytes_text() -> u64 {
     overridden(|o| o.max_file_bytes_text)
         .unwrap_or_else(|| env_u64("CSOCLASSIFY_MAX_FILE_BYTES_TEXT", DEFAULT_MAX_FILE_BYTES_TEXT))
@@ -419,7 +425,7 @@ mod tests {
         // 지키라는 이 테스트가 실행 순서에 따라 통과/실패하는 신뢰 못 할
         // 테스트가 된다(실제로 그렇게 깨졌다).
         assert_eq!(DEFAULT_MAX_FILE_BYTES, 100 * 1024 * 1024);
-        assert_eq!(DEFAULT_MAX_FILE_BYTES_TEXT, 20 * 1024 * 1024);
+        assert_eq!(DEFAULT_MAX_FILE_BYTES_TEXT, 100 * 1024 * 1024);
         assert_eq!(DEFAULT_MAX_TEXT_CHARS, 2_000_000);
         assert_eq!(DEFAULT_MAX_PDF_PAGES, 3000);
         assert_eq!(DEFAULT_PARSER_TIMEOUT, 60);

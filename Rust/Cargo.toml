@@ -35,6 +35,9 @@ ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dy
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 sevenz-rust2 = "0.22.2"
 rars = "0.9.4"
+# xlsx 시트 XML 을 흘려 읽기(SAX) 위한 순수 Rust 파서. 정규식으로 통째로 훑던
+# 방식은 거대한 단일 시트에서 비용이 급격히 커졌다(실측 15.2MB 파일 5.0초).
+quick-xml = { version = "0.42.0", default-features = false }
 
 [profile.release]
 opt-level = 3

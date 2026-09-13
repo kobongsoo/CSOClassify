@@ -181,6 +181,31 @@ class PptExtractor(TextExtractor):
         return txt.replace("\x0b", "\n").replace("\r", "\n")
 
 
+#------------------------------------------------------------------
+# 숫자를 사람이 보던 대로 — Rust 판 xls.rs 의 num_str 과 같은 규칙
+#=> xlrd 는 모든 숫자를 실수로 돌려준다. 그대로 str() 하면 수량 9 가 "9.0",
+#   연도 2024 가 "2024.0" 으로 나온다 — 엑셀 화면에도, 사이냅 출력에도,
+#   Rust 판에도 없는 글자다. 본문에 없던 ".0" 이 붙으면 낱말이 달라져
+#   "수량 9" 같이 붙어 있어야 성립하는 규칙이 어긋난다.
+#    1) 소수점 아래가 없으면 정수로 적는다
+#    2) 아주 큰 수(1e15 이상)는 정수로 바꾸면 정밀도를 잃으므로 실수 표기를 쓴다
+#       (Rust 판이 i64 로 바꾸는 경계와 같은 값이다)
+#
+# -in: v = xlrd 가 준 숫자(실수)
+#
+# -out: str = 표시용 문자열
+# -out: error = 숫자가 아니면 str() 결과를 그대로 돌려준다
+#------------------------------------------------------------------
+def _num_str(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if f.is_integer() and abs(f) < 1e15:
+        return str(int(f))
+    return repr(f)
+
+
 class XlsExtractor(TextExtractor):
     #------------------------------------------------------------------
     # xls → 텍스트 (핵심)
@@ -204,5 +229,44 @@ class XlsExtractor(TextExtractor):
         out = []
         for sh in wb.sheets():
             for r in range(sh.nrows):
-                out.append("\t".join(str(sh.cell_value(r, c)) for c in range(sh.ncols)))
+                out.append("\t".join(self._cell_text(wb, sh, r, c)
+                                     for c in range(sh.ncols)))
         return "\n".join(out)
+
+    #------------------------------------------------------------------
+    # 셀 하나를 사람이 보던 글자로 (날짜면 날짜로)
+    #=> 엑셀은 날짜를 숫자로 저장한다. 2012-12-31 은 파일 안에 41274 다. 서식을
+    #   읽지 않으면 본문에 일련번호가 그대로 나와, 사람이 표에서 보는 글자와
+    #   달라진다. xlrd 는 서식을 이미 해석해 '날짜 칸'을 XL_CELL_DATE 로 알려
+    #   주므로, 그 표시를 믿고 글자로 바꾼다.
+    #
+    #   [왜 직접 서식을 뜯지 않나] xlrd 가 XF/FORMAT 레코드를 이미 읽는다. 같은
+    #   일을 다시 하면 두 해석이 어긋날 여지만 생긴다. 출력 모양(YYYY-MM-DD)만
+    #   Rust 판(xlsdate.rs)과 맞춘다 — 두 판의 본문이 갈리면 등급도 갈린다.
+    #
+    # -in: wb = 열린 워크북(1900/1904 기준일 판별에 쓴다)
+    # -in: sh = 시트
+    # -in: r  = 행 번호
+    # -in: c  = 열 번호
+    #
+    # -out: str = 셀 표시 문자열
+    # -out: error = 날짜로 못 바꾸면 예전처럼 값을 그대로 문자열로 만든다
+    #------------------------------------------------------------------
+    @staticmethod
+    def _cell_text(wb, sh, r, c):
+        import xlrd
+        v = sh.cell_value(r, c)
+        if sh.cell_type(r, c) == xlrd.XL_CELL_DATE:
+            try:
+                y, mo, d, hh, mi, ss = xlrd.xldate_as_tuple(v, wb.datemode)
+            except Exception:   # noqa: BLE001
+                return str(v)
+            # 연·월·일이 모두 0 이면 '시각만' 담긴 칸이다(엑셀의 시간 서식).
+            if (y, mo, d) == (0, 0, 0):
+                return "%02d:%02d:%02d" % (hh, mi, ss)
+            if (hh, mi, ss) == (0, 0, 0):
+                return "%04d-%02d-%02d" % (y, mo, d)
+            return "%04d-%02d-%02d %02d:%02d:%02d" % (y, mo, d, hh, mi, ss)
+        if sh.cell_type(r, c) == xlrd.XL_CELL_NUMBER:
+            return _num_str(v)
+        return str(v)
