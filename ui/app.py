@@ -305,6 +305,10 @@ def simple_record(rec):
     err = rec.get("error")
     if isinstance(err, dict):
         out["error"] = err.get("reason") or "extract_failed"
+    # 처리제외(스캔 PDF) 표식도 엔진의 --simple 과 같은 모양으로 싣는다.
+    ex = rec.get("excluded")
+    if isinstance(ex, dict):
+        out["excluded"] = ex.get("kind") or "excluded"
     return out
 
 

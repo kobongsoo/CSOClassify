@@ -669,6 +669,8 @@ class ComboRule:
 # -필드: category      = 민감정보 범주(건강/유전/성생활/사상·정치/노조/범죄경력/인종)
 # -필드: terms         = 탐지 단어 리스트
 # -필드: exclude       = 제외 문구 리스트(오탐 방지). 예: terms=[전과], exclude=[산전과]
+# -필드: min_count     = 이 규칙 단어들의 합계가 이 값 미만이면 히트로 치지 않는다(기본 1 = 종전 동작).
+#                        규정·법령 설명의 단발 언급("진단서 제출", "성생활 등 민감정보")을 걸러낸다.
 # -필드: grade         = 히트 시 부여 등급(법상 민감 → 기본 C)
 # -필드: weight        = 신뢰도 가중("high"|"medium"|"low")
 # -필드: seed_eligible = True 면 이 히트로 확정된 문서를 전파 seed 로 승격 가능
@@ -680,6 +682,7 @@ class SensitiveRule:
     category: str
     terms: tuple
     exclude: tuple = ()
+    min_count: int = 1
     grade: str = "C"
     weight: str = "high"
     seed_eligible: bool = False
@@ -693,6 +696,8 @@ class SensitiveRule:
 # -필드: id            = 규칙 식별자 (예: "stamp_confidential")
 # -필드: name          = 사람이 읽는 이름 (예: "대외비/기밀 스탬프")
 # -필드: terms         = 표식 문구 리스트(예: "대외비","CONFIDENTIAL")
+# -필드: exclude       = 제외 문구 리스트. 이 문구 안에 든 매치는 세지 않는다
+#                        (예: terms=[기밀], exclude=[기밀성] — 정보보호 용어의 반복을 스탬프로 오인 방지)
 # -필드: grade         = 스탬프로 인정될 때 부여할 등급(기본 C)
 # -필드: weight        = 신뢰도 가중("high"|"medium"|"low")
 # -필드: seed_eligible = True 면 이 스탬프로 확정된 문서를 전파 seed 로 승격 가능
@@ -704,6 +709,7 @@ class StampRule:
     id: str
     name: str
     terms: tuple
+    exclude: tuple = ()
     grade: str = "C"
     weight: str = "high"
     seed_eligible: bool = False
@@ -1168,6 +1174,35 @@ def _count_outside(hay, needle, ex_spans):
 
 
 #------------------------------------------------------------------
+# 제외 구간 밖 첫 등장 위치
+#=> needle 이 제외 구간(ex_spans)에 통째로 들지 않고 처음 나오는 위치를 찾는다.
+#   스탬프 '머리' 판정용 — 예: 머리에 '기밀성'만 있고 진짜 '기밀' 표식이 없으면 머리로 치지 않는다.
+#    1) 제외 구간이 없으면 str.find 와 같다(하위호환)
+#    2) 있으면 비중첩으로 앞에서부터 훑어 제외 구간 밖의 첫 매치를 돌려준다
+#
+# -in: hay      = 검사 대상 문자열
+# -in: needle   = 찾을 단어(정책 적용 후)
+# -in: ex_spans = _exclude_spans() 결과
+#
+# -out: int = 첫 인정 위치(없으면 -1)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _find_outside(hay, needle, ex_spans):
+    if not needle:
+        return -1
+    if not ex_spans:
+        return hay.find(needle)
+    n = len(needle)
+    i = hay.find(needle)
+    while i >= 0:
+        # 제외 구간 안에 통째로 든 매치(예: '기밀' ⊂ '기밀성')는 건너뛴다.
+        if not any(s <= i and i + n <= e for s, e in ex_spans):
+            return i
+        i = hay.find(needle, i + n)
+    return -1
+
+
+#------------------------------------------------------------------
 # 키워드 규칙 1개 스캔
 #=> 규칙의 단어들이 텍스트에 몇 번 나오는지 세어 RuleHit 를 만든다. 하나도 없으면 None.
 #   대소문자 무시(defaults.case_insensitive)면 양쪽을 소문자로 맞춰 센다.
@@ -1326,6 +1361,8 @@ def scan_stamp(text, ruleset):
 
     hits = []
     for rule in rules:
+        # 제외어 구간 — 예: '기밀성'(정보보호 용어)이 반복돼 '기밀' 스탬프로 오인되던 것을 막는다.
+        ex_spans = _exclude_spans(hay, getattr(rule, "exclude", ()), ci)
         total = 0
         head = False
         head_term = None      # 머리에서 걸린 문구(근거 표기 우선)
@@ -1334,14 +1371,16 @@ def scan_stamp(text, ruleset):
             if not term:
                 continue
             needle = term.lower() if ci else term
-            c = hay.count(needle)
+            # 제외어 안의 매치는 뺀다(제외어가 없으면 종전 str.count 와 같다).
+            c = _count_outside(hay, needle, ex_spans)
             if not c:
                 continue
             total += c
             if first_term is None:
                 first_term = term
             # 첫 등장이 문서 '머리' 범위 안이면 head 로 인정(제목/표지 스탬프 정황).
-            if not head and 0 <= hay.find(needle) < _STAMP_HEAD_CHARS:
+            #   위치도 제외어 밖에서 처음 나온 곳으로 본다.
+            if not head and 0 <= _find_outside(hay, needle, ex_spans) < _STAMP_HEAD_CHARS:
                 head, head_term = True, term
 
         if total == 0:
@@ -1459,7 +1498,8 @@ def scan_sensitive(text, ruleset):
             if c:
                 per_term.append((term, c))
                 total += c
-        if total == 0:
+        # 최소 건수 미달(단발 언급)은 민감정보 '보유'로 보지 않는다.
+        if total == 0 or total < getattr(rule, "min_count", 1):
             continue
         hits.append({
             "id": rule.id, "name": rule.name, "category": rule.category,
@@ -1979,6 +2019,8 @@ def load_rules(path=None, validate=True):
             category=r.get("category", ""),
             terms=tuple(r.get("terms") or []),
             exclude=tuple(r.get("exclude") or []),
+            # 0·음수·빈 값은 1(종전 동작)로 본다 — Rust 판 로더와 같은 규칙.
+            min_count=max(1, int(r.get("min_count") or 1)),
             grade=r.get("grade", "C"),
             weight=r.get("weight", "high"),
             seed_eligible=bool(r.get("seed_eligible", False)),
@@ -1990,6 +2032,7 @@ def load_rules(path=None, validate=True):
             id=r["id"],
             name=r.get("name", r["id"]),
             terms=tuple(r.get("terms") or []),
+            exclude=tuple(r.get("exclude") or []),
             grade=r.get("grade", "C"),
             weight=r.get("weight", "high"),
             seed_eligible=bool(r.get("seed_eligible", False)),

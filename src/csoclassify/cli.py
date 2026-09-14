@@ -737,11 +737,13 @@ def _archive_record(origin, grades, ts, doctypes=None):
 # -in: ruleset    = 규칙셋(rule_version 표기용)
 # -in: doc_rules  = doc_rules.DocRuleSet | None
 # -in: taxonomy   = axes.Taxonomy | None
+# -in: excluded = 스캔 PDF 처리제외 정보({pages, scan_pages, text_len}). 주면 error 대신
+#                 excluded 표식을 단다(기본 None = 일반 추출 실패)
 #
-# -out: dict = 결과 레코드(grade=None, method="extract_failed")
+# -out: dict = 결과 레코드(grade=None, method="extract_failed" 또는 처리제외면 "excluded")
 # -out: error = 없음
 #------------------------------------------------------------------
-def _extract_failed_record(path, err, ruleset, doc_rules=None, taxonomy=None):
+def _extract_failed_record(path, err, ruleset, doc_rules=None, taxonomy=None, excluded=None):
     # now_iso·build_record 는 무거운 모듈을 import 시점에 끌어오지 않으려는 이 파일의
     # 관례를 따라 그때 가져온다.
     from .classify import now_iso
@@ -768,8 +770,13 @@ def _extract_failed_record(path, err, ruleset, doc_rules=None, taxonomy=None):
     # kind 로 '깨져서 못 읽음'과 '너무 커서 안 읽음'을 가른다 — 운영 대응이 다르기
     # 때문이다. 크기 초과는 상한을 올리거나 비동기 큐로 넘기면 그대로 처리되는 정상
     # 문서이고, 그냥 '추출 실패'로 묻히면 그 구분이 사라진다.
-    rec["error"] = {"stage": "extract", "reason": str(err),
-                    "kind": "size_limit" if isinstance(err, SizeLimitError) else "extract_failed"}
+    if excluded:
+        # 처리제외(스캔 PDF)는 실패가 아니다 — error 대신 excluded 표식을 단다.
+        # method 도 여기서 'excluded' 가 되므로 아래 extract_failed 치환에 걸리지 않는다.
+        _mark_excluded(rec, excluded)
+    else:
+        rec["error"] = {"stage": "extract", "reason": str(err),
+                        "kind": "size_limit" if isinstance(err, SizeLimitError) else "extract_failed"}
 
     # 못 읽은 문서는 전파 seed 가 될 수 없다 — 근거를 못 본 문서를 다른 문서의
     # 기준으로 삼으면 오분류가 스스로를 강화한다.
@@ -913,6 +920,65 @@ def _mark_no_body(rec, n):
     sec = rec.setdefault("why", {}).setdefault("security", {})
     if not rec.get("grade") and sec.get("method") in (None, "", "unclassified"):
         sec["method"] = "extract_failed"
+
+
+#------------------------------------------------------------------
+# 스캔 PDF 인가 — 처리제외(EXCLUDED) 판정
+#=> 1차 개발 범위는 OCR 을 하지 않는다. 텍스트 레이어 없이 그림만 든 PDF 는 '못 읽은
+#   문서(실패)'가 아니라 '범위 밖이라 처리하지 않는 문서'로 가려야 한다. 실패로 세면
+#   스캔본이 섞인 배치마다 종료코드 1 이 나서, 진짜 깨진 문서가 그 틈에 묻힌다.
+#    1) PDF 파서가 남긴 페이지 구성(notes.take_layout)이 없으면 PDF 가 아니다 → 아님
+#    2) 스캔 페이지가 읽은 페이지의 SCAN_PDF_PAGE_RATIO 이상이어야 한다
+#    3) 최종 본문도 페이지당 SCAN_PDF_PAGE_MAX_CHARS 자 미만이어야 한다
+#       (그림 페이지가 대부분이어도 몇 쪽에 본문이 있으면 읽을 것이 있는 문서다.
+#        사이냅 폴백이 본문을 읽어 낸 경우도 여기서 걸러진다)
+#   Rust 판 extract::scan_pdf_verdict 와 같은 비교식이다.
+#
+# -in: layout  = {"pages", "scan_pages"} 또는 None(PDF 가 아님)
+# -in: n_chars = 최종 본문 글자 수(공백 제외)
+#
+# -out: dict | None = 스캔 PDF 면 {pages, scan_pages, text_len}, 아니면 None
+# -out: error = 없음
+#------------------------------------------------------------------
+def _scan_pdf_excluded(layout, n_chars):
+    if not layout:
+        return None
+    pages = layout.get("pages") or 0
+    scan_pages = layout.get("scan_pages") or 0
+    # 한 쪽도 못 읽었으면 판단할 근거가 없다 — 추출 실패 쪽에서 다룬다.
+    if pages <= 0:
+        return None
+    if scan_pages / pages < config.SCAN_PDF_PAGE_RATIO:
+        return None
+    if n_chars / pages >= config.SCAN_PDF_PAGE_MAX_CHARS:
+        return None
+    return {"pages": pages, "scan_pages": scan_pages, "text_len": n_chars}
+
+
+#------------------------------------------------------------------
+# '처리제외(스캔 PDF)' 표식 달기
+#=> 분류 결과는 그대로 두고 표식만 더한다(_mark_no_body 와 같은 원칙) — 파일명·경로
+#   신호는 본문과 무관하게 유효하고, 몇 글자라도 규칙에 걸렸으면 그 등급이 맞다.
+#   error 칸은 달지 않는다 — 실패가 아니라 범위 밖이라서다. 아무것도 못 정했을 때만
+#   method 를 'excluded' 로 둔다('unclassified' 는 "봤는데 없더라"라 사실과 다르다).
+#
+# -in: rec  = 완성된 레코드(제자리에서 고친다)
+# -in: info = _scan_pdf_excluded 가 돌려준 {pages, scan_pages, text_len}
+#
+# -out: 없음(rec 을 제자리에서 고친다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _mark_excluded(rec, info):
+    rec["excluded"] = {
+        "kind": "scan_pdf",
+        "pages": info["pages"], "scan_pages": info["scan_pages"],
+        "text_len": info["text_len"],
+        "reason": "처리제외(EXCLUDED) — 스캔 PDF(텍스트 레이어 없음)입니다. OCR 은 1차 "
+                  "범위에서 제외되어, 본문 없이 파일명·경로 신호로만 판정했습니다.",
+    }
+    sec = rec.setdefault("why", {}).setdefault("security", {})
+    if not rec.get("grade") and sec.get("method") in (None, "", "unclassified"):
+        sec["method"] = "excluded"
 
 
 #------------------------------------------------------------------
@@ -1232,11 +1298,11 @@ def _save_text_file(save_dir, rec, text, path, truncated, ts):
 # 아니다. 근거는 why 한 덩어리로 뒤에 둔다 — --simple 이 ①②만 떼어낸
 # 모양이라, 축약본과 전체가 같은 낱말·같은 차례를 쓰게 된다.
 #   ① 무엇을      file · hash · doc_id · doc_id_source
-#   ② 어떻게 됐나  grade · doctype(dc_id 목록) · error
+#   ② 어떻게 됐나  grade · doctype(dc_id 목록) · error · excluded(처리제외)
 #   ③ 왜          why(축별 상세) · pii · vector
 #   ④ 장부        meta · elapsed_ms
 _REC_ORDER = ("file", "hash", "doc_id", "doc_id_source", "rematched_by",
-              "grade", "doctype", "error", "why", "pii", "vector",
+              "grade", "doctype", "error", "excluded", "why", "pii", "vector",
               "text_saved", "text_save_error", "meta", "elapsed_ms")
 
 
@@ -1418,6 +1484,11 @@ def _simple_record(rec, why=False):
     err = rec.get("error")
     if isinstance(err, dict):
         out["error"] = err.get("reason") or "extract_failed"
+    # 처리제외(스캔 PDF) 문서도 표식을 싣는다. 없으면 '읽었는데 미분류'와 같은 모습이라
+    # 받는 쪽이 OCR 대상으로 돌릴 문서를 못 가린다. 기계가 가를 수 있게 종류(kind)만 싣는다.
+    ex = rec.get("excluded")
+    if isinstance(ex, dict):
+        out["excluded"] = ex.get("kind") or "excluded"
     if why:
         out["why"] = _why_record(rec)
     return out
@@ -1950,6 +2021,9 @@ def run_classify(files, args, out_fp):
     # 파서가 상한에서 멈춰 '앞부분만' 읽은 문서 수(G5). 절단(G3)과 다른 사건이다 —
     # G3 은 다 읽고 나서 자른 것이고, 이건 애초에 끝까지 읽지 못한 것이다.
     n_partial_extract = 0
+    # 스캔 PDF 라 '처리제외'로 가린 문서 수. 추출 실패와 따로 센다 — 실패가 아니라
+    # OCR 미적용(1차 범위 밖)이라 종료코드에도 넣지 않는다.
+    n_excluded = 0
     # --textsave 관측 — 저장이 조용히 반쯤 실패하는 것을 막는다(설계 8장).
     n_text_saved = 0
     n_text_dedup = 0
@@ -2233,8 +2307,12 @@ def run_classify(files, args, out_fp):
             with timing.measure("extract"):
                 # 파서가 남길 '부분 추출' 표식 자리를 비우고 시작한다(G5 관측).
                 notes.reset()
+                # PDF 페이지 구성 칸도 문서마다 비운다 — 지난 PDF 의 값이 이 문서에 붙으면
+                # PDF 가 아닌 문서가 처리제외로 잘못 가려진다.
+                notes.reset_layout()
                 raw = extractor.extract(src, save_dir=None)
                 partial = notes.take()
+                layout = notes.take_layout()
 
             #----------------------------------------------------------------------------
             # 추출된 text 정제
@@ -2253,21 +2331,33 @@ def run_classify(files, args, out_fp):
                 text, n_text_orig, was_truncated = truncate_text(text, text_limit)
 
         except ExtractError as e:
+            # 스캔 PDF 는 대개 이 갈래로 온다 — 모든 쪽이 0자면 pdfium 결과가 '빈 문자열'이라
+            # 하이브리드가 짧은 결과로 붙잡지 못하고 전 엔진 실패로 올린다(실측: 사이냅도
+            # 0바이트). 그래도 파서가 남긴 페이지 구성이 스캔본이면 '실패'가 아니라 '처리제외'다.
+            layout = notes.take_layout()
+            scan = None if isinstance(e, SizeLimitError) else _scan_pdf_excluded(layout, 0)
+            if scan:
+                print(f"[MpowerClassify] 처리제외(스캔 PDF, {scan['pages']}쪽 중 "
+                      f"{scan['scan_pages']}쪽이 그림): {path}", file=sys.stderr)
+                n_excluded += 1
             # 크기 초과(G1·G2)는 '실패'가 아니라 '안 읽기로 한 것'이라 말투를 나눈다.
             # 같은 문장으로 찍으면 운영자가 파일이 깨진 줄 알고 원본을 뒤진다.
-            if isinstance(e, SizeLimitError):
+            elif isinstance(e, SizeLimitError):
                 print(f"[MpowerClassify] 크기 상한 초과로 건너뜀: {path} :: {e}", file=sys.stderr)
                 log.warning("크기 상한 초과 file=%s :: %s", path, e)
                 n_size_skipped += 1
             else:
                 print(f"[MpowerClassify] 추출 실패: {path} :: {e}", file=sys.stderr)
                 log.error("분류 추출 실패 file=%s :: %s", path, e)
-            code = config.EXIT_EXTRACT_FAIL
+            # 처리제외는 실패가 아니므로 종료코드를 올리지 않는다.
+            if not scan:
+                code = config.EXIT_EXTRACT_FAIL
             # 못 읽은 문서도 '결과'다 — 레코드를 안 내면 그 문서는 결과에서 통째로
             # 사라져, 화면에는 "18개 중 11건"처럼 조용히 줄어든 숫자만 남는다.
             # 무엇이 왜 빠졌는지 알 수 없는 것은 거버넌스 도구에서 가장 나쁜 실패다.
             # 등급 없이(=보류) 실패 사유를 실어 내보내 사람이 처리하게 한다.
-            rec = _extract_failed_record(path, e, ruleset, doc_rules_set, taxonomy)
+            rec = _extract_failed_record(path, e, ruleset, doc_rules_set, taxonomy,
+                                         excluded=scan)
             # 못 펼친 압축은 '본문 추출'까지 실패해 이 갈래로 오는 일이 흔하다
             # (분할 7z 처럼 사이냅도 못 읽는 경우). 표식을 성공 경로에만 달면
             # 정작 필요한 이 자리에서 빠져, 요약은 세는데 레코드는 비는 상태가 된다.
@@ -2280,8 +2370,13 @@ def run_classify(files, args, out_fp):
                 _attach_doc_id(rec, path, src, docid_flist, docid_stats)
                 if rec.get("doc_id_source") != "sfile_id":
                     missing_id_rows.append(rec)
-            counts["none"] = counts.get("none", 0) + 1
-            n_extract_failed += 1
+            if scan:
+                # 처리제외는 실패가 아니다 — 파일명·경로 신호로 정해진 등급 칸에 그대로 센다.
+                _g = rec.get("grade") or "none"
+                counts[_g] = counts.get(_g, 0) + 1
+            else:
+                counts["none"] = counts.get("none", 0) + 1
+                n_extract_failed += 1
             if auto_prop:
                 records.append(rec)
                 rec_origins.append(origin)
@@ -2353,7 +2448,16 @@ def run_classify(files, args, out_fp):
             log.info("PII 스캔 상한 file=%s %d자 중 %d자만 훑음", path, _tot, _cov)
 
         short, n_chars = _body_too_short(text)
-        if short:
+        # 스캔 PDF 는 먼저 가린다 — '못 읽음(실패)'이 아니라 '처리제외(범위 밖)'라서
+        # error 도 달지 않고 종료코드도 올리지 않는다. 본문 길이가 20자를 넘는 스캔본
+        # (머리말 몇 줄만 글자로 든 문서)도 있어 short 와 무관하게 판정한다.
+        scan = _scan_pdf_excluded(layout, n_chars)
+        if scan:
+            _mark_excluded(rec, scan)
+            n_excluded += 1
+            print(f"[MpowerClassify] 처리제외(스캔 PDF, {scan['pages']}쪽 중 "
+                  f"{scan['scan_pages']}쪽이 그림): {path}", file=sys.stderr)
+        elif short:
             _mark_no_body(rec, n_chars)
             n_extract_failed += 1
             code = config.EXIT_EXTRACT_FAIL
@@ -2672,6 +2776,9 @@ def run_classify(files, args, out_fp):
         summary["split_volume"] = n_split_volume
     if n_partial_extract:
         summary["partial_extract"] = n_partial_extract
+    # 처리제외는 extract_failed 에 들어 있지 않다(실패가 아니다) — 따로 싣는다.
+    if n_excluded:
+        summary["excluded"] = n_excluded
     if arch_unexpanded:
         summary["archive_unexpanded"] = len(arch_unexpanded)
     # 압축파일 집계 레코드가 있으면 개수도 요약에 표기(내부 파일 total 과는 별개).
@@ -2761,6 +2868,7 @@ def run_classify(files, args, out_fp):
         size_note = f", 크기초과={n_size_skipped}" if n_size_skipped else ""
         vol_note = f", 분할조각={n_split_volume}" if n_split_volume else ""
         part_note = f", 부분추출={n_partial_extract}" if n_partial_extract else ""
+        excl_note = f", 처리제외={n_excluded}" if n_excluded else ""
         arch_un_note = f", 압축미해제={len(arch_unexpanded)}" if arch_unexpanded else ""
         # --textsave 를 안 쓰면 0/0 이라 칸을 아예 안 낸다(쓰는 사람만 보게).
         ts_note = f", 텍스트저장={n_text_saved}" if text_save_dir else ""
@@ -2768,7 +2876,7 @@ def run_classify(files, args, out_fp):
         print(
             f"[summary] 총 {total_files}개 / 검출 {detected}, "
             f"C={c_cnt} S={s_cnt} O={o_cnt} 미분류={none_cnt} "
-            f"추출실패={n_extract_failed}{arch_note}{trunc_note}{size_note}"
+            f"추출실패={n_extract_failed}{excl_note}{arch_note}{trunc_note}{size_note}"
             f"{part_note}{arch_un_note}{vol_note}{ts_note}{ts_fail_note}, "
             f"총시간={total_ms}ms",
             file=sys.stderr,
@@ -2797,6 +2905,12 @@ def run_classify(files, args, out_fp):
                   f"앞부분만 읽었습니다(partial_extract=true) — 재검토 대상입니다. "
                   f"상한 조정은 --max-pdf-pages · --parser-timeout 으로 합니다.",
                   file=sys.stderr)
+        # 처리제외 — 실패가 아니므로 무엇을 뜻하는지(종료코드에 안 들어간다)까지 알린다.
+        if n_excluded:
+            print(f"[summary][처리제외] {n_excluded}건은 스캔 PDF(텍스트 레이어 없음)라 "
+                  f"OCR 미적용 범위로 처리에서 제외했습니다(excluded.kind=scan_pdf) — "
+                  f"실패가 아니므로 종료코드에 넣지 않았습니다. 등급은 파일명·경로 신호로만 "
+                  f"판정했습니다.", file=sys.stderr)
         # 분할 압축 조각 — 깨진 파일이 아니라 '원래 단독으로 못 읽는 것'이다.
         if n_split_volume:
             print(f"[summary][분할 조각] {n_split_volume}건은 분할 압축의 조각이라 읽지 "

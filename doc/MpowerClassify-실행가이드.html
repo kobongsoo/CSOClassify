@@ -194,10 +194,13 @@ MpowerClassify.exe --dir "D:\collected" --json-errors --simple --nosummary ^
 {"doctype":[],"error":"본문 텍스트가 거의 없습니다 — 스캔본(이미지)이거나 …","file":"D:/collected/1.pdf","grade":null,"hash":"f2814d48…"}
 <span class="cmt">…</span>
 {"error":{"code":3001,"kind":"extract_failed","message":"16건 중 1건을 읽지 못했습니다","path":"D:\\collected","total":16,"failed":1}}</code></pre>
+  <p class="def"><b>2026-09-14 부터 스캔 PDF 는 위 <code>error</code> 줄로 나가지 않습니다</b> — 1차 범위(OCR 미적용)
+  밖이라 <code>"excluded":"scan_pdf"</code>(처리제외)로 표기하고 <code>failed</code>·종료코드에 넣지 않습니다.
+  위 예시는 그 전에 돌린 결과입니다. 자세한 것은 <a href="#excluded">처리제외</a>를 보세요.</p>
   <div class="scroll"><table>
     <tr><th><code>code</code></th><th>뜻</th><th>종료코드</th><th>결과 파일</th><th>부르는 쪽이 할 일</th></tr>
-    <tr><td><code>0</code></td><td>전부 성공</td><td>0</td><td>있음</td><td>그대로 쓴다</td></tr>
-    <tr><td><code>3001</code></td><td><b>일부 문서를 못 읽음</b><br><span class="def">스캔본·빈 문서·깨진 파일</span></td>
+    <tr><td><code>0</code></td><td>전부 성공<br><span class="def">처리제외(스캔 PDF)만 있어도 0</span></td><td>0</td><td>있음</td><td>그대로 쓴다. <code>excluded</code> 칸이 붙은 문서는 OCR 대상으로 따로 모은다</td></tr>
+    <tr><td><code>3001</code></td><td><b>일부 문서를 못 읽음</b><br><span class="def">빈 문서·깨진 파일 (스캔 PDF 는 처리제외라 여기 들지 않음)</span></td>
         <td>1</td><td><b>있음</b></td>
         <td>결과는 쓰고, <code>failed</code> 건만 <b>OCR·사람 확인</b>으로 돌린다.
             어느 문서인지는 레코드의 <code>error</code> 칸으로 찾는다</td></tr>
@@ -1123,8 +1126,11 @@ csoclassify --dir "폴더" --hybridparse --rule-only --format jsonl
       그 파일에는 그대로 들어 있습니다. 분류를 다시 돌리는 것이 아니라 손에 든 레코드를 한 번 더
       적을 뿐이라 <b>비용이 사실상 0</b> 입니다(실측 0.011%).
       <br><b>못 읽은 문서에는 <code>error</code> 칸이 붙습니다</b>
-      <span class="def">2026-09-01</span> — 네 칸만으로는 스캔본이 '미분류'와
-      구분되지 않습니다. 성공한 문서에는 이 칸이 <b>아예 없습니다</b>(기존 모양 그대로).</td></tr>
+      <span class="def">2026-09-01</span> — 네 칸만으로는 못 읽은 문서가 '미분류'와
+      구분되지 않습니다. 성공한 문서에는 이 칸이 <b>아예 없습니다</b>(기존 모양 그대로).
+      <br><b>처리제외(스캔 PDF) 문서에는 <code>"excluded":"scan_pdf"</code> 칸이 붙습니다</b>
+      <span class="def">2026-09-14</span> — 실패가 아니라서 <code>error</code> 칸은 붙지 않습니다.
+      정상 문서에는 이 칸이 없습니다(<a href="#excluded">처리제외</a>).</td></tr>
     <tr><td><code>--summary</code> <span class="def">2026-08-20</span></td><td>—</td><td>파일별 레코드 없이 <b>맨 끝 요약(summary)만</b> JSON 객체로 출력(총수·검출·C/S/O·미분류·총시간 등). <code>--file</code>/<code>--dir</code> 모두</td></tr>
     <tr><td><code>--nosummary</code> <span class="def">2026-08-20</span></td><td>—</td><td>맨 끝 <b>요약(summary)을 출력에서 제거</b>(JSON 결과·화면 요약줄 모두). 파일별 레코드만 남긴다. <code>--summary</code> 와 배타</td></tr>
   </table></div>
@@ -1639,7 +1645,29 @@ result.full.jsonl   <span class="cmt">← 감사용(전체 레코드 + 요약 + 
   <code>extract_failed</code> 가 됩니다.
   임계값은 <code>CSOCLASSIFY_MIN_TEXT_LEN</code> 으로 바꿀 수 있습니다.
   <span class="def">값의 근거 — 실측 15건에서 스캔본 3자, 가장 짧은 정상 문서 311자</span>
-  <br><span class="def">같은 날 Rust 판이 추출 실패에도 늘 <b>0</b> 을 내던 것도 고쳤습니다(→ 1).</span></div>
+  <br><span class="def">같은 날 Rust 판이 추출 실패에도 늘 <b>0</b> 을 내던 것도 고쳤습니다(→ 1).</span>
+  <br><b>단, 스캔 PDF 는 2026-09-14 부터 이 상자가 아니라 아래 '처리제외'로 나갑니다.</b></div>
+
+  <div class="note" id="excluded"><b>처리제외(EXCLUDED) — 스캔 PDF</b> <span class="def">2026-09-14 · M3 기준</span> —
+  1차 개발 범위는 <b>OCR 을 하지 않습니다</b>. 텍스트 레이어 없이 그림만 든 PDF 는 '못 읽은 문서(실패)'가 아니라
+  <b>'범위 밖이라 처리하지 않는 문서'</b>로 따로 표기합니다. 실패로 세면 스캔본이 섞인 배치마다 종료코드 1 이 나서,
+  진짜 깨진 문서가 스캔본 틈에 묻히기 때문입니다.
+  <div class="scroll"><table>
+    <tr><th>판정</th><td>① 글자(공백 제외) 10자 미만 · 그림이 페이지 넓이의 절반 이상을 덮는 쪽을 <b>스캔 페이지</b>로 보고<br>
+        ② 스캔 페이지가 읽은 쪽의 <b>절반 이상</b>이면서 ③ 문서 전체도 <b>페이지당 10자 미만</b>이면 스캔 PDF</td></tr>
+    <tr><th>레코드</th><td><code>"excluded": {"kind":"scan_pdf", "pages":4, "scan_pages":4, "text_len":0, "reason":"처리제외(EXCLUDED) — …"}</code><br>
+        <code>error</code> 칸은 <b>붙지 않습니다</b>. 아무 등급도 못 정했으면 <code>method</code> 가 <code>excluded</code></td></tr>
+    <tr><th><code>--simple</code></th><td><code>"excluded":"scan_pdf"</code></td></tr>
+    <tr><th>요약</th><td><code>summary.excluded</code> 에 건수(있을 때만). <code>extract_failed</code> 에는 <b>들지 않습니다</b></td></tr>
+    <tr><th>종료코드</th><td><b>올리지 않습니다</b> — 처리제외만 있으면 0</td></tr>
+  </table></div>
+  <b>등급은 잃지 않습니다</b> — 파일명·경로 신호는 본문과 무관하게 판정합니다(본문없음과 같은 원칙).
+  <br><b>③이 왜 필요한가</b> — 그림 페이지가 대부분이어도 몇 쪽에 제대로 된 본문이 있으면 읽을 것이 있는 문서입니다
+  (실측 — 12쪽 중 11쪽이 그림, 1쪽에 565자인 문서는 처리제외가 아닙니다). 그림 위에 글자층을 얹은
+  '검색 가능 PDF'도 글자가 있어 처리제외가 아닙니다.
+  <br><span class="def">값의 근거 — D:\분류함 PDF 382건 실측: 스캔본은 페이지당 0~0.1자·그림 덮음 100%,
+  그림이 많은 정상 문서(매뉴얼·제품소개서)는 페이지당 50자 이상. 두 판(Python·Rust)이 같은 값·같은 식을 씁니다.</span>
+  <br><span class="def">글자도 그림도 없는 PDF(글자를 선으로 그린 전단지 등)는 스캔본이 아니라 위 '본문없음'으로 나갑니다.</span></div>
 
   <div class="must"><b>문서 하나의 실패는 오류가 아닙니다.</b> 이 계약은 <b>실행 전체가 멈춘 경우</b>에만 씁니다.
   문서 100건 중 3건에서 텍스트를 못 뽑은 것은 정상적인 결과이고, 그 문서의 레코드에

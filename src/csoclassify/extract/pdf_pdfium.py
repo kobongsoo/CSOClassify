@@ -7,6 +7,8 @@
 #   상위가 snf 로 폴백한다(OCR 은 별도).
 #------------------------------------------------------------------
 
+import re
+
 from .. import config
 from ..logsetup import get_logger
 from . import notes
@@ -17,8 +19,43 @@ log = get_logger(__name__)
 # pypdfium2 가 없으면 이 경로만 비활성(→ snf 폴백)되게 지연 취급.
 try:
     import pypdfium2 as pdfium
+    import pypdfium2.raw as pdfium_raw
 except ImportError:
     pdfium = None
+    pdfium_raw = None
+
+
+#------------------------------------------------------------------
+# 이 페이지가 스캔 페이지인가 (처리제외 판정 재료)
+#=> 글자가 거의 없고, 그림이 페이지 넓이의 절반 이상을 덮으면 스캔 페이지로 본다.
+#    1) 페이지 글자(공백 제외)가 config.SCAN_PDF_PAGE_MAX_CHARS 이상이면 바로 아니다
+#       — 글자 많은 페이지(대부분의 정상 페이지)는 그림을 훑지 않아 느려지지 않는다
+#    2) 페이지 바로 아래 그림 개체들의 영역을 페이지 안으로 잘라 넓이를 더한다
+#    3) 덮은 비율이 config.SCAN_PDF_IMAGE_COVER 이상이면 스캔 페이지
+#
+#   [왜 페이지 바로 아래만 보나] Rust 판(pdfium-render)이 같은 범위를 본다. 실측
+#   382건에서 폼 개체 안까지(깊이 15) 봐도 처리제외 판정은 69건으로 똑같았다.
+#
+# -in: page = pypdfium2 PdfPage
+# -in: text = 그 페이지에서 뽑은 원문 텍스트
+#
+# -out: bool = 스캔 페이지면 True
+# -out: error = 없음(크기가 0 인 이상한 페이지는 False)
+#------------------------------------------------------------------
+def _is_scan_page(page, text):
+    # 글자가 있는 페이지는 스캔본이 아니다 — 그림을 볼 필요도 없다.
+    if len(re.sub(r"\s", "", text or "")) >= config.SCAN_PDF_PAGE_MAX_CHARS:
+        return False
+    w, h = page.get_width(), page.get_height()
+    if w <= 0 or h <= 0:
+        return False
+    covered = 0.0
+    for obj in page.get_objects(filter=[pdfium_raw.FPDF_PAGEOBJ_IMAGE], max_depth=0):
+        left, bottom, right, top = obj.get_bounds()
+        # 페이지 밖으로 삐져나간 부분은 세지 않는다 — 넓이 비율이 1 을 넘지 않게.
+        covered += (max(0.0, min(right, w) - max(left, 0.0))
+                    * max(0.0, min(top, h) - max(bottom, 0.0)))
+    return covered / (w * h) >= config.SCAN_PDF_IMAGE_COVER
 
 
 class PdfiumExtractor(TextExtractor):
@@ -57,6 +94,8 @@ class PdfiumExtractor(TextExtractor):
             deadline = ParserDeadline()
             max_pages = config.MAX_PDF_PAGES
             stopped = None
+            # 스캔 페이지(글자 거의 없음 + 그림이 절반 이상) 수 — 처리제외 판정 재료.
+            scan_pages = 0
             for i, page in enumerate(doc):
                 if max_pages and 0 < max_pages <= i:
                     stopped = f"페이지 상한({max_pages}p)"
@@ -66,7 +105,10 @@ class PdfiumExtractor(TextExtractor):
                     break
                 # 페이지 텍스트층에서 전체 범위 문자열을 얻는다.
                 tp = page.get_textpage()
-                parts.append(tp.get_text_range())
+                page_text = tp.get_text_range()
+                parts.append(page_text)
+                if _is_scan_page(page, page_text):
+                    scan_pages += 1
             # 잘렸다면 반드시 로그로 남긴다 — 남기지 않으면 '왜 이 문서만 본문이
             # 적지'를 나중에 추적할 근거가 사라진다.
             if stopped:
@@ -75,6 +117,10 @@ class PdfiumExtractor(TextExtractor):
                 # 로그만으로는 결과를 보는 사람에게 안 닿는다 — 레코드까지 가도록
                 # 표식을 남긴다(notes 모듈 주석 참고).
                 notes.set_partial(stopped, "pages", len(parts), len(doc))
+            # 페이지 구성을 남긴다 — 분류 쪽이 최종 본문 길이와 함께 '처리제외(스캔 PDF)'를
+            # 가린다. 여기서 바로 가리지 않는 이유: 사이냅 폴백이 본문을 읽어 내면 스캔본이
+            # 아니기 때문이다(판정은 '최종 본문' 기준이어야 한다).
+            notes.set_layout(len(parts), scan_pages)
             return "\n".join(parts)
         finally:
             doc.close()

@@ -152,6 +152,8 @@ fn pdf_text(path: &Path) -> Option<String> {
     let max_pages = crate::limits::max_pdf_pages();
     let mut n_read = 0usize;
     let mut stopped: Option<String> = None;
+    // 스캔 페이지(글자 거의 없음 + 그림이 절반 이상) 수 — 처리제외 판정 재료.
+    let mut scan_pages = 0usize;
     for page in doc.pages().iter() {
         if max_pages > 0 && n_read >= max_pages {
             stopped = Some(format!("페이지 상한({}p)", max_pages));
@@ -161,12 +163,27 @@ fn pdf_text(path: &Path) -> Option<String> {
             stopped = Some("시간 상한".to_string());
             break;
         }
-        if let Ok(t) = page.text() {
-            out.push_str(&t.all());
-            out.push('\n');
+        match page.text() {
+            Ok(t) => {
+                let s = t.all();
+                if pdf_is_scan_page(&page, &s) {
+                    scan_pages += 1;
+                }
+                out.push_str(&s);
+                out.push('\n');
+            }
+            // 텍스트층을 못 열어도 그림만 든 페이지일 수 있다 — 글자 0자로 보고 판정한다.
+            Err(_) => {
+                if pdf_is_scan_page(&page, "") {
+                    scan_pages += 1;
+                }
+            }
         }
         n_read += 1;
     }
+    // 페이지 구성을 남긴다 — 분류 쪽이 최종 본문 길이와 함께 '처리제외(스캔 PDF)'를
+    // 가린다(파이썬 판과 같은 자리·같은 값).
+    crate::limits::notes_set_layout(n_read, scan_pages);
     // 잘렸다면 반드시 남긴다 — 남기지 않으면 '왜 이 문서만 본문이 적지'를 나중에
     // 추적할 근거가 사라진다.
     if let Some(why) = stopped {
@@ -176,6 +193,133 @@ fn pdf_text(path: &Path) -> Option<String> {
         crate::limits::notes_set_partial(why, "pages", n_read, doc.pages().len() as usize);
     }
     Some(out)
+}
+
+// ── 스캔 PDF 처리제외(EXCLUDED) 판정 — 1차 개발 범위: OCR 미적용 ──
+// 파이썬 판 config.SCAN_PDF_* 와 같은 값이어야 한다(tests/test_scan_pdf.py 가 지킨다).
+// [값의 근거] D:\분류함 PDF 382건 실측 — 스캔본은 페이지당 0~0.1자·그림 덮음 100%,
+// 그림이 많은 정상 문서(매뉴얼·제품소개서)는 페이지당 50자 이상이었다.
+/// 이 글자 수(공백 제외) 미만인 페이지만 스캔 후보.
+pub const SCAN_PDF_PAGE_MAX_CHARS: usize = 10;
+/// 그림이 페이지 넓이의 이 비율 이상을 덮어야 스캔 페이지.
+pub const SCAN_PDF_IMAGE_COVER: f64 = 0.5;
+/// 스캔 페이지가 읽은 페이지의 이 비율 이상이어야 스캔 PDF.
+pub const SCAN_PDF_PAGE_RATIO: f64 = 0.5;
+
+//------------------------------------------------------------------
+// 이 페이지가 스캔 페이지인가 (처리제외 판정 재료)
+//=> 글자가 거의 없고, 그림이 페이지 넓이의 절반 이상을 덮으면 스캔 페이지로 본다.
+//    1) 글자가 SCAN_PDF_PAGE_MAX_CHARS 이상이면 바로 아니다 — 정상 페이지는 그림을
+//       훑지 않아 느려지지 않는다
+//    2) 페이지 바로 아래 그림 개체의 영역을 페이지 안으로 잘라 넓이를 더한다
+//       (파이썬 판 get_objects(max_depth=0) 와 같은 범위. 실측 382건에서 폼 개체 안까지
+//        봐도 판정이 같았다)
+//    3) 덮은 비율이 SCAN_PDF_IMAGE_COVER 이상이면 스캔 페이지
+//
+// -in: page = pdfium 페이지 · text = 그 페이지 원문
+// -out: bool = 스캔 페이지면 true
+// -out: error = 없음(크기가 0 인 페이지는 false)
+//------------------------------------------------------------------
+fn pdf_is_scan_page(page: &pdfium_render::prelude::PdfPage, text: &str) -> bool {
+    use pdfium_render::prelude::*;
+    if text.chars().filter(|c| !c.is_whitespace()).count() >= SCAN_PDF_PAGE_MAX_CHARS {
+        return false;
+    }
+    let (w, h) = (page.width().value as f64, page.height().value as f64);
+    if w <= 0.0 || h <= 0.0 {
+        return false;
+    }
+    let mut covered = 0.0f64;
+    for obj in page.objects().iter() {
+        if obj.object_type() != PdfPageObjectType::Image {
+            continue;
+        }
+        if let Ok(q) = obj.bounds() {
+            let (l, r) = (q.left().value as f64, q.right().value as f64);
+            let (b, t) = (q.bottom().value as f64, q.top().value as f64);
+            // 페이지 밖으로 삐져나간 부분은 세지 않는다 — 비율이 1 을 넘지 않게.
+            covered += (r.min(w) - l.max(0.0)).max(0.0) * (t.min(h) - b.max(0.0)).max(0.0);
+        }
+    }
+    covered / (w * h) >= SCAN_PDF_IMAGE_COVER
+}
+
+//------------------------------------------------------------------
+// 스캔 PDF 인가 — 처리제외(EXCLUDED) 판정 (파이썬 판 cli._scan_pdf_excluded 와 같은 식)
+//=> 텍스트 레이어 없이 그림만 든 PDF 는 '못 읽은 문서(실패)'가 아니라 '범위 밖이라
+//   처리하지 않는 문서'다. 실패로 세면 스캔본이 섞인 배치마다 종료코드 1 이 나서,
+//   진짜 깨진 문서가 그 틈에 묻힌다.
+//    1) 스캔 페이지가 읽은 페이지의 SCAN_PDF_PAGE_RATIO 이상이고
+//    2) 최종 본문도 페이지당 SCAN_PDF_PAGE_MAX_CHARS 자 미만이어야 한다
+//       (그림 페이지가 대부분이어도 몇 쪽에 본문이 있으면 읽을 것이 있는 문서다 —
+//        실측 '지능형지식관리플랫폼' 12쪽 중 11쪽 그림, 1쪽 565자)
+//
+// -in: pages = 읽은 페이지 수 · scan_pages = 스캔 페이지 수 · body_chars = 최종 본문 글자 수
+// -out: bool = 스캔 PDF 면 true
+// -out: error = 없음(한 쪽도 못 읽었으면 false — 추출 실패 쪽에서 다룬다)
+//------------------------------------------------------------------
+pub fn scan_pdf_verdict(pages: usize, scan_pages: usize, body_chars: usize) -> bool {
+    if pages == 0 {
+        return false;
+    }
+    let n = pages as f64;
+    (scan_pages as f64) / n >= SCAN_PDF_PAGE_RATIO
+        && (body_chars as f64) / n < SCAN_PDF_PAGE_MAX_CHARS as f64
+}
+
+#[cfg(test)]
+mod scan_pdf_tests {
+    use super::*;
+
+    //------------------------------------------------------------------
+    // 그림만 든 문서는 처리제외다
+    //=> 실측 스캔본의 모양 — 모든 쪽이 그림, 글자 0자.
+    //------------------------------------------------------------------
+    #[test]
+    fn 그림만_든_문서는_처리제외() {
+        assert!(scan_pdf_verdict(5, 5, 0));
+        // 머리말 스탬프 몇 글자가 든 스캔본도 같다(페이지당 10자 미만).
+        assert!(scan_pdf_verdict(4, 4, 30));
+    }
+
+    //------------------------------------------------------------------
+    // 몇 쪽에 본문이 있으면 처리제외가 아니다
+    //=> 12쪽 중 11쪽이 그림이어도 1쪽 565자면 읽을 것이 있다(실측 문서의 모양).
+    //------------------------------------------------------------------
+    #[test]
+    fn 본문이_있으면_처리제외가_아니다() {
+        assert!(!scan_pdf_verdict(12, 11, 565));
+    }
+
+    //------------------------------------------------------------------
+    // 그림 페이지가 절반 미만이면 처리제외가 아니다
+    //=> 글자가 없어도 그림이 아니면 '스캔본'이 아니라 '못 읽은 문서'다(본문없음 쪽).
+    //------------------------------------------------------------------
+    #[test]
+    fn 그림이_적으면_처리제외가_아니다() {
+        assert!(!scan_pdf_verdict(10, 4, 0));
+        assert!(!scan_pdf_verdict(2, 0, 0));
+    }
+
+    //------------------------------------------------------------------
+    // 경계값 — 절반 '이상'이면 스캔 PDF, 페이지당 10자 '미만'이어야 한다
+    //=> 파이썬 판과 비교 방향(>=, <)이 같아야 두 판의 판정이 갈리지 않는다.
+    //------------------------------------------------------------------
+    #[test]
+    fn 경계값() {
+        assert!(scan_pdf_verdict(2, 1, 0));
+        assert!(scan_pdf_verdict(2, 2, 19));
+        assert!(!scan_pdf_verdict(2, 2, 20));
+    }
+
+    //------------------------------------------------------------------
+    // 한 쪽도 못 읽었으면 판정하지 않는다
+    //=> 0 으로 나누지 않고, 추출 실패 쪽에서 다루게 둔다.
+    //------------------------------------------------------------------
+    #[test]
+    fn 페이지가_없으면_처리제외가_아니다() {
+        assert!(!scan_pdf_verdict(0, 0, 0));
+    }
 }
 
 /// 바이트 → 문자열 디코드: UTF-8(BOM) → cp949(EUC-KR) → latin-1.

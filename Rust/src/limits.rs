@@ -324,8 +324,12 @@ use std::cell::RefCell;
 /// 부분 추출 표식 — (사유, 단위, 읽은 수, 전체 수).
 pub type PartialNote = (String, &'static str, usize, usize);
 
+/// PDF 페이지 구성 표식 — (읽은 페이지 수, 그중 스캔 페이지 수). 처리제외 판정 재료.
+pub type LayoutNote = (usize, usize);
+
 thread_local! {
     static PARTIAL: RefCell<Option<PartialNote>> = const { RefCell::new(None) };
+    static LAYOUT: RefCell<Option<LayoutNote>> = const { RefCell::new(None) };
 }
 
 //------------------------------------------------------------------
@@ -338,6 +342,9 @@ thread_local! {
 //------------------------------------------------------------------
 pub fn notes_reset() {
     PARTIAL.with(|c| *c.borrow_mut() = None);
+    // 페이지 구성도 함께 비운다 — 이 판은 엔진 폴백이 없어 추출 1회에 한 번만 불리므로,
+    // 파이썬 판처럼 따로 비울 필요가 없다. 지난 PDF 의 값이 다음 문서에 붙지 않게 한다.
+    LAYOUT.with(|c| *c.borrow_mut() = None);
 }
 
 //------------------------------------------------------------------
@@ -363,6 +370,31 @@ pub fn notes_set_partial(reason: String, unit: &'static str, read: usize, total:
 //------------------------------------------------------------------
 pub fn notes_take() -> Option<PartialNote> {
     PARTIAL.with(|c| c.borrow_mut().take())
+}
+
+//------------------------------------------------------------------
+// PDF 페이지 구성 적어 두기 (스캔 PDF 처리제외 판정용)
+//=> PDF 파서가 "몇 쪽을 읽었고 그중 몇 쪽이 글자 없는 그림 페이지였나"를 남긴다.
+//   분류 쪽이 이 값과 최종 본문 길이로 '처리제외(스캔 PDF)'를 가린다(파이썬 판 notes.set_layout).
+//
+// -in: pages = 읽은 페이지 수 · scan_pages = 그중 스캔 페이지 수
+// -out: 없음
+// -out: error = 없음
+//------------------------------------------------------------------
+pub fn notes_set_layout(pages: usize, scan_pages: usize) {
+    LAYOUT.with(|c| *c.borrow_mut() = Some((pages, scan_pages)));
+}
+
+//------------------------------------------------------------------
+// PDF 페이지 구성 가져가며 비우기
+//=> 추출 직후 분류 루프가 한 번 가져간다. PDF 가 아니었으면 None.
+//
+// -in: 없음
+// -out: Option<LayoutNote> = (읽은 페이지 수, 스캔 페이지 수) 또는 없음
+// -out: error = 없음
+//------------------------------------------------------------------
+pub fn notes_take_layout() -> Option<LayoutNote> {
+    LAYOUT.with(|c| c.borrow_mut().take())
 }
 
 #[cfg(test)]

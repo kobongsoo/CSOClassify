@@ -52,6 +52,29 @@ def test_scan_filename(rs):
 
 
 #------------------------------------------------------------------
+# 계정·접속정보 파일명 → C, 빈 신청 양식은 제외
+#=> 2026-09-14 account_info 규칙(파일명 전용). 이름이 계정 문서임을 드러내면 C,
+#   '접속계정신청서' 같은 빈 양식은 제외어로 걸러져 신호가 없어야 한다.
+#    1) 접속계정.txt → C (account_info 히트)
+#    2) 시스템접근제어 접속 안내 → C
+#    3) 원격접속계정신청서.pdf → account_info 히트 없음
+#
+# -in: rs = 실제 cso_rule.yaml 로 만든 RuleSet 픽스처
+#
+# -out: 없음
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_scan_filename_account_info(rs):
+    acct = scan_filename("D:/x/접속계정.txt", rs)
+    assert acct.grade == "C"
+    assert any(h["id"] == "account_info" for h in acct.hits), acct.hits
+    guide = scan_filename("D:/x/1)국립생태원 시스템접근제어 접속 안내(매뉴얼).hwp", rs)
+    assert guide.grade == "C"
+    form = scan_filename("D:/x/원격접속계정신청서.pdf", rs)
+    assert all(h["id"] != "account_info" for h in form.hits), form.hits
+
+
+#------------------------------------------------------------------
 # 융합 — 보수적 최댓값
 #=> 신호 등급 중 가장 높은 등급을 택하고, 그 등급을 만든 신호가 decided_by 에 남는다.
 #

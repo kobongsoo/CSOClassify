@@ -25,7 +25,11 @@
 # ※ "# TODO(사내)" 로 표시된 항목은 조직 특화라 운영자가 채워야 한다.
 # ============================================================================
 
-version: "cso-2026.08.3"
+# 2026-09-14 cso-2026.09.1: 보안등급 평가셋(500건) 기반 조정 — C 과대등급 축소·사내 규정 C 보강.
+#   제품명 C→O · 국적 bulk C→S · 사내 핵심 규정/라이선스 증서/계정·접속정보(파일명) C 추가 ·
+#   기술비밀·기밀 표식·스탬프 과매칭 어휘 정리 · '기밀성' 제외 · 민감정보 min_count 3.
+#   (stamps exclude · sensitive min_count 는 이 버전부터 두 엔진이 읽는다 — 이전 엔진은 무시)
+version: "cso-2026.09.1"
 
 defaults:
   bulk_threshold: 5          # 별도 지정 없으면 5건 이상에서 bulk 상향
@@ -194,7 +198,7 @@ regex_pii:
   name: 국적
   label: NATIONALITY
   base_grade: S
-  bulk_grade: C
+  bulk_grade: S                            # 2026-09-14 C→S: 보고서·뉴스의 국가명 반복이 C 오탐 44건을 냄(평가셋)
   weight: low
   seed_eligible: false
 
@@ -276,18 +280,26 @@ keywords:
   name: 기밀 표식
     # "비밀"(바른 단어)은 비밀번호/영업비밀/비밀유지 등에 과매칭돼 제외.
     #   (영업비밀=tech_secret, 비밀유지=legal_contract 에서 구체형으로 커버)
+    # 2026-09-14 본문 영문 CONFIDENTIAL·RESTRICTED·SECRET 제외: 평가셋에서 정답 C 는 0건,
+    #   C 오탐 8건이 이것만으로 C 가 됐다(SCPI 명령 설명서·OpenSSL 규격·"secret key" 기술문서).
+    #   영문 표식이 문서 머리/반복으로 찍힌 경우는 아래 stamps 의 CONFIDENTIAL 이 잡는다.
+    #   파일명 '외부반출'·'내부교육용'은 사내 교육자료(평가셋 정답 C)를 살리려 추가.
   terms:
   - 대외비
   - 극비
   - 기밀
-  - CONFIDENTIAL
-  - RESTRICTED
-  - SECRET
+  # 2026-09-14 '기밀성' 제외: 정보보호 용어(기밀성·무결성·가용성)라 암호 규격서·OWASP·제안요청서에
+  #   흔하다(분류함 전체 '기밀' 출현의 약 1/3). 평가셋 C 오탐 5건의 원인이었고 정답 C 문서엔 0건.
+  #   정답 C 는 '기밀을 누설'·'기밀 유지'·'기밀 정보' 형태라 영향 없음.
+  exclude:
+  - 기밀성
   filename:
   - 대외비
   - 극비
   - 기밀
   - CONFIDENTIAL
+  - 외부반출
+  - 내부교육용
   base_grade: C
   weight: high
   seed_eligible: true
@@ -320,7 +332,7 @@ keywords:
   - 인사기록카드
   - 징계
   - 퇴직금
-  - 4대보험
+  # 2026-09-14 '4대보험' 제외: 제안서·업무 엑셀의 일반 언급으로 C 오탐. 정답 C 는 0건.
   - 원천징수
   filename:
   - 급여대장
@@ -391,14 +403,13 @@ keywords:
 
 - id: tech_secret
   name: 기술·영업비밀
+  # 2026-09-14 소스코드·알고리즘·레시피 제외: 평가셋 C 오탐 15건이 이 단어만으로 C 가 됐다.
+  #   '알고리즘'은 암호 규격서·AI 품목보고서, '소스코드'는 기술서적·제안서, '레시피'는 요리 기사에 흔하다.
   terms:
   - 영업비밀
   - 설계도면
-  - 소스코드
-  - 알고리즘
   - 미공개특허
   - 제조공정
-  - 레시피
   filename:
   - 영업비밀
   - 설계도면
@@ -415,7 +426,7 @@ keywords:
   - 엠드라이브
   - Mpower
   - MDrive
-  base_grade: C
+  base_grade: O
   weight: high
   seed_eligible: false
     # ⚠ 제품 브랜드명이라도 매뉴얼·공지에 '언급'만 돼도 C가 된다. 과분류가
@@ -438,6 +449,94 @@ keywords:
     # · "재무" → "재무제표" 는 위 finance 그룹(S)에 이미 있어 중복 제외.
     # · "결재" → 흔한 단어라 오탐 커서 제외. 필요하면 "전자결재문서" 등 구체형으로 추가.
 
+  # 2026-09-14 추가: 사내 핵심 규정(지배구조·임원보수·자금·회계통제·공시·인사운영) → C 하한.
+  #   평가셋에서 이런 규정 txt 17건이 보안 신호 0건으로 미분류됐다(정답 C).
+  #   분류함 1,136건 전수 스캔으로 규정 밖에서 거의 안 나오는 구체형만 골랐다.
+  #   · 넓은 단어(이사회·정관·총회·사규·상여금·취업규칙)는 기사·제안서·최저임금 전단에 걸려 제외.
+  #   · 법인차량 관리규정은 처음엔 정답이 판마다 S/C 로 갈려 넣지 않았다(라벨 정리로 C 로 맞춤 — 어휘는 아직 없음).
+- id: corp_core_regulation
+  name: 사내 핵심 규정
+  terms:
+  - 위임전결
+  - 전결권
+  - 주주총회
+  - 이사회 결의
+  - 감사위원회
+  - 임원보수
+  - 임원상여금
+  - 임원퇴직금
+  - 보수한도
+  - 현금지급
+  - 예금관리
+  - 특수관계자
+  - 내부회계관리
+  - 공시정보
+  - 미공개중요정보
+  - 미공개정보
+  - 인사위원회
+  - 경력산정
+  - 인정경력
+  - 채용공고
+  - 인재검색
+  filename:
+  - 위임전결
+  - 주주총회
+  - 임원보수
+  - 임원상여금
+  - 임원퇴직금
+  - 현금예금
+  - 특수관계자
+  - 내부회계
+  - 공시정보
+  - 인사위원회
+  - 경력산정
+  base_grade: C
+  weight: medium
+  seed_eligible: false
+
+  # 2026-09-14 추가: 고객사 라이선스 증서(사용증서) → C.
+  #   증서에 고객사명·주소·계약번호·사용자 수가 들어 있어 평가셋 정답이 C 인데,
+  #   제품명 규칙을 O 로 내린 뒤 S 로 떨어졌다(5건).
+  #   '라이선스/license/만료일' 같은 일반어는 매뉴얼·제안서 수십 건에 걸려 쓰지 않고,
+  #   분류함 전수 스캔에서 증서 양식에만 나온 문구만 골랐다.
+  #   · "사용증서"는 제안요청서(정답 S)에도 나와 제외.
+- id: license_certificate
+  name: 라이선스 증서
+  terms:
+  - License Agreement Number
+  - End User Name
+  - End User Address
+  - 라이센스 규정
+  filename:
+  - 라이센스증명서
+  - 라이센스증서
+  - 라이선스증명서
+  - 라이선스증서
+  base_grade: C
+  weight: high
+  seed_eligible: false
+
+  # 2026-09-14 추가: 계정·접속정보 문서 → C (파일명 전용).
+  #   평가셋 정답 C 인 접속계정.txt(초기 비밀번호 기재)·시스템접근제어 접속 안내가 O 로 새었다.
+  #   본문 어휘는 쓰지 않는다 — '비밀번호 : 사번'·'패스워드 : ****' 같은 표기가 제품 매뉴얼·
+  #   KISA 가이드·시험서(정답 O) 수십 건에 흔해, 본문으로 잡으면 매뉴얼이 줄줄이 C 가 된다.
+  #   · '접속계정신청서'(빈 신청 양식)는 제외.
+  #   ⚠ 파일명에 의존하므로 이름이 평범한 계정 문서는 못 잡는다(한계).
+- id: account_info
+  name: 계정·접속정보
+  terms: []
+  filename:
+  - 접속계정
+  - 계정정보
+  - 비밀번호
+  - 패스워드
+  - 접근제어
+  exclude:
+  - 접속계정신청서
+  base_grade: C
+  weight: medium
+  seed_eligible: false
+
 # ────────────────────────────────────────────────────────────────────────
 # Signal F · 민감정보군 (개인정보보호법 제23조 '민감정보')
 #   - 법상 민감정보(건강·유전·성생활·사상/신념·정치·노조·범죄경력·인종)는 별도 취급
@@ -447,12 +546,17 @@ keywords:
 #   ※ 키워드 기반이라 오탐 가능(예: 일반 기사 속 '정치'). 보수적(상향)으로 두고,
 #     과분류는 검토큐에서 사람이 흡수한다. 범주/단어는 결과 근거로 안전하게 남는다.
 #   ⚠ terms 는 조직 문서 특성에 맞게 운영자가 가감한다(너무 넓은 단어는 오탐↑).
+#   - min_count(선택, 기본 1): 규칙 단어 합계가 이 값 미만이면 히트로 치지 않는다.
+#     2026-09-14 전 규칙 3 으로 설정: 평가셋에서 민감정보 단어는 규정·법령 설명 속 1~2회 언급
+#     ("진단서를 제출", "성생활·범죄경력 등 민감정보")이 대부분이었고, 정답 C 문서 중 민감정보만으로
+#     C 가 된 것은 0건, C 오탐은 6건이었다. 실제 민감정보 대장·진료기록은 반복 출현한다.
 # ────────────────────────────────────────────────────────────────────────
 sensitive:
 
 - id: health
   name: 건강정보
   category: 건강
+  min_count: 3
   grade: C
   weight: high
   seed_eligible: false
@@ -472,6 +576,7 @@ sensitive:
 - id: genetic
   name: 유전정보
   category: 유전
+  min_count: 3
   grade: C
   weight: high
   seed_eligible: false
@@ -484,6 +589,7 @@ sensitive:
 - id: sex_life
   name: 성생활·성적지향
   category: 성생활
+  min_count: 3
   grade: C
   weight: high
   seed_eligible: false
@@ -495,6 +601,7 @@ sensitive:
 - id: ideology_politics
   name: 사상·신념·정치
   category: 사상·정치
+  min_count: 3
   grade: C
   weight: high
   seed_eligible: false
@@ -504,11 +611,12 @@ sensitive:
   - 지지정당
   - 정당가입
   - 사상성향
-  - 종교
+  # 2026-09-14 '종교' 제외: 동호회 규정의 "종교모임", 판례·세법의 "종교인소득"에 걸려 C 오탐. 정답 C 는 0건.
 
 - id: union
   name: 노동조합
   category: 노조
+  min_count: 3
   grade: C
   weight: high
   seed_eligible: false
@@ -520,12 +628,17 @@ sensitive:
 - id: criminal
   name: 범죄경력
   category: 범죄경력
+  min_count: 3
   grade: C
   weight: high
   seed_eligible: false
   terms:
   - 범죄경력
-  - 전과
+  # 2026-09-14 '전과' 단독 → 구체형으로 교체: 분류함 문서에서 '전과'는 거의 전부 부분문자열
+  #   (금전과·이전과·안전과·버전과·출산 전과)이었고 C 오탐 12건에 걸렸다. 아래 exclude 로도 다 못 막는다.
+  - 전과자
+  - 전과기록
+  - 전과 기록
   - 수사경력
   - 범죄사실
   - 형사처벌
@@ -545,12 +658,17 @@ sensitive:
 - id: race
   name: 인종·민족
   category: 인종
+  min_count: 3
   grade: C
   weight: medium
   seed_eligible: false
   terms:
   - 인종
   - 출신민족
+  # 2026-09-14 제외어: '인종'이 기관명·코드명 속 부분문자열로 걸렸다(평가셋 오탐·정답C 각 1건).
+  exclude:
+  - 소상공인종합
+  - 법인종별
 
 # ────────────────────────────────────────────────────────────────────────
 # Signal E · 보안분류 스탬프 (문서에 찍힌 '작성자의 명시적 분류 의도')
@@ -577,8 +695,12 @@ stamps:
   - 기밀
   - 사외비
   - CONFIDENTIAL
-  - SECRET
-  - RESTRICTED
+  # 2026-09-14 SECRET·RESTRICTED 제외: 기술문서 페이지 머리·반복에 "RESTRICTED"(SCPI 명령 등급)·
+  #   "SECRET"(secret key)가 찍혀 스탬프로 오인됐다. 평가셋 정답 C 에서 이 둘로 잡힌 문서는 0건.
+  # 2026-09-14 '기밀성' 제외: 암호 규격서·OWASP 에서 "기밀성"이 반복돼 '기밀' 스탬프(repeat)로 오인됐다.
+  #   (stamps 의 exclude 는 같은 날 두 엔진에 추가 — 키워드·민감정보의 exclude 와 같은 동작)
+  exclude:
+  - 기밀성
 
 - id: stamp_confidential_phrase
   name: 기밀 취급문구(명시)
