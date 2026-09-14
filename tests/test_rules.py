@@ -705,6 +705,39 @@ def test_keyword_exclude_kimilsung(rs):
     assert any(h.rule_id == "mark_confidential" for h in sig2.hits)
 
 
+#------------------------------------------------------------------
+# 키워드 term_min_count: '징계' 단발 언급은 세지 않는다
+#=> 2026-09-14 hr_payroll 의 term_min_count {징계: 3}. 단어마다 최소 횟수를 따로 둔다.
+#    1) "위반 시 징계 대상이 될 수 있다" 1회 → hr_payroll 히트 없음
+#    2) 징계 3회 → hr_payroll 히트(징계 3), 등급 C
+#    3) 같은 규칙의 다른 단어(급여대장)는 최소 횟수가 없어 1회로도 히트 — 단어별 적용 확인
+#    4) term_min_count 를 안 적은 규칙은 모든 단어가 1(종전 동작)
+#
+# -in: rs = 실제 cso_rule.yaml 로 만든 RuleSet 픽스처
+#
+# -out: 없음
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_keyword_term_min_count_discipline(rs):
+    hr = next(r for r in rs.keyword_rules if r.id == "hr_payroll")
+    assert dict(hr.term_min_count).get("징계") == 3
+    once = R.scan_text("불필요한 SW 사용 적발 시 징계 대상이 될 수 있다.", rs)
+    assert all(h.rule_id != "hr_payroll" for h in once.hits)
+    many = R.scan_text("징계의 종류는 다음과 같다. 징계위원회는 징계 사유를 심의한다.", rs)
+    hit = [h for h in many.hits if h.rule_id == "hr_payroll"]
+    assert hit and dict(hit[0].terms).get("징계") == 3 and hit[0].grade == "C"
+    # 같은 규칙이라도 최소 횟수를 안 적은 단어는 1회로 인정
+    ledger = R.scan_text("첨부: 2024년 급여대장. 위반 시 징계.", rs)
+    h2 = [h for h in ledger.hits if h.rule_id == "hr_payroll"]
+    assert h2 and dict(h2[0].terms) == {"급여대장": 1}
+    # 기본값: term_min_count 가 없으면 모든 단어 1
+    import dataclasses
+    rule = R.KeywordRule(id="x", name="x", terms=("가",), base_grade="C")
+    assert rule.term_min_count == ()
+    one = dataclasses.replace(rs, keyword_rules=[rule], regex_rules=[], pii_combos=[])
+    assert R.scan_text("가", one).grade == "C"
+
+
 #==================================================================
 # 결합식별성(L1-combo) 테스트
 #=> _combo_hits 가 PII '조합'을 만나면 상향 히트를 내되(all_of / of+min_types),

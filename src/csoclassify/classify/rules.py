@@ -601,6 +601,10 @@ class RegexRule:
 # -필드: terms         = 탐지 단어 리스트
 # -필드: exclude       = 제외 문구 리스트. 단어가 이 문구 안에 든 매치는 오탐으로 보고
 #                        세지 않는다(예: terms=[전과], exclude=[산전과·충전과]).
+# -필드: term_min_count = 단어별 최소 등장 횟수 ((단어, 횟수) 짝의 튜플). 본문에서 그 횟수 미만이면
+#                        그 단어는 세지 않는다. 적지 않은 단어는 1(종전 동작).
+#                        예: (("징계", 3),) — 규정 말미 "위반 시 징계" 한 줄로 C 가 되지 않게.
+#                        파일명 신호(filename)에는 적용하지 않는다.
 # -필드: base_grade    = 1건이라도 있으면 부여할 등급
 # -필드: bulk_grade    = bulk_threshold 초과 시 상향 등급(없으면 상향 안 함)
 # -필드: bulk_threshold = 이 규칙 전용 임계값(없으면 Defaults 값 사용)
@@ -618,6 +622,7 @@ class KeywordRule:
     # 기본값으로 굳힌다(실측: 파일명 신호 99건 중 79건이 제품명 규칙 하나였다).
     filename: tuple = ()
     exclude: tuple = ()
+    term_min_count: tuple = ()
     base_grade: str = "S"
     bulk_grade: str = None
     bulk_threshold: int = None
@@ -1221,6 +1226,8 @@ def _scan_keyword(text, rule, defaults, conf_map=None):
     # 제외어(exclude) 구간을 미리 찾아 둔다 — 한국어는 띄어쓰기가 없어 부분문자열 오탐이
     # 잦다(예: '전과'가 '산전과 산후'에 걸림). 제외 문구 안에 든 매치는 세지 않는다.
     ex_spans = _exclude_spans(haystack, getattr(rule, "exclude", ()), defaults.case_insensitive)
+    # 단어별 최소 횟수표(없으면 전부 1)
+    min_of = dict(getattr(rule, "term_min_count", ()) or ())
     total = 0
     # 단어별 건수를 따로 모아, 나중에 "어떤 단어가 몇 번 걸렸는지" 근거로 남긴다.
     per_term = []
@@ -1230,7 +1237,8 @@ def _scan_keyword(text, rule, defaults, conf_map=None):
         needle = term.lower() if defaults.case_insensitive else term
         # 비중첩 등장 횟수(str.count 동등) 중, 제외 구간에 든 매치는 뺀다.
         c = _count_outside(haystack, needle, ex_spans)
-        if c:
+        # 그 단어의 최소 횟수 미달(규정 말미 경고 같은 단발 언급)은 센 것으로 치지 않는다.
+        if c and c >= min_of.get(term, 1):
             per_term.append((term, c))
             total += c
 
@@ -2004,6 +2012,9 @@ def load_rules(path=None, validate=True):
             # 없으면 빈 튜플 — '파일명 신호 없음'이 된다(terms 로 폴백하지 않는다).
             filename=tuple(r.get("filename") or []),
             exclude=tuple(r.get("exclude") or []),
+            # 단어별 최소 횟수 — 0·음수·빈 값은 1(종전 동작)로 본다. Rust 판 로더와 같은 규칙.
+            term_min_count=tuple((str(k), max(1, int(v or 1)))
+                                 for k, v in (r.get("term_min_count") or {}).items()),
             base_grade=r.get("base_grade", "S"),
             bulk_grade=r.get("bulk_grade"),
             bulk_threshold=r.get("bulk_threshold"),

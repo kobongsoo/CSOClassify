@@ -303,7 +303,7 @@ pub struct ComboRule { pub id: String, pub name: String, pub all_of: Vec<String>
 /// filename 을 안 적으면 그 규칙은 파일명 신호를 만들지 않는다(2026-09-08) —
 /// terms 로 되돌아가는 폴백을 두지 않는다. 폴백은 '본문 단어가 파일명에 새는'
 /// 오탐을 기본값으로 굳힌다(실측: 파일명 신호 99건 중 79건이 제품명 규칙 하나).
-pub struct KeywordRule { pub id: String, pub name: String, pub terms: Vec<String>, pub filename: Vec<String>, pub exclude: Vec<String>, pub base_grade: String, pub bulk_grade: Option<String>, pub bulk_threshold: Option<i64>, pub weight: String, pub seed_eligible: bool }
+pub struct KeywordRule { pub id: String, pub name: String, pub terms: Vec<String>, pub filename: Vec<String>, pub exclude: Vec<String>, pub term_min_count: std::collections::HashMap<String, u32>, pub base_grade: String, pub bulk_grade: Option<String>, pub bulk_threshold: Option<i64>, pub weight: String, pub seed_eligible: bool }
 pub struct SensitiveRule { pub id: String, pub name: String, pub category: String, pub terms: Vec<String>, pub exclude: Vec<String>, pub min_count: u32, pub grade: String, pub weight: String, pub seed_eligible: bool }
 pub struct StampRule { pub id: String, pub name: String, pub terms: Vec<String>, pub exclude: Vec<String>, pub grade: String, pub weight: String, pub seed_eligible: bool, pub always: bool }
 
@@ -407,6 +407,13 @@ pub fn load_rules(path: &std::path::Path) -> Result<RuleSet, RulesError> {
         // 없으면 빈 목록 — 파일명 신호 없음(terms 로 폴백하지 않는다).
         filename: strvec(r, "filename"),
         exclude: strvec(r, "exclude"),
+        // 단어별 최소 등장 횟수(없거나 0·음수면 1 = 종전과 같음). 파일명 신호에는 쓰지 않는다.
+        term_min_count: r.get("term_min_count").and_then(|m| m.as_object())
+            .map(|m| m.iter().map(|(k, v)| {
+                let n = v.as_i64().filter(|&n| n > 0).unwrap_or(1) as u32;
+                (k.clone(), n)
+            }).collect())
+            .unwrap_or_default(),
         base_grade: s(r, "base_grade", "S"), bulk_grade: os(r, "bulk_grade"),
         bulk_threshold: oi(r, "bulk_threshold"), weight: s(r, "weight", "medium"),
         seed_eligible: b(r, "seed_eligible", false),
@@ -564,7 +571,9 @@ pub fn scan_text(text: &str, rs: &RuleSet) -> Sig {
             if term.is_empty() { continue; }
             let needle = if rs.case_insensitive { term.to_lowercase() } else { term.clone() };
             let c = count_outside(&hay, &needle, &ex);
-            if c > 0 { per_term.push(json!({"term": term, "count": c})); total += c; }
+            // 그 단어의 최소 횟수 미달(규정 말미 경고 같은 단발 언급)은 센 것으로 치지 않는다.
+            let need = rule.term_min_count.get(term).copied().unwrap_or(1);
+            if c > 0 && c >= need { per_term.push(json!({"term": term, "count": c})); total += c; }
         }
         if total == 0 { continue; }
         let g = escalate(&rule.base_grade, &rule.bulk_grade, rule.bulk_threshold, total, rs.bulk_threshold);
@@ -925,5 +934,37 @@ mod sensitive_min_count_tests {
             exclude: vec![], min_count: 1, grade: "C".into(), weight: "high".into(), seed_eligible: false,
         }];
         assert_eq!(scan_sensitive("가", &rs).grade, Some(Grade::C));
+    }
+}
+
+// 키워드 term_min_count — 파이썬 판 tests/test_rules.py::test_keyword_term_min_count_discipline 과 같은 사례.
+#[cfg(test)]
+mod keyword_term_min_count_tests {
+    use super::*;
+
+    fn rs() -> RuleSet {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/policy/cso_rule.yaml");
+        load_rules(&p).unwrap_or_else(|e| panic!("cso_rule.yaml 로드 실패: {}", e))
+    }
+
+    fn hr_terms(text: &str, rs: &RuleSet) -> Option<Vec<(String, u64)>> {
+        let sig = scan_text(text, rs);
+        let hits = sig.dict["hits"].as_array()?.clone();
+        let h = hits.into_iter().find(|h| h["id"] == "hr_payroll")?;
+        Some(h["terms"].as_array().unwrap().iter()
+            .map(|t| (t["term"].as_str().unwrap().to_string(), t["count"].as_u64().unwrap())).collect())
+    }
+
+    #[test]
+    fn discipline_needs_three() {
+        let rs = rs();
+        let hr = rs.keyword_rules.iter().find(|r| r.id == "hr_payroll").unwrap();
+        assert_eq!(hr.term_min_count.get("징계"), Some(&3));
+        assert!(hr_terms("불필요한 SW 사용 적발 시 징계 대상이 될 수 있다.", &rs).is_none());
+        assert_eq!(hr_terms("징계의 종류는 다음과 같다. 징계위원회는 징계 사유를 심의한다.", &rs),
+                   Some(vec![("징계".to_string(), 3)]));
+        // 같은 규칙의 다른 단어는 최소 횟수가 없어 1회로 인정
+        assert_eq!(hr_terms("첨부: 2024년 급여대장. 위반 시 징계.", &rs),
+                   Some(vec![("급여대장".to_string(), 1)]));
     }
 }
