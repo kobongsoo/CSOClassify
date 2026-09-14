@@ -644,12 +644,12 @@ fn parse_args() -> Result<Opts, String> {
 // [2026-09-10 오후] 판정을 맨 앞으로 올렸다. 파일을 열면 가장 먼저 보고 싶은
 // 것은 "이 문서가 무엇이고(①) 어떻게 판정됐나(②)" 이지 그 판정의 근거가 아니다.
 //   ① 무엇을      file · hash · doc_id · doc_id_source
-//   ② 어떻게 됐나  grade · doctype(dc_id 목록) · error
+//   ② 어떻게 됐나  grade · doctype(dc_id 목록) · error · excluded(처리제외)
 //   ③ 왜          why(축별 상세) · pii · vector
 //   ④ 장부        meta · elapsed_ms
 const REC_ORDER: &[&str] = &[
     "file", "hash", "doc_id", "doc_id_source", "rematched_by",
-    "grade", "doctype", "error", "why", "pii", "vector",
+    "grade", "doctype", "error", "excluded", "why", "pii", "vector",
     // --textsave 표식은 판정값이 아니라 부속이다(파이썬 판과 같은 자리).
     "text_saved", "text_save_error",
     "meta", "elapsed_ms",
@@ -2257,6 +2257,9 @@ fn main() {
     // 파서가 상한에서 멈춰 끝까지 읽지 못한 문서 수(G5). 절단(G3)과 다른 사건이라
     // 따로 센다 — 재검토 시 손볼 상한값이 서로 다르다.
     let mut n_partial_extract = 0usize;
+    // 스캔 PDF 라 '처리제외'로 가린 문서 수. 추출 실패와 따로 센다 — 실패가 아니라
+    // OCR 미적용(1차 범위 밖)이라 종료코드에도 넣지 않는다(파이썬 판과 동일).
+    let mut n_excluded = 0usize;
     // 분할 압축의 조각이라 읽지 않은 문서 수. 추출 실패와 따로 세야
     // '원본이 깨진 것'과 '조각이라 원래 못 읽는 것'을 구분할 수 있다.
     let mut n_split_volume = 0usize;
@@ -2336,6 +2339,8 @@ fn main() {
         // 파서가 '상한에서 멈췄다'를 남겼으면 가져온다(G5 관측). 가져가면 비워지므로
         // 다음 문서에 지난 표식이 남지 않는다.
         let partial = limits::notes_take();
+        // PDF 파서가 남긴 페이지 구성(읽은 쪽 수, 스캔 쪽 수) — 처리제외 판정 재료.
+        let layout = limits::notes_take_layout();
         let text = match extracted {
             Some(t) => t,
             None => {
@@ -2483,7 +2488,27 @@ fn main() {
             });
         }
         let body_chars = text.chars().filter(|c| !c.is_whitespace()).count();
-        if body_chars < min_text_len {
+        // 스캔 PDF 는 먼저 가린다 — '못 읽음(실패)'이 아니라 '처리제외(범위 밖)'라서
+        // error 도 달지 않고 종료코드도 올리지 않는다. 본문이 20자를 넘는 스캔본(머리말
+        // 몇 줄만 글자로 든 문서)도 있어 본문없음 판정과 무관하게 먼저 본다.
+        let scan = layout.filter(|&(pages, scan_pages)|
+            extract::scan_pdf_verdict(pages, scan_pages, body_chars));
+        if let Some((pages, scan_pages)) = scan {
+            n_excluded += 1;
+            errlog::note(&format!("[처리제외] {} (스캔 PDF, {}쪽 중 {}쪽이 그림)",
+                                  path.display(), pages, scan_pages));
+            rec["excluded"] = json!({
+                "kind": "scan_pdf", "pages": pages, "scan_pages": scan_pages,
+                "text_len": body_chars,
+                "reason": "처리제외(EXCLUDED) — 스캔 PDF(텍스트 레이어 없음)입니다. OCR 은 1차 \
+                           범위에서 제외되어, 본문 없이 파일명·경로 신호로만 판정했습니다."
+            });
+            // 아무것도 못 정했을 때만 method 를 바꾼다 — 'unclassified' 는 "봤는데 없더라"다.
+            if rec["grade"].is_null()
+                && rec["method"].as_str().map_or(true, |m| m == "unclassified") {
+                rec["method"] = json!("excluded");
+            }
+        } else if body_chars < min_text_len {
             fail += 1;
             errlog::err(&format!("[본문없음] {} ({}자) — 스캔본(이미지)일 수 있습니다",
                                  path.display(), body_chars));
@@ -2850,6 +2875,12 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
                 m.insert("error".into(), e.get("reason").cloned()
                     .unwrap_or_else(|| Value::String("extract_failed".into())));
             }
+            // 처리제외(스캔 PDF) 표식도 싣는다 — 없으면 '읽었는데 미분류'와 같은 모습이라
+            // 받는 쪽이 OCR 대상을 못 가린다. 기계가 가를 수 있게 종류(kind)만 싣는다.
+            if let Some(ex) = rec.get("excluded") {
+                m.insert("excluded".into(), ex.get("kind").cloned()
+                    .unwrap_or_else(|| Value::String("excluded".into())));
+            }
             if opts.simple_why {
                 m.insert("why".into(), why_record(&rec));
             }
@@ -2925,6 +2956,10 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
     }
     if n_partial_extract > 0 {
         summary["partial_extract"] = json!(n_partial_extract);
+    }
+    // 처리제외는 extract_failed 에 들어 있지 않다(실패가 아니다) — 따로 싣는다.
+    if n_excluded > 0 {
+        summary["excluded"] = json!(n_excluded);
     }
     if n_split_volume > 0 {
         summary["split_volume"] = json!(n_split_volume);
@@ -3111,6 +3146,9 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
         let part_note = if n_partial_extract > 0 {
             format!(", 부분추출={}", n_partial_extract)
         } else { String::new() };
+        let excl_note = if n_excluded > 0 {
+            format!(", 처리제외={}", n_excluded)
+        } else { String::new() };
         let arch_note = if n_archives > 0 { format!(", 압축 {}건", n_archives) } else { String::new() };
         let vol_note = if n_split_volume > 0 { format!(", 분할조각={}", n_split_volume) } else { String::new() };
         // --textsave 를 안 쓰면 칸을 아예 안 낸다(쓰는 사람만 보게).
@@ -3126,11 +3164,11 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
             v
         };
         if opts.no_timing {
-            eprintln!("[summary] 총 {}개 / 검출 {}, C={} S={} O={} 미분류={} 추출실패={}{}{}{}{}{}{}{}",
-                total, detected, c, s_, o_, none, fail, trunc_note, size_note, part_note, arch_note, arch_bad, vol_note, ts_note);
+            eprintln!("[summary] 총 {}개 / 검출 {}, C={} S={} O={} 미분류={} 추출실패={}{}{}{}{}{}{}{}{}",
+                total, detected, c, s_, o_, none, fail, excl_note, trunc_note, size_note, part_note, arch_note, arch_bad, vol_note, ts_note);
         } else {
-            eprintln!("[summary] 총 {}개 / 검출 {}, C={} S={} O={} 미분류={} 추출실패={}{}{}{}{}{}{}{}, 총시간={}ms",
-                total, detected, c, s_, o_, none, fail, trunc_note, size_note, part_note, arch_note, arch_bad, vol_note, ts_note, total_ms);
+            eprintln!("[summary] 총 {}개 / 검출 {}, C={} S={} O={} 미분류={} 추출실패={}{}{}{}{}{}{}{}{}, 총시간={}ms",
+                total, detected, c, s_, o_, none, fail, excl_note, trunc_note, size_note, part_note, arch_note, arch_bad, vol_note, ts_note, total_ms);
         }
         // 숫자만 던지면 운영자가 상한을 올려야 할지 그 문서를 따로 봐야 할지 판단할
         // 근거가 없다 — 무엇을 하면 되는지까지 알려 준다(파이썬 판과 같은 문구).
@@ -3199,6 +3237,11 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
         if n_partial_extract > 0 {
             eprintln!("[summary][부분 추출] {}건은 파서가 상한에서 멈춰 문서 앞부분만 읽었습니다(partial_extract=true) — 재검토 대상입니다. 상한 조정은 --max-pdf-pages · --parser-timeout 으로 합니다.",
                 n_partial_extract);
+        }
+        // 처리제외 — 실패가 아니므로 무엇을 뜻하는지(종료코드에 안 들어간다)까지 알린다.
+        if n_excluded > 0 {
+            eprintln!("[summary][처리제외] {}건은 스캔 PDF(텍스트 레이어 없음)라 OCR 미적용 범위로 처리에서 제외했습니다(excluded.kind=scan_pdf) — 실패가 아니므로 종료코드에 넣지 않았습니다. 등급은 파일명·경로 신호로만 판정했습니다.",
+                n_excluded);
         }
         // 업무분류 롤업 — 뿌리 카테고리별 총계(괄호 안은 실제 걸린 노드별 내역) + 미분류.
         if dt_total > 0 {
