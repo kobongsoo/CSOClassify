@@ -403,17 +403,19 @@ def test_keyword_confidential_C(rs):
 
 
 #------------------------------------------------------------------
-# 조직 특화 코드명 → C
-#=> 프로젝트/제품명(엠파워 등)이 언급되면 C 로 잡혀야 한다.
+# 조직 특화 코드명 → O (근거로만 남음)
+#=> 프로젝트/제품명(엠파워 등)은 히트로 기록되지만 등급은 O 다.
+#   2026-09-14 정책 변경(base_grade C→O): 매뉴얼·공지의 제품명 '언급'만으로 C 가 되던
+#   과분류가 평가셋 C 오탐의 큰 몫이었다.
 #
 # -in: rs = 규칙셋
 # -out: 없음(assert)
 # -out: error = 실패 시 AssertionError
 #------------------------------------------------------------------
-def test_project_codename_C(rs):
+def test_project_codename_O(rs):
     sig = R.scan_text("엠파워 서버에 최신 빌드를 업로드했습니다.", rs)
-    assert sig.grade == "C"
-    assert any(h.rule_id == "project_codenames" for h in sig.hits)
+    assert sig.grade == "O"
+    assert any(h.rule_id == "project_codenames" and h.grade == "O" for h in sig.hits)
 
 
 #------------------------------------------------------------------
@@ -661,6 +663,48 @@ def test_stamp_terms_are_policy_keywords(rs):
                                  "CONFIDENTIAL", "SECRET", "RESTRICTED")
 
 
+#------------------------------------------------------------------
+# 스탬프 제외어: '기밀성' 반복은 스탬프가 아니다
+#=> 정보보호 용어 '기밀성'(기밀성·무결성·가용성)이 머리·반복으로 나와도 '기밀' 스탬프로
+#   치지 않고, 같은 문서에 진짜 '기밀' 표식이 반복되면 여전히 인정해야 한다.
+#    1) 머리부터 '기밀성'만 3번 → 스탬프 없음
+#    2) 거기에 '기밀' 2번(머리 밖) 추가 → repeat 로 C, count 는 '기밀성' 을 뺀 2
+#
+# -in: rs = 실제 cso_rule.yaml 로 만든 RuleSet 픽스처
+#
+# -out: 없음
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_stamp_exclude_kimilsung(rs):
+    # 암호 규격서처럼 '기밀성'만 반복되는 문서
+    only = "데이터의 기밀성을 보장한다. 무결성, 기밀성, 가용성. 메시지 기밀성 확보"
+    s = R.scan_stamp(only, rs)
+    assert all(h["id"] != "stamp_confidential" for h in s.hits)
+    # 머리 밖에 진짜 '기밀' 표식이 2번 있으면 제외어와 무관하게 반복으로 인정
+    pad = "가" * (R._STAMP_HEAD_CHARS + 50)
+    s2 = R.scan_stamp(only + pad + " 기밀 " + ("나" * 100) + " 기밀 ", rs)
+    hit = [h for h in s2.hits if h["id"] == "stamp_confidential"]
+    assert hit and hit[0]["mode"] == "repeat" and hit[0]["count"] == 2
+    assert s2.grade == "C"
+
+
+#------------------------------------------------------------------
+# 키워드 제외어: 본문 '기밀성'은 기밀 표식(mark_confidential)이 아니다
+#=> '기밀성'만 있는 문서는 기밀 표식 히트가 없고, '기밀을 누설' 은 여전히 C 로 잡힌다.
+#
+# -in: rs = 실제 cso_rule.yaml 로 만든 RuleSet 픽스처
+#
+# -out: 없음
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_keyword_exclude_kimilsung(rs):
+    # scan_text 의 hits 는 RuleHit 객체라 rule_id 속성으로 본다.
+    sig = R.scan_text("자산의 기밀성, 무결성을 확보한다.", rs)
+    assert all(h.rule_id != "mark_confidential" for h in sig.hits)
+    sig2 = R.scan_text("회사 기밀을 누설한 자는 징계한다.", rs)
+    assert any(h.rule_id == "mark_confidential" for h in sig2.hits)
+
+
 #==================================================================
 # 결합식별성(L1-combo) 테스트
 #=> _combo_hits 가 PII '조합'을 만나면 상향 히트를 내되(all_of / of+min_types),
@@ -781,10 +825,11 @@ def test_sensitive_rules_loaded(rs):
 
 #------------------------------------------------------------------
 # 건강정보 → C
-#=> 진단서/병력 같은 건강 키워드가 있으면 grade=C, 근거에 category='건강'.
+#=> 진단서/병력 같은 건강 키워드가 반복되면(min_count 3 이상) grade=C, 근거에 category='건강'.
 #------------------------------------------------------------------
 def test_sensitive_health(rs):
-    s = R.scan_sensitive("첨부: 진단서 1부. 환자 병력 참고 바랍니다.", rs)
+    # 진료 기록 대장처럼 건강 단어가 여러 번 나오는 문서
+    s = R.scan_sensitive("첨부: 진단서 1부. 환자 병력 참고. 진료기록 사본 포함.", rs)
     assert s.grade == "C"
     assert any(h["category"] == "건강" for h in s.hits)
     assert s.confidence >= 0.8
@@ -794,9 +839,38 @@ def test_sensitive_health(rs):
 # 범죄경력 → C
 #------------------------------------------------------------------
 def test_sensitive_criminal(rs):
-    s = R.scan_sensitive("대상자 전과 및 범죄경력 조회 결과.", rs)
+    # 범죄경력 조회 결과처럼 관련 단어가 3번 이상 나오는 문서
+    s = R.scan_sensitive("대상자 전과기록 및 범죄경력 조회 결과. 수사경력 없음.", rs)
     assert s.grade == "C"
     assert any(h["category"] == "범죄경력" for h in s.hits)
+
+
+#------------------------------------------------------------------
+# min_count: 단발 언급은 민감정보 보유가 아니다
+#=> 규정·법령 설명 속 1~2회 언급은 히트가 없고, 같은 규칙 단어가 합계 3회가 되면 C.
+#    1) "진단서를 제출" 1회 → 건강 히트 없음
+#    2) "성생활, 범죄경력 등 민감정보" 법령 설명 → 히트 없음(규칙마다 1회)
+#    3) 진단서 3회 → C
+#    4) min_count 를 안 적은 규칙은 기본 1(종전 동작)
+#
+# -in: rs = 실제 cso_rule.yaml 로 만든 RuleSet 픽스처
+#
+# -out: 없음
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_sensitive_min_count(rs):
+    s = R.scan_sensitive("병가 시에는 의사 진단서를 제출하여야 한다.", rs)
+    assert all(h["category"] != "건강" for h in s.hits)
+    s2 = R.scan_sensitive("사상·신념, 건강, 성생활, 범죄경력 등 민감정보는 동의 없이 처리할 수 없다.", rs)
+    assert s2.grade is None
+    s3 = R.scan_sensitive("진단서 원본, 진단서 사본, 진단서 발급 내역", rs)
+    assert s3.grade == "C"
+    # 로더 기본값: min_count 키가 없으면 1
+    import dataclasses
+    rule = R.SensitiveRule(id="x", name="x", category="x", terms=("가",))
+    assert rule.min_count == 1
+    one = dataclasses.replace(rs, sensitive_rules=[rule])
+    assert R.scan_sensitive("가", one).grade == "C"
 
 
 #------------------------------------------------------------------
@@ -814,7 +888,8 @@ def test_sensitive_none(rs):
 #=> 결과 근거로 남는 건 매칭 단어·범주·건수라 로그/결과에 남겨도 안전.
 #------------------------------------------------------------------
 def test_sensitive_terms_are_keywords(rs):
-    s = R.scan_sensitive("노동조합 조합원명부 첨부.", rs)
+    # min_count(3) 를 넘기도록 노조 단어를 3번 둔다.
+    s = R.scan_sensitive("노동조합 조합원명부 첨부. 노조가입 현황 포함.", rs)
     h = next(x for x in s.hits if x["category"] == "노조")
     words = {t for t, _ in h["terms"]}
     assert "노동조합" in words
@@ -825,11 +900,11 @@ def test_sensitive_terms_are_keywords(rs):
 
 #------------------------------------------------------------------
 # 융합: 민감정보 신호가 단독으로 등급을 올린다
-#=> PII·기밀키워드가 없어도 건강정보만 있으면 최종 C, decided_by 에 'sensitive'.
+#=> PII·기밀키워드가 없어도 건강정보가 반복되면(min_count 3 이상) 최종 C, decided_by 에 'sensitive'.
 #------------------------------------------------------------------
 def test_sensitive_fusion_decides(rs):
     from csoclassify.classify import build_record
-    rec = build_record("D:/tmp/무제.txt", "환자 진단서 및 투약내역을 첨부합니다.", rs, ts="T")
+    rec = build_record("D:/tmp/무제.txt", "환자 진단서 및 투약내역, 진료기록을 첨부합니다.", rs, ts="T")
     assert rec["grade"] == "C"
     assert "sensitive" in rec["why"]["security"]["decided_by"]
     assert rec["why"]["security"]["signals"]["sensitive"]["grade"] == "C"
@@ -861,19 +936,25 @@ def test_collect_pii_large_doc_matches_counts(rs):
 #------------------------------------------------------------------
 # 제외어(exclude): 부분문자열 오탐 방지
 #=> '전과'(범죄경력)가 '산전과 산후'(산전+과) 같은 다른 단어에 부분일치하는 오탐을
-#   exclude 로 걸러내되, 진짜 '전과'/'전과기록' 은 그대로 잡는지 검증한다.
+#   막고, 진짜 '전과자'/'전과기록' 은 그대로 잡는지 검증한다.
+#   2026-09-14 정책 변경: 단독 '전과'는 금전과·이전과·안전과 등 부분일치가 대부분이라
+#   terms 에서 빼고 구체형(전과자·전과기록·전과 기록)으로 바꿨다.
 #------------------------------------------------------------------
 def test_sensitive_exclude_substring_fp(rs):
     # 오탐 케이스: '산전과 산후' → criminal 안 잡혀야 함
     s = R.scan_sensitive("임신부는 산전과 산후를 통하여 관리한다.", rs)
     assert not any(h["id"] == "criminal" for h in s.hits)
-    # 진짜 전과 → 잡혀야 함
-    s2 = R.scan_sensitive("그는 전과자로 전과 3범이다.", rs)
+    # 부분일치 '이전과'·'금전과' 도 이제 잡히지 않아야 함
+    s1 = R.scan_sensitive("이전과 달리 금전과 관련된 조항을 정리했다.", rs)
+    assert not any(h["id"] == "criminal" for h in s1.hits)
+    # 진짜 전과자 → 잡혀야 함(min_count 3 을 넘도록 범죄경력 단어 3회)
+    s2 = R.scan_sensitive("그는 전과자로 전과기록과 범죄경력이 있다.", rs)
     assert any(h["id"] == "criminal" and h["grade"] == "C" for h in s2.hits)
-    # 혼합: 오탐(산전과)은 빼고 진짜(전과기록)만 카운트
-    s3 = R.scan_sensitive("산전과 산후 관리. 그리고 전과기록 있음.", rs)
+    # 혼합: 오탐(산전과)은 빼고 진짜(전과기록)만 카운트 — min_count 3 을 넘도록 다른 범죄경력 단어도 둔다
+    s3 = R.scan_sensitive("산전과 산후 관리. 그리고 전과기록 있음. 범죄경력 조회, 수사경력 확인.", rs)
     crim = next(h for h in s3.hits if h["id"] == "criminal")
-    assert dict(crim["terms"]).get("전과") == 1
+    assert dict(crim["terms"]).get("전과기록") == 1
+    assert "전과" not in dict(crim["terms"])
 
 
 #------------------------------------------------------------------

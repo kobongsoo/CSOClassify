@@ -304,8 +304,8 @@ pub struct ComboRule { pub id: String, pub name: String, pub all_of: Vec<String>
 /// terms 로 되돌아가는 폴백을 두지 않는다. 폴백은 '본문 단어가 파일명에 새는'
 /// 오탐을 기본값으로 굳힌다(실측: 파일명 신호 99건 중 79건이 제품명 규칙 하나).
 pub struct KeywordRule { pub id: String, pub name: String, pub terms: Vec<String>, pub filename: Vec<String>, pub exclude: Vec<String>, pub base_grade: String, pub bulk_grade: Option<String>, pub bulk_threshold: Option<i64>, pub weight: String, pub seed_eligible: bool }
-pub struct SensitiveRule { pub id: String, pub name: String, pub category: String, pub terms: Vec<String>, pub exclude: Vec<String>, pub grade: String, pub weight: String, pub seed_eligible: bool }
-pub struct StampRule { pub id: String, pub name: String, pub terms: Vec<String>, pub grade: String, pub weight: String, pub seed_eligible: bool, pub always: bool }
+pub struct SensitiveRule { pub id: String, pub name: String, pub category: String, pub terms: Vec<String>, pub exclude: Vec<String>, pub min_count: u32, pub grade: String, pub weight: String, pub seed_eligible: bool }
+pub struct StampRule { pub id: String, pub name: String, pub terms: Vec<String>, pub exclude: Vec<String>, pub grade: String, pub weight: String, pub seed_eligible: bool, pub always: bool }
 
 pub struct RuleSet {
     pub version: String,
@@ -415,13 +415,19 @@ pub fn load_rules(path: &std::path::Path) -> Result<RuleSet, RulesError> {
     let sensitive_rules = arr("sensitive").iter().map(|r| SensitiveRule {
         id: s(r, "id", ""), name: s(r, "name", &s(r, "id", "")),
         category: s(r, "category", ""), terms: strvec(r, "terms"),
-        exclude: strvec(r, "exclude"), grade: s(r, "grade", "C"),
+        exclude: strvec(r, "exclude"),
+        // 이 규칙 단어들의 합계가 min_count 미만이면 히트로 치지 않는다(기본 1 = 종전과 같음).
+        // 규정·법령 설명 속 단발 언급("진단서를 제출", "성생활 등 민감정보")을 걸러내기 위함.
+        min_count: oi(r, "min_count").filter(|&v| v > 0).map(|v| v as u32).unwrap_or(1),
+        grade: s(r, "grade", "C"),
         weight: s(r, "weight", "high"), seed_eligible: b(r, "seed_eligible", false),
     }).collect();
 
     let stamp_rules = arr("stamps").iter().map(|r| StampRule {
         id: s(r, "id", ""), name: s(r, "name", &s(r, "id", "")),
-        terms: strvec(r, "terms"), grade: s(r, "grade", "C"),
+        terms: strvec(r, "terms"),
+        // 키워드·민감정보와 같은 제외어 — "기밀성"(정보보호 용어)이 '기밀' 스탬프로 반복 집계되던 것을 막는다.
+        exclude: strvec(r, "exclude"), grade: s(r, "grade", "C"),
         weight: s(r, "weight", "high"), seed_eligible: b(r, "seed_eligible", false),
         always: b(r, "always", false),
     }).collect();
@@ -586,7 +592,8 @@ pub fn scan_sensitive(text: &str, rs: &RuleSet) -> Sig {
             let c = count_outside(&hay, &needle, &ex);
             if c > 0 { per_term.push(json!({"term": term, "count": c})); total += c; }
         }
-        if total == 0 { continue; }
+        // 최소 건수 미달(단발 언급)은 민감정보 '보유'로 보지 않는다.
+        if total == 0 || total < rule.min_count { continue; }
         let conf = pick(rs.conf.sensitive, &rule.weight);
         hits.push((Grade::from_str(&rule.grade), conf, rule.seed_eligible, json!({
             "id": rule.id, "name": rule.name, "category": rule.category,
@@ -605,6 +612,7 @@ pub fn scan_stamp(text: &str, rs: &RuleSet) -> Sig {
     let hay = if ci { text.to_lowercase() } else { text.to_string() };
     let mut hits: Vec<(Option<Grade>, f64, bool, Value)> = vec![];
     for rule in &rs.stamp_rules {
+        let ex = exclude_spans(&hay, &rule.exclude, ci);
         let mut total = 0u32;
         let mut head = false;
         // 근거로 남길 문구. 머리에서 걸린 것을 우선하고, 없으면 처음 걸린 것을 쓴다
@@ -614,12 +622,18 @@ pub fn scan_stamp(text: &str, rs: &RuleSet) -> Sig {
         for term in &rule.terms {
             if term.is_empty() { continue; }
             let needle = if ci { term.to_lowercase() } else { term.clone() };
-            let c = hay.matches(&needle).count() as u32;
+            // 제외어 구간 안의 매치는 세지 않는다(제외어가 없으면 종전 matches().count() 와 같다).
+            let c = count_outside(&hay, &needle, &ex);
             if c == 0 { continue; }
             total += c;
             if first_term.is_none() { first_term = Some(term); }
             if !head {
-                if let Some(pos) = hay.find(&needle) {
+                // 머리 판정도 제외어 밖에서 처음 나온 위치로 한다.
+                let nlen = needle.len();
+                let first_pos = hay.match_indices(needle.as_str())
+                    .map(|(i, _)| i)
+                    .find(|&i| !ex.iter().any(|&(s, e)| s <= i && i + nlen <= e));
+                if let Some(pos) = first_pos {
                     // '머리' 판정은 문자수 기준(byte→char 근사): 앞부분 여부.
                     let char_pos = hay[..pos].chars().count();
                     if char_pos < STAMP_HEAD_CHARS {
@@ -842,3 +856,74 @@ pub fn build_record(file: &str, text: &str, rs: &RuleSet, failsafe: Option<&str>
     (rec, fused.grade)
 }
 
+
+// 스탬프 제외어(exclude) — 파이썬 판 tests/test_rules.py::test_stamp_exclude_kimilsung 와 같은 사례.
+#[cfg(test)]
+mod stamp_exclude_tests {
+    use super::*;
+
+    fn rs() -> RuleSet {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/policy/cso_rule.yaml");
+        // RulesError 는 Debug 가 없어 expect 대신 Display 로 알린다.
+        load_rules(&p).unwrap_or_else(|e| panic!("cso_rule.yaml 로드 실패: {}", e))
+    }
+
+    fn stamp_hit(sig: &Sig) -> Option<Value> {
+        sig.dict["hits"].as_array()?.iter().find(|h| h["id"] == "stamp_confidential").cloned()
+    }
+
+    #[test]
+    fn kimilsung_repeat_is_not_stamp() {
+        let rs = rs();
+        let only = "데이터의 기밀성을 보장한다. 무결성, 기밀성, 가용성. 메시지 기밀성 확보";
+        assert!(stamp_hit(&scan_stamp(only, &rs)).is_none());
+        // 머리 밖 진짜 '기밀' 2번은 반복으로 인정되고, 건수에 '기밀성' 은 들어가지 않는다.
+        let text = format!("{}{} 기밀 {} 기밀 ", only, "가".repeat(STAMP_HEAD_CHARS + 50), "나".repeat(100));
+        let h = stamp_hit(&scan_stamp(&text, &rs)).expect("기밀 반복 스탬프");
+        assert_eq!(h["mode"], "repeat");
+        assert_eq!(h["count"], 2);
+    }
+
+    #[test]
+    fn kimilsung_is_not_keyword_mark() {
+        let rs = rs();
+        let has = |t: &str| scan_text(t, &rs).dict["hits"].as_array().unwrap()
+            .iter().any(|h| h["id"] == "mark_confidential");
+        assert!(!has("자산의 기밀성, 무결성을 확보한다."));
+        assert!(has("회사 기밀을 누설한 자는 징계한다."));
+    }
+}
+
+// 민감정보 min_count — 파이썬 판 tests/test_rules.py::test_sensitive_min_count 와 같은 사례.
+#[cfg(test)]
+mod sensitive_min_count_tests {
+    use super::*;
+
+    fn rs() -> RuleSet {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/policy/cso_rule.yaml");
+        load_rules(&p).unwrap_or_else(|e| panic!("cso_rule.yaml 로드 실패: {}", e))
+    }
+
+    fn cats(sig: &Sig) -> Vec<String> {
+        sig.dict["hits"].as_array().unwrap().iter()
+            .map(|h| h["category"].as_str().unwrap_or("").to_string()).collect()
+    }
+
+    #[test]
+    fn single_mention_is_not_sensitive() {
+        let rs = rs();
+        assert!(!cats(&scan_sensitive("병가 시에는 의사 진단서를 제출하여야 한다.", &rs)).contains(&"건강".to_string()));
+        assert!(scan_sensitive("사상·신념, 건강, 성생활, 범죄경력 등 민감정보는 동의 없이 처리할 수 없다.", &rs).grade.is_none());
+        assert_eq!(scan_sensitive("진단서 원본, 진단서 사본, 진단서 발급 내역", &rs).grade, Some(Grade::C));
+    }
+
+    #[test]
+    fn missing_min_count_defaults_to_one() {
+        let mut rs = rs();
+        rs.sensitive_rules = vec![SensitiveRule {
+            id: "x".into(), name: "x".into(), category: "x".into(), terms: vec!["가".into()],
+            exclude: vec![], min_count: 1, grade: "C".into(), weight: "high".into(), seed_eligible: false,
+        }];
+        assert_eq!(scan_sensitive("가", &rs).grade, Some(Grade::C));
+    }
+}
