@@ -206,9 +206,9 @@ if _SRC not in sys.path:
 
 from csoclassify.classify.docvocab import (      # noqa: E402,F401
     DOC_SUFFIXES, GENERIC_SLOTS, SYN_CORE, SYN_LOCAL, SYN_DIR, SYN_SECTIONS,
-    SYN_SUFFIXES,
+    SYN_SUFFIXES, SYN_EXTRA, EXTRA_CELLS,
     NEW_RULE_FALLBACK, SAVE_HEADER, TEMPLATE_NAME, UI_ONLY_KEYS,
-    _is_doubled, _spacing_forms, _clean_suffixes,      # 사전 점검 테스트가 직접 쓴다
+    _is_doubled, _spacing_forms, _clean_suffixes, _clean_extra_terms,  # 사전 점검 테스트가 직접 쓴다
     industry_of, load_doc, load_synonyms, load_template, rule_vocab, save_doc,
     split_synonyms, synonyms_of, sync_from_taxonomy, syncable_nodes,
     title_variants,

@@ -37,6 +37,60 @@ const SYN_LOCAL: &str = "doc_synonyms.local.yaml";
 const SYN_DIR: &str = "synonyms";
 
 const SYN_SUFFIXES: &str = "suffixes";
+const SYN_EXTRA: &str = "extra_terms";
+const EXTRA_CELLS: [&str; 5] = ["title_terms", "head_terms", "terms", "filename", "exclude"];
+
+//------------------------------------------------------------------
+// 칸별 추가 단어 한 겹 정리하기(원본 _clean_extra_terms 와 같은 규칙)
+//=> 사람이 조정한 규칙 단어를 사전에 남겨 두는 칸. 틀린 칸·틀린 말만 버린다.
+//    1) map 이 아니면 빈 목록
+//    2) 분류 이름은 공백을 지운 모양(aliases 를 찾는 방식과 같다)
+//    3) 칸 이름은 EXTRA_CELLS 다섯 개만, 값은 목록만 받는다
+//    4) 말은 앞뒤 공백을 지우고 빈 말·중복은 버린다
+//
+// -in: raw = yaml 에서 읽은 extra_terms 값(없으면 None)
+// -out: Vec<(분류이름, [(칸, [말…])])>
+//------------------------------------------------------------------
+fn clean_extra_terms(raw: Option<&serde_yaml::Value>) -> Vec<(String, Vec<(String, Vec<String>)>)> {
+    let map = match raw.and_then(|v| v.as_mapping()) { Some(m) => m, None => return vec![] };
+    let mut out: Vec<(String, Vec<(String, Vec<String>)>)> = vec![];
+    for (name, cells) in map {
+        let key: String = match name.as_str() { Some(s) => s.chars().filter(|c| *c != ' ').collect(), None => continue };
+        let key = key.trim().to_string();
+        let cells = match cells.as_mapping() { Some(m) => m, None => continue };
+        if key.is_empty() { continue; }
+        let mut got: Vec<(String, Vec<String>)> = vec![];
+        for (cell, words) in cells {
+            let cell = match cell.as_str() { Some(c) if EXTRA_CELLS.contains(&c) => c.to_string(), _ => continue };
+            let seq = match words.as_sequence() { Some(s) => s, None => continue };
+            let mut uniq: Vec<String> = vec![];
+            for x in seq {
+                // 파이썬 str(x) 와 맞추려고 숫자도 글자로 받는다.
+                let w = match x {
+                    serde_yaml::Value::String(s) => s.trim().to_string(),
+                    serde_yaml::Value::Number(n) => n.to_string(),
+                    _ => continue,
+                };
+                if !w.is_empty() && !uniq.contains(&w) { uniq.push(w); }
+            }
+            if !uniq.is_empty() { got.push((cell, uniq)); }
+        }
+        if got.is_empty() { continue; }
+        // 같은 이름이 공백만 다르게 두 번 적혔으면 앞의 것에 잇는다.
+        let slot = match out.iter().position(|(k, _)| *k == key) {
+            Some(i) => i,
+            None => { out.push((key, vec![])); out.len() - 1 }
+        };
+        for (cell, words) in got {
+            let cells_v = &mut out[slot].1;
+            match cells_v.iter_mut().find(|(c, _)| *c == cell) {
+                Some((_, have)) => { for w in words { if !have.contains(&w) { have.push(w); } } }
+                None => cells_v.push((cell, words)),
+            }
+        }
+    }
+    out
+}
 
 //------------------------------------------------------------------
 // 끝말 목록 한 겹 정리하기(원본 _clean_suffixes 와 같은 규칙)
@@ -95,6 +149,8 @@ pub struct Syn {
     pub heads: Vec<(String, Vec<String>)>,
     /// 띄어쓰기 끝말(core 기준 + 업종·local 추가, 긴 것부터). 비면 내장 DOC_SUFFIXES.
     pub suffixes: Vec<String>,
+    /// 칸별 추가 단어 — (분류이름, [(칸, [말…])]). 규칙 칸 뒤에 개수 제한 없이 붙는다.
+    pub extra_terms: Vec<(String, Vec<(String, Vec<String>)>)>,
     pub layers: Vec<String>,
 }
 
@@ -313,13 +369,30 @@ pub fn rule_vocab(title: &str, syn: &Syn, limit: usize) -> Vocab {
     let tight: String = base.chars().filter(|c| *c != ' ').collect();
     let excl = Syn::get(&syn.excludes, &tight).cloned().unwrap_or_default();
 
-    Vocab {
+    let mut vocab = Vocab {
         title_terms: blend(&strong, &name_only, limit + 4),
         head_terms: cut(&narrow, limit),
         terms: cut(&narrow, limit),
         filename: cut(&fname, 2 * (limit + 6 + GENERIC_SLOTS)),
         exclude: cut(&excl, usize::MAX),
+    };
+
+    // 사람이 조정해 둔 칸별 추가 단어는 개수 제한 밖에서 맨 뒤에, 적힌 칸에만 붙인다.
+    let tight_name: String = base.chars().filter(|c| *c != ' ').collect();
+    if let Some((_, cells)) = syn.extra_terms.iter().find(|(k, _)| *k == tight_name) {
+        for (cell, words) in cells {
+            let have = match cell.as_str() {
+                "title_terms" => &mut vocab.title_terms,
+                "head_terms" => &mut vocab.head_terms,
+                "terms" => &mut vocab.terms,
+                "filename" => &mut vocab.filename,
+                "exclude" => &mut vocab.exclude,
+                _ => continue,
+            };
+            for w in words { if !have.contains(w) { have.push(w.clone()); } }
+        }
     }
+    vocab
 }
 
 //------------------------------------------------------------------
@@ -334,19 +407,35 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
     let base_dir = doc_rules_path.parent().unwrap_or(Path::new("."));
 
     // doc_rule.yaml 의 industry 값(문자열 하나 또는 목록).
+    // [2026-09-15 수정] 파일이 아직 없거나(처음 만들 때) industry 칸이 아예 없으면
+    // 본보기(doc_rule_template.yaml)의 값을 쓴다. 저장할 때 sync_doc_rule 이 빠진 칸을
+    // 본보기로 채우므로, 파일에는 industry 가 적히는데 규칙을 만드는 순간에는 업종
+    // 사전이 빠지던 어긋남을 막는다. 칸이 있으면(빈 목록이라도) 본보기를 보지 않는다.
     let mut industries: Vec<String> = vec![];
-    if let Ok(txt) = std::fs::read_to_string(doc_rules_path) {
-        if let Ok(v) = serde_yaml::from_str::<serde_yaml::Value>(&txt) {
-            match v.get("industry") {
-                Some(serde_yaml::Value::String(s)) => industries.push(s.clone()),
-                Some(serde_yaml::Value::Sequence(seq)) => {
-                    for x in seq {
-                        if let Some(s) = x.as_str() { industries.push(s.to_string()); }
-                    }
-                }
-                _ => {}
+    let mut raw: Option<serde_yaml::Value> = None;
+    let mut use_template = true;
+    if doc_rules_path.is_file() {
+        match std::fs::read_to_string(doc_rules_path).ok()
+            .and_then(|t| serde_yaml::from_str::<serde_yaml::Value>(&t).ok()) {
+            Some(v) => {
+                if let Some(x) = v.get("industry") { raw = Some(x.clone()); use_template = false; }
+            }
+            // 읽기·파싱 실패는 원본(Python)처럼 업종 없음으로 본다.
+            None => use_template = false,
+        }
+    }
+    if use_template {
+        let tpl = crate::doc_rules::load_scaffold_template(Some(doc_rules_path));
+        raw = tpl.get(serde_yaml::Value::String("industry".to_string())).cloned();
+    }
+    match raw {
+        Some(serde_yaml::Value::String(s)) => industries.push(s),
+        Some(serde_yaml::Value::Sequence(seq)) => {
+            for x in seq {
+                if let Some(s) = x.as_str() { industries.push(s.to_string()); }
             }
         }
+        _ => {}
     }
     // 경로로 새어 나갈 수 있는 글자가 든 업종 이름은 버린다.
     industries.retain(|s| !s.is_empty()
@@ -374,6 +463,24 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
         syn.layers.push(p.to_string_lossy().into_owned());
         let sufs = clean_suffixes(doc.get(SYN_SUFFIXES));
         if name == SYN_CORE { core_suffixes = sufs; } else { extra_suffixes.extend(sufs); }
+        // 칸별 추가 단어 — 칸마다 따로 합치고, 센 겹(나중 파일)의 말이 앞에 온다.
+        for (key, cells) in clean_extra_terms(doc.get(SYN_EXTRA)) {
+            let slot = match syn.extra_terms.iter().position(|(k, _)| *k == key) {
+                Some(i) => i,
+                None => { syn.extra_terms.push((key, vec![])); syn.extra_terms.len() - 1 }
+            };
+            for (cell, words) in cells {
+                let cells_v = &mut syn.extra_terms[slot].1;
+                match cells_v.iter_mut().find(|(c, _)| *c == cell) {
+                    Some((_, have)) => {
+                        let mut merged = words;
+                        for w in have.iter() { if !merged.contains(w) { merged.push(w.clone()); } }
+                        *have = merged;
+                    }
+                    None => cells_v.push((cell, words)),
+                }
+            }
+        }
         for (sec, dst) in [("aliases", 0usize), ("filename_only", 1), ("excludes", 2),
                            ("tails", 3), ("heads", 4)] {
             let m = match doc.get(sec).and_then(|v| v.as_mapping()) { Some(m) => m, None => continue };
@@ -484,6 +591,50 @@ mod tests {
                 .contains(&"결재 품의안".to_string()));
         assert!(rule_vocab("월간보고서", &syn, 10).title_terms
                 .contains(&"월간 보고서".to_string()));
+    }
+
+    #[test]
+    fn 규칙파일이_없으면_본보기_업종을_쓴다() {
+        let rule = syn_dir("industry", &[
+            ("doc_synonyms.core.yaml", "aliases:\n  보고서: [리포트]\n"),
+            ("doc_synonyms.finance.yaml", "aliases:\n  보고서: [여신보고]\n")]);
+        let dir = rule.parent().unwrap().to_path_buf();
+        std::fs::write(dir.join(crate::doc_rules::TEMPLATE_NAME), "industry: [finance]\n").unwrap();
+        let alias = |syn: &Syn| Syn::get(&syn.aliases, "보고서").cloned().unwrap_or_default();
+
+        // 1) 파일 없음 → 본보기 업종
+        std::fs::remove_file(&rule).unwrap();
+        assert_eq!(alias(&load_synonyms(&rule)), vec!["여신보고", "리포트"]);
+        // 2) 파일은 있고 칸이 없음 → 본보기 업종
+        std::fs::write(&rule, "doctype_rules: []\n").unwrap();
+        assert_eq!(alias(&load_synonyms(&rule)), vec!["여신보고", "리포트"]);
+        // 3) 칸이 있으면 빈 목록이라도 본보기를 보지 않는다
+        std::fs::write(&rule, "industry: []\ndoctype_rules: []\n").unwrap();
+        assert_eq!(alias(&load_synonyms(&rule)), vec!["리포트"]);
+    }
+
+    #[test]
+    fn 칸별_추가_단어는_적힌_칸_뒤에만_붙는다() {
+        let rule = syn_dir("extra", &[
+            ("doc_synonyms.core.yaml",
+             "aliases:\n  보고서: [결과보고, 리포트]\nextra_terms:\n  보고서:\n    filename: [동향보고]\n"),
+            ("doc_synonyms.local.yaml",
+             "extra_terms:\n  보 고서:\n    title_terms: [현황분석, 보고서, 참관]\n    head_terms: [현황분석]\n    terms: 현황분석\n    titel_terms: [오타칸]\n")]);
+        let syn = load_synonyms(&rule);
+        let mut plain = syn.clone();
+        plain.extra_terms.clear();
+        let base = rule_vocab("보고서", &plain, 2);
+        let v = rule_vocab("보고서", &syn, 2);
+        let with = |a: &Vec<String>, more: &[&str]| {
+            let mut x = a.clone(); x.extend(more.iter().map(|s| s.to_string())); x
+        };
+        // 자동 말은 앞에 그대로, 조정한 말은 뒤에(이미 있는 '보고서' 는 안 겹친다)
+        assert_eq!(v.title_terms, with(&base.title_terms, &["현황분석", "참관"]));
+        assert_eq!(v.head_terms, with(&base.head_terms, &["현황분석"]));
+        // 목록이 아닌 칸·모르는 칸은 버린다 → 본문은 그대로
+        assert_eq!(v.terms, base.terms);
+        // core 에만 적힌 칸(filename)은 local 이 다른 칸을 적었어도 남는다
+        assert_eq!(v.filename, with(&base.filename, &["동향보고"]));
     }
 
     #[test]
