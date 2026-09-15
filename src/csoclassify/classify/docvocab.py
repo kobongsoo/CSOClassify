@@ -66,6 +66,11 @@ UI_ONLY_KEYS = ("new_rule",)
 #   (예: "요구사항정의서" 에서 "정의서" 가 "서" 보다 먼저 걸려야 한다).
 #   2026-09-15 "메뉴얼"(흔한 표기 변형) 추가 — "설치메뉴얼" 도 "설치_메뉴얼" 파일명을 잡는다.
 #   Rust/src/docvocab.rs 의 같은 목록과 차례까지 똑같아야 한다.
+#
+#   [2026-09-15 사전 이관] 원본은 이제 core 사전의 suffixes: 칸이다. 이 목록은
+#   사전에 그 칸이 없을 때(사전 없음·옛 core) 쓰는 기본값이다. core 사전과 내용이
+#   같아야 하며 tests/test_policy_synonyms.py 가 둘을 비교한다.
+#   설계서: plan/업무분류-끝말목록-사전이관-설계-20260915.html
 DOC_SUFFIXES = (
     "회의록", "계획서", "정의서", "설계서", "명세서", "제안서",
     "보고서", "결과서", "확인서", "신청서", "승인서", "의뢰서", "합의서", "계약서",
@@ -100,6 +105,9 @@ SYN_LOCAL = "doc_synonyms.local.yaml"
 # 배포할 때도 폴더 하나만 옮기면 되도록 하려는 것이다.
 SYN_DIR = "synonyms"
 SYN_SECTIONS = ("aliases", "filename_only", "excludes", "tails", "heads")
+# 띄어쓰기 끝말 칸. 위 다섯 칸은 {이름: [말…]} 모양으로 합쳐지지만 이 칸은 말만
+# 늘어놓은 목록이라 SYN_SECTIONS 에 넣지 않고 따로 읽는다(_merge_layer 가 map 전용).
+SYN_SUFFIXES = "suffixes"
 # 업종 이름은 파일 이름에 그대로 들어간다. 경로로 새어 나갈 수 있는 글자를 막는다.
 PATH_CHARS = frozenset(["/", "\\", ".", ":"])
 
@@ -179,7 +187,10 @@ def _read_syn_layer(path):
         return {}
     if not isinstance(data, dict):
         return {}
-    return {sec: (data.get(sec) or {}) for sec in SYN_SECTIONS}
+    layer = {sec: (data.get(sec) or {}) for sec in SYN_SECTIONS}
+    # 끝말은 목록 칸이라 따로 정리해 싣는다(모양이 틀리면 빈 목록).
+    layer[SYN_SUFFIXES] = _clean_suffixes(data.get(SYN_SUFFIXES))
+    return layer
 
 
 #------------------------------------------------------------------
@@ -232,6 +243,35 @@ def _order_longest_first(mapping):
 
 
 #------------------------------------------------------------------
+# 끝말 목록 한 겹 정리하기
+#=> suffixes: 칸은 사람이 적는 자리라 모양이 틀릴 수 있다. 틀린 항목만 버리고
+#   나머지는 쓴다(한 줄 실수로 겹 전체를 버리지 않는다).
+#    1) 목록이 아니면(map·문자열) 빈 목록
+#    2) 항목을 문자열로 바꿔 앞뒤 공백을 지운다
+#    3) 비었거나 · 안에 공백이 있거나 · 2글자 미만이면 버린다
+#    4) 중복은 처음 나온 것만 남긴다
+#
+# -in: raw = yaml 에서 읽은 suffixes 값(아무 모양이나 올 수 있다)
+#
+# -out: list = 쓸 수 있는 끝말 목록(없으면 빈 리스트)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _clean_suffixes(raw):
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for x in raw:
+        # yaml 이 숫자·None 으로 읽은 항목도 문자열로 맞춰 본다.
+        w = str(x if x is not None else "").strip()
+        # 한 글자 끝말("서")은 거의 모든 "~서" 이름을 이상하게 끊는다.
+        # 공백이 든 끝말은 "붙여 쓴 이름을 띄운다"는 뜻과 맞지 않는다.
+        if len(w) < 2 or any(c.isspace() for c in w) or w in out:
+            continue
+        out.append(w)
+    return out
+
+
+#------------------------------------------------------------------
 # 유의어 사전 읽기 — 세 겹을 찾아 합친다
 #=> 분류 이름과 "같은 뜻 다른 말"(요구사항정의서 ↔ 요구사항명세서 ↔ SRS)을 적어
 #   둔 사전들을 읽는다. 규칙 파일(doc_rule.yaml) 옆에 두는 것이 규약이라
@@ -243,6 +283,7 @@ def _order_longest_first(mapping):
 # -in: doc_rules_path = doc_rule.yaml 경로(같은 폴더에서 사전들을 찾는다)
 #
 # -out: dict = {"aliases","filename_only","excludes","tails","heads"} 와
+#              "suffixes"(띄어쓰기 끝말 목록 — core 기준 + 업종·local 추가, 긴 것부터) ·
 #              "path"(대표 경로 — 화면 표시용) · "layers"(실제로 읽은 파일 경로들)
 #              한 겹도 못 읽었으면 빈 dict
 # -out: error = 파일 없음·파싱 실패 시 그 겹만 건너뛴다(예외를 올리지 않는다)
@@ -262,6 +303,8 @@ def load_synonyms(doc_rules_path):
 
     merged = {sec: {} for sec in SYN_SECTIONS}
     layers = []
+    # 끝말은 core 가 기준 목록을 정하고, 업종·local 은 더하기만 한다.
+    core_suffixes, extra_suffixes = [], []
     for name in names:
         path = _syn_path(base_dir, name)
         layer = _read_syn_layer(path)
@@ -270,6 +313,10 @@ def load_synonyms(doc_rules_path):
         layers.append(path)
         for sec in SYN_SECTIONS:
             merged[sec] = _merge_layer(merged[sec], layer[sec])
+        if name == SYN_CORE:
+            core_suffixes = layer[SYN_SUFFIXES]
+        else:
+            extra_suffixes += layer[SYN_SUFFIXES]
 
     if not layers:
         return {}
@@ -277,6 +324,16 @@ def load_synonyms(doc_rules_path):
     # 그물은 합친 뒤 반드시 다시 세운다 — 파일 순서로는 보장되지 않는다.
     merged["tails"] = _order_longest_first(merged["tails"])
     merged["heads"] = _order_longest_first(merged["heads"])
+
+    # 기준 목록은 core 에서만 받는다. local 에만 적힌 끝말을 기준으로 삼으면, 옛 core
+    # (칸 없음)가 깔린 곳에서 local 에 하나만 적어도 내장 43개가 조용히 사라진다.
+    base = core_suffixes or list(DOC_SUFFIXES)
+    uniq = []
+    for w in list(base) + extra_suffixes:
+        if w not in uniq:
+            uniq.append(w)
+    # 긴 끝말이 먼저 걸려야 한다. sorted 는 안정 정렬이라 길이가 같으면 적은 차례를 지킨다.
+    merged[SYN_SUFFIXES] = sorted(uniq, key=lambda w: -len(w))
 
     # 화면에 한 줄로 보여 줄 대표 경로는 가장 센 겹(=사람이 고치는 자리)으로 둔다.
     merged["path"] = layers[-1]
@@ -289,7 +346,9 @@ def load_synonyms(doc_rules_path):
 #=> "요구사항정의서" 하나에서 붙임형·띄어쓰기형을 만든다. 매칭이 글자 그대로의
 #   부분일치라서(doctype.py) 띄어쓰기 하나만 달라도 못 찾기 때문이다.
 #
-# -in: word = 낱말 하나
+# -in: word     = 낱말 하나
+# -in: suffixes = 끊을 자리로 쓸 끝말 목록(load_synonyms 의 "suffixes").
+#                 None·빈 목록이면 내장 DOC_SUFFIXES 를 쓴다(사전이 없는 배포)
 #
 # -out: list = [원래대로, (공백 뺀 형태), (꼬리말 앞에서 끊은 형태)]
 # -out: error = 없음
@@ -320,7 +379,7 @@ def _is_doubled(word):
     return False
 
 
-def _spacing_forms(word):
+def _spacing_forms(word, suffixes=None):
     out = [word]
     # 띄어쓰기가 이미 있으면 붙임형도 넣는다 — 반대 표기로 적힌 문서를 놓치지 않으려고.
     tight = word.replace(" ", "")
@@ -328,7 +387,8 @@ def _spacing_forms(word):
         out.append(tight)
     # 붙여 쓴 이름은 꼬리말 앞에서 한 번만 끊는다. 여러 번 끊으면 "요 구 사 항"
     # 같은 이상한 말이 생기고, 그런 말은 어떤 문서에도 없어 규칙만 지저분해진다.
-    for suf in DOC_SUFFIXES:
+    # 사전이 준 끝말이 있으면 그것을, 없으면 내장 목록을 쓴다.
+    for suf in (suffixes or DOC_SUFFIXES):
         if tight.endswith(suf) and len(tight) > len(suf) + 1:
             out.append(f"{tight[: -len(suf)]} {suf}")
             break
@@ -453,7 +513,7 @@ def rule_vocab(title, syn=None, limit=10):
 
     strong_syn, name_only = split_synonyms(base, syn)
     # 이름 그대로 + 띄어쓰기 표기가 언제나 앞. 잘릴 때 확실한 것부터 남는다.
-    strong = _spacing_forms(base) + strong_syn
+    strong = _spacing_forms(base, (syn or {}).get(SYN_SUFFIXES)) + strong_syn
 
     def cut(words, cap):
         uniq = []
@@ -541,7 +601,8 @@ def title_variants(title, for_filename=False, syn=None, limit=10):
         return []
 
     # 이름 그대로가 언제나 첫 줄. 그다음이 띄어쓰기만 다른 형태.
-    out = _spacing_forms(base)
+    # 끝말은 사전(suffixes)이 있으면 그것, 없으면 내장 목록.
+    out = _spacing_forms(base, (syn or {}).get(SYN_SUFFIXES))
 
     # 유의어는 그 뒤에 붙인다 — 잘라야 할 때 확실한 것부터 남기기 위해서다.
     # 유의어 자체는 띄어쓰기 변형까지 만들지 않는다(개수만 불어난다).

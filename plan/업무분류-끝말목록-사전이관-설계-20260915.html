@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>띄어쓰기 끝말 목록 사전 이관 설계</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+    --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+    --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .ok{color:var(--o);font-weight:700}
+  .bad{color:var(--c);font-weight:700}
+  .mid{color:var(--s);font-weight:700}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .danger{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  @media (max-width:640px){ ul.toc{columns:1} header.hero{padding:20px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>띄어쓰기 끝말 목록(<code>DOC_SUFFIXES</code>) 사전 이관</h1>
+  <p>코드 두 곳(Python·Rust)에 박혀 있는 끝말 목록을 <b>유의어 core 사전의 <code>suffixes:</code> 칸</b>으로
+  옮긴다. 끝말 하나 추가에 코드 수정·재빌드가 필요 없고, 회사별 사전(local)에서 더할 수 있게 한다.
+  <span class="pill ok">2026-09-15 구현 완료</span></p>
+  <div class="note" style="margin-top:14px"><b>구현 결과 (15장 권고안대로)</b><br>
+  · core 에 칸이 있으면 core 목록이 기준 · Rust 배열을 43개 한 배열로 합침 · 내장 목록과 core 사전은 집합 비교 테스트로 묶음<br>
+  · 테스트 Python 758 · Rust 242 통과(각각 끝말 테스트 4건·3건 추가, 골든 테스트 그대로 통과)<br>
+  · 분류 이름 450개(골든 정답표·분류체계·사전 이름)로 사전 칸 있음/없음 비교 → 규칙 생성 결과 변화 0</div>
+  <p class="muted" style="margin-top:8px">작성 2026-09-15 · 대상 <code>csoclassify</code>(Python) /
+  <code>MpowerClassify-rs</code>(Rust) · 관련
+  <a href="업무분류-내용기반-2단계-재설계.html">업무분류 내용기반 2단계 재설계</a> ·
+  <a href="문서분류체계-연동-분류규칙-설계.html">문서분류체계 연동 분류규칙 설계</a></p>
+</header>
+
+<section class="card">
+  <h3>목차</h3>
+  <ul class="toc">
+    <li><a href="#s1">1. 배경 — 끝말 목록이 하는 일</a></li>
+    <li><a href="#s2">2. 문제</a></li>
+    <li><a href="#s3">3. 목표와 하지 않는 것</a></li>
+    <li><a href="#s4">4. 결정 요약</a></li>
+    <li><a href="#s5">5. 사전 모양</a></li>
+    <li><a href="#s6">6. 읽기·합치기 규칙</a></li>
+    <li><a href="#s7">7. 코드 변경 — Python</a></li>
+    <li><a href="#s8">8. 코드 변경 — Rust</a></li>
+    <li><a href="#s9">9. 호환성</a></li>
+    <li><a href="#s10">10. 결과가 달라지지 않는 근거</a></li>
+    <li><a href="#s11">11. 테스트</a></li>
+    <li><a href="#s12">12. 배포·파일 사본</a></li>
+    <li><a href="#s13">13. 위험과 대응</a></li>
+    <li><a href="#s14">14. 작업 순서</a></li>
+    <li><a href="#s15">15. 결정이 필요한 것 · 추후 검토</a></li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s1"><span class="n">1</span>배경 — 끝말 목록이 하는 일</h2>
+<section class="card">
+  <p>업무분류 규칙은 <b>"분류 불러오기"</b>(화면) 또는 <code>--sync-doc-rule</code>(CLI) 때 분류 이름에서
+  자동으로 만들어진다. 이때 이름 하나에서 <b>띄어쓰기만 다른 표기</b>를 먼저 만든다.
+  엔진은 글자가 똑같아야 찾기 때문이다.</p>
+  <div class="flow">분류 이름 "요구사항정의서"
+  ① 이름 그대로          → 요구사항정의서
+  ② 끝말 앞에서 한 번 띄움 → 요구사항 정의서      ← 끝말 목록에 "정의서"가 있어서
+  ③ (파일명 칸만) 공백 → _ / -  → 요구사항_정의서, 요구사항-정의서</div>
+  <p>②의 "끝말"이 <code>DOC_SUFFIXES</code>다. 목록에 없는 끝말로 끝나는 이름은 ②가 건너뛰어지고,
+  ②가 없으니 ③도 만들어지지 않는다.</p>
+
+  <h3>효과가 나는 자리</h3>
+  <p>엔진의 제목·앞부분·파일명 검사는 이미 <b>문서와 규칙 단어 양쪽의 공백을 지우고</b> 비교한다
+  (자간 벌린 제목 대응). 그래서 끝말 목록이 실제로 결과를 바꾸는 곳은 두 곳뿐이다.</p>
+  <div class="scroll"><table>
+    <tr><th>검사 자리</th><th>공백 지우고 비교</th><th>끝말 목록이 없을 때 놓치는 것</th></tr>
+    <tr><td>제목(첫 줄)</td><td>예</td><td class="ok">없음</td></tr>
+    <tr><td>앞부분(head_chars)</td><td>예</td><td class="ok">없음</td></tr>
+    <tr><td>파일명</td><td>예 (공백만, <code>_</code>·<code>-</code> 는 그대로)</td><td class="bad"><code>설치_메뉴얼_v2.pdf</code> 같은 구분자 표기</td></tr>
+    <tr><td>본문 전체</td><td>아니요</td><td class="mid">본문의 띄어 쓴 표기(보조 증거 0.15라 단독 영향 작음)</td></tr>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s2"><span class="n">2</span>문제</h2>
+<section class="card">
+  <ol>
+    <li><b>같은 목록이 두 곳에 있다.</b>
+      <code>src/csoclassify/classify/docvocab.py</code> 의 튜플(43개)과
+      <code>Rust/src/docvocab.rs</code> 의 <code>[&amp;str; 42]</code> + <code>DOC_SUFFIX_LAST</code>.
+      한쪽만 고치면 화면과 엔진이 다른 규칙을 만든다. 골든 테스트가 잡아 주지만, 정답표를 손으로 다시 뽑아야 한다.</li>
+    <li><b>끝말 하나에 코드 수정·테스트·재빌드가 든다.</b> 2026-09-15 <code>메뉴얼</code> 추가(PR #6)가
+      실제로 그랬다 — 두 파일 수정, 배열 길이 변경, 실행파일 재빌드.</li>
+    <li><b>고객사가 자기 끝말을 넣을 방법이 없다.</b> 그 회사만 쓰는 문서 끝말(예: "품의안", "시행문")은
+      사전의 aliases 로 이름마다 적는 수밖에 없다.</li>
+  </ol>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s3"><span class="n">3</span>목표와 하지 않는 것</h2>
+<section class="card">
+  <h3>목표</h3>
+  <ul>
+    <li>끝말 목록의 원본을 <b>core 사전</b>으로 옮긴다. 업종·local 사전에서 <b>더할 수 있다</b>.</li>
+    <li>현재 사전·분류체계에서 <b>규칙 생성 결과가 한 글자도 바뀌지 않는다</b>(골든 테스트 그대로 통과).</li>
+    <li><b>앞뒤 호환</b>: 옛 엔진 + 새 사전, 새 엔진 + 옛 사전 모두 지금과 같은 결과.</li>
+    <li>Python·Rust 가 같은 규칙으로 읽는다.</li>
+  </ul>
+  <h3>하지 않는 것</h3>
+  <ul>
+    <li>꼬리말 규칙(<code>tails</code>) 이름을 끝말로 자동 겸용 — 결과가 달라지므로 별도 단계(15장).</li>
+    <li>local 에서 끝말 <b>빼기</b> — 다른 칸과 같이 더하기만 된다.</li>
+    <li>화면에서 끝말을 편집하는 기능 — 사전은 지금도 파일로만 고친다(화면이 사전을 다시 쓰는 코드는 없다, 확인함).</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s4"><span class="n">4</span>결정 요약</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>항목</th><th>결정</th><th>이유</th></tr>
+    <tr><td>위치</td><td>기존 <code>doc_synonyms.&lt;겹&gt;.yaml</code> 안 <code>suffixes:</code> 칸</td>
+      <td>새 파일(<code>doc_suffixes.yaml</code>)은 로더·겹 합치기·배포 목록·초기화 목록·빌드 스크립트를 새로 만들어야 한다.
+      사전 안 칸은 이미 있는 core→업종→local 겹과 사본 경로를 그대로 쓴다.</td></tr>
+    <tr><td>모양</td><td>문자열 <b>목록</b> (다른 칸은 map)</td><td>끝말에는 딸린 값이 없다.</td></tr>
+    <tr><td>합치기</td><td>기준 목록 + 업종 + local <b>합집합</b></td><td>다른 칸과 같은 "더하기만" 규약.</td></tr>
+    <tr><td>기준 목록</td><td>core 에 <code>suffixes</code> 가 있으면 그것, 없으면 <b>코드 내장 목록</b></td>
+      <td>옛 core + 새 local 조합에서 내장 43개가 사라지지 않게(6장 ②).</td></tr>
+    <tr><td>순서</td><td>합친 뒤 <b>긴 것부터</b> 안정 정렬</td><td><code>tails</code>·<code>heads</code> 와 같은 처리. 관리자가 순서를 몰라도 된다.</td></tr>
+    <tr><td>검증</td><td>2글자 미만·공백 포함·문자열 아님 → 버림. 중복 제거</td><td>"서" 한 글자가 들어가면 모든 "~서" 이름이 이상하게 끊긴다.</td></tr>
+    <tr><td>코드 내장 목록</td><td>남긴다(사전이 없을 때 대비). 사전과 같은지 테스트로 묶는다</td>
+      <td>사전은 "없어도 되는 파일"이 원칙.</td></tr>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s5"><span class="n">5</span>사전 모양</h2>
+<section class="card">
+  <h3>core — 현재 43개를 그대로 옮긴다</h3>
+<pre><code># ------------------------------------------------------------------
+# ⑥ 띄어쓰기 끝말 — 붙여 쓴 분류 이름을 이 말 앞에서 한 번 띄운다.
+#    "요구사항정의서" → "요구사항 정의서" (파일명 칸은 "요구사항_정의서"·"요구사항-정의서" 도)
+#    · 유의어를 만드는 칸이 아니다. 같은 이름의 '띄어쓰기 표기'만 늘린다.
+#    · 순서는 신경 쓰지 않아도 된다 — 코드가 긴 것부터 다시 세운다.
+#    · 두 글자 이상만 받는다. 이 칸이 없으면 프로그램 내장 목록을 쓴다.
+# ------------------------------------------------------------------
+suffixes:
+- 회의록
+- 계획서
+- 정의서
+# … (현재 DOC_SUFFIXES 43개, 같은 차례)
+- 메뉴얼
+- 가이드
+- 기록</code></pre>
+
+  <h3>local — 회사 끝말을 더한다</h3>
+<pre><code>layer: local
+suffixes:
+- 품의안
+- 시행문</code></pre>
+  <p class="muted">업종 사전도 같은 모양으로 더할 수 있다. 처음에는 업종 사전에 넣지 않는다.</p>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s6"><span class="n">6</span>읽기·합치기 규칙</h2>
+<section class="card">
+  <div class="flow">load_synonyms(doc_rule.yaml)
+  겹 순서: core → 업종(뒤에 적은 것부터) → local        ← 지금과 같다
+
+  ① 겹마다 suffixes 읽기
+       목록이 아니면(map·문자열) → 그 겹의 suffixes 는 없는 것으로 본다
+       항목마다: 문자열로 → 앞뒤 공백 제거
+                 비었거나 · 안에 공백이 있거나 · 2글자 미만 → 버린다
+
+  ② 기준 목록 정하기
+       core 겹에 쓸 수 있는 항목이 1개 이상  → core 의 목록
+       그 밖(core 없음·칸 없음·빈 목록)       → 코드 내장 DOC_SUFFIXES
+
+  ③ 기준 목록 + 업종 겹들 + local 겹을 이어 붙이고 중복 제거(처음 나온 자리 유지)
+
+  ④ 긴 것부터 안정 정렬 → syn["suffixes"]
+
+  사전이 한 겹도 없으면 load_synonyms 는 지금처럼 {} → 띄어쓰기 표기는 내장 목록</div>
+
+  <div class="note"><b>②에서 "local 만 적힌 경우"를 기준 목록으로 보지 않는 이유</b><br>
+  고객사에 옛 core(칸 없음)가 깔린 채 local 에 <code>suffixes: [품의안]</code> 만 적으면,
+  "한 겹이라도 적었으면 그것이 전부" 규칙에서는 끝말이 <b>품의안 하나</b>가 되어 내장 43개가 조용히 사라진다.
+  오류도 안 나고 규칙만 나빠지므로, 기준 목록은 core 에서만 받는다.</div>
+
+  <div class="note"><b>순서를 길이로만 세워도 되는 이유</b><br>
+  두 끝말이 같은 이름에 동시에 걸리려면 한쪽이 다른 쪽의 끝토막이어야 하고, 그러면 반드시 더 길다.
+  길이가 같은 두 끝말은 한 이름에 동시에 걸릴 수 없다. <code>_order_longest_first</code> 와 같은 논리다.</div>
+
+  <div class="warn"><b>빈 목록 <code>suffixes: []</code> 은 "끄기"가 아니다.</b> ②에서 내장 목록으로 돌아간다.
+  끝말 기능 자체를 끄는 설정은 두지 않는다 — 끌 이유가 없고, 실수로 꺼지면 파일명 구분자 표기가 통째로 사라진다.</div>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s7"><span class="n">7</span>코드 변경 — Python</h2>
+<section class="card">
+  <p>파일: <code>src/csoclassify/classify/docvocab.py</code> (화면 <code>ui/docruleedit.py</code> 는 이것을 다시 내보낼 뿐이라 수정 없음)</p>
+  <div class="scroll"><table>
+    <tr><th>자리</th><th>변경</th></tr>
+    <tr><td><code>DOC_SUFFIXES</code></td><td>그대로 둔다. 주석을 "사전에 <code>suffixes</code> 가 없을 때 쓰는 기본값"으로 고친다.</td></tr>
+    <tr><td><code>SYN_SECTIONS</code></td><td><b>건드리지 않는다.</b> 이 다섯 칸은 map 으로 합쳐지는 칸이라 목록인 <code>suffixes</code> 를 넣으면
+      <code>_merge_layer</code> 가 깨진다. 대신 상수 <code>SYN_SUFFIXES = "suffixes"</code> 를 새로 둔다.</td></tr>
+    <tr><td><code>_read_syn_layer</code></td><td>돌려주는 dict 에 <code>"suffixes": _clean_suffixes(data.get("suffixes"))</code> 추가.</td></tr>
+    <tr><td>새 함수 <code>_clean_suffixes(raw)</code></td><td>6장 ① — 목록 아님 → <code>[]</code>, 항목 정리·검증·중복 제거.</td></tr>
+    <tr><td><code>load_synonyms</code></td><td>겹 루프에서 core 겹 목록과 나머지 겹 목록을 따로 모은 뒤 6장 ②③④. 결과에 <code>merged["suffixes"]</code>.</td></tr>
+    <tr><td><code>_spacing_forms(word)</code></td><td><code>_spacing_forms(word, suffixes=None)</code> — <code>suffixes or DOC_SUFFIXES</code> 를 훑는다.</td></tr>
+    <tr><td><code>rule_vocab</code> · <code>title_variants</code></td><td><code>_spacing_forms(base, (syn or {}).get("suffixes"))</code> 로 부른다.</td></tr>
+  </table></div>
+<pre><code>#------------------------------------------------------------------
+# 끝말 목록 한 겹 정리하기
+#=> 사람이 적는 칸이라 모양이 틀릴 수 있다. 틀린 항목만 버리고 나머지는 쓴다.
+#    1) 목록이 아니면 빈 목록
+#    2) 문자열로 바꿔 앞뒤 공백 제거
+#    3) 비었거나 · 안에 공백이 있거나 · 2글자 미만이면 버림
+#    4) 중복은 처음 나온 것만
+#
+# -in: raw = yaml 에서 읽은 suffixes 값(아무 모양)
+#
+# -out: list = 쓸 수 있는 끝말 목록
+# -out: error = 없음
+#------------------------------------------------------------------
+def _clean_suffixes(raw):
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for x in raw:
+        w = str(x if x is not None else "").strip()
+        # 한 글자 끝말("서")은 거의 모든 이름을 이상하게 끊는다.
+        if len(w) &lt; 2 or any(c.isspace() for c in w) or w in out:
+            continue
+        out.append(w)
+    return out</code></pre>
+  <p class="muted">위는 설계 이해용 스케치다. 구현 때 CLAUDE.md 주석 규칙에 맞춰 다듬는다.</p>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s8"><span class="n">8</span>코드 변경 — Rust</h2>
+<section class="card">
+  <p>파일: <code>Rust/src/docvocab.rs</code></p>
+  <div class="scroll"><table>
+    <tr><th>자리</th><th>변경</th></tr>
+    <tr><td><code>struct Syn</code></td><td><code>pub suffixes: Vec&lt;String&gt;</code> 추가(<code>Default</code> 는 빈 목록).</td></tr>
+    <tr><td><code>load_synonyms</code></td><td>겹 루프에서 <code>doc.get("suffixes").and_then(as_sequence)</code> 를 읽어 Python 과 같은 정리.
+      core 겹(<code>name == SYN_CORE</code>) 목록과 나머지를 따로 모은 뒤 6장 ②③④.
+      정렬은 <code>sort_by_key(Reverse(clen))</code> — 안정 정렬이라 Python <code>sorted</code> 와 같다.</td></tr>
+    <tr><td><code>spacing_forms(word)</code></td><td><code>spacing_forms(word, suffixes: &amp;[String])</code> — 비었으면 <code>doc_suffixes()</code>.</td></tr>
+    <tr><td><code>rule_vocab</code></td><td><code>spacing_forms(&amp;base, &amp;syn.suffixes)</code> 로 부른다.</td></tr>
+    <tr><td><code>DOC_SUFFIXES</code> · <code>DOC_SUFFIX_LAST</code></td><td>기본값으로 남긴다. (선택) "원본과 개수를 맞추려고 마지막을 따로 둔다"는 옛 사정은 이제 의미가 없으므로
+      <code>[&amp;str; 43]</code> 하나로 합칠 수 있다 — 결과는 같다.</td></tr>
+  </table></div>
+  <div class="note">글자 수는 반드시 <code>chars().count()</code> 로 센다(파일 머리의 [글자 단위 주의]). <code>len()</code> 을 쓰면 한글 두 글자가 6으로 세어져
+  2글자 검증이 Python 과 달라진다.</div>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s9"><span class="n">9</span>호환성</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>엔진(실행파일)</th><th>core 사전</th><th>결과</th><th>근거</th></tr>
+    <tr><td>옛 엔진</td><td>새 사전(<code>suffixes</code> 있음)</td><td class="ok">지금과 같음</td>
+      <td>두 판 모두 다섯 칸 이름으로만 꺼내 읽어 모르는 칸은 무시한다(Python <code>data.get(sec)</code>, Rust <code>doc.get(sec)</code>).</td></tr>
+    <tr><td>새 엔진</td><td>옛 사전(칸 없음)</td><td class="ok">지금과 같음</td><td>6장 ② → 내장 목록.</td></tr>
+    <tr><td>새 엔진</td><td>새 사전</td><td class="ok">지금과 같음</td><td>core 목록 = 내장 목록(10장, 11장 테스트로 보장).</td></tr>
+    <tr><td>새 엔진</td><td>옛 core + local <code>suffixes</code></td><td class="ok">내장 + local</td><td>6장 ②의 이유.</td></tr>
+    <tr><td>옛 엔진</td><td>local <code>suffixes</code></td><td class="mid">local 끝말 무시</td><td>엔진을 올려야 반영된다. 오류는 없다.</td></tr>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s10"><span class="n">10</span>결과가 달라지지 않는 근거</h2>
+<section class="card">
+  <ol>
+    <li><b>core 목록 = 내장 목록</b> — 같은 43개를 옮긴다.</li>
+    <li><b>정렬해도 같다</b> — 현재 43개 중 한 끝말이 다른 끝말의 끝토막인 쌍이 <b>0개</b>다(2026-09-15 확인).
+      끝토막 관계가 없으면 어느 이름에든 걸리는 끝말은 최대 하나라 차례가 결과를 바꾸지 않는다.</li>
+    <li><b>한 글자 끝말 0개</b> — 검증으로 버려지는 항목이 없다.</li>
+    <li><b>골든 테스트</b> — <code>Rust/tests/fixtures/policy/synonyms</code> 는 칸이 없는 옛 사전이라 내장 목록을 탄다.
+      정답표(<code>Rust/tests/docvocab_golden.json</code>, 수동 생성)를 다시 뽑을 필요가 없다.</li>
+  </ol>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s11"><span class="n">11</span>테스트</h2>
+<section class="card">
+  <h3>Python — 임시 사전으로 (<code>tests/test_ui_syn_layers.py</code> 방식)</h3>
+  <div class="scroll"><table>
+    <tr><th>테스트</th><th>확인</th></tr>
+    <tr><td>core 에 끝말 추가</td><td>core <code>suffixes: [품의안]</code> → "결재품의안" 이 "결재 품의안"·파일명 <code>결재_품의안</code> 을 받는다. 내장 끝말(보고서)은 <b>빠진다</b>(core 가 기준).</td></tr>
+    <tr><td>옛 core + local 추가</td><td>core 칸 없음, local <code>[품의안]</code> → 품의안과 내장 "보고서" 둘 다 끊긴다.</td></tr>
+    <tr><td>사전 없음</td><td>내장 목록으로 지금과 같은 표기.</td></tr>
+    <tr><td>검증</td><td><code>["서", "관 리", "", 3, "보고서", "보고서"]</code> → <code>["보고서"]</code>. map·문자열이면 무시.</td></tr>
+    <tr><td>긴 것부터</td><td>local 에 <code>사항정의서</code> 를 더하면 "요구사항정의서" → "요구 사항정의서"(긴 끝말이 이긴다).</td></tr>
+  </table></div>
+
+  <h3>Python — 진짜 사전 지킴이 (<code>tests/test_policy_synonyms.py</code>)</h3>
+  <ul>
+    <li><b>core <code>suffixes</code> 집합 == <code>DOC_SUFFIXES</code> 집합</b> — 내장 기본값이 사전과 어긋나면 깨진다.
+      끝말을 core 에 더하면 기본값에도 더하라는 신호다(재빌드는 다음 배포 때 해도 된다 — 사전이 있으면 사전이 이긴다).</li>
+    <li>core 끝말에 2글자 미만·공백 포함 항목이 없다(버려지는 줄을 사람이 모르게 두지 않는다).</li>
+  </ul>
+
+  <h3>Rust</h3>
+  <ul>
+    <li>위 임시 사전 테스트 중 핵심 3건(core 추가 · 옛 core + local · 검증)을 <code>std::env::temp_dir()</code> 아래에 파일을 만들어 같은 기대값으로.</li>
+    <li>기존 <code>띄어쓰기_표기는_꼬리말_앞에서_한_번만_끊는다</code> 는 빈 목록(=내장)으로 부르게 고친다.</li>
+    <li>골든 테스트 <code>python_판과_같은_어휘를_만든다</code> 는 그대로 통과해야 한다.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s12"><span class="n">12</span>배포·파일 사본</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>파일</th><th>할 일</th></tr>
+    <tr><td><code>resources/policy/synonyms/doc_synonyms.core.yaml</code> (원본, git)</td><td><code>suffixes</code> 칸·머리 주석 ⑥ 추가, <code>version</code> 올림</td></tr>
+    <tr><td><code>Rust/resources/policy/synonyms/</code> (git)</td><td>원본 복사</td></tr>
+    <tr><td><code>ui/policy/synonyms/</code>, <code>dist-onedir/{windows,linux}/synonyms/</code>, <code>Rust/dist-onedir/{windows,linux}/synonyms/</code></td><td>원본 복사</td></tr>
+    <tr><td><code>Rust/tests/fixtures/policy/synonyms/</code>, <code>ui/policy_org/</code></td><td><b>건드리지 않는다</b> — 옛 사전 호환 경로를 시험하는 자리가 된다.</td></tr>
+    <tr><td>실행파일(Windows·Linux)</td><td>엔진 코드 변경이라 재빌드(<code>scripts/build/win-deploy.sh</code>, <code>linux-build.sh</code>).
+      9장처럼 순서가 바뀌어 배포돼도 결과는 같다.</td></tr>
+  </table></div>
+  <p class="muted">화면(UI)은 사전을 읽기만 하고 다시 쓰지 않으므로 새 칸이 저장 중에 지워질 걱정은 없다(ui/*.py 에 사전 쓰기 코드 없음, 확인함).
+  사용자 문서(<code>doc/*.html</code>)에는 사전 칸 설명이 없어 고칠 곳이 없고, 설명은 core 사전 머리 주석이 맡는다.</p>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s13"><span class="n">13</span>위험과 대응</h2>
+<section class="card">
+  <div class="scroll"><table>
+    <tr><th>위험</th><th>영향</th><th>대응</th></tr>
+    <tr><td>넓은 끝말 추가(예: "관리", "자료")</td><td>"자재관리" → "자재 관리" 같은 표기가 늘어난다. 제목·앞부분·파일명은 공백을 지우고 비교해 해가 적고,
+      본문·파일명 구분자 표기만 늘어난다.</td><td>머리 주석에 "문서 종류를 뜻하는 끝말만" 명시. 해가 작아 코드로 막지 않는다.</td></tr>
+    <tr><td>yaml 모양 실수(<code>suffixes: 품의안</code>)</td><td>그 겹의 끝말이 조용히 무시된다.</td>
+      <td>지킴이 테스트는 배포 사전만 본다. 고객 local 은 (추후) 화면의 사전 경로 표시 옆에 "끝말 N개 읽음"을 보여 줄 수 있다(15장).</td></tr>
+    <tr><td>core 에서 끝말을 지웠는데 내장 목록엔 남음</td><td>사전이 있는 한 사전이 이기므로 결과는 사전대로. 사전이 없는 배포만 옛 목록.</td><td>11장 집합 비교 테스트가 어긋남을 잡는다.</td></tr>
+    <tr><td>Python·Rust 검증 규칙 차이(글자 수)</td><td>한쪽만 항목을 버려 결과가 갈린다.</td><td>Rust 는 <code>chars().count()</code>. 11장의 같은 기대값 테스트.</td></tr>
+    <tr><td>긴 끝말 추가로 기존 이름의 끊는 자리가 바뀜</td><td>의도한 변경이지만 규칙이 달라진다.</td><td>사전으로 규칙을 만들 때만 반영되고, 이미 만든 규칙은 <code>--sync-enrich</code> 전까지 그대로다.</td></tr>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s14"><span class="n">14</span>작업 순서</h2>
+<section class="card">
+  <ol>
+    <li>Python: <code>_clean_suffixes</code>, <code>_read_syn_layer</code>, <code>load_synonyms</code>, <code>_spacing_forms</code> 인자 추가, 호출부 2곳.</li>
+    <li>Python 테스트(임시 사전 5건) — 이 시점엔 core 에 칸이 없어 기존 테스트 전부 그대로 통과해야 한다.</li>
+    <li>Rust: <code>Syn.suffixes</code>, <code>load_synonyms</code>, <code>spacing_forms</code> 인자, 호출부. (선택) 배열 43개로 합치기.</li>
+    <li>Rust 테스트 3건 + 골든 통과 확인.</li>
+    <li>core 사전에 <code>suffixes</code> 43개 추가 → 사본 6곳 복사 → 지킴이 테스트 2건 추가.</li>
+    <li>분류체계 이름 전체로 새/옛 규칙 생성 결과 비교(변화 0 확인) — 2026-09-15 유의어 변경 때 쓴 방식.</li>
+    <li>커밋·PR·병합 → 다음 배포 빌드에 포함.</li>
+  </ol>
+</section>
+
+<!-- ============================================================ -->
+<h2 id="s15"><span class="n">15</span>결정이 필요한 것 · 추후 검토</h2>
+<section class="card">
+  <h3>구현 전에 정할 것</h3>
+  <div class="scroll"><table>
+    <tr><th>질문</th><th>권고</th><th>대안</th></tr>
+    <tr><td>core 에 칸이 있으면 core 가 기준인가, 내장 목록 + core 합집합인가</td>
+      <td><b>core 가 기준</b> — core 에서 끝말을 빼는 것이 가능해야 원본이 한 곳이 된다.</td>
+      <td>합집합: 절대 안 사라지지만 core 에서 뺄 수 없고 내장 목록이 사실상 원본으로 남는다.</td></tr>
+    <tr><td>Rust 의 41+1 배열을 43개 한 배열로 합칠까</td><td>합친다 — 결과 같고 옛 사정 주석이 사라진다.</td><td>그대로 두기.</td></tr>
+    <tr><td>내장 기본값 동기화 방식</td><td>집합 비교 테스트(11장).</td>
+      <td>Rust <code>include_str!</code> 로 core 사전을 실행파일에 넣어 기본값으로 쓰기 — 원본이 완전히 한 곳이 되지만 빌드가 사전 파일에 묶이고 Python 쪽에도 같은 장치가 필요하다.</td></tr>
+  </table></div>
+
+  <h3>추후 검토</h3>
+  <ul>
+    <li><b>꼬리말 규칙 이름을 끝말로 겸용</b> — core <code>tails</code> 이름은 105개, 그중 40개가 이미 끝말 목록에 있고
+      끝말에만 있는 것은 <code>계산서</code>·<code>약관</code>·<code>정관</code> 3개다. 겸용하면 따로 관리할 목록이 거의 사라지지만
+      끝말이 약 110개로 늘어 끊는 자리가 달라지는 분류가 생긴다. 분류체계 이름 전체로 새/옛 결과를 비교하고 평가셋으로 따로 확인한다.</li>
+    <li><b>화면 표시</b> — 설정 ③ 판단 기준의 사전 경로 표시 옆에 "끝말 N개(core 43 · local 2)".</li>
+    <li><b>local 에서 빼기</b> — 필요가 생기면 <code>suffixes_exclude:</code> 칸. 지금은 요구가 없다.</li>
+  </ul>
+</section>
+
+<footer>MpowerClassify · 업무분류 규칙 생성 · 2026-09-15</footer>
+</div>
+</body>
+</html>

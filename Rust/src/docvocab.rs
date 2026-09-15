@@ -15,21 +15,19 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-/// 붙여 쓴 이름을 끊을 자리(꼬리말). 원본 DOC_SUFFIXES 와 같은 차례여야 한다 —
-/// 먼저 걸린 하나에서 멈추므로 차례가 결과를 바꾼다.
-pub const DOC_SUFFIXES: [&str; 42] = [
+/// 붙여 쓴 이름을 끊을 자리(꼬리말)의 기본값. 원본 DOC_SUFFIXES 와 같은 차례여야 한다.
+/// 2026-09-15 "메뉴얼"(흔한 표기 변형) 추가 — "OO메뉴얼" 도 "OO_메뉴얼" 파일명을 받는다.
+/// [2026-09-15 사전 이관] 원본은 core 사전의 suffixes: 칸이다. 이 배열은 사전에 그 칸이
+/// 없을 때(사전 없음·옛 core) 쓰인다. 예전에 마지막 항목을 DOC_SUFFIX_LAST 로 따로 두던
+/// 사정(원본과 개수 맞추기)은 의미가 없어져 한 배열로 합쳤다(결과는 같다).
+pub const DOC_SUFFIXES: [&str; 43] = [
     "회의록", "계획서", "정의서", "설계서", "명세서", "제안서",
     "보고서", "결과서", "확인서", "신청서", "승인서", "의뢰서", "합의서", "계약서",
     "계산서", "견적서", "발주서", "검수서", "내역서", "산출물", "매뉴얼", "메뉴얼", "가이드",
     "지침서", "표준서", "규정집", "일지", "일보", "대장", "양식", "규정", "지침",
     "약관", "정관", "각서", "조서", "명부", "목록", "현황",
-    "서류", "자료", "문서",
+    "서류", "자료", "문서", "기록",
 ];
-/// 2026-09-15 "메뉴얼"(흔한 표기 변형) 추가로 42개가 됐다. "OO메뉴얼" 이름도
-/// "OO 메뉴얼"·"OO_메뉴얼" 표기를 받게 한다(파일명 밑줄 표기를 놓치던 구멍).
-/// 위 배열에 "기록" 까지 넣으면 한 개 더 늘어난다. 원본과 개수를 맞추기 위해
-/// 마지막 항목은 아래 상수로 따로 둔다(배열 길이를 바꾸면 컴파일이 막아 준다).
-pub const DOC_SUFFIX_LAST: &str = "기록";
 
 /// 범용어(filename_only)가 개수 제한에서 따로 갖는 자리 수.
 pub const GENERIC_SLOTS: usize = 6;
@@ -38,17 +36,36 @@ const SYN_CORE: &str = "doc_synonyms.core.yaml";
 const SYN_LOCAL: &str = "doc_synonyms.local.yaml";
 const SYN_DIR: &str = "synonyms";
 
+const SYN_SUFFIXES: &str = "suffixes";
+
 //------------------------------------------------------------------
-// 꼬리말 전체 목록(배열 + 마지막 항목)
-//=> DOC_SUFFIXES 는 길이를 못박아 실수를 막고, 실제로 훑을 때는 이 함수를 쓴다.
+// 끝말 목록 한 겹 정리하기(원본 _clean_suffixes 와 같은 규칙)
+//=> 사람이 적는 칸이라 모양이 틀릴 수 있다. 틀린 항목만 버린다.
+//    1) 목록이 아니면 빈 목록
+//    2) 문자열·숫자 항목만 받아 앞뒤 공백을 지운다
+//    3) 비었거나 · 안에 공백이 있거나 · 2글자 미만이면 버린다(글자 단위로 센다)
+//    4) 중복은 처음 나온 것만
 //
-// -in: 없음
-// -out: Vec<&str> = 원본과 같은 차례의 꼬리말 목록
+// -in: raw = yaml 에서 읽은 suffixes 값(없으면 None)
+// -out: Vec<String> = 쓸 수 있는 끝말 목록
 //------------------------------------------------------------------
-fn doc_suffixes() -> Vec<&'static str> {
-    let mut v: Vec<&str> = DOC_SUFFIXES.to_vec();
-    v.push(DOC_SUFFIX_LAST);
-    v
+fn clean_suffixes(raw: Option<&serde_yaml::Value>) -> Vec<String> {
+    let seq = match raw.and_then(|v| v.as_sequence()) { Some(s) => s, None => return vec![] };
+    let mut out: Vec<String> = vec![];
+    for x in seq {
+        // 파이썬 str(x) 와 맞추려고 숫자도 글자로 받는다(그래도 대부분 2글자 검사에서 걸러진다).
+        let w = match x {
+            serde_yaml::Value::String(s) => s.trim().to_string(),
+            serde_yaml::Value::Number(n) => n.to_string(),
+            _ => continue,
+        };
+        // 바이트가 아니라 글자로 센다 — 한글 한 글자는 UTF-8 로 3바이트다.
+        if clen(&w) < 2 || w.chars().any(|c| c.is_whitespace()) || out.contains(&w) {
+            continue;
+        }
+        out.push(w);
+    }
+    out
 }
 
 //------------------------------------------------------------------
@@ -76,6 +93,8 @@ pub struct Syn {
     pub excludes: Vec<(String, Vec<String>)>,
     pub tails: Vec<(String, Vec<String>)>,
     pub heads: Vec<(String, Vec<String>)>,
+    /// 띄어쓰기 끝말(core 기준 + 업종·local 추가, 긴 것부터). 비면 내장 DOC_SUFFIXES.
+    pub suffixes: Vec<String>,
     pub layers: Vec<String>,
 }
 
@@ -126,16 +145,23 @@ fn is_doubled(word: &str) -> bool {
 //=> ① 이름 그대로 ② 띄어쓰기가 있으면 붙임형 ③ 붙여 쓴 이름은 꼬리말 앞에서
 //   '한 번만' 끊는다. 여러 번 끊으면 "요 구 사 항" 같은 말이 생긴다.
 //
-// -in: word = 분류의 최하위 명칭
+// -in: word     = 분류의 최하위 명칭
+// -in: suffixes = 끊을 자리로 쓸 끝말(사전의 suffixes). 비었으면 내장 DOC_SUFFIXES
 // -out: Vec<String> = 표기 후보(차례가 중요 — 확실한 것이 앞)
 //------------------------------------------------------------------
-fn spacing_forms(word: &str) -> Vec<String> {
+fn spacing_forms(word: &str, suffixes: &[String]) -> Vec<String> {
     let mut out = vec![word.to_string()];
     let tight: String = word.chars().filter(|c| *c != ' ').collect();
     if !tight.is_empty() && tight != word {
         out.push(tight.clone());
     }
-    for suf in doc_suffixes() {
+    // 사전이 준 끝말이 있으면 그것을, 없으면 내장 목록을 쓴다.
+    let list: Vec<&str> = if suffixes.is_empty() {
+        DOC_SUFFIXES.to_vec()
+    } else {
+        suffixes.iter().map(|s| s.as_str()).collect()
+    };
+    for suf in list {
         if tight.ends_with(suf) && clen(&tight) > clen(suf) + 1 {
             let head = take_chars(&tight, clen(&tight) - clen(suf));
             out.push(format!("{} {}", head, suf));
@@ -263,7 +289,7 @@ pub fn rule_vocab(title: &str, syn: &Syn, limit: usize) -> Vocab {
     if base.is_empty() { return Vocab::default(); }
 
     let (strong_syn, name_only) = split_synonyms(&base, syn);
-    let mut strong = spacing_forms(&base);
+    let mut strong = spacing_forms(&base, &syn.suffixes);
     strong.extend(strong_syn);
 
     let mut fname = blend(&strong, &name_only, limit + 6);
@@ -333,6 +359,9 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
     names.push(SYN_LOCAL.to_string());
 
     let mut syn = Syn::default();
+    // 끝말은 core 가 기준 목록을 정하고, 업종·local 은 더하기만 한다.
+    let mut core_suffixes: Vec<String> = vec![];
+    let mut extra_suffixes: Vec<String> = vec![];
     for name in names {
         // synonyms/ 하위를 먼저 보고, 없으면 규칙 파일 옆도 본다(옛 배치 호환).
         let mut p: PathBuf = base_dir.join(SYN_DIR).join(&name);
@@ -343,6 +372,8 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
             Ok(v) => v, Err(_) => continue,
         };
         syn.layers.push(p.to_string_lossy().into_owned());
+        let sufs = clean_suffixes(doc.get(SYN_SUFFIXES));
+        if name == SYN_CORE { core_suffixes = sufs; } else { extra_suffixes.extend(sufs); }
         for (sec, dst) in [("aliases", 0usize), ("filename_only", 1), ("excludes", 2),
                            ("tails", 3), ("heads", 4)] {
             let m = match doc.get(sec).and_then(|v| v.as_mapping()) { Some(m) => m, None => continue };
@@ -374,6 +405,19 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
     // 파이썬 sorted 는 안정 정렬이라, 길이가 같으면 넣은 차례가 유지된다.
     syn.tails.sort_by_key(|(k, _)| std::cmp::Reverse(clen(k)));
     syn.heads.sort_by_key(|(k, _)| std::cmp::Reverse(clen(k)));
+
+    // 기준 목록은 core 에서만 받는다 — local 에만 적힌 끝말을 기준으로 삼으면 옛 core 가
+    // 깔린 곳에서 내장 43개가 조용히 사라진다(원본 load_synonyms 와 같은 규칙).
+    let base: Vec<String> = if core_suffixes.is_empty() {
+        DOC_SUFFIXES.iter().map(|s| s.to_string()).collect()
+    } else { core_suffixes };
+    let mut uniq: Vec<String> = vec![];
+    for w in base.into_iter().chain(extra_suffixes) {
+        if !uniq.contains(&w) { uniq.push(w); }
+    }
+    // 긴 끝말이 먼저 — sort_by_key 는 안정 정렬이라 파이썬 sorted 와 같은 차례가 된다.
+    uniq.sort_by_key(|w| std::cmp::Reverse(clen(w)));
+    syn.suffixes = uniq;
     syn
 }
 
@@ -383,14 +427,75 @@ mod tests {
 
     #[test]
     fn 띄어쓰기_표기는_꼬리말_앞에서_한_번만_끊는다() {
-        assert_eq!(spacing_forms("요구사항정의서"),
+        // 빈 목록 = 사전 없음 → 내장 DOC_SUFFIXES 를 쓴다.
+        assert_eq!(spacing_forms("요구사항정의서", &[]),
                    vec!["요구사항정의서", "요구사항 정의서"]);
         // 이미 띄어쓰기가 있으면 붙임형도 만든다.
-        assert_eq!(spacing_forms("사업 계획서")[0..2].to_vec(),
+        assert_eq!(spacing_forms("사업 계획서", &[])[0..2].to_vec(),
                    vec!["사업 계획서".to_string(), "사업계획서".to_string()]);
         // '메뉴얼' 표기 변형도 끊는다(2026-09-15) — 파일명 "설치_메뉴얼" 을 받게 하려고.
-        assert_eq!(spacing_forms("설치메뉴얼"),
+        assert_eq!(spacing_forms("설치메뉴얼", &[]),
                    vec!["설치메뉴얼", "설치 메뉴얼"]);
+    }
+
+    //--------------------------------------------------------------
+    // 테스트용 사전 폴더 만들기
+    //=> 임시 폴더에 doc_rule.yaml 과 synonyms/ 아래 사전 파일들을 깐다.
+    //   테스트마다 폴더 이름이 달라야 병렬로 돌아도 서로 덮어쓰지 않는다.
+    //
+    // -in: tag    = 폴더 이름에 붙일 테스트 표시
+    // -in: layers = (파일 이름, yaml 본문) 목록
+    // -out: PathBuf = doc_rule.yaml 경로(load_synonyms 에 넘길 값)
+    //--------------------------------------------------------------
+    fn syn_dir(tag: &str, layers: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("mpc_suffix_{}_{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(SYN_DIR)).unwrap();
+        for (name, body) in layers {
+            std::fs::write(dir.join(SYN_DIR).join(name), body).unwrap();
+        }
+        let rule = dir.join("doc_rule.yaml");
+        std::fs::write(&rule, "doctype_rules: []\n").unwrap();
+        rule
+    }
+
+    #[test]
+    fn core_끝말이_기준_목록이_된다() {
+        let rule = syn_dir("core", &[("doc_synonyms.core.yaml",
+                                      "aliases: {}\nsuffixes:\n- 품의안\n")]);
+        let syn = load_synonyms(&rule);
+        assert_eq!(syn.suffixes, vec!["품의안".to_string()]);
+        let v = rule_vocab("결재품의안", &syn, 10);
+        assert!(v.title_terms.contains(&"결재 품의안".to_string()));
+        assert!(v.filename.contains(&"결재_품의안".to_string()));
+        // core 가 기준이므로 내장 끝말(보고서)은 쓰이지 않는다.
+        assert!(!rule_vocab("월간보고서", &syn, 10).title_terms
+                .contains(&"월간 보고서".to_string()));
+    }
+
+    #[test]
+    fn 옛_core_와_local_끝말은_내장_목록에_더해진다() {
+        let rule = syn_dir("local", &[("doc_synonyms.core.yaml", "aliases: {}\n"),
+                                      ("doc_synonyms.local.yaml", "suffixes: [품의안]\n")]);
+        let syn = load_synonyms(&rule);
+        assert_eq!(syn.suffixes.len(), DOC_SUFFIXES.len() + 1);
+        assert!(rule_vocab("결재품의안", &syn, 10).title_terms
+                .contains(&"결재 품의안".to_string()));
+        assert!(rule_vocab("월간보고서", &syn, 10).title_terms
+                .contains(&"월간 보고서".to_string()));
+    }
+
+    #[test]
+    fn 끝말_검증과_긴_것부터_정렬() {
+        let rule = syn_dir("clean", &[("doc_synonyms.core.yaml",
+            "suffixes: [서, '관 리', '', 정의서, 정의서, 사항정의서]\n")]);
+        let syn = load_synonyms(&rule);
+        // 한 글자·공백 포함·빈 값·중복은 버리고, 긴 끝말이 앞에 온다.
+        assert_eq!(syn.suffixes, vec!["사항정의서".to_string(), "정의서".to_string()]);
+        // 모양이 목록이 아니면 그 칸은 없는 것으로 보고 내장 목록을 쓴다.
+        let rule2 = syn_dir("shape", &[("doc_synonyms.core.yaml", "suffixes: 품의안\n")]);
+        assert_eq!(load_synonyms(&rule2).suffixes.len(), DOC_SUFFIXES.len());
     }
 
     #[test]
