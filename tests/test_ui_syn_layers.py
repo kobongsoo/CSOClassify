@@ -180,6 +180,40 @@ def test_사전이_없으면_빈값이다(tmp_path):
 
 
 #------------------------------------------------------------------
+# 규칙 파일이 없거나 industry 칸이 없으면 본보기의 업종 사전을 얹는다 (2026-09-15)
+#=> 처음 만들 때는 규칙 파일이 없어 업종을 못 읽었다. 그런데 저장되는 파일에는
+#   본보기의 industry 가 적혀, 만든 규칙과 파일 내용이 어긋났다.
+#    1) 규칙 파일이 없으면 → 본보기 industry(finance) 사전이 얹힌다
+#    2) 파일은 있지만 칸이 없으면 → 역시 본보기 값
+#    3) 칸이 있으면(빈 목록이라도) → 본보기를 보지 않는다
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음
+# -out: error = 기대와 다르면 AssertionError
+#------------------------------------------------------------------
+def test_규칙파일이_없으면_본보기_업종을_쓴다(tmp_path):
+    path = 사전깔기(tmp_path, {
+        "doc_synonyms.core.yaml": {"aliases": {"보고서": ["리포트"]}},
+        "doc_synonyms.finance.yaml": {"aliases": {"보고서": ["여신보고"]}},
+        DRE.TEMPLATE_NAME: {"industry": ["finance"]},
+    })
+    # 1) 파일 없음
+    os.remove(path)
+    assert DRE.industry_of(path) == ["finance"]
+    assert DRE.load_synonyms(path)["aliases"]["보고서"] == ["여신보고", "리포트"]
+    # 2) 파일은 있고 칸이 없음
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("doctype_rules: []\n")
+    assert DRE.industry_of(path) == ["finance"]
+    # 3) 칸이 있으면 빈 목록이라도 사람이 정한 값이다
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("industry: []\ndoctype_rules: []\n")
+    assert DRE.industry_of(path) == []
+    assert DRE.load_synonyms(path)["aliases"]["보고서"] == ["리포트"]
+
+
+#------------------------------------------------------------------
 # core 의 끝말(suffixes)이 기준 목록이 된다 (2026-09-15 사전 이관)
 #=> core 에 칸이 있으면 그 목록이 전부다 — 그래야 core 에서 끝말을 뺄 수 있다.
 #    1) core 에만 적은 '품의안' 으로 띄어쓰기·파일명 구분자 표기가 만들어진다
@@ -248,3 +282,60 @@ def test_끝말_검증과_긴_것부터_정렬(tmp_path):
     칸.mkdir()
     path2 = 사전깔기(칸, {"doc_synonyms.core.yaml": {"suffixes": "품의안"}})
     assert len(DRE.load_synonyms(path2)["suffixes"]) == len(DRE.DOC_SUFFIXES)
+
+
+#------------------------------------------------------------------
+# 칸별 추가 단어(extra_terms)는 적힌 칸에만, 개수 제한 밖에서, 뒤에 붙는다 (2026-09-15)
+#=> 사람이 규칙을 조정한 결과를 사전에 남겨, 규칙을 처음부터 다시 만들어도 사라지지
+#   않게 한다. aliases 로 넣으면 자동 말을 밀어내고 모든 칸으로 새서 이 칸을 따로 둔다.
+#    1) title_terms·head_terms 에 적은 말이 그 칸 맨 뒤에 붙는다(이미 있는 말은 안 겹친다)
+#    2) 적지 않은 칸(본문·파일명)에는 들어가지 않는다
+#    3) 개수 제한(limit)에 걸려도 잘리지 않는다
+#    4) 모르는 칸·목록 아닌 값은 버리고, 분류 이름의 공백은 무시한다
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음
+# -out: error = 기대와 다르면 AssertionError
+#------------------------------------------------------------------
+def test_칸별_추가_단어는_적힌_칸_뒤에만_붙는다(tmp_path):
+    path = 사전깔기(tmp_path, {
+        "doc_synonyms.core.yaml": {"aliases": {"보고서": ["결과보고", "리포트"]}},
+        "doc_synonyms.local.yaml": {"extra_terms": {"보 고서": {
+            "title_terms": ["현황분석", "보고서", "참관"],
+            "head_terms": ["현황분석"],
+            "terms": "현황분석",           # 목록이 아님 → 버림
+            "titel_terms": ["오타칸"],     # 모르는 칸 → 버림
+        }}},
+    })
+    syn = DRE.load_synonyms(path)
+    assert syn["extra_terms"] == {"보고서": {"title_terms": ["현황분석", "보고서", "참관"],
+                                            "head_terms": ["현황분석"]}}
+    base = DRE.rule_vocab("보고서", syn={k: v for k, v in syn.items() if k != "extra_terms"}, limit=2)
+    v = DRE.rule_vocab("보고서", syn=syn, limit=2)
+    # 자동으로 만든 말은 그대로 앞에, 조정한 말은 뒤에(이미 있는 '보고서' 는 안 겹친다)
+    assert v["title_terms"] == base["title_terms"] + ["현황분석", "참관"]
+    assert v["head_terms"] == base["head_terms"] + ["현황분석"]
+    # 적지 않은 칸으로는 새지 않는다
+    assert v["terms"] == base["terms"] and v["filename"] == base["filename"]
+
+
+#------------------------------------------------------------------
+# 칸별 추가 단어는 겹을 합칠 때 칸마다 따로 합쳐지고 센 겹이 앞에 온다
+#=> core 에만 있는 칸은 local 이 다른 칸을 적었다고 사라지면 안 된다.
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음
+# -out: error = 기대와 다르면 AssertionError
+#------------------------------------------------------------------
+def test_칸별_추가_단어는_칸마다_합쳐진다(tmp_path):
+    path = 사전깔기(tmp_path, {
+        "doc_synonyms.core.yaml": {"extra_terms": {"보고서": {
+            "title_terms": ["참관"], "filename": ["동향보고"]}}},
+        "doc_synonyms.local.yaml": {"extra_terms": {"보고서": {
+            "title_terms": ["현황분석", "참관"]}}},
+    })
+    ex = DRE.load_synonyms(path)["extra_terms"]["보고서"]
+    assert ex["title_terms"] == ["현황분석", "참관"]
+    assert ex["filename"] == ["동향보고"]

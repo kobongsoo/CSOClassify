@@ -108,6 +108,10 @@ SYN_SECTIONS = ("aliases", "filename_only", "excludes", "tails", "heads")
 # 띄어쓰기 끝말 칸. 위 다섯 칸은 {이름: [말…]} 모양으로 합쳐지지만 이 칸은 말만
 # 늘어놓은 목록이라 SYN_SECTIONS 에 넣지 않고 따로 읽는다(_merge_layer 가 map 전용).
 SYN_SUFFIXES = "suffixes"
+# 칸별 추가 단어 칸(2026-09-15). {분류이름: {칸: [말…]}} 두 겹 모양이라 역시 따로 읽는다.
+# 사람이 조정해 둔 단어를 '적은 칸에만, 개수 제한 밖에서, 뒤에' 붙인다.
+SYN_EXTRA = "extra_terms"
+EXTRA_CELLS = ("title_terms", "head_terms", "terms", "filename", "exclude")
 # 업종 이름은 파일 이름에 그대로 들어간다. 경로로 새어 나갈 수 있는 글자를 막는다.
 PATH_CHARS = frozenset(["/", "\\", ".", ":"])
 
@@ -119,20 +123,33 @@ PATH_CHARS = frozenset(["/", "\\", ".", ":"])
 #   한 회사가 두 업종에 걸치는 일이 있어서(예: 병원의 의료 + 총무) 여러 개를
 #   적을 수 있게 한다. 앞에 적은 업종이 더 세다.
 #
+#
+#   [본보기로 대신하는 경우] 2026-09-15 수정. 규칙 파일이 아직 없거나(처음 만들 때)
+#   파일에 industry 칸이 아예 없으면 본보기(doc_rule_template.yaml)의 industry 를 쓴다.
+#   저장할 때 load_doc 이 빠진 칸을 본보기 값으로 채우므로, 만들어진 파일에는
+#   industry 가 적히는데 규칙을 만드는 순간에는 업종 사전이 빠지던 어긋남을 막는다.
+#   칸이 있으면(빈 목록이라도) 사람이 정한 값이라 본보기를 보지 않는다.
+#
 # -in: doc_rules_path = doc_rule.yaml 경로
 #
 # -out: list = 업종 이름 리스트(예: ["medical", "public"]). 없으면 빈 리스트
-# -out: error = 파일 없음·파싱 실패 시 [] (예외를 올리지 않는다 — 업종은 없어도 된다)
+# -out: error = 파싱 실패 시 [] (예외를 올리지 않는다 — 업종은 없어도 된다)
 #------------------------------------------------------------------
 def industry_of(doc_rules_path):
-    if not doc_rules_path or not os.path.isfile(doc_rules_path):
+    if not doc_rules_path:
         return []
-    try:
-        with open(doc_rules_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-    except (OSError, yaml.YAMLError):
-        return []
-    raw = data.get("industry")
+    data = None
+    if os.path.isfile(doc_rules_path):
+        try:
+            with open(doc_rules_path, encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            return []
+    if isinstance(data, dict) and "industry" in data:
+        raw = data.get("industry")
+    else:
+        # 파일이 없거나 칸이 없다 — 저장될 때 채워질 본보기 값을 미리 쓴다.
+        raw = load_template(doc_rules_path).get("industry")
     if not raw:
         return []
     # 한 개만 적었으면 문자열로 온다. 여러 개면 리스트다. 둘 다 받는다.
@@ -190,6 +207,8 @@ def _read_syn_layer(path):
     layer = {sec: (data.get(sec) or {}) for sec in SYN_SECTIONS}
     # 끝말은 목록 칸이라 따로 정리해 싣는다(모양이 틀리면 빈 목록).
     layer[SYN_SUFFIXES] = _clean_suffixes(data.get(SYN_SUFFIXES))
+    # 칸별 추가 단어도 모양을 정리해 싣는다(틀린 칸·틀린 말만 버린다).
+    layer[SYN_EXTRA] = _clean_extra_terms(data.get(SYN_EXTRA))
     return layer
 
 
@@ -272,6 +291,52 @@ def _clean_suffixes(raw):
 
 
 #------------------------------------------------------------------
+# 칸별 추가 단어 한 겹 정리하기
+#=> extra_terms: 는 사람이 규칙을 조정한 결과를 사전에 남겨 두는 칸이다.
+#   규칙을 처음부터 다시 만들어도 그 조정이 사라지지 않게 한다.
+#     extra_terms:
+#       보고서:
+#         title_terms: [현황분석, 참관]
+#         head_terms:  [현황분석]
+#    1) 칸 전체가 map 이 아니면 빈 dict
+#    2) 분류 이름은 공백을 지운 모양으로 맞춘다(aliases 를 찾는 방식과 같다)
+#    3) 칸 이름은 EXTRA_CELLS 다섯 개만 받는다(오타 칸은 버린다)
+#    4) 말은 문자열로 바꿔 앞뒤 공백을 지우고, 빈 말·중복은 버린다
+#
+# -in: raw = yaml 에서 읽은 extra_terms 값(아무 모양이나 올 수 있다)
+#
+# -out: dict = {분류이름: {칸: [말…]}} (쓸 것이 없으면 빈 dict)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _clean_extra_terms(raw):
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for name, cells in raw.items():
+        key = str(name or "").replace(" ", "").strip()
+        if not key or not isinstance(cells, dict):
+            continue
+        got = {}
+        for cell, words in cells.items():
+            # 모르는 칸(오타)이나 목록이 아닌 값은 그 칸만 버린다.
+            if cell not in EXTRA_CELLS or not isinstance(words, list):
+                continue
+            uniq = []
+            for x in words:
+                w = str(x if x is not None else "").strip()
+                if w and w not in uniq:
+                    uniq.append(w)
+            if uniq:
+                got[cell] = uniq
+        if got:
+            # 같은 이름이 공백만 다르게 두 번 적혔으면 앞의 것에 잇는다.
+            prev = out.setdefault(key, {})
+            for cell, words in got.items():
+                prev[cell] = prev.get(cell, []) + [w for w in words if w not in prev.get(cell, [])]
+    return out
+
+
+#------------------------------------------------------------------
 # 유의어 사전 읽기 — 세 겹을 찾아 합친다
 #=> 분류 이름과 "같은 뜻 다른 말"(요구사항정의서 ↔ 요구사항명세서 ↔ SRS)을 적어
 #   둔 사전들을 읽는다. 규칙 파일(doc_rule.yaml) 옆에 두는 것이 규약이라
@@ -284,6 +349,7 @@ def _clean_suffixes(raw):
 #
 # -out: dict = {"aliases","filename_only","excludes","tails","heads"} 와
 #              "suffixes"(띄어쓰기 끝말 목록 — core 기준 + 업종·local 추가, 긴 것부터) ·
+#              "extra_terms"({분류이름: {칸: [말…]}} — 규칙 칸 뒤에 그대로 붙일 말) ·
 #              "path"(대표 경로 — 화면 표시용) · "layers"(실제로 읽은 파일 경로들)
 #              한 겹도 못 읽었으면 빈 dict
 # -out: error = 파일 없음·파싱 실패 시 그 겹만 건너뛴다(예외를 올리지 않는다)
@@ -305,6 +371,8 @@ def load_synonyms(doc_rules_path):
     layers = []
     # 끝말은 core 가 기준 목록을 정하고, 업종·local 은 더하기만 한다.
     core_suffixes, extra_suffixes = [], []
+    # 칸별 추가 단어 — {분류이름: {칸: [말…]}}. 센 겹의 말이 앞에 온다(_merge_layer 와 같다).
+    extra = {}
     for name in names:
         path = _syn_path(base_dir, name)
         layer = _read_syn_layer(path)
@@ -313,6 +381,9 @@ def load_synonyms(doc_rules_path):
         layers.append(path)
         for sec in SYN_SECTIONS:
             merged[sec] = _merge_layer(merged[sec], layer[sec])
+        for key, cells in layer[SYN_EXTRA].items():
+            # 칸마다 따로 합친다 — 이번 겹에 없는 칸은 앞 겹 값을 그대로 둔다.
+            extra[key] = _merge_layer(extra.get(key) or {}, cells)
         if name == SYN_CORE:
             core_suffixes = layer[SYN_SUFFIXES]
         else:
@@ -334,6 +405,7 @@ def load_synonyms(doc_rules_path):
             uniq.append(w)
     # 긴 끝말이 먼저 걸려야 한다. sorted 는 안정 정렬이라 길이가 같으면 적은 차례를 지킨다.
     merged[SYN_SUFFIXES] = sorted(uniq, key=lambda w: -len(w))
+    merged[SYN_EXTRA] = extra
 
     # 화면에 한 줄로 보여 줄 대표 경로는 가장 센 겹(=사람이 고치는 자리)으로 둔다.
     merged["path"] = layers[-1]
@@ -558,7 +630,7 @@ def rule_vocab(title, syn=None, limit=10):
     tight = base.replace(" ", "")
     excl = list(((syn or {}).get("excludes") or {}).get(tight) or [])
 
-    return {
+    vocab = {
         "title_terms": blend(strong, name_only, limit + 4),
         "head_terms": cut(narrow, limit),
         "terms": cut(narrow, limit),
@@ -567,6 +639,16 @@ def rule_vocab(title, syn=None, limit=10):
         "filename": cut(fname, 2 * (limit + 6 + GENERIC_SLOTS)),
         "exclude": cut(excl, 10 ** 6),
     }
+
+    # 사람이 조정해 둔 칸별 추가 단어(extra_terms)는 개수 제한 밖에서 맨 뒤에 붙인다.
+    # 앞에 끼우면 자동으로 만든 말이 잘려 나가고, 제한 안에 넣으면 조정한 말이 잘린다.
+    # 적힌 칸에만 넣는다 — 제목·앞부분에만 넣은 말이 본문·파일명으로 새면 오탐이 는다.
+    for cell, words in (((syn or {}).get(SYN_EXTRA) or {}).get(tight) or {}).items():
+        have = vocab.get(cell)
+        if have is None:
+            continue
+        have.extend(w for w in words if w not in have)
+    return vocab
 
 
 #------------------------------------------------------------------
