@@ -127,6 +127,35 @@ def test_매뉴얼_계열은_실제_쓰는_말만_받는다():
 
 
 #------------------------------------------------------------------
+# core 사전의 끝말과 코드 내장 목록이 같다 (2026-09-15 사전 이관)
+#=> 끝말의 원본은 core 사전이고, 코드의 DOC_SUFFIXES 는 사전이 없을 때 쓰는
+#   기본값이다. 둘이 어긋나면 "사전이 있는 배포"와 "없는 배포"의 규칙이 갈린다.
+#   core 에 끝말을 더하거나 뺐으면 Python·Rust 기본값도 같이 고치라는 신호다.
+#    1) 두 목록의 집합이 같다(차례는 코드가 길이순으로 다시 세우므로 보지 않는다)
+#    2) core 에 적힌 항목 중 검증에서 버려지는 것이 없다(사람 모르게 빠지는 줄 방지)
+#
+# -in: 없음
+#
+# -out: 없음
+# -out: error = 어긋나면 AssertionError, 사전이 없으면 skip
+#------------------------------------------------------------------
+def test_core_끝말과_내장_목록이_같다():
+    import pytest
+    import yaml
+    core = os.path.join(UI, "policy", DRE.SYN_DIR, DRE.SYN_CORE)
+    if not os.path.isfile(core):
+        pytest.skip("배포 core 사전이 없어 건너뜀")
+    with open(core, encoding="utf-8") as f:
+        raw = (yaml.safe_load(f) or {}).get("suffixes")
+    assert isinstance(raw, list), "core 사전에 suffixes 목록이 없다"
+    # 버려지는 항목이 있으면 사전에 적힌 것과 실제로 쓰이는 것이 다르다.
+    assert DRE._clean_suffixes(raw) == [str(x).strip() for x in raw]
+    assert set(raw) == set(DRE.DOC_SUFFIXES), (
+        "core 에만: %s / 코드에만: %s"
+        % (sorted(set(raw) - set(DRE.DOC_SUFFIXES)), sorted(set(DRE.DOC_SUFFIXES) - set(raw))))
+
+
+#------------------------------------------------------------------
 # 배포되는 업종 사전을 전부 확인한다
 #=> 업종 사전은 앞으로 하나씩 늘어난다(금융·법률·교육 …). 새로 만든 사전이
 #   공통 사전 위에 얹혔을 때 순서가 무너지거나 겹친 말을 만들어 내면, 그

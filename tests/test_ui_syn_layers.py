@@ -177,3 +177,74 @@ def test_업종_이름에_경로를_넣을_수_없다(tmp_path):
 def test_사전이_없으면_빈값이다(tmp_path):
     assert DRE.load_synonyms(사전깔기(tmp_path, {})) == {}
     assert DRE.load_synonyms(None) == {}
+
+
+#------------------------------------------------------------------
+# core 의 끝말(suffixes)이 기준 목록이 된다 (2026-09-15 사전 이관)
+#=> core 에 칸이 있으면 그 목록이 전부다 — 그래야 core 에서 끝말을 뺄 수 있다.
+#    1) core 에만 적은 '품의안' 으로 띄어쓰기·파일명 구분자 표기가 만들어진다
+#    2) core 에 안 적은 내장 끝말(보고서)은 쓰이지 않는다
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음
+# -out: error = 기대와 다르면 AssertionError
+#------------------------------------------------------------------
+def test_core_끝말이_기준_목록이_된다(tmp_path):
+    path = 사전깔기(tmp_path, {
+        "doc_synonyms.core.yaml": {"aliases": {}, "suffixes": ["품의안"]}})
+    syn = DRE.load_synonyms(path)
+    assert syn["suffixes"] == ["품의안"]
+    v = DRE.rule_vocab("결재품의안", syn=syn)
+    assert "결재 품의안" in v["title_terms"]
+    assert "결재_품의안" in v["filename"]
+    # core 가 기준이라 내장 끝말은 빠진다
+    assert "월간 보고서" not in DRE.rule_vocab("월간보고서", syn=syn)["title_terms"]
+
+
+#------------------------------------------------------------------
+# 옛 core(칸 없음) + local 끝말 → 내장 목록에 더해진다
+#=> local 에 하나만 적었다고 내장 43개가 사라지면 오류 없이 규칙만 나빠진다.
+#   기준 목록은 core 에서만 받는다는 규칙을 지킨다.
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음
+# -out: error = 기대와 다르면 AssertionError
+#------------------------------------------------------------------
+def test_옛_core_와_local_끝말은_내장_목록에_더해진다(tmp_path):
+    path = 사전깔기(tmp_path, {
+        "doc_synonyms.core.yaml": {"aliases": {}},
+        "doc_synonyms.local.yaml": {"suffixes": ["품의안"]}})
+    syn = DRE.load_synonyms(path)
+    assert len(syn["suffixes"]) == len(DRE.DOC_SUFFIXES) + 1
+    assert "결재 품의안" in DRE.rule_vocab("결재품의안", syn=syn)["title_terms"]
+    assert "월간 보고서" in DRE.rule_vocab("월간보고서", syn=syn)["title_terms"]
+
+
+#------------------------------------------------------------------
+# 끝말 검증 · 긴 것부터 정렬 · 모양이 틀린 칸
+#=> 사람이 적는 칸이라 틀린 항목만 버리고 나머지는 쓴다.
+#    1) 한 글자·공백 포함·빈 값·숫자·중복은 버린다
+#    2) 긴 끝말이 앞에 와서 '사항정의서' 가 '정의서' 보다 먼저 걸린다
+#    3) 목록이 아닌 칸(문자열)은 없는 것으로 보고 내장 목록을 쓴다
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음
+# -out: error = 기대와 다르면 AssertionError
+#------------------------------------------------------------------
+def test_끝말_검증과_긴_것부터_정렬(tmp_path):
+    assert DRE._clean_suffixes(["서", "관 리", "", 3, None, "정의서", "정의서"]) == ["정의서"]
+    assert DRE._clean_suffixes("품의안") == []
+
+    path = 사전깔기(tmp_path, {
+        "doc_synonyms.core.yaml": {"suffixes": ["정의서", "사항정의서"]}})
+    syn = DRE.load_synonyms(path)
+    assert syn["suffixes"] == ["사항정의서", "정의서"]
+    assert "요구 사항정의서" in DRE.rule_vocab("요구사항정의서", syn=syn)["title_terms"]
+
+    칸 = tmp_path / "shape"
+    칸.mkdir()
+    path2 = 사전깔기(칸, {"doc_synonyms.core.yaml": {"suffixes": "품의안"}})
+    assert len(DRE.load_synonyms(path2)["suffixes"]) == len(DRE.DOC_SUFFIXES)
