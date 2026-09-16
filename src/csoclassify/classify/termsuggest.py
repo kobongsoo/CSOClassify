@@ -901,3 +901,175 @@ def _in_cluster_share(term, pos, clusters, suffixes):
         if any(term in words[where] for where in words):
             hit += 1
     return hit / len(same)
+
+
+#------------------------------------------------------------------
+# 문서 한 건을 놓고 후보 고르기 (검토 화면용)
+#=> 관리자가 '규칙이 못 잡은 문서'를 열어 분류를 확정한 그 순간에 쓴다.
+#   분류 전체의 후보를 다 보여 주면 지금 보고 있는 문서와 상관없는 말이 섞여
+#   판단이 흐려진다. 그래서 <b>이 문서에 실제로 있는 말</b>로만 목록을 좁힌다.
+#
+#   [문턱을 넘지 못한 말도 보여 준다] 관리자가 그 문서를 눈앞에 두고 있어
+#   판단이 가장 정확한 순간이다. 여기서는 '흔한 말'·'근거 적음' 표식을 달아
+#   함께 올리고, 기본 체크만 꺼 둔다 — 버리면 사람이 볼 기회가 아예 없어진다.
+#   (분류 단위로 훑는 suggest() 는 반대로 조용해야 하므로 문턱에서 자른다.)
+#
+# -in: node      = 확정한 분류의 dc_id
+# -in: docs      = 재료 문서 목록(load_documents 결과)
+# -in: focus     = 지금 보고 있는 문서의 경로(정규화 전 원본 경로도 된다)
+# -in: 나머지    = suggest() 와 같다
+#
+# -out: dict = suggest() 결과와 같은 모양 + "focus_only" (이 문서에만 있는 말로
+#              좁힌 목록. 문턱을 못 넘은 말은 flags 에 까닭이 담긴다)
+# -out: error = 없음(그 문서를 못 찾으면 focus_only 가 빈 목록)
+#------------------------------------------------------------------
+def suggest_for_doc(node, docs, focus, rule_doc=None, stopwords=None, tax=None,
+                    suffixes=None, min_docs=MIN_DOCS):
+    suffixes = suffixes or docvocab.DOC_SUFFIXES
+    res = suggest(node, docs, rule_doc=rule_doc, stopwords=stopwords, tax=tax,
+                  suffixes=suffixes, min_docs=min_docs)
+
+    key = norm_key(focus)
+    doc = next((d for d in docs if d["key"] == key), None)
+    res["focus"] = focus
+    res["focus_only"] = []
+    if doc is None:
+        return res
+
+    mine = set().union(*doc_words(doc, suffixes).values())
+    # 문턱을 넘은 후보 중 이 문서에 있는 것부터.
+    seen = set()
+    for cand in res["candidates"] + res["cluster_only"]:
+        if cand["term"] in mine:
+            res["focus_only"].append(dict(cand))
+            seen.add(cand["term"])
+
+    # 문턱을 못 넘은 말도 까닭을 달아 올린다.
+    near = _near_misses(node, docs, doc, mine - seen, rule_doc, stopwords, tax, suffixes)
+    res["focus_only"].extend(near)
+    res["focus_only"].sort(key=lambda c: (-c["score"], -c["docs"], c["term"]))
+    return res
+
+
+#------------------------------------------------------------------
+# 문턱을 못 넘은 말에 까닭 달기 (suggest_for_doc 의 뒷부분)
+#=> "왜 이 말은 제안 목록에 없나"를 화면에서 답할 수 있게 한다. 그냥 빼 버리면
+#   관리자는 그 말이 검토조차 안 됐다고 오해한다.
+#    · 흔한 말      다른 분류에도 자주 나온다(df_neg 초과) — 넣으면 오탐이 는다
+#    · 근거 적음    이 분류 확정문서 두세 건에만 나온다
+#    · 한 폴더      그 폴더에서만 쓰는 말일 수 있다
+#   아주 지우는 말(이미 규칙에 있음·금지 목록·형태 쓰레기)은 여기에도 안 올린다.
+#
+# -in: node·docs·doc·terms = 대상과 아직 안 올라간 말들
+# -in: 나머지 = suggest() 와 같다
+#
+# -out: list = 후보 dict 목록(checked 는 모두 False)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _near_misses(node, docs, doc, terms, rule_doc, stopwords, tax, suffixes):
+    stopwords = stopwords or {"global": set(), "by_node": {}}
+    by_node, owner = rule_terms(rule_doc)
+    mine_rule = by_node.get(node, set())
+    banned = {w.lower() for w in (stopwords.get("global") or set())}
+    banned |= {w.lower() for w in (stopwords.get("by_node") or {}).get(node) or set()}
+    titles = other_titles(tax, node)
+
+    pos = [d for d in docs if node in d["labels"]]
+    neg = [d for d in docs if node not in d["labels"]]
+    pos_w, _ = cluster_weights(pos)
+    neg_w, _ = cluster_weights(neg)
+    n_pos = sum(pos_w.values()) or 1.0
+    n_neg = sum(neg_w.values()) or 1.0
+
+    # 이 문서의 말이 다른 문서들에서 얼마나 나오는지 센다.
+    stats = {t: {"pos": 0.0, "neg": 0.0, "docs": 0, "clusters": set()} for t in terms}
+    for d in pos:
+        for t in set().union(*doc_words(d, suffixes).values()) & terms:
+            stats[t]["pos"] += pos_w[d["key"]]
+            stats[t]["docs"] += 1
+            stats[t]["clusters"].add(d["cluster"])
+    for d in neg:
+        for t in set().union(*doc_words(d, suffixes).values()) & terms:
+            stats[t]["neg"] += neg_w[d["key"]]
+
+    words = doc_words(doc, suffixes)
+    out = []
+    for term, st in stats.items():
+        low = term.lower()
+        # 아주 지우는 것들 — 여기서도 안 올린다.
+        if low in mine_rule or low in banned or low in titles:
+            continue
+        where = next((w for w in ("title", "name", "head", "body") if term in words[w]), None)
+        if where is None:
+            continue
+        if where in ("head", "body") and len(term) < TEXT_MIN_LEN:
+            continue
+        df_pos = st["pos"] / n_pos
+        df_neg = st["neg"] / n_neg
+        flags = []
+        if df_neg > DF_NEG_MAX:
+            flags.append("흔한 말")
+        if st["docs"] < MIN_TERM_DOCS:
+            flags.append("근거 적음")
+        if len(st["clusters"]) < MIN_TERM_CLUSTERS:
+            flags.append("한 폴더")
+        conflict = owner.get(low)
+        if conflict and conflict != node:
+            flags.append(f"충돌: {conflict} 규칙에 있음")
+        if looks_proper_noun(term, pos, suffixes):
+            flags.append("고유명사 의심")
+        fields, extra, _ = placement(where)
+        out.append({"term": term, "fields": fields, "extra": extra,
+                    "checked": False, "where": where, "group": "near",
+                    "df_pos": round(df_pos, 4), "df_neg": round(df_neg, 4),
+                    "score": round(log_odds(df_pos, df_neg, n_pos, n_neg), 3),
+                    "docs": st["docs"], "clusters": len(st["clusters"]),
+                    "flags": flags})
+    return out
+
+
+#------------------------------------------------------------------
+# 고른 말을 규칙에 덧붙이기
+#=> 관리자가 체크한 말을 doc_rule.yaml 의 dict 에 넣는다. 파일을 쓰지는 않는다 —
+#   저장은 화면이 docvocab.save_doc() 한 경로로만 한다(주석 머리글·키 차례를
+#   한 곳에서 정하려고 그렇게 나눠 둔다).
+#
+#   [덧붙이기만 한다] 있는 말은 순서까지 그대로 두고 뒤에 붙인다. 지우지 않는다.
+#   규칙이 없는 분류면 만들지 않는다 — 규칙 생성은 '분류 불러오기'의 일이고,
+#   같은 일을 두 곳에서 하면 결과가 갈라진다(docvocab 과 같은 원칙).
+#
+# -in: doc   = docvocab.load_doc() 결과(이 dict 를 제자리에서 고친다)
+# -in: node  = 넣을 분류의 dc_id
+# -in: picks = [{"term","fields","extra"}] 관리자가 고른 것들
+#
+# -out: (added, skipped, missing) = added: [(칸, 말)] 실제로 넣은 것,
+#        skipped: [(칸, 말)] 이미 있어서 건너뛴 것,
+#        missing: True 면 그 분류의 규칙이 없어 아무것도 못 넣었다
+# -out: error = 없음
+#------------------------------------------------------------------
+def apply_terms(doc, node, picks):
+    rules = (doc or {}).get("doctype_rules") or []
+    rule = next((r for r in rules if r.get("node") == node), None)
+    if rule is None:
+        return [], [], True
+
+    added, skipped = [], []
+    for pick in picks:
+        term = str(pick.get("term") or "").strip()
+        if not term:
+            continue
+        for cell in pick.get("fields") or []:
+            cur = rule.setdefault(cell, [])
+            # 대소문자만 다른 중복도 막는다(Mpower/mpower 로 본문 건수가 두 배로
+            # 세어지던 실제 사고가 있었다).
+            if term.lower() in {str(w).strip().lower() for w in cur}:
+                skipped.append((cell, term))
+                continue
+            cur.append(term)
+            added.append((cell, term))
+        # 본문 칸에 넣을 때 따라오는 값(min_count 등)은 규칙 줄에 함께 적는다.
+        for key, val in (pick.get("extra") or {}).items():
+            # 이미 더 센(작은) 값이 적혀 있으면 덮지 않는다 — 사람이 정한 값이 이긴다.
+            if key not in rule:
+                rule[key] = val
+    return added, skipped, False

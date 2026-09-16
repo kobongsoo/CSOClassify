@@ -473,3 +473,176 @@ def test_한폴더_묶음은_두글자_말을_거른다():
     assert "도움말" in got            # 세 글자는 남는다
     for word in ("업무", "진행", "상황"):
         assert word not in got
+
+
+# ──────────────────────────────────────────────────────────────────
+# 검토 화면용 — 문서 한 건을 놓고 후보 고르기
+# ──────────────────────────────────────────────────────────────────
+
+#------------------------------------------------------------------
+# 이 문서에 있는 말로만 좁힌다
+#=> 분류 전체의 후보를 다 보여 주면 지금 보고 있는 문서와 상관없는 말이 섞인다.
+#------------------------------------------------------------------
+def test_문서_한건으로_좁힌다():
+    pos = [doc(f"확정{i}", f"품목보고서 {i}.pdf", labels=["DC_R"], text="품목보고서 내용")
+           for i in range(5)]
+    pos += [doc(f"별도{i}", f"실태조사 {i}.hwp", labels=["DC_R"], text="실태조사 내용")
+            for i in range(5)]
+    docs = pos + others(10, "관계없는 본문.")
+    node = "DC_R"
+    전체 = terms(ts.suggest(node, docs))
+    assert "품목보고서" in 전체 and "실태조사" in 전체
+
+    got = ts.suggest_for_doc(node, docs, pos[0]["file"])
+    names = [c["term"] for c in got["focus_only"]]
+    assert "품목보고서" in names
+    assert "실태조사" not in names       # 이 문서에 없는 말은 빠진다
+
+
+#------------------------------------------------------------------
+# 문턱을 못 넘은 말도 까닭을 달아 함께 올린다
+#=> 관리자가 그 문서를 눈앞에 두고 있어 판단이 가장 정확한 순간이다.
+#   버리면 사람이 볼 기회가 아예 없어진다.
+#------------------------------------------------------------------
+def test_문턱을_못넘은_말도_까닭과_함께_올린다():
+    pos = [doc(f"확정{i}", f"인증 서류 {i}.pdf", labels=["DC_C2"], text="인증 관련 서류")
+           for i in range(5)]
+    # '인증'은 다른 분류에도 흔하다 — 분류 단위 제안에서는 잘린다.
+    docs = pos + [doc(f"기타{i}", f"타{i}.docx", labels=["DC_OTHER"],
+                      text="제품 인증 절차 설명") for i in range(10)]
+    assert "인증" not in terms(ts.suggest("DC_C2", docs))
+
+    got = ts.suggest_for_doc("DC_C2", docs, pos[0]["file"])
+    cand = [c for c in got["focus_only"] if c["term"] == "인증"]
+    assert cand, "문서 화면에서는 까닭을 달아 보여 준다"
+    assert cand[0]["checked"] is False
+    assert "흔한 말" in cand[0]["flags"]
+
+
+#------------------------------------------------------------------
+# 아주 지우는 말은 문서 화면에도 안 올린다
+#=> 이미 규칙에 있는 말·금지 목록·다른 분류 이름은 볼 이유가 없다.
+#------------------------------------------------------------------
+def test_아주_지우는_말은_문서화면에도_없다():
+    pos = [doc(f"확정{i}", f"품목보고서 {i}.pdf", labels=["DC_R2"], text="품목보고서 내용")
+           for i in range(5)]
+    docs = pos + others(10, "관계없는 본문.")
+    rule = {"doctype_rules": [{"node": "DC_R2", "title_terms": ["품목보고서"]}]}
+    got = ts.suggest_for_doc("DC_R2", docs, pos[0]["file"], rule_doc=rule)
+    assert "품목보고서" not in [c["term"] for c in got["focus_only"]]
+
+    stop = {"global": {"품목보고서"}, "by_node": {}}
+    got = ts.suggest_for_doc("DC_R2", docs, pos[0]["file"], stopwords=stop)
+    assert "품목보고서" not in [c["term"] for c in got["focus_only"]]
+
+
+#------------------------------------------------------------------
+# 재료에 없는 문서를 가리키면 빈 목록으로 끝난다
+#------------------------------------------------------------------
+def test_없는_문서를_가리키면_빈목록():
+    pos = [doc(f"확정{i}", f"문서{i}.docx", labels=["DC_R3"], text="품목보고서 내용")
+           for i in range(5)]
+    got = ts.suggest_for_doc("DC_R3", pos + others(10, "다른 본문."), "D:/없는/문서.docx")
+    assert got["focus_only"] == []
+    assert got["candidates"]           # 분류 단위 후보는 그대로 있다
+
+
+# ──────────────────────────────────────────────────────────────────
+# 고른 말을 규칙에 덧붙이기
+# ──────────────────────────────────────────────────────────────────
+
+#------------------------------------------------------------------
+# 있는 말은 순서까지 그대로 두고 뒤에 붙인다
+#------------------------------------------------------------------
+def test_규칙에_덧붙인다():
+    rule = {"doctype_rules": [
+        {"id": "dt_a", "node": "DC_A", "title_terms": ["보고서", "리포트"],
+         "filename": ["보고서"]}]}
+    picks = [{"term": "품목보고서", "fields": ["title_terms", "filename"], "extra": {}}]
+    added, skipped, missing = ts.apply_terms(rule, "DC_A", picks)
+    assert missing is False
+    assert skipped == []
+    assert added == [("title_terms", "품목보고서"), ("filename", "품목보고서")]
+    got = rule["doctype_rules"][0]
+    # 사람이 적어 둔 말이 순서까지 그대로고, 새 말은 뒤에 붙는다.
+    assert got["title_terms"] == ["보고서", "리포트", "품목보고서"]
+    assert got["filename"] == ["보고서", "품목보고서"]
+
+
+#------------------------------------------------------------------
+# 이미 있는 말은 건너뛴다(대소문자만 달라도 같은 말)
+#------------------------------------------------------------------
+def test_이미_있는_말은_건너뛴다():
+    rule = {"doctype_rules": [{"node": "DC_B", "title_terms": ["mpower"]}]}
+    added, skipped, _ = ts.apply_terms(
+        rule, "DC_B", [{"term": "Mpower", "fields": ["title_terms"], "extra": {}}])
+    assert added == []
+    assert skipped == [("title_terms", "Mpower")]
+    assert rule["doctype_rules"][0]["title_terms"] == ["mpower"]
+
+
+#------------------------------------------------------------------
+# 본문 칸에 넣을 때 min_count 가 따라붙되, 사람이 정한 값은 안 덮는다
+#------------------------------------------------------------------
+def test_본문칸은_min_count_가_따라붙는다():
+    rule = {"doctype_rules": [{"node": "DC_C", "terms": []}]}
+    ts.apply_terms(rule, "DC_C",
+                   [{"term": "분기실적", "fields": ["terms"], "extra": {"min_count": 2}}])
+    assert rule["doctype_rules"][0]["min_count"] == 2
+
+    rule2 = {"doctype_rules": [{"node": "DC_C", "terms": [], "min_count": 3}]}
+    ts.apply_terms(rule2, "DC_C",
+                   [{"term": "분기실적", "fields": ["terms"], "extra": {"min_count": 2}}])
+    assert rule2["doctype_rules"][0]["min_count"] == 3     # 사람이 정한 값이 이긴다
+
+
+#------------------------------------------------------------------
+# 규칙이 없는 분류에는 규칙을 만들지 않는다
+#=> 규칙 생성은 '분류 불러오기'의 일이다. 두 곳에서 만들면 결과가 갈라진다.
+#------------------------------------------------------------------
+def test_규칙이_없으면_만들지_않는다():
+    rule = {"doctype_rules": [{"node": "DC_A", "title_terms": []}]}
+    added, skipped, missing = ts.apply_terms(
+        rule, "DC_없음", [{"term": "품목보고서", "fields": ["title_terms"], "extra": {}}])
+    assert missing is True
+    assert added == [] and skipped == []
+    assert len(rule["doctype_rules"]) == 1       # 규칙을 새로 만들지 않았다
+
+
+#------------------------------------------------------------------
+# 넣은 뒤에도 규칙 파일이 유효하다 (덧붙이기 → 저장 → 검증 한 바퀴)
+#=> 이 기능이 파일을 깨뜨리면 분류가 통째로 멈춘다(규칙 검증에 걸리면 엔진이
+#   그 파일을 아예 안 읽는다). 화면이 실제로 지나는 경로 그대로 돌려 본다.
+#------------------------------------------------------------------
+def test_넣은_뒤에도_규칙파일이_유효하다(tmp_path):
+    from csoclassify.classify import docvocab
+    from csoclassify.classify import doc_rules as DR
+
+    path = tmp_path / "doc_rule.yaml"
+    path.write_text(
+        "version: doctype-test.1\n"
+        "conflict: all\n"
+        "defaults: {scoring: staged, head_chars: 400, t_low: 0.35, t_high: 0.7,\n"
+        "  t_seed: 0.85, embed_cap: 0.65}\n"
+        "doctype_rules:\n"
+        "- id: dt_a\n  node: DC_001_003\n  weight: medium\n"
+        "  title_terms: [보고서]\n  filename: [보고서]\n  terms: []\n",
+        encoding="utf-8")
+
+    doc = docvocab.load_doc(str(path))
+    added, skipped, missing = ts.apply_terms(doc, "DC_001_003", [
+        {"term": "품목보고서", "fields": ["title_terms", "filename"], "extra": {}},
+        {"term": "분기실적", "fields": ["terms"], "extra": {"min_count": 2}},
+    ])
+    assert missing is False and skipped == [] and len(added) == 3
+    docvocab.save_doc(str(path), doc)
+
+    # 저장한 파일이 규칙 검증을 통과해야 한다 — 여기서 걸리면 엔진이 파일을 안 읽는다.
+    again = docvocab.load_doc(str(path))
+    violations = DR.validate_doc_rule_data(again)
+    assert violations == [], violations
+    rule = again["doctype_rules"][0]
+    assert rule["title_terms"] == ["보고서", "품목보고서"]
+    assert rule["filename"] == ["보고서", "품목보고서"]
+    assert rule["terms"] == ["분기실적"]
+    assert rule["min_count"] == 2
