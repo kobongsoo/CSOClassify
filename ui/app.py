@@ -1726,7 +1726,8 @@ def render_term_suggest(rec, confirmed, paths, tax, reviewer="", scope="doctype"
         for dc_id in confirmed:
             res = termsuggest.suggest_for_doc(dc_id, docs, file, rule_doc=rule_doc,
                                               stopwords=stopwords, tax=tax,
-                                              suffixes=syn.get("suffixes"))
+                                              suffixes=syn.get("suffixes"),
+                                              endings=syn.get("verb_endings"))
             node = by_id.get(dc_id) or {}
             name = node.get("path") or node.get("title") or dc_id
             st.markdown(f"**{name}** — 이 분류로 확정된 문서 {res['docs']}건"
@@ -3046,7 +3047,8 @@ def render_term_suggest_bulk(path, tax):
         audit_path = os.path.join(policy_dir, "doc_rule_suggest_audit.jsonl")
         res = termsuggest.suggest(node, docs, rule_doc=rule_doc,
                                   stopwords=termsuggest.load_stopwords(stop_path),
-                                  tax=tax, suffixes=syn.get("suffixes"))
+                                  tax=tax, suffixes=syn.get("suffixes"),
+                                  endings=syn.get("verb_endings"))
 
         st.caption(f"확정 문서 {res['docs']}건 · 폴더 {res['clusters']}곳"
                    + (f" · 본문 없음 {res['no_text']}건" if res["no_text"] else "")

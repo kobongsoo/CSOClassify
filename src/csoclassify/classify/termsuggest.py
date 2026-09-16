@@ -80,6 +80,15 @@ CLUSTER_ONLY_DF_NEG = 0.02     # 다른 분류에는 사실상 없어야 한다
 # 커지면 어디에나 나온다. 근거가 약한 묶음인 만큼 말이라도 길 것을 요구한다.
 CLUSTER_ONLY_MIN_LEN = 3
 
+# 문서 한 건을 놓고 보는 화면(suggest_for_doc)에서 한 번에 보여 줄 후보 수.
+# [왜 필요한가] 문턱을 못 넘은 말도 까닭을 달아 올리는 자리라, 상한이 없으면
+# 문서 하나의 낱말이 통째로 올라온다 — 실측에서 사내규정 문서 한 건이 후보
+# 126개를 냈다('NUMPAGES'·'때까지'·'지장을주어서'까지). 그 목록은 아무도 못 읽는다.
+NEAR_MISS_MAX = 15
+# 그리고 그 문서에만 있는 말은 올리지 않는다 — 한 문서의 낱말은 규칙이 아니라
+# 그 문서의 지문이다(설계 4-1 과 같은 이유, 눈앞의 문서라 하한만 낮춘 것이다).
+NEAR_MISS_MIN_DOCS = 2
+
 # 사람이 "이 분류 아님"이라고 거절한 문서는 대조군에서 이만큼 무겁게 센다.
 # 그냥 다른 분류인 문서보다, 사람이 콕 집어 아니라고 한 문서가 더 강한 반례다.
 REJECT_WEIGHT = 2.0
@@ -97,10 +106,17 @@ PARTICLES = tuple(sorted((
     "에게", "한테", "부터", "까지", "처럼", "보다", "마다", "조차", "라는", "이나",
     "께서", "들의", "들을", "들이", "들은",
     "은", "는", "이", "가", "을", "를", "의", "에", "와", "과", "도", "만", "로", "랑",
+    # 인용 조사 — '“동호회”라 한다' 같은 규정 문투에서 나온다. 뗀 뒤 두 글자가
+    # 안 남으면 떼지 않으므로 '나라'·'우라' 같은 명사는 그대로 살아남는다.
+    "라",
 ), key=lambda w: -len(w)))
 
 # 파일 이름·제목을 자를 구분자.
-SPLIT_RE = re.compile(r"[\s_\-–—.,/\\()\[\]{}<>~!@#$%^&*+=:;'\"?｜|·・]+")
+# [한글 따옴표·괄호도 넣는다] 실데이터에서 '“동호회”라'·'“지원금”'·'「회원」' 이
+# 한 낱말로 올라왔다(2026-09-16). 영문 따옴표만 담고 있던 탓이다.
+SPLIT_RE = re.compile(
+    r"[\s_\-–—.,/\\()\[\]{}<>~!@#$%^&*+=:;'\"?｜|·・"
+    r"“”‘’「」『』〈〉《》【】（），：；？！]+")
 
 # 버릴 토큰 — 숫자·날짜·판번호처럼 문서 종류와 무관한 것.
 JUNK_RE = re.compile(r"^(v?\d+([.\-]\d+)*[가-힣a-z]*|\d{4}년?|\d+분기|\d+차|\d+회|\d+판)$",
@@ -124,8 +140,15 @@ DIGIT_RE = re.compile(r"\d")
 # [짧은 꼬리는 일부러 뺐다] '한'·'된' 하나만 보면 기한·제한·권한·시한 같은 멀쩡한
 # 명사가 함께 죽는다. 두 글자 이상이라 용언에서만 나오는 꼬리만 담았다.
 #
-# [검산] 현행 규칙 단어·유의어 사전·분류 이름의 낱말 2,002개에 대 보니 걸리는 것이
-# '감사합니다'·'감사드립니다'·'소장하고' 3개뿐이고, 그 셋도 활용형 자체다.
+# [검산] 현행 규칙 단어·유의어 사전·분류 이름의 낱말에 대 보니 '된'·'는' 은 0개,
+# '인' 은 8개(승인·확인·가이드라인…), '한' 은 2개(경고서한…)가 걸린다.
+# 그래서 '된'·'는' 은 담고 '인'·'한' 은 뺐다 — '주관부서인' 하나를 잡으려고
+# '승인'·'확인'을 죽일 수는 없다. 그런 말은 금지 목록(11장)이 맡는다.
+#
+# [이 목록은 사전으로 옮겼다] core 사전의 verb_endings: 칸이 기준이고, 업종·local 은
+# 더하기만 한다(끝말 목록 suffixes 와 같은 규약, 2026-09-15 전례).
+# 여기 값은 그 칸이 없는 옛 사전이 깔렸을 때 쓰는 기본값이다 — 필터가 조용히
+# 꺼지는 것을 막는다.
 VERB_ENDINGS = (
     "하면", "하고", "하며", "하여", "하는", "하지", "하기", "하도록", "하였", "해야", "해서",
     "되면", "되고", "되며", "되어", "되는", "되지", "되도록", "되어야", "돼야",
@@ -133,6 +156,8 @@ VERB_ENDINGS = (
     "어야", "아야", "여야", "니다", "습니다", "드립니다",
     "있는", "없는", "같은", "대한", "관한", "위한", "통한", "통해", "따른", "따라",
     "면서", "지만",
+    # 아래 둘은 위 검산에서 0건이라 안전하다. '신고된'·'정하는' 류가 여기서 걸린다.
+    "된", "는",
 )
 
 # 앞부분·본문에서 뽑은 말의 최소 길이. 제목·파일 이름에는 걸지 않는다.
@@ -522,12 +547,13 @@ def strip_particle(word, suffixes=None):
 #=> 숫자·날짜·판번호·확장자·너무 짧은 말을 걸러낸다. 여기서 막지 않으면
 #   후보 목록이 '2026'·'v1.2'·'pdf' 로 뒤덮여 아무도 안 본다.
 #
-# -in: term = 후보 말
+# -in: term    = 후보 말
+# -in: endings = 활용형 꼬리 목록(사전의 verb_endings). None 이면 내장 목록
 #
 # -out: bool = 쓸 만하면 True
 # -out: error = 없음
 #------------------------------------------------------------------
-def is_usable(term):
+def is_usable(term, endings=None):
     term = (term or "").strip()
     if not term or JUNK_RE.match(term):
         return False
@@ -540,7 +566,7 @@ def is_usable(term):
         if term.endswith("다"):
             # 서술어('정한다'·'포함한다'). 문서 종류를 가리키는 말이 아니다.
             return False
-        if term.endswith(VERB_ENDINGS):
+        if term.endswith(tuple(endings) if endings else VERB_ENDINGS):
             # 활용형('클릭하면'·'선택하고'·'통하여'). 위와 같은 이유다.
             return False
         # 한글은 한 글자면 뜻이 너무 넓다('서'·'안'·'표').
@@ -562,7 +588,7 @@ def is_usable(term):
 # -out: set = 뽑힌 말들
 # -out: error = 없음
 #------------------------------------------------------------------
-def split_words(text, suffixes=None, drop_ext=False):
+def split_words(text, suffixes=None, drop_ext=False, endings=None):
     text = (text or "").strip()
     if not text:
         return set()
@@ -573,7 +599,7 @@ def split_words(text, suffixes=None, drop_ext=False):
     out = set()
     for tok in SPLIT_RE.split(text):
         tok = strip_particle(tok.strip(), suffixes)
-        if is_usable(tok):
+        if is_usable(tok, endings):
             out.add(tok)
     return out
 
@@ -592,7 +618,7 @@ def split_words(text, suffixes=None, drop_ext=False):
 # -out: (in_suffix, out_suffix) = 두 집합
 # -out: error = 없음
 #------------------------------------------------------------------
-def scan_words(text, suffixes=None):
+def scan_words(text, suffixes=None, endings=None):
     suffixes = suffixes or docvocab.DOC_SUFFIXES
     hit, rest = set(), set()
     # [먼저 중복을 없앤다] 조사 떼기는 어절 하나마다 끝말 43개·조사 30개를 훑는
@@ -601,7 +627,7 @@ def scan_words(text, suffixes=None):
     # 결과는 어차피 집합이라 값이 달라지지 않는다.
     for tok in {t.strip() for t in SPLIT_RE.split(text or "")}:
         tok = strip_particle(tok, suffixes)
-        if not is_usable(tok):
+        if not is_usable(tok, endings):
             continue
         if ends_with_suffix(tok, suffixes):
             hit.add(tok)
@@ -627,12 +653,12 @@ def scan_words(text, suffixes=None):
 #
 # -out: error = 없음
 #------------------------------------------------------------------
-def doc_words(doc, suffixes=None):
+def doc_words(doc, suffixes=None, endings=None):
     suffixes = suffixes or docvocab.DOC_SUFFIXES
-    name = split_words(doc.get("name"), suffixes, drop_ext=True)
-    title = split_words(doc.get("title"), suffixes)
-    head_hit, head_rest = scan_words(doc.get("head"), suffixes)
-    body_hit, body_rest = scan_words(doc.get("body"), suffixes)
+    name = split_words(doc.get("name"), suffixes, drop_ext=True, endings=endings)
+    title = split_words(doc.get("title"), suffixes, endings=endings)
+    head_hit, head_rest = scan_words(doc.get("head"), suffixes, endings=endings)
+    body_hit, body_rest = scan_words(doc.get("body"), suffixes, endings=endings)
     # 제목은 본문 첫 줄이라 앞부분에도 들어 있다. 자리를 정할 때 제목이 이기도록
     # 앞부분·본문에서 제목의 말은 빼 둔다 — 그래야 '제목에서 나온 말'로 분류된다.
     head = ((head_hit | head_rest) - title) - name
@@ -813,7 +839,7 @@ def log_odds(df_pos, df_neg, n_pos, n_neg):
 # -out: error = 없음(재료가 모자라면 candidates 가 비고 reason 에 까닭이 담긴다)
 #------------------------------------------------------------------
 def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
-            min_docs=MIN_DOCS):
+            min_docs=MIN_DOCS, endings=None):
     suffixes = suffixes or docvocab.DOC_SUFFIXES
     stopwords = stopwords or {"global": set(), "by_node": {}}
 
@@ -845,7 +871,7 @@ def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
     # 끝말에 안 걸린 채로만 나온 말인가 — 한 문서에서라도 끝말로 걸렸으면 푼다.
     loose_only = {}
     for d in pos:
-        words = doc_words(d, suffixes)
+        words = doc_words(d, suffixes, endings)
         seen = set()
         for where in order:
             for term in words[where]:
@@ -863,7 +889,7 @@ def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
 
     neg_hits = {}
     for d in neg:
-        words = doc_words(d, suffixes)
+        words = doc_words(d, suffixes, endings)
         for term in set().union(*words.values()) if words else set():
             if term in pos_hits:
                 neg_hits[term] = neg_hits.get(term, 0.0) + neg_w[d["key"]]
@@ -917,7 +943,8 @@ def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
                         and len(term) >= CLUSTER_ONLY_MIN_LEN
                         and doc_hits[term] >= CLUSTER_ONLY_MIN_DOCS
                         and df_neg <= CLUSTER_ONLY_DF_NEG
-                        and _in_cluster_share(term, pos, cluster_hits[term], suffixes)
+                        and _in_cluster_share(term, pos, cluster_hits[term],
+                                             suffixes, endings)
                         >= CLUSTER_ONLY_DF_POS)
         if not passed and not cluster_only:
             continue
@@ -959,13 +986,13 @@ def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
 # -out: float = 그 폴더 문서 중 이 말이 나온 비율(0~1)
 # -out: error = 없음
 #------------------------------------------------------------------
-def _in_cluster_share(term, pos, clusters, suffixes):
+def _in_cluster_share(term, pos, clusters, suffixes, endings=None):
     same = [d for d in pos if d["cluster"] in clusters]
     if not same:
         return 0.0
     hit = 0
     for d in same:
-        words = doc_words(d, suffixes)
+        words = doc_words(d, suffixes, endings)
         if any(term in words[where] for where in words):
             hit += 1
     return hit / len(same)
@@ -988,14 +1015,15 @@ def _in_cluster_share(term, pos, clusters, suffixes):
 # -in: 나머지    = suggest() 와 같다
 #
 # -out: dict = suggest() 결과와 같은 모양 + "focus_only" (이 문서에만 있는 말로
-#              좁힌 목록. 문턱을 못 넘은 말은 flags 에 까닭이 담긴다)
+#              좁힌 목록. 문턱을 못 넘은 말은 flags 에 까닭이 담긴다) +
+#              "near_cut" (상한 때문에 접어 둔 '까닭 단 후보' 수)
 # -out: error = 없음(그 문서를 못 찾으면 focus_only 가 빈 목록)
 #------------------------------------------------------------------
 def suggest_for_doc(node, docs, focus, rule_doc=None, stopwords=None, tax=None,
-                    suffixes=None, min_docs=MIN_DOCS):
+                    suffixes=None, min_docs=MIN_DOCS, endings=None):
     suffixes = suffixes or docvocab.DOC_SUFFIXES
     res = suggest(node, docs, rule_doc=rule_doc, stopwords=stopwords, tax=tax,
-                  suffixes=suffixes, min_docs=min_docs)
+                  suffixes=suffixes, min_docs=min_docs, endings=endings)
 
     key = norm_key(focus)
     doc = next((d for d in docs if d["key"] == key), None)
@@ -1004,7 +1032,7 @@ def suggest_for_doc(node, docs, focus, rule_doc=None, stopwords=None, tax=None,
     if doc is None:
         return res
 
-    mine = set().union(*doc_words(doc, suffixes).values())
+    mine = set().union(*doc_words(doc, suffixes, endings).values())
     # 문턱을 넘은 후보 중 이 문서에 있는 것부터.
     seen = set()
     for cand in res["candidates"] + res["cluster_only"]:
@@ -1013,9 +1041,16 @@ def suggest_for_doc(node, docs, focus, rule_doc=None, stopwords=None, tax=None,
             seen.add(cand["term"])
 
     # 문턱을 못 넘은 말도 까닭을 달아 올린다.
-    near = _near_misses(node, docs, doc, mine - seen, rule_doc, stopwords, tax, suffixes)
+    near = _near_misses(node, docs, doc, mine - seen, rule_doc, stopwords, tax,
+                        suffixes, endings)
     res["focus_only"].extend(near)
     res["focus_only"].sort(key=lambda c: (-c["score"], -c["docs"], c["term"]))
+    # 문턱을 넘은 후보는 몇 개든 남기고, 까닭을 단 것(near)만 상한을 건다 —
+    # 제대로 걸러진 말을 상한 때문에 잃으면 안 된다.
+    passed = [c for c in res["focus_only"] if c["group"] != "near"]
+    misses = [c for c in res["focus_only"] if c["group"] == "near"][:NEAR_MISS_MAX]
+    res["focus_only"] = passed + misses
+    res["near_cut"] = max(0, len(near) - len(misses))
     return res
 
 
@@ -1034,7 +1069,8 @@ def suggest_for_doc(node, docs, focus, rule_doc=None, stopwords=None, tax=None,
 # -out: list = 후보 dict 목록(checked 는 모두 False)
 # -out: error = 없음
 #------------------------------------------------------------------
-def _near_misses(node, docs, doc, terms, rule_doc, stopwords, tax, suffixes):
+def _near_misses(node, docs, doc, terms, rule_doc, stopwords, tax, suffixes,
+                 endings=None):
     stopwords = stopwords or {"global": set(), "by_node": {}}
     by_node, owner = rule_terms(rule_doc)
     mine_rule = by_node.get(node, set())
@@ -1052,15 +1088,15 @@ def _near_misses(node, docs, doc, terms, rule_doc, stopwords, tax, suffixes):
     # 이 문서의 말이 다른 문서들에서 얼마나 나오는지 센다.
     stats = {t: {"pos": 0.0, "neg": 0.0, "docs": 0, "clusters": set()} for t in terms}
     for d in pos:
-        for t in set().union(*doc_words(d, suffixes).values()) & terms:
+        for t in set().union(*doc_words(d, suffixes, endings).values()) & terms:
             stats[t]["pos"] += pos_w[d["key"]]
             stats[t]["docs"] += 1
             stats[t]["clusters"].add(d["cluster"])
     for d in neg:
-        for t in set().union(*doc_words(d, suffixes).values()) & terms:
+        for t in set().union(*doc_words(d, suffixes, endings).values()) & terms:
             stats[t]["neg"] += neg_w[d["key"]]
 
-    words = doc_words(doc, suffixes)
+    words = doc_words(doc, suffixes, endings)
     out = []
     for term, st in stats.items():
         low = term.lower()
@@ -1071,6 +1107,9 @@ def _near_misses(node, docs, doc, terms, rule_doc, stopwords, tax, suffixes):
         if where is None:
             continue
         if where in ("head", "body") and len(term) < TEXT_MIN_LEN:
+            continue
+        # 이 문서에만 있는 말은 올리지 않는다(위 NEAR_MISS_MIN_DOCS 설명).
+        if st["docs"] < NEAR_MISS_MIN_DOCS:
             continue
         df_pos = st["pos"] / n_pos
         df_neg = st["neg"] / n_neg

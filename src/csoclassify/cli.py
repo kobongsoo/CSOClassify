@@ -3733,12 +3733,15 @@ def run_suggest_terms(args):
               file=sys.stderr)
 
     # 규칙·분류 체계는 '거르기'에만 쓴다. 없어도 제안은 돌되, 무엇을 못 거르는지 알린다.
-    rule_doc, tax_raw, suffixes = None, None, None
+    rule_doc, tax_raw, suffixes, endings = None, None, None, None
     doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
     if os.path.isfile(doc_rules_path):
         rule_doc = docvocab.load_doc(doc_rules_path)
         # 끝말 목록은 규칙 파일 옆 유의어 사전에서 온다(core 가 기준).
-        suffixes = (docvocab.load_synonyms(doc_rules_path) or {}).get("suffixes")
+        syn = docvocab.load_synonyms(doc_rules_path) or {}
+        suffixes = syn.get("suffixes")
+        # 활용형 꼬리도 사전에서 온다(core 기준 + 업종·local 더하기).
+        endings = syn.get("verb_endings")
     else:
         print(f"[MpowerClassify] 규칙 파일이 없어 '이미 있는 말'을 거르지 못합니다: "
               f"{doc_rules_path}", file=sys.stderr)
@@ -3785,7 +3788,8 @@ def run_suggest_terms(args):
     out = []
     for node in nodes:
         res = TS.suggest(node, docs, rule_doc=rule_doc, stopwords=stopwords,
-                         tax=tax_raw, suffixes=suffixes, min_docs=min_docs)
+                         tax=tax_raw, suffixes=suffixes, min_docs=min_docs,
+                         endings=endings)
         out.append(res)
         name = title_of.get(node, "")
         head = f"\n■ {name}({node})" if name else f"\n■ {node}"

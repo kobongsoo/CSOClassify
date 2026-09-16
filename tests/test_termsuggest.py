@@ -874,6 +874,142 @@ def test_활용형_어미가_현행_규칙단어를_죽이지_않는다():
 
     # 구절은 공백으로 잘려 낱말 단위로만 후보가 되므로 낱말만 본다.
     solo = {w for w in words if " " not in w and ts.HANGUL_RE.search(w)}
+    # 꼬리 목록도 core 사전에 적혀 있어 '낱말'로 딸려 온다 — 자기 자신은 뺀다.
+    solo -= set(ts.VERB_ENDINGS)
     killed = sorted(w for w in solo if w.endswith(ts.VERB_ENDINGS))
     # 걸리는 것이 있다면 그 자체가 활용형이어야 한다('감사합니다' 같은 것).
     assert len(killed) <= 5, f"멀쩡한 말이 죽는다: {killed}"
+
+
+# ──────────────────────────────────────────────────────────────────
+# 활용형 꼬리는 사전에서 온다 (끝말 목록과 같은 규약)
+# ──────────────────────────────────────────────────────────────────
+
+#------------------------------------------------------------------
+# 사전이 준 꼬리 목록을 쓴다
+#=> 목록이 코드에만 있으면 꼬리 하나 늘리는 데 재빌드가 필요하고, 회사마다
+#   다른 말버릇을 담을 수 없다(끝말 목록을 2026-09-15 에 사전으로 옮긴 것과 같은 이유).
+#------------------------------------------------------------------
+def test_활용형_꼬리를_사전에서_받는다():
+    mine = ["드리오니", "하옵신"]
+    # 사전 목록을 주면 그것만 본다 — 내장 목록은 쓰지 않는다.
+    assert ts.is_usable("보고드리오니", mine) is False
+    assert ts.is_usable("클릭하면", mine) is True      # 내장 목록에는 있지만 사전에 없다
+    # 목록을 안 주면 내장 목록을 쓴다(옛 사전이 깔린 곳에서 필터가 꺼지지 않게).
+    assert ts.is_usable("클릭하면") is False
+
+
+#------------------------------------------------------------------
+# 한 글자 꼬리도 받는다
+#=> 끝말(suffixes)은 한 글자를 막지만('서'가 모든 '…서'를 끊는다), 활용형 꼬리는
+#   '된'·'는' 처럼 한 글자가 곧 뜻이라 막으면 쓸 수 없다.
+#------------------------------------------------------------------
+def test_한글자_꼬리도_받는다():
+    from csoclassify.classify import docvocab
+    assert docvocab._clean_endings(["된", "는", "하면"]) == ["된", "는", "하면"]
+    # 끝말 쪽은 종전대로 한 글자를 버린다 — 두 규칙이 섞이면 안 된다.
+    assert docvocab._clean_suffixes(["서", "보고서"]) == ["보고서"]
+
+
+#------------------------------------------------------------------
+# core 사전의 꼬리 목록이 멀쩡한 말을 죽이지 않는다
+#=> 사전에 꼬리를 더할 때마다 여기서 먼저 걸리게 한다. '인'을 넣으면
+#   승인·확인·가이드라인이, '한'을 넣으면 경고서한이 함께 죽는다.
+#------------------------------------------------------------------
+def test_사전의_꼬리가_현행_낱말을_죽이지_않는다():
+    import glob
+    import os
+    import yaml
+    from csoclassify.classify import docvocab
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    rule_path = os.path.join(root, "resources", "policy", "doc_rule.yaml")
+    if not os.path.isfile(rule_path):
+        pytest.skip("배포 규칙 파일이 없는 자리(고객사 실데이터는 저장소에 없다)")
+    endings = (docvocab.load_synonyms(rule_path) or {}).get("verb_endings") or []
+    assert endings, "core 사전에 verb_endings 칸이 있어야 한다"
+
+    words = set()
+    doc = yaml.safe_load(open(rule_path, encoding="utf-8")) or {}
+    for rule in doc.get("doctype_rules") or []:
+        for cell in ("title_terms", "head_terms", "terms", "filename"):
+            words.update(str(w) for w in (rule.get(cell) or []))
+    for path in glob.glob(os.path.join(root, "resources", "policy",
+                                       "synonyms", "*.yaml")):
+        data = yaml.safe_load(open(path, encoding="utf-8")) or {}
+
+        def walk(node):
+            if isinstance(node, str):
+                words.add(node)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+            elif isinstance(node, dict):
+                for key, val in node.items():
+                    walk(key)
+                    walk(val)
+        walk(data)
+
+    solo = {w for w in words if " " not in w and ts.HANGUL_RE.search(w)}
+    # 꼬리 목록 자체는 사전에 적힌 말이라 검산에서 뺀다.
+    solo -= set(endings)
+    killed = sorted(w for w in solo if w.endswith(tuple(endings)))
+    assert len(killed) <= 5, f"멀쩡한 말이 죽는다: {killed}"
+
+
+#------------------------------------------------------------------
+# 문서 화면의 '까닭 단 후보'에는 상한이 있다
+#=> 문턱을 못 넘은 말도 올리는 자리라 상한이 없으면 문서 하나의 낱말이 통째로
+#   올라온다 — 실측에서 사내규정 문서 한 건이 후보 126개를 냈다. 아무도 못 읽는다.
+#   문턱을 넘은 후보는 상한에 걸리지 않는다(제대로 걸러진 말을 잃으면 안 된다).
+#------------------------------------------------------------------
+def test_문서화면_후보에_상한이_있다():
+    # 숫자가 든 말은 미리 걸러지므로 한글만으로 서로 다른 말을 만든다.
+    자 = "가나다라마바사아자차카타파하거너더러머버서어저처커터"
+    filler = " ".join(f"{a}{b}잡말" for a in 자[:8] for b in 자[:8])
+    # 이 말들은 두 문서에만 있다 — 후보 문턱(3건)은 못 넘고 '까닭 단 후보'가 된다.
+    pos = [doc(f"확정{i}", f"품목보고서 {i}.pdf", labels=["DC_N"],
+               text="품목보고서\n" + (filler if i < 2 else ""))
+           for i in range(6)]
+    docs = pos + others(10, "관계없는 본문.")
+    got = ts.suggest_for_doc("DC_N", docs, pos[0]["file"])
+    near = [c for c in got["focus_only"] if c["group"] == "near"]
+    assert len(near) == ts.NEAR_MISS_MAX
+    assert got["near_cut"] > 0          # 접어 둔 수를 알려 준다
+    # 문턱을 넘은 말은 상한과 무관하게 남는다.
+    assert "품목보고서" in [c["term"] for c in got["focus_only"]]
+
+
+#------------------------------------------------------------------
+# 그 문서에만 있는 말은 문서 화면에도 안 올린다
+#=> 한 문서의 낱말은 규칙이 아니라 그 문서의 지문이다.
+#------------------------------------------------------------------
+def test_그_문서에만_있는_말은_안_올린다():
+    pos = [doc(f"확정{i}", f"문서{i}.docx", labels=["DC_O"], text="품목보고서 내용")
+           for i in range(6)]
+    pos[0] = doc("확정0", "문서0.docx", labels=["DC_O"],
+                 text="품목보고서 내용 오직여기에만있는말")
+    docs = pos + others(10, "관계없는 본문.")
+    got = ts.suggest_for_doc("DC_O", docs, pos[0]["file"])
+    assert "오직여기에만있는말" not in [c["term"] for c in got["focus_only"]]
+
+
+#------------------------------------------------------------------
+# 한글 따옴표·괄호도 구분자로 자른다
+#=> 실데이터에서 '“동호회”라'·'「지원금」' 이 한 낱말로 올라왔다(2026-09-16).
+#------------------------------------------------------------------
+def test_한글_따옴표도_자른다():
+    got = ts.split_words("“동호회”라 하고 「지원금」 및 《회원》 자격")
+    assert got == {"동호회", "지원금", "회원", "자격"}
+
+
+#------------------------------------------------------------------
+# 인용 조사 '라'를 떼되 짧은 명사는 건드리지 않는다
+#=> 규정 문투('“동호회”라 한다')에서 나온다. 뗀 뒤 두 글자가 안 남으면 떼지 않으므로
+#   '나라' 같은 말은 그대로 살아남는다.
+#------------------------------------------------------------------
+@pytest.mark.parametrize("word,want", [
+    ("동호회라", "동호회"), ("지원금이라", "지원금"), ("나라", "나라"), ("우라", "우라"),
+])
+def test_인용조사_라_떼기(word, want):
+    assert ts.strip_particle(word) == want
