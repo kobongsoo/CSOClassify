@@ -2985,6 +2985,157 @@ def render_doc_rules_editor(path, tax):
         st.caption(f"⚠ **{len(missing)}개 분류에는 기준이 없어** 자동으로 제안되지 않습니다 — "
                    + ", ".join(missing[:6]) + (" …" if len(missing) > 6 else ""))
 
+    render_term_suggest_bulk(path, tax)
+
+
+#------------------------------------------------------------------
+# 분류 하나를 통째로 훑어 단어 제안 (설정 화면 진입점 ②)
+#=> 검토 화면의 진입점 ①이 '문서 한 건'을 보는 자리라면, 여기는 '분류 한 개'를
+#   보는 자리다. 그 분류로 확정된 문서 전체에서 후보를 뽑아 표로 보여 준다.
+#
+#   [①과 무엇이 다른가] 문서 화면은 관리자가 그 문서를 눈앞에 두고 있어, 문턱을
+#   못 넘은 말도 까닭을 달아 함께 올린다. 여기는 한 번에 수십 개를 훑는 자리라
+#   반대로 조용해야 한다 — 문턱을 넘은 것만 올린다(termsuggest.suggest 그대로).
+#
+# -in: path = doc_rule.yaml 경로
+# -in: tax  = 회사 분류 체계
+#
+# -out: 없음(화면을 그린다)
+# -out: error = 없음(재료가 모자라면 까닭을 화면에 적는다)
+#------------------------------------------------------------------
+def render_term_suggest_bulk(path, tax):
+    paths = paths_of_screen()
+    by_id = (tax or {}).get("by_id") or {}
+    with st.container(border=True):
+        st.markdown("**💡 확정된 문서에서 단어 찾기**")
+        st.caption("분류를 하나 고르면, 그 분류로 확정된 문서 전체에서 "
+                   "**이 분류에만 나오는 말**을 찾아 줍니다. "
+                   "고른 말만 위 표에 덧붙습니다 — 지우지는 않습니다.")
+
+        # 재료가 있는 분류만 고르게 한다 — 없는 분류를 고르고 "왜 비었지" 하게
+        # 두는 것보다, 고를 수 있는 것만 보여 주는 편이 낫다.
+        docs = load_suggest_docs(paths.get("seed") or "", paths.get("override") or "",
+                                 paths.get("text_dir") or "",
+                                 _stamp([paths.get("seed"), paths.get("override"), path]))
+        labelled = sorted({d for one in docs for d in one["labels"]})
+        if not labelled:
+            st.caption("확정된 문서가 아직 없습니다 — 검토함에서 분류를 확정하면 "
+                       "그만큼 재료가 쌓입니다.")
+            return
+        if not paths.get("text_dir") or not os.path.isdir(paths["text_dir"]):
+            st.caption("· 추출 본문 폴더가 없어 **제목·파일 이름만** 봅니다"
+                       "(아래 고급 설정에서 지정하면 본문까지 봅니다).")
+
+        name_of = lambda dc: ((by_id.get(dc) or {}).get("path")
+                              or (by_id.get(dc) or {}).get("title") or dc)
+        # 넣기·기각 뒤에 st.rerun() 을 부르므로, 안내를 다음 그리기까지 들고 온다.
+        # 분류 고르는 칸보다 '위'에 둔다 — 아래에 두면 방금 고른 분류를 설명하는
+        # 말처럼 읽힌다(분류를 바꾼 직후에는 실제로 다른 분류의 결과다).
+        msg = st.session_state.pop("tsbulk_msg", None)
+        if msg:
+            st.success(msg[0])
+            if len(msg) > 1 and msg[1]:
+                st.caption(msg[1])
+        node = st.selectbox("분류 고르기", labelled, format_func=name_of,
+                            key="tsbulk_node")
+
+        rule_doc = docvocab.load_doc(path)
+        syn = docvocab.load_synonyms(path) or {}
+        policy_dir = os.path.dirname(os.path.abspath(path))
+        stop_path = os.path.join(policy_dir, "doc_rule_stopwords.yaml")
+        audit_path = os.path.join(policy_dir, "doc_rule_suggest_audit.jsonl")
+        res = termsuggest.suggest(node, docs, rule_doc=rule_doc,
+                                  stopwords=termsuggest.load_stopwords(stop_path),
+                                  tax=tax, suffixes=syn.get("suffixes"))
+
+        st.caption(f"확정 문서 {res['docs']}건 · 폴더 {res['clusters']}곳"
+                   + (f" · 본문 없음 {res['no_text']}건" if res["no_text"] else "")
+                   + (f" — {res['reason']}" if res["reason"] else ""))
+        found = res["candidates"] + res["cluster_only"]
+        if not found:
+            st.caption("제안할 말이 없습니다.")
+            return
+
+        rows = [{"넣기": c["checked"], "단어": c["term"],
+                 "넣을 칸": W.suggest_where(c["fields"]).lstrip("— "),
+                 "근거": f"{c['docs']}건 / 폴더 {c['clusters']}곳",
+                 "다른 분류에": f"{c['df_neg'] * 100:.1f}%",
+                 "이 분류를 덮는 비율": f"{c['df_pos'] * 100:.1f}%",
+                 "살펴볼 점": " · ".join(c["flags"])} for c in found]
+        edited = st.data_editor(
+            pd.DataFrame(rows), hide_index=True, width="stretch",
+            key=f"tsbulk_tbl_{node}", num_rows="fixed",
+            column_config={
+                "넣기": st.column_config.CheckboxColumn("넣기", width="small"),
+                "단어": st.column_config.TextColumn("단어", disabled=True),
+                "넣을 칸": st.column_config.TextColumn("넣을 칸", disabled=True),
+                "근거": st.column_config.TextColumn("근거", disabled=True),
+                "다른 분류에": st.column_config.TextColumn("다른 분류에", disabled=True),
+                "이 분류를 덮는 비율": st.column_config.TextColumn(
+                    "이 분류를 덮는 비율", disabled=True),
+                "살펴볼 점": st.column_config.TextColumn("살펴볼 점", disabled=True,
+                                                    width="medium"),
+            })
+        picked = {r["단어"] for r in edited.fillna("").to_dict("records") if r["넣기"]}
+        picks = [c for c in found if c["term"] in picked]
+
+        reviewer = (st.session_state.get("reviewer") or "").strip()
+        c1, c2 = st.columns(2)
+        go = c1.button(f"고른 말 기준에 넣기 ({len(picks)}개)", key=f"tsbulk_go_{node}",
+                       type="primary", disabled=not picks, width="stretch")
+        no = c2.button(f"고른 말 다시 보지 않기 ({len(picks)}개)", key=f"tsbulk_no_{node}",
+                       disabled=not picks, width="stretch")
+        st.caption("[다시 보지 않기] 는 **제안만** 막습니다 — 이미 기준에 들어 있는 "
+                   "말을 지우지는 않습니다.")
+
+        if (go or no) and not reviewer:
+            st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요(기록에 남깁니다).")
+        elif go:
+            added, skipped, no_rule = termsuggest.apply_terms(rule_doc, node, picks)
+            if no_rule:
+                st.error(f"'{name_of(node)}' 규칙이 아직 없습니다 — "
+                         "위 [분류 불러오기]로 규칙을 먼저 만드세요.")
+            else:
+                try:
+                    docvocab.save_doc(path, rule_doc)
+                    termsuggest.append_audit(audit_path, node, "accept", picks, reviewer)
+                except OSError as e:
+                    uierrlog.show_error(f"기준 파일을 쓰지 못했습니다: {e}", exc=e,
+                                        where="단어 제안 저장")
+                else:
+                    st.session_state["tsbulk_msg"] = (
+                        f"'{name_of(node)}' 기준에 {len(added)}곳 넣었습니다"
+                        + (f" · 이미 있어 건너뜀 {len(skipped)}개" if skipped else ""),
+                        "판정에 바로 반영되려면 분류를 다시 돌려야 합니다. "
+                        "배포본을 쓰고 있다면 기준 파일 복사본도 맞춰 주세요.")
+                    st.cache_data.clear()
+                    st.rerun()
+        elif no:
+            try:
+                gone = termsuggest.add_stopwords(stop_path, [c["term"] for c in picks],
+                                                 node=node)
+                termsuggest.append_audit(audit_path, node, "reject", picks, reviewer)
+            except OSError as e:
+                uierrlog.show_error(f"목록을 쓰지 못했습니다: {e}", exc=e,
+                                    where="단어 제안 기각")
+            else:
+                st.session_state["tsbulk_msg"] = (
+                    f"{len(gone)}개를 다시 보지 않습니다 — "
+                    f"'{name_of(node)}' 에서 제안되지 않습니다.",
+                    "기준 파일은 그대로입니다 — 이 목록은 '제안'만 막습니다.")
+                st.cache_data.clear()
+                st.rerun()
+
+        past = termsuggest.load_audit(audit_path, node)
+        if past:
+            with st.expander(f"이 분류의 단어 결정 기록 {len(past)}건"):
+                for row in reversed(past[-50:]):
+                    st.caption(f"- {row.get('ts','')} · {row.get('reviewer','')} · "
+                               f"**{row.get('term','')}** "
+                               f"{W.suggest_action(row.get('action'))}"
+                               + (f" ({'·'.join(row.get('fields') or [])})"
+                                  if row.get("action") == "accept" else ""))
+
 
 #------------------------------------------------------------------
 # ④ 설정 화면 렌더 (설계서 10장)
