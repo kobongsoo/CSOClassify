@@ -210,14 +210,18 @@ RULE_CELL = {"title_terms": "제목", "head_terms": "앞부분",
 # 제안한 말을 '어디에 넣을지' 한 줄로
 #=> 체크박스 옆에 붙는 짧은 꼬리표다. 규칙 칸 이름을 사람 말로 바꿔 잇는다.
 #
+#   [HTML 을 쓰지 않는다] streamlit 의 체크박스 라벨은 마크다운만 읽고 HTML 태그는
+#   글자 그대로 찍는다. 회색 글씨를 만들려고 <span> 을 넣었다가 라벨에
+#   태그가 그대로 보였다(2026-09-16 화면에서 확인). 꾸미지 않고 말로만 쓴다.
+#
 # -in: fields = 규칙 칸 이름 목록(예 ["title_terms","filename"])
 #
-# -out: str = 예 "제목·파일 이름 에 넣기"
+# -out: str = 예 "— 제목·파일 이름 칸에"
 # -out: error = 없음
 #------------------------------------------------------------------
 def suggest_where(fields):
     names = "·".join(RULE_CELL.get(f, f) for f in (fields or []))
-    return f"<span style='color:gray;font-weight:400'>{names} 에 넣기</span>" if names else ""
+    return f"— {names} 칸에" if names else ""
 
 
 #------------------------------------------------------------------
@@ -241,3 +245,20 @@ def suggest_why(cand):
     for flag in cand.get("flags") or []:
         parts.append(f"⚠ {flag}")
     return " · ".join(parts)
+
+
+# 단어 결정 이력의 동작 이름 — 'accept'/'reject' 를 그대로 보여주지 않는다.
+SUGGEST_ACTION = {"accept": "기준에 넣음", "reject": "다시 보지 않음"}
+
+
+#------------------------------------------------------------------
+# 단어 결정 이력의 동작을 사람 말로
+#=> 이력 줄에 쓴다. 모르는 값이 와도 화면이 깨지지 않게 그대로 돌려준다.
+#
+# -in: action = "accept" | "reject"
+#
+# -out: str = 화면에 보일 말
+# -out: error = 없음
+#------------------------------------------------------------------
+def suggest_action(action):
+    return SUGGEST_ACTION.get(action, str(action or ""))

@@ -15,7 +15,7 @@
 #   오탐 때문에 규칙과 core 사전에서 일부러 뺀 말이다. 같은 실수를 되풀이하지
 #   않으려고 다른 분류에서의 출현율(df_neg)을 분모 쪽에 둔다.
 #
-#   [바깥 의존] 표준 라이브러리와 같은 패키지의 docvocab(끝말 목록) 뿐이다.
+#   [바깥 의존] 표준 라이브러리 · yaml · 같은 패키지의 docvocab(끝말 목록) 뿐이다.
 #   화면(streamlit)도 엔진(분류기)도 모른다 — 화면·CLI 가 똑같이 부를 수 있어야 한다.
 #------------------------------------------------------------------
 
@@ -23,6 +23,9 @@ import json
 import math
 import os
 import re
+import shutil
+
+import yaml
 
 from . import docvocab
 
@@ -256,10 +259,9 @@ def load_stopwords(path):
     if not path or not os.path.isfile(path):
         return empty
     try:
-        import yaml
         with open(path, encoding="utf-8") as fp:
             data = yaml.safe_load(fp) or {}
-    except Exception:
+    except (OSError, yaml.YAMLError):
         # 금지 목록을 못 읽었다고 제안을 멈출 이유는 없다. 다만 걸러지지 않을 뿐이다.
         return empty
     if not isinstance(data, dict):
@@ -1073,3 +1075,147 @@ def apply_terms(doc, node, picks):
             if key not in rule:
                 rule[key] = val
     return added, skipped, False
+
+
+# 금지 목록 파일 맨 위에 남기는 안내. 이 파일도 저장할 때마다 통째로 다시 쓰여
+# 주석이 남지 않으므로, 무엇을 적는 자리인지만 가리킨다(doc_rule.yaml 과 같은 규약).
+STOPWORDS_HEADER = (
+    "# 업무분류 규칙에 '제안하지 않을 말' 목록 — 화면에서 [다시 보지 않기] 를\n"
+    "# 누를 때마다 다시 쓰는 파일이라 주석이 남지 않는다.\n"
+    "#   global : 어느 분류에서도 제안하지 않는다\n"
+    "#   by_node: 그 분류에서만 제안하지 않는다\n"
+    "# 이 목록은 '제안'만 막는다 — 이미 규칙에 들어 있는 말을 지우지는 않는다.\n"
+)
+
+
+#------------------------------------------------------------------
+# 금지 목록에 말 더하기
+#=> "이 말은 오탐이라 뺐다"는 지식이 사람 머릿속에만 있으면 같은 말이 계속
+#   되살아난다 — '인증'·'고객'·'계약'·'휴가'를 규칙과 사전 양쪽에서 두 번 빼야 했다.
+#   관리자가 후보를 기각하면 그 판단을 파일로 굳혀, 다음 제안에서 자동으로 빠지게 한다.
+#    1) 있는 파일을 읽어 합친다(지우지 않는다 — 더하기만)
+#    2) node 를 주면 그 분류에만, 안 주면 모든 분류에 적용한다
+#    3) 원본은 .bak 으로 남기고 통째로 다시 쓴다(docvocab.save_doc 과 같은 규약)
+#
+# -in: path  = doc_rule_stopwords.yaml 경로(없으면 새로 만든다)
+# -in: terms = 더할 말 목록
+# -in: node  = 그 분류에만 적용할 dc_id. None 이면 global
+#
+# -out: list = 실제로 새로 더해진 말(이미 있던 말은 빠진다)
+# -out: error = 파일을 못 쓰면 OSError 를 그대로 올린다(부르는 쪽이 사람에게 알린다)
+#------------------------------------------------------------------
+def add_stopwords(path, terms, node=None):
+    cur = load_stopwords(path)
+    want = [str(t).strip() for t in (terms or []) if str(t).strip()]
+    if not want:
+        return []
+
+    target = cur["by_node"].setdefault(str(node), set()) if node else cur["global"]
+    added = [t for t in want if t not in target]
+    target.update(added)
+    if not added:
+        return []
+
+    data = {"version": _today(), "global": sorted(cur["global"])}
+    by_node = {k: sorted(v) for k, v in cur["by_node"].items() if v}
+    if by_node:
+        data["by_node"] = by_node
+    if os.path.isfile(path):
+        shutil.copyfile(path, path + ".bak")
+    with open(path, "w", encoding="utf-8") as fp:
+        fp.write(STOPWORDS_HEADER)
+        yaml.safe_dump(data, fp, allow_unicode=True, sort_keys=False)
+    return added
+
+
+#------------------------------------------------------------------
+# 오늘 날짜 (파일에 적는 판 표시용)
+#=> 금지 목록의 version 칸에 넣는다. 언제 손댄 목록인지만 알면 되므로 날짜까지다.
+#
+# -in: 없음
+#
+# -out: str = "2026.09.16"
+# -out: error = 없음
+#------------------------------------------------------------------
+def _today():
+    import datetime
+    return datetime.date.today().strftime("%Y.%m.%d")
+
+
+#------------------------------------------------------------------
+# 채택·기각 이력 남기기
+#=> doc_rule.yaml 에는 주석이 남지 않는다. "이 단어가 언제·어느 근거로 들어왔나"를
+#   되짚을 수 있는 기록은 이 파일뿐이다. seedstore 의 감사 로그와 같은 원칙으로
+#   append-only 다 — 고치지 않고 덧붙이기만 한다.
+#
+#   [기각도 남긴다] 금지 목록은 '지금 무엇을 막고 있나'만 보여 주고, 왜 막게 됐는지는
+#   말해 주지 못한다. 나중에 "이 말 왜 안 나오지"를 답하려면 이력이 있어야 한다.
+#
+# -in: path     = doc_rule_suggest_audit.jsonl 경로
+# -in: node     = 대상 분류의 dc_id
+# -in: action   = "accept" | "reject"
+# -in: cands    = 후보 dict 목록(term·fields·df_pos·df_neg·docs·clusters 를 싣는다)
+# -in: reviewer = 결정한 사람
+# -in: reason   = 메모(선택)
+#
+# -out: int = 남긴 줄 수
+# -out: error = 파일을 못 쓰면 OSError 를 그대로 올린다
+#------------------------------------------------------------------
+def append_audit(path, node, action, cands, reviewer, reason=""):
+    rows = []
+    for cand in cands or []:
+        rows.append({"ts": _now(), "node": node, "term": cand.get("term"),
+                     "action": action, "fields": list(cand.get("fields") or []),
+                     "df_pos": cand.get("df_pos"), "df_neg": cand.get("df_neg"),
+                     "docs": cand.get("docs"), "clusters": cand.get("clusters"),
+                     "flags": list(cand.get("flags") or []),
+                     "reviewer": reviewer, "reason": reason})
+    if not rows:
+        return 0
+    with open(path, "a", encoding="utf-8") as fp:
+        for row in rows:
+            fp.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return len(rows)
+
+
+#------------------------------------------------------------------
+# 지금 시각 (이력에 적는 표기)
+#=> seedstore·평가셋 채점기와 같은 모양으로 쓴다. 문자열로 정렬해도 시간 순서가
+#   유지되는 모양이라 나중에 sort 만으로 이력을 훑을 수 있다.
+#
+# -in: 없음
+#
+# -out: str = "2026-09-16 10:12:03"
+# -out: error = 없음
+#------------------------------------------------------------------
+def _now():
+    import datetime
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+#------------------------------------------------------------------
+# 이력 읽기 (화면에 보여 주기용)
+#=> "이 분류에 무엇을 넣었고 무엇을 기각했나"를 되짚는다.
+#
+# -in: path = doc_rule_suggest_audit.jsonl 경로
+# -in: node = 이 분류의 것만 골라낸다(None 이면 전부)
+#
+# -out: list = 이력 dict 목록(파일에 적힌 차례 그대로)
+# -out: error = 파일 없음·깨진 줄은 건너뛴다(예외를 올리지 않는다)
+#------------------------------------------------------------------
+def load_audit(path, node=None):
+    out = []
+    if not path or not os.path.isfile(path):
+        return out
+    with open(path, encoding="utf-8") as fp:
+        for line in fp:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if node is None or row.get("node") == node:
+                out.append(row)
+    return out

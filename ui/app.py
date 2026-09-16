@@ -1582,7 +1582,8 @@ def render_doctype_panel(rec, latest_dt, history_dt, ov_path, reviewer, tax, sco
     # 확정 직후가 가장 판단이 정확한 순간이라 이 자리에 둔다.
     settled = [c["dc_id"] for c in candidates if c["status"] == "confirmed"]
     if settled and paths_of_screen():
-        render_term_suggest(rec, settled, paths_of_screen(), tax, scope=scope)
+        render_term_suggest(rec, settled, paths_of_screen(), tax,
+                            reviewer=reviewer, scope=scope)
 
     hist = docidkey.history_for(history_dt, latest_dt, rec)
     if hist:
@@ -1661,12 +1662,13 @@ def _stamp(paths):
 # -in: confirmed = 이 문서에 확정된 dc_id 목록
 # -in: paths     = 화면 경로 설정(seed·override·doc_rules·text_dir)
 # -in: tax       = 회사 분류 체계(이름 표시·다른 분류 이름 거르기)
+# -in: reviewer  = 검토자 이름(채택·기각 이력에 남긴다. 비어 있으면 누르지 못한다)
 # -in: scope     = 위젯 키 구분용 접두
 #
 # -out: 없음(화면을 그린다)
 # -out: error = 없음(재료가 모자라면 까닭을 화면에 적는다)
 #------------------------------------------------------------------
-def render_term_suggest(rec, confirmed, paths, tax, scope="doctype"):
+def render_term_suggest(rec, confirmed, paths, tax, reviewer="", scope="doctype"):
     file = rec.get("file", "")
     if not confirmed:
         return
@@ -1688,6 +1690,15 @@ def render_term_suggest(rec, confirmed, paths, tax, scope="doctype"):
 
     with st.container(border=True):
         st.markdown("**💡 이 문서에서 규칙에 넣을 말 찾기**")
+        # [왜 들고 다니나] 넣기·기각 뒤에 st.rerun() 을 부르면 그 자리에서 띄운
+        # st.success 가 곧바로 씻겨 나간다. 특히 "배포본 복사본도 맞춰 주세요"는
+        # 놓치면 안 되는 안내라, 다음 그리기까지 들고 왔다가 한 번 보여 주고 지운다.
+        msg_key = f"ts_msg_{scope}_{file}"
+        done = st.session_state.pop(msg_key, None)
+        if done:
+            st.success(done[0])
+            if len(done) > 1 and done[1]:
+                st.caption(done[1])
         st.caption("이 문서에 있는 말 중 **이 분류에만 나오는 것**을 찾아 줍니다. "
                    "고른 말만 업무분류 기준에 덧붙습니다 — 지우지는 않습니다.")
         if not paths.get("text_dir") or not os.path.isdir(paths["text_dir"]):
@@ -1706,6 +1717,8 @@ def render_term_suggest(rec, confirmed, paths, tax, scope="doctype"):
         stop_path = os.path.join(os.path.dirname(os.path.abspath(doc_rules_path)),
                                  "doc_rule_stopwords.yaml")
         stopwords = termsuggest.load_stopwords(stop_path)
+        audit_path = os.path.join(os.path.dirname(os.path.abspath(doc_rules_path)),
+                                  "doc_rule_suggest_audit.jsonl")
         # termsuggest 는 tax["by_id"][dc_id]["title"] 만 본다 — 화면이 이미 읽어 둔
         # 분류 체계를 그대로 넘기면 된다(모양을 다시 만들지 않는다).
         by_id = (tax or {}).get("by_id") or {}
@@ -1731,9 +1744,22 @@ def render_term_suggest(rec, confirmed, paths, tax, scope="doctype"):
                 if on:
                     picks.append(cand)
                 st.caption("　" + W.suggest_why(cand))
-            if st.button(f"이 말들을 기준에 넣기 ({len(picks)}개)",
-                         key=f"ts_go_{scope}_{file}_{dc_id}",
-                         disabled=not picks, width="stretch"):
+
+            c1, c2 = st.columns(2)
+            go = c1.button(f"기준에 넣기 ({len(picks)}개)",
+                           key=f"ts_go_{scope}_{file}_{dc_id}",
+                           disabled=not picks, type="primary", width="stretch")
+            # 기각도 결정이다 — 눌러 두면 그 말이 다음 제안에서 자동으로 빠진다.
+            # 쓸수록 조용해지는 화면을 만드는 것이 이 버튼의 목적이다(설계 11장).
+            no = c2.button(f"이 말들 다시 보지 않기 ({len(picks)}개)",
+                           key=f"ts_no_{scope}_{file}_{dc_id}",
+                           disabled=not picks, width="stretch")
+            st.caption("　[다시 보지 않기] 는 **제안만** 막습니다 — 이미 기준에 들어 "
+                       "있는 말을 지우지는 않습니다.")
+
+            if (go or no) and not reviewer.strip():
+                st.error("화면 오른쪽 위에 '검토자 이름'을 먼저 입력하세요(기록에 남깁니다).")
+            elif go:
                 added, skipped, missing = termsuggest.apply_terms(rule_doc, dc_id, picks)
                 if missing:
                     st.error(f"'{name}' 규칙이 아직 없습니다 — 설정 화면의 "
@@ -1741,16 +1767,47 @@ def render_term_suggest(rec, confirmed, paths, tax, scope="doctype"):
                 else:
                     try:
                         docvocab.save_doc(doc_rules_path, rule_doc)
+                        # doc_rule.yaml 에는 주석이 남지 않는다. "이 단어가 언제·어느
+                        # 근거로 들어왔나"를 되짚을 기록은 이 이력뿐이다.
+                        termsuggest.append_audit(audit_path, dc_id, "accept",
+                                                 picks, reviewer.strip())
                     except OSError as e:
                         st.error(f"기준 파일을 쓰지 못했습니다: {e}")
                     else:
-                        st.success(f"{len(added)}곳에 넣었습니다"
-                                   + (f" · 이미 있어 건너뜀 {len(skipped)}개"
-                                      if skipped else ""))
-                        st.caption("판정에 바로 반영되려면 분류를 다시 돌려야 합니다. "
-                                   "배포본을 쓰고 있다면 기준 파일 복사본도 맞춰 주세요.")
+                        st.session_state[msg_key] = (
+                            f"'{name}' 기준에 {len(added)}곳 넣었습니다"
+                            + (f" · 이미 있어 건너뜀 {len(skipped)}개" if skipped else ""),
+                            "판정에 바로 반영되려면 분류를 다시 돌려야 합니다. "
+                            "배포본을 쓰고 있다면 기준 파일 복사본도 맞춰 주세요.")
                         st.cache_data.clear()
                         st.rerun()
+            elif no:
+                try:
+                    # 그 분류에만 막는다 — '인증'이 인증서류에서는 넓어도 다른
+                    # 분류에서는 쓸 만할 수 있다. 전체 금지는 설정 화면에서 손으로 한다.
+                    gone = termsuggest.add_stopwords(
+                        stop_path, [c["term"] for c in picks], node=dc_id)
+                    termsuggest.append_audit(audit_path, dc_id, "reject",
+                                             picks, reviewer.strip())
+                except OSError as e:
+                    st.error(f"목록을 쓰지 못했습니다: {e}")
+                else:
+                    st.session_state[msg_key] = (
+                        f"{len(gone)}개를 다시 보지 않습니다 — "
+                        f"'{name}' 에서 제안되지 않습니다.",
+                        "기준 파일은 그대로입니다 — 이 목록은 '제안'만 막습니다.")
+                    st.cache_data.clear()
+                    st.rerun()
+
+            past = termsuggest.load_audit(audit_path, dc_id)
+            if past:
+                with st.expander(f"이 분류의 단어 결정 기록 {len(past)}건"):
+                    for row in reversed(past[-30:]):
+                        st.caption(f"- {row.get('ts','')} · {row.get('reviewer','')} · "
+                                   f"**{row.get('term','')}** "
+                                   f"{W.suggest_action(row.get('action'))}"
+                                   + (f" ({'·'.join(row.get('fields') or [])})"
+                                      if row.get("action") == "accept" else ""))
 
 
 #------------------------------------------------------------------

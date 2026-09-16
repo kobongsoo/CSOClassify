@@ -646,3 +646,124 @@ def test_넣은_뒤에도_규칙파일이_유효하다(tmp_path):
     assert rule["filename"] == ["보고서", "품목보고서"]
     assert rule["terms"] == ["분기실적"]
     assert rule["min_count"] == 2
+
+
+# ──────────────────────────────────────────────────────────────────
+# 금지 목록과 이력 (설계 11장)
+# ──────────────────────────────────────────────────────────────────
+
+#------------------------------------------------------------------
+# 기각한 말이 다음 제안에서 자동으로 빠진다 (고리를 닫는 부분)
+#=> 이 기능의 값어치는 '쓸수록 조용해지는 것'이다. 기각 → 목록 → 다음 제안까지
+#   이어지지 않으면 관리자는 같은 말을 영원히 다시 본다.
+#------------------------------------------------------------------
+def test_기각한_말은_다음_제안에서_빠진다(tmp_path):
+    path = str(tmp_path / "doc_rule_stopwords.yaml")
+    pos = [doc(f"확정{i}", f"품목보고서 {i}.pdf", labels=["DC_S"], text="품목보고서 내용")
+           for i in range(5)]
+    docs = pos + others(10, "관계없는 본문.")
+    assert "품목보고서" in terms(ts.suggest("DC_S", docs))
+
+    added = ts.add_stopwords(path, ["품목보고서"], node="DC_S")
+    assert added == ["품목보고서"]
+    stop = ts.load_stopwords(path)
+    assert "품목보고서" not in terms(ts.suggest("DC_S", docs, stopwords=stop))
+    # 그 분류에만 막았으므로 다른 분류에서는 그대로 나온다.
+    assert stop["global"] == set()
+
+
+#------------------------------------------------------------------
+# 금지 목록은 더하기만 한다 — 있던 말을 지우지 않는다
+#------------------------------------------------------------------
+def test_금지목록은_더하기만_한다(tmp_path):
+    path = str(tmp_path / "doc_rule_stopwords.yaml")
+    ts.add_stopwords(path, ["인증"])
+    ts.add_stopwords(path, ["고객"], node="DC_A")
+    ts.add_stopwords(path, ["계약"])
+    got = ts.load_stopwords(path)
+    assert got["global"] == {"인증", "계약"}
+    assert got["by_node"]["DC_A"] == {"고객"}
+
+    # 이미 있는 말을 다시 넣으면 아무것도 더해지지 않는다.
+    assert ts.add_stopwords(path, ["인증"]) == []
+    assert ts.load_stopwords(path)["global"] == {"인증", "계약"}
+
+
+#------------------------------------------------------------------
+# 원본은 .bak 으로 남긴다
+#=> 손으로 적어 둔 목록을 화면이 통째로 다시 쓰므로, 되돌릴 길을 남긴다.
+#------------------------------------------------------------------
+def test_금지목록_원본을_남긴다(tmp_path):
+    path = tmp_path / "doc_rule_stopwords.yaml"
+    ts.add_stopwords(str(path), ["인증"])
+    before = path.read_text(encoding="utf-8")
+    ts.add_stopwords(str(path), ["고객"])
+    assert (tmp_path / "doc_rule_stopwords.yaml.bak").read_text(encoding="utf-8") == before
+
+
+#------------------------------------------------------------------
+# 빈 목록을 넣으면 파일을 건드리지 않는다
+#------------------------------------------------------------------
+def test_빈_금지목록은_파일을_안_건드린다(tmp_path):
+    path = tmp_path / "doc_rule_stopwords.yaml"
+    assert ts.add_stopwords(str(path), []) == []
+    assert ts.add_stopwords(str(path), ["  "]) == []
+    assert not path.exists()
+
+
+#------------------------------------------------------------------
+# 이력은 덧붙이기만 한다(append-only)
+#=> doc_rule.yaml 에는 주석이 남지 않는다. "이 단어가 언제·어느 근거로 들어왔나"를
+#   되짚을 기록은 이 파일뿐이라, 앞 줄을 고치는 일이 있으면 안 된다.
+#------------------------------------------------------------------
+def test_이력은_덧붙이기만_한다(tmp_path):
+    path = str(tmp_path / "doc_rule_suggest_audit.jsonl")
+    cand = {"term": "품목보고서", "fields": ["title_terms", "filename"],
+            "df_pos": 0.5, "df_neg": 0.0, "docs": 6, "clusters": 2, "flags": []}
+    assert ts.append_audit(path, "DC_A", "accept", [cand], "kim") == 1
+    assert ts.append_audit(path, "DC_A", "reject",
+                           [dict(cand, term="품목")], "kim", reason="너무 넓음") == 1
+
+    rows = ts.load_audit(path)
+    assert len(rows) == 2
+    assert rows[0]["action"] == "accept" and rows[0]["term"] == "품목보고서"
+    assert rows[0]["fields"] == ["title_terms", "filename"]
+    assert rows[0]["reviewer"] == "kim"
+    assert rows[1]["action"] == "reject" and rows[1]["reason"] == "너무 넓음"
+    # 근거 숫자를 함께 남긴다 — 나중에 "그때 왜 넣었지"를 답할 수 있어야 한다.
+    assert rows[0]["docs"] == 6 and rows[0]["clusters"] == 2
+
+
+#------------------------------------------------------------------
+# 이력은 분류별로 골라 읽는다
+#------------------------------------------------------------------
+def test_이력을_분류별로_읽는다(tmp_path):
+    path = str(tmp_path / "audit.jsonl")
+    one = {"term": "가", "fields": [], "flags": []}
+    ts.append_audit(path, "DC_A", "accept", [one], "kim")
+    ts.append_audit(path, "DC_B", "accept", [one], "kim")
+    assert len(ts.load_audit(path)) == 2
+    assert len(ts.load_audit(path, "DC_A")) == 1
+    assert ts.load_audit(path, "DC_없음") == []
+
+
+#------------------------------------------------------------------
+# 빈 후보를 주면 이력을 남기지 않는다
+#=> 아무 결정도 없는 줄이 쌓이면 이력이 못 읽을 만큼 지저분해진다.
+#------------------------------------------------------------------
+def test_빈_결정은_이력을_안_남긴다(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    assert ts.append_audit(str(path), "DC_A", "accept", [], "kim") == 0
+    assert not path.exists()
+
+
+#------------------------------------------------------------------
+# 이력 파일이 없거나 깨져 있어도 화면은 떠야 한다
+#------------------------------------------------------------------
+def test_이력이_없거나_깨져도_읽는다(tmp_path):
+    assert ts.load_audit(None) == []
+    assert ts.load_audit(str(tmp_path / "없음.jsonl")) == []
+    path = tmp_path / "audit.jsonl"
+    path.write_text('{"node":"DC_A","term":"가"}\n{깨진 줄}\n'
+                    '{"node":"DC_A","term":"나"}\n', encoding="utf-8")
+    assert [r["term"] for r in ts.load_audit(str(path))] == ["가", "나"]
