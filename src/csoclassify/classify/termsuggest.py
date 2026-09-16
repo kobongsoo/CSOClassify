@@ -426,6 +426,51 @@ def load_documents(seed_path=None, override_path=None, text_dir=None, approved_o
 
 
 #------------------------------------------------------------------
+# 끝말로 끝나는가 (빠른 판정)
+#=> "이 말이 끝말 목록의 어느 것으로 끝나는가"는 이 모듈에서 가장 자주 묻는 것이다.
+#   목록을 처음부터 훑으면 말 하나마다 43번을 본다. 끝말은 길이가 두세 가지뿐이라,
+#   그 길이만큼 잘라 집합에서 찾으면 두세 번이면 끝난다.
+#   (실데이터 문서는 본문이 평균 12만 자라 이 차이가 분 단위로 벌어진다.)
+#
+# -in: word     = 검사할 말
+# -in: suffixes = 끝말 목록(없으면 docvocab 내장 목록)
+#
+# -out: bool = 끝말로 끝나면 True
+# -out: error = 없음
+#------------------------------------------------------------------
+def ends_with_suffix(word, suffixes=None):
+    table, lens = _suffix_index(suffixes or docvocab.DOC_SUFFIXES)
+    for n in lens:
+        if len(word) > n and word[-n:] in table:
+            return True
+        if len(word) == n and word in table:
+            return True
+    return False
+
+
+#------------------------------------------------------------------
+# 끝말 목록을 '집합 + 길이들'로 바꿔 기억해 둔다
+#=> 같은 목록으로 수만 번 묻게 되므로 한 번만 만들어 두고 다시 쓴다.
+#
+# -in: suffixes = 끝말 목록
+#
+# -out: (set, list) = 끝말 집합, 나오는 길이들(긴 것부터)
+# -out: error = 없음
+#------------------------------------------------------------------
+_SUFFIX_INDEX = {}
+
+
+def _suffix_index(suffixes):
+    key = tuple(suffixes)
+    got = _SUFFIX_INDEX.get(key)
+    if got is None:
+        table = set(key)
+        got = (table, sorted({len(w) for w in table}, reverse=True))
+        _SUFFIX_INDEX[key] = got
+    return got
+
+
+#------------------------------------------------------------------
 # 어절에서 조사·어미 떼기
 #=> '품목보고서를' → '품목보고서'. 형태소 분석기를 넣지 않고 끝말 목록으로
 #   해결하려는 설계라, 조사만 떼어 내면 대개 충분하다.
@@ -444,17 +489,12 @@ def strip_particle(word, suffixes=None):
         return ""
     suffixes = suffixes or docvocab.DOC_SUFFIXES
     # 이미 끝말로 끝나면 건드리지 않는다 — '계약서'의 '서'를 조사로 오해하지 않게.
-    for suf in suffixes:
-        if word.endswith(suf):
-            return word
+    if ends_with_suffix(word, suffixes):
+        return word
     for par in PARTICLES:
         if word.endswith(par) and len(word) - len(par) >= 2:
-            cut = word[: -len(par)]
-            # 뗀 뒤에 끝말이 드러나면 확실하다.
-            for suf in suffixes:
-                if cut.endswith(suf):
-                    return cut
-            return cut
+            # 뗀 뒤에 끝말이 드러나든 아니든 뗀 말을 쓴다(판정은 부르는 쪽 몫).
+            return word[: -len(par)]
     return word
 
 
@@ -533,11 +573,15 @@ def split_words(text, suffixes=None, drop_ext=False):
 def scan_words(text, suffixes=None):
     suffixes = suffixes or docvocab.DOC_SUFFIXES
     hit, rest = set(), set()
-    for tok in SPLIT_RE.split(text or ""):
-        tok = strip_particle(tok.strip(), suffixes)
+    # [먼저 중복을 없앤다] 조사 떼기는 어절 하나마다 끝말 43개·조사 30개를 훑는
+    # 무거운 일이다. 실데이터 문서는 본문이 평균 12만 자(어절 2만 개)인데 서로
+    # 다른 말은 그 1/5 도 안 된다. 떼기 전에 set 으로 줄이면 그만큼 덜 훑는다.
+    # 결과는 어차피 집합이라 값이 달라지지 않는다.
+    for tok in {t.strip() for t in SPLIT_RE.split(text or "")}:
+        tok = strip_particle(tok, suffixes)
         if not is_usable(tok):
             continue
-        if any(tok.endswith(suf) for suf in suffixes):
+        if ends_with_suffix(tok, suffixes):
             hit.add(tok)
         else:
             rest.add(tok)
@@ -661,7 +705,7 @@ def other_titles(tax, node):
 def looks_proper_noun(term, docs, suffixes=None):
     suffixes = suffixes or docvocab.DOC_SUFFIXES
     # 끝말로 끝나는 말은 문서 종류를 가리키는 말이다 — 고유명사로 보지 않는다.
-    if any(term.endswith(suf) for suf in suffixes):
+    if ends_with_suffix(term, suffixes):
         return False
     # 영문 대문자만으로 된 말(EZis·SCPI)은 거의 제품·규격 이름이다.
     if not HANGUL_RE.search(term) and term.isupper():

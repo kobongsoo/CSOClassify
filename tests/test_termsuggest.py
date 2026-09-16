@@ -767,3 +767,41 @@ def test_이력이_없거나_깨져도_읽는다(tmp_path):
     path.write_text('{"node":"DC_A","term":"가"}\n{깨진 줄}\n'
                     '{"node":"DC_A","term":"나"}\n', encoding="utf-8")
     assert [r["term"] for r in ts.load_audit(str(path))] == ["가", "나"]
+
+
+#------------------------------------------------------------------
+# 끝말 빠른 판정이 느린 판정과 같은 답을 낸다
+#=> 실데이터 문서가 평균 12만 자라 '끝말로 끝나는가'를 수만 번 묻게 된다.
+#   목록을 처음부터 훑는 대신 길이별 집합으로 찾는데, 답이 달라지면 안 된다.
+#------------------------------------------------------------------
+@pytest.mark.parametrize("word", [
+    "품목보고서", "매뉴얼", "사내규정", "도움말", "이슈페이퍼", "계약서",
+    "규정", "자료", "가", "", "Mpower", "현황분석", "보고서의",
+])
+def test_끝말_빠른판정이_느린판정과_같다(word):
+    from csoclassify.classify import docvocab
+    slow = any(word.endswith(suf) for suf in docvocab.DOC_SUFFIXES) if word else False
+    assert ts.ends_with_suffix(word) is slow
+
+
+#------------------------------------------------------------------
+# 사전이 준 끝말 목록으로도 같은 답을 낸다(내장 목록이 아닐 때)
+#=> core 사전에 suffixes 칸이 있으면 그 목록이 기준이 된다.
+#------------------------------------------------------------------
+def test_끝말_빠른판정은_받은_목록을_쓴다():
+    mine = ["정산서", "회람"]
+    assert ts.ends_with_suffix("월말정산서", mine) is True
+    assert ts.ends_with_suffix("사내회람", mine) is True
+    assert ts.ends_with_suffix("품목보고서", mine) is False   # 내장 목록에는 있지만
+    assert ts.ends_with_suffix("회람", mine) is True          # 말 자체가 끝말이어도 참
+
+
+#------------------------------------------------------------------
+# 같은 말이 여러 번 나와도 한 번만 센다(중복 제거가 결과를 바꾸지 않는다)
+#=> 조사 떼기 전에 set 으로 줄이는 최적화를 넣었다. 집합을 돌려주므로 값은
+#   같아야 한다 — 이것이 깨지면 제안이 조용히 달라진다.
+#------------------------------------------------------------------
+def test_같은_말이_여러번_나와도_결과가_같다():
+    one = ts.scan_words("품목보고서 내용 정리")
+    many = ts.scan_words("품목보고서 품목보고서 내용 내용 내용 정리 품목보고서")
+    assert one == many
