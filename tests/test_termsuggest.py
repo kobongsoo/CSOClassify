@@ -805,3 +805,75 @@ def test_같은_말이_여러번_나와도_결과가_같다():
     one = ts.scan_words("품목보고서 내용 정리")
     many = ts.scan_words("품목보고서 품목보고서 내용 내용 내용 정리 품목보고서")
     assert one == many
+
+
+#------------------------------------------------------------------
+# 용언 활용형은 후보가 되지 못한다
+#=> 2026-09-16 실코퍼스 첫 측정에서 매뉴얼 후보 9개 중 6개가 활용형이었다
+#   ('클릭하면'·'선택하고'·'가능하며'·'통하여'). 빈도가 아니라 문법 문제라,
+#   코퍼스를 보지 않고 모양만으로 버린다.
+#------------------------------------------------------------------
+@pytest.mark.parametrize("word", [
+    "클릭하면", "선택하고", "선택하면", "가능하며", "통하여", "포함되어야",
+    "정한다", "감사합니다", "적용하는", "해당되지", "제출해야", "관련된다",
+])
+def test_활용형은_후보가_아니다(word):
+    assert ts.is_usable(word) is False
+
+
+#------------------------------------------------------------------
+# 짧은 꼬리('한'·'된')는 일부러 막지 않는다
+#=> 그 한 글자를 막으면 기한·제한·권한·시한 같은 멀쩡한 명사가 함께 죽는다.
+#   '선택한' 하나를 잡으려고 넷을 잃을 수는 없다 — 이 판단을 시험으로 굳힌다.
+#------------------------------------------------------------------
+@pytest.mark.parametrize("word", [
+    "기한", "제한", "권한", "시한",              # '한'으로 끝나는 명사
+    # ('관한'·'대한'·'위한' 은 명사가 아니라 용언이라 걸러지는 것이 맞다)
+    "품목보고서", "동호회규정", "회원명부", "활동일지", "등록신청서",
+    "비품", "구매", "적용범위", "매뉴얼", "지침",
+])
+def test_멀쩡한_명사는_살아남는다(word):
+    assert ts.is_usable(word) is True
+
+
+#------------------------------------------------------------------
+# 활용형 어미가 현행 자산의 낱말을 죽이지 않는다
+#=> 규칙 단어·유의어 사전·분류 이름에 실제로 대 본 검산을 시험으로 남긴다.
+#   사전이 늘어나 멀쩡한 말이 걸리기 시작하면 여기서 먼저 걸린다.
+#------------------------------------------------------------------
+def test_활용형_어미가_현행_규칙단어를_죽이지_않는다():
+    import glob
+    import os
+    import yaml
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    rule_path = os.path.join(root, "resources", "policy", "doc_rule.yaml")
+    if not os.path.isfile(rule_path):
+        pytest.skip("배포 규칙 파일이 없는 자리(고객사 실데이터는 저장소에 없다)")
+
+    words = set()
+    doc = yaml.safe_load(open(rule_path, encoding="utf-8")) or {}
+    for rule in doc.get("doctype_rules") or []:
+        for cell in ("title_terms", "head_terms", "terms", "filename"):
+            words.update(str(w) for w in (rule.get(cell) or []))
+    for path in glob.glob(os.path.join(root, "resources", "policy",
+                                       "synonyms", "*.yaml")):
+        data = yaml.safe_load(open(path, encoding="utf-8")) or {}
+
+        def walk(node):
+            if isinstance(node, str):
+                words.add(node)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+            elif isinstance(node, dict):
+                for key, val in node.items():
+                    walk(key)
+                    walk(val)
+        walk(data)
+
+    # 구절은 공백으로 잘려 낱말 단위로만 후보가 되므로 낱말만 본다.
+    solo = {w for w in words if " " not in w and ts.HANGUL_RE.search(w)}
+    killed = sorted(w for w in solo if w.endswith(ts.VERB_ENDINGS))
+    # 걸리는 것이 있다면 그 자체가 활용형이어야 한다('감사합니다' 같은 것).
+    assert len(killed) <= 5, f"멀쩡한 말이 죽는다: {killed}"
