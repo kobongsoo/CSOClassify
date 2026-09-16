@@ -106,6 +106,20 @@ JUNK_RE = re.compile(r"^(v?\d+([.\-]\d+)*[가-힣a-z]*|\d{4}년?|\d+분기|\d+�
 # 한글이 한 글자라도 들어 있는가(길이 기준을 한글/영문에 다르게 주려고 본다).
 HANGUL_RE = re.compile(r"[가-힣]")
 
+# 숫자가 섞인 말은 버린다 — 차수·연도·조항('제1조'·'2026년'·'3차')이다.
+# [근거] 현행 doc_rule.yaml 의 규칙 단어 325개 중 숫자가 든 것은 0개다.
+DIGIT_RE = re.compile(r"\d")
+
+# '~다'로 끝나는 말도 버린다 — '정한다'·'포함한다' 같은 서술어다.
+# [근거] 같은 325개 중 '다'로 끝나는 것도 0개다.
+
+# 앞부분·본문에서 뽑은 말의 최소 길이. 제목·파일 이름에는 걸지 않는다.
+# [왜 자리마다 다른가] 현행 규칙에는 두 글자 말이 29개 있다(규정·지침·교육·동향…).
+# 버리면 안 되는 말이다. 그런데 그 말들은 전부 '제목에 적히는 문서 종류'다 —
+# 본문에 흩어진 '목적'·'절차'·'방법'과는 다르다. 실제로 V2b 때 '동향'을 앞부분
+# 칸에도 넣었다가 오탐이 나서 제목 칸만 남긴 일이 있다. 그 판단을 규칙으로 굳힌다.
+TEXT_MIN_LEN = 3
+
 # 파일 확장자로 흔한 것 — 파일 이름을 자르고 남는 찌꺼기를 막는다.
 EXT_WORDS = {"doc", "docx", "hwp", "hwpx", "ppt", "pptx", "xls", "xlsx", "pdf",
              "txt", "md", "html", "htm", "jpg", "png", "zip"}
@@ -220,6 +234,9 @@ def load_override_labels(path):
             # 나중 줄이 앞 줄을 덮는다 — 마지막 결정만 남긴다.
             latest[key] = {"confirmed": set(d for d in (row.get("confirmed") or []) if d),
                            "rejected": set(d for d in (row.get("rejected") or []) if d),
+                           # doc_id 는 본문 색인으로 hash 를 되찾는 두 번째 열쇠다
+                           # (경로가 바뀐 문서는 경로로 못 찾는다).
+                           "doc_id": row.get("doc_id"),
                            "file": row.get("file")}
     return latest
 
@@ -286,6 +303,50 @@ def read_saved_text(text_dir, sha):
 
 
 #------------------------------------------------------------------
+# 저장된 본문의 색인 읽기 (--textsave 폴더의 _index.jsonl)
+#=> 본문 파일 이름은 SHA-256 인데, 검토 확정 이력(cso_override.jsonl)에는
+#   hash 칸이 없다. 그 파일은 '누가 무엇을 확정했나'를 남기는 자리라 지문을 적지
+#   않는다. 그래서 확정 이력만 있는 문서는 hash 를 모르고, 본문을 못 찾는다.
+#
+#   [색인이 그 구멍을 메운다] --textsave 는 본문을 쓸 때마다 색인 한 줄
+#   {"hash","txt","file","doc_id",…} 을 함께 남긴다. 원본 경로로 hash 를 되찾을 수
+#   있으므로, 확정 이력만 있는 문서도 본문을 붙일 수 있다.
+#   (색인이 없으면 예전처럼 hash 를 아는 문서만 본문을 갖는다 — 오류가 아니다.)
+#
+# -in: text_dir = --textsave 폴더. None 이면 빈 색인
+#
+# -out: (by_path, by_doc_id) = {정규화경로: hash}, {doc_id: hash}
+# -out: error = 파일 없음·깨진 줄은 건너뛴다(예외를 올리지 않는다)
+#------------------------------------------------------------------
+def load_text_index(text_dir):
+    by_path, by_doc = {}, {}
+    if not text_dir:
+        return by_path, by_doc
+    path = os.path.join(text_dir, "_index.jsonl")
+    if not os.path.isfile(path):
+        return by_path, by_doc
+    with open(path, encoding="utf-8") as fp:
+        for line in fp:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            sha = row.get("hash")
+            if not sha:
+                continue
+            # 같은 문서를 여러 번 저장했으면 마지막 줄이 이긴다(내용이 바뀌었을 수 있다).
+            key = norm_key(row.get("file"))
+            if key:
+                by_path[key] = sha
+            if row.get("doc_id"):
+                by_doc[str(row["doc_id"])] = sha
+    return by_path, by_doc
+
+
+#------------------------------------------------------------------
 # 문서 한 건 만들기
 #=> 채점·점수 계산이 보는 칸만 담은 평평한 dict 를 만든다. 파일을 읽는 일과
 #   말을 세는 일을 갈라 두어야, 시험이 파일 없이 돌 수 있다.
@@ -341,17 +402,23 @@ def load_documents(seed_path=None, override_path=None, text_dir=None, approved_o
                        "labels": set(row["labels"]), "rejected": set()}
     for key, row in overrides.items():
         cur = merged.setdefault(key, {"file": row.get("file"), "hash": None,
+                                      "doc_id": row.get("doc_id"),
                                       "labels": set(), "rejected": set()})
         cur["labels"].update(row["confirmed"])
         cur["rejected"].update(row["rejected"])
         # 같은 문서를 확정했다가 거절한 축은 확정에서 뺀다 — 마지막 결정이 진실이다.
         cur["labels"] -= row["rejected"]
 
+    # 검토 확정 이력에는 hash 가 없다. 저장된 본문의 색인으로 되찾는다
+    # (색인이 없으면 hash 를 아는 문서만 본문을 갖는다 — 오류가 아니다).
+    by_path, by_doc = load_text_index(text_dir)
+
     docs = []
-    for row in merged.values():
+    for key, row in merged.items():
         if not row["labels"] and not row["rejected"]:
             continue
-        text = read_saved_text(text_dir, row.get("hash"))
+        sha = row.get("hash") or by_path.get(key) or by_doc.get(str(row.get("doc_id")))
+        text = read_saved_text(text_dir, sha)
         docs.append(make_doc(row["file"], row["labels"], row["rejected"], text))
     return docs
 
@@ -405,7 +472,13 @@ def is_usable(term):
         return False
     if term.lower() in EXT_WORDS:
         return False
+    if DIGIT_RE.search(term):
+        # 차수·연도·조항이다. 규칙 단어에 숫자가 드는 일은 없다.
+        return False
     if HANGUL_RE.search(term):
+        if term.endswith("다"):
+            # 서술어('정한다'·'포함한다'). 문서 종류를 가리키는 말이 아니다.
+            return False
         # 한글은 한 글자면 뜻이 너무 넓다('서'·'안'·'표').
         return len(term) >= 2
     # 영문·숫자 섞인 말은 세 글자부터. 두 글자 약어는 오탐이 잦다.
@@ -758,6 +831,10 @@ def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
             flags.append(f"충돌: {conflict} 규칙에 있음")
         if looks_proper_noun(term, pos, suffixes):   # ⑥ 고유명사 의심(막지 않는다)
             flags.append("고유명사 의심")
+
+        # 앞부분·본문에서 나온 두 글자 말은 넣지 않는다(위 TEXT_MIN_LEN 설명).
+        if where in ("head", "body") and len(term) < TEXT_MIN_LEN:
+            continue
 
         # 근거(문서·폴더 수)와 배타성(df_neg)이 문턱이다. 점수는 줄 세우기에만 쓴다.
         enough = doc_hits[term] >= MIN_TERM_DOCS and clusters >= MIN_TERM_CLUSTERS

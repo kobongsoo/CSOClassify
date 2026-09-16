@@ -221,6 +221,15 @@ cso_override.jsonl   .doc_id ┘   &lt;textsave&gt;/index.jsonl     (원본 경�
   <td class="mid">그 문서는 <b>제목·파일명만</b>으로 참여 · 화면에 “본문 없음 N건” 표시</td></tr>
 </table></div>
 
+<div class="danger"><b>[2026-09-16 구현하며 찾은 것] 검토 확정 이력에는 <code>hash</code> 가 없다</b><br>
+<code>cso_override.jsonl</code> 은 ‘누가 무엇을 확정했나’를 남기는 자리라 지문을 적지
+않는다. 그래서 <b>확정 이력만 있는 문서는 본문을 못 찾는다</b> — 설계상 재료의
+대부분이 거기서 오므로, 그대로 두면 기능이 반쪽이 된다.<br>
+<b>메우는 길은 이미 있다.</b> <code>--textsave</code> 는 본문을 쓸 때마다 색인 한 줄
+(<code>_index.jsonl</code>: <code>hash·txt·file·doc_id</code>)을 함께 남긴다.
+원본 경로로(그것이 안 되면 <code>doc_id</code> 로) <code>hash</code> 를 되찾아 본문을 붙인다.
+seed 스키마도 오버라이드 스키마도 바꾸지 않는다.</div>
+
 <div class="danger"><b>본문을 원본 파일에서 다시 뽑지 않는다</b><br>
 seed 는 원본이 지워지거나 바뀌면 <code>suspect</code> 로 표시되는 구조다. 제안 시점에
 원본을 다시 여는 설계면 “어제는 되던 제안이 오늘은 안 나온다”가 조용히 벌어진다.
@@ -371,7 +380,16 @@ df− = D− 중 그 말이 나온 문서 비율      "다른 문서에는 얼�
 <tr><td>3</td><td><b>금지 목록</b>(<a href="#s11">11장</a>)</td><td class="bad">제외</td>
   <td>과거에 사람이 기각했거나 오탐으로 뺀 말이 되살아나는 것을 막는다</td></tr>
 <tr><td>4</td><td>형태 쓰레기</td><td class="bad">제외</td>
-  <td>한글 1자 · 영문 2자 이하 · 순수 숫자 · 날짜/버전(<code>v1.2</code>, <code>2026</code>) · 확장자</td></tr>
+  <td>한글 1자 · 영문 2자 이하 · 확장자 · <b>숫자가 든 말</b>(<code>제1조</code>·<code>2026년</code>·<code>3차</code>) ·
+    <b>‘~다’로 끝나는 말</b>(<code>정한다</code>).<br>
+    <span class="muted">[근거] 현행 <code>doc_rule.yaml</code> 의 규칙 단어 325개를 세어 보니
+    숫자가 든 것 0개 · ‘다’로 끝나는 것 0개였다(2026-09-16).</span></td></tr>
+<tr><td>4-2</td><td><b>앞부분·본문</b>에서 나온 두 글자 말</td><td class="bad">제외</td>
+  <td>제목·파일 이름에서 나온 두 글자는 그대로 둔다.<br>
+    <span class="muted">[근거] 같은 325개 중 두 글자 말이 29개 있다(규정·지침·교육·동향…) —
+    버리면 안 되는 말이다. 그런데 그 말들은 전부 ‘제목에 적히는 문서 종류’이고,
+    본문에 흩어진 ‘목적’·‘절차’·‘방법’과는 다르다. 실제로 V2b 때 ‘동향’을 앞부분 칸에도
+    넣었다가 오탐이 나 제목 칸만 남겼다.</span></td></tr>
 <tr><td>5</td><td>분류 체계의 <b>다른 분류 이름</b></td><td class="bad">제외</td>
   <td>‘계약서’ 문서에서 ‘회의록’이 뽑히면 규칙이 서로를 먹는다</td></tr>
 <tr><td>6</td><td><b>고유명사 의심</b></td><td class="mid">제외하지 않고 <span class="mid">⚠ 표식</span></td>
@@ -615,8 +633,10 @@ by_node:                # 그 분류에서만 제안하지 않는다
   <span class="pill ok">완료</span></td>
   <td class="ok">된다 — <code>src/csoclassify/classify/termsuggest.py</code>,
   시험 <code>tests/test_termsuggest.py</code> 39건 통과(T1~T10 포함, 2026-09-16)</td></tr>
-<tr><td>2</td><td><code>--suggest-terms</code> CLI</td>
-  <td>실데이터로 후보 목록을 눈으로 확인. 문턱 기본값 확정</td></tr>
+<tr><td>2</td><td><code>--suggest-terms</code> CLI <span class="pill ok">완료</span></td>
+  <td class="ok">된다 — <code>--suggest-terms &lt;dc_id&gt;|all</code>,
+  시험 <code>tests/test_cli_suggest_terms.py</code> 9건(2026-09-16).
+  <b>실데이터 확인은 아직</b> — 검토 확정 이력이 쌓여야 한다</td></tr>
 <tr><td>3</td><td>진입점 ① — 검토 화면 버튼</td><td>놓친 문서 확정 → 후보 → 넣기 한 바퀴</td></tr>
 <tr><td>4</td><td>금지 목록 + 이력 파일</td><td>기각한 말이 다음 제안에서 사라진다</td></tr>
 <tr><td>5</td><td>진입점 ② — 설정 화면 탭</td><td>분류 단위 일괄 훑기</td></tr>

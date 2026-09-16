@@ -300,6 +300,31 @@ def build_parser():
     p.add_argument("--sync-enrich", dest="sync_enrich", action="store_true",
                    help="--sync-doc-rule 에서 '이미 단어가 있는 규칙'에도 빠진 유의어만 "
                         "덧붙인다(사람이 적어 둔 말은 지우지 않는다). 기본은 하지 않음")
+    # ── 규칙 단어 제안(--suggest-terms) — 문서도 모델도 필요 없는 단독 모드 ──
+    # 사람이 확정한 문서에서 "이 분류에만 나오는 말"을 뽑아 보여 주기만 한다.
+    # 규칙 파일은 건드리지 않는다 — 넣는 것은 사람이 화면에서 할 일이다.
+    p.add_argument("--suggest-terms", dest="suggest_terms", metavar="DC_ID",
+                   default=None,
+                   help="업무분류 규칙에 넣을 만한 단어 후보를 보여 준다. 분류 하나의 "
+                        "dc_id 를 주거나 all 을 주면 확정 문서가 있는 분류를 모두 훑는다. "
+                        "규칙 파일은 고치지 않는다(보여 주기만)")
+    p.add_argument("--overrides", dest="overrides", default=None,
+                   help="--suggest-terms 재료 — 검토 화면의 확정·거절 이력"
+                        "(cso_override.jsonl). 기본은 정책 폴더 옆")
+    p.add_argument("--text-dir", dest="text_dir", default=None,
+                   help="--suggest-terms 재료 — --textsave 로 저장해 둔 추출 본문 폴더. "
+                        "없으면 제목·파일 이름만으로 후보를 만든다")
+    p.add_argument("--stopwords", dest="stopwords", default=None,
+                   help="--suggest-terms 에서 제안하지 않을 말 목록"
+                        "(doc_rule_stopwords.yaml). 기본은 정책 폴더 옆")
+    p.add_argument("--suggest-json", dest="suggest_json", metavar="경로", default=None,
+                   help="--suggest-terms 결과를 json 으로도 남긴다")
+    p.add_argument("--suggest-min-docs", dest="suggest_min_docs", type=int, default=None,
+                   help="--suggest-terms 에서 제안을 시작할 최소 확정 문서 수(기본 3)")
+    p.add_argument("--include-auto-seeds", dest="include_auto_seeds",
+                   action="store_true",
+                   help="--suggest-terms 에서 사람이 승인하지 않은 seed(자동 선별분)도 "
+                        "재료로 쓴다. 규칙→seed→규칙 자기강화가 생길 수 있어 기본은 끔")
     p.add_argument("--with-vector", dest="with_vector", action="store_true",
                    help="분류 시 모든 문서에 임베딩 벡터 산출(구 동작, 모델 필요)")
     p.add_argument("--embed-needed", dest="embed_needed", action="store_true",
@@ -3630,6 +3655,172 @@ def run_export_taxonomy(args):
 
 
 #------------------------------------------------------------------
+# 규칙 단어 제안 — 후보 한 줄 찍기
+#=> 사람이 표를 눈으로 훑을 수 있게 한 줄로 만든다. 개발 용어(로그 오즈·df)를
+#   그대로 내보내지 않고, 판단에 필요한 것만 남긴다 —
+#   "어디에 넣을지 · 근거가 몇 건인지 · 다른 분류에도 나오는지".
+#
+# -in: cand = termsuggest.suggest 가 만든 후보 dict
+#
+# -out: str = 화면에 찍을 한 줄
+# -out: error = 없음
+#------------------------------------------------------------------
+def _suggest_line(cand):
+    mark = "[v]" if cand["checked"] else "[ ]"
+    # 칸 이름은 화면 말로 바꾼다(uiwords 규약과 같은 원칙 — 개발 용어를 안 보여 준다).
+    names = {"title_terms": "제목", "head_terms": "앞부분",
+             "terms": "본문", "filename": "파일이름"}
+    where = "·".join(names.get(f, f) for f in cand["fields"])
+    if cand["extra"].get("min_count"):
+        where += f"(같은 말 {cand['extra']['min_count']}회 이상)"
+    flags = " ".join(f"<{f}>" for f in cand["flags"])
+    return (f"  {mark} {cand['term']:<14} {where:<22}"
+            f" 근거 {cand['docs']:>3}건/폴더{cand['clusters']:<2}"
+            f" 다른분류 {cand['df_neg'] * 100:>5.1f}%"
+            f" 덮는율 {cand['df_pos'] * 100:>5.1f}%  {flags}")
+
+
+#------------------------------------------------------------------
+# 규칙 단어 제안 전용 모드 (--suggest-terms)
+#=> 문서도 모델도 읽지 않는다. 이미 확정된 라벨과 저장해 둔 본문만 보고,
+#   규칙에 넣을 만한 말의 후보를 보여 준다. 규칙 파일은 고치지 않는다.
+#    1) 재료를 모은다 — seed(사람 승인분) + 검토 확정 이력 + 저장된 본문
+#    2) 분류를 정한다 — dc_id 하나거나, all 이면 확정 문서가 있는 분류 전부
+#    3) 분류마다 후보를 뽑아 찍는다(요구하면 json 으로도 남긴다)
+#
+#   [왜 화면보다 이것을 먼저 만드나] 문턱이 실제 문서에서 어떻게 도는지는
+#   눈으로 봐야 정할 수 있다. 화면을 먼저 만들면 그 확인이 화면 뒤에 숨는다.
+#
+# -in: args = 파싱된 인자(사용: suggest_terms·seeds·overrides·text_dir·
+#             stopwords·doc_rules·taxonomy·suggest_json·suggest_min_docs·
+#             include_auto_seeds)
+#
+# -out: code = 0(정상) · 3(재료 없음·분류 이름이 틀림)
+# -out: error = 없음(예외를 종료코드로 환원)
+#------------------------------------------------------------------
+def run_suggest_terms(args):
+    from .classify import termsuggest as TS
+    from .classify import axes as AX
+    from .classify import doc_rules as DR
+    from .classify import default_seed_path
+    from .classify import docvocab
+
+    log = logsetup.get_logger("csoclassify.cli")
+
+    # 재료 경로. 검토 이력·금지 목록은 정책 파일 옆에 두는 것을 규약으로 삼는다.
+    seeds_path = args.seeds or default_seed_path()
+    policy_dir = os.path.dirname(os.path.abspath(seeds_path))
+    ov_path = args.overrides or os.path.join(policy_dir, "cso_override.jsonl")
+    stop_path = args.stopwords or os.path.join(policy_dir, "doc_rule_stopwords.yaml")
+
+    have_seed = os.path.isfile(seeds_path)
+    have_ov = os.path.isfile(ov_path)
+    if not have_seed and not have_ov:
+        return fail_err("seeds_missing",
+                        f"[MpowerClassify] 제안할 재료가 없습니다.\n"
+                        f"  · 기준 문서: {seeds_path}\n"
+                        f"  · 검토 확정 이력: {ov_path}\n"
+                        f"  둘 중 하나는 있어야 합니다(--seeds · --overrides 로 지정).",
+                        seeds_path)
+
+    docs = TS.load_documents(seeds_path if have_seed else None,
+                             ov_path if have_ov else None,
+                             args.text_dir,
+                             approved_only=not args.include_auto_seeds)
+    if args.include_auto_seeds:
+        print("[MpowerClassify] 사람이 승인하지 않은 seed 도 재료에 넣었습니다 — "
+              "규칙이 만든 라벨이 다시 규칙을 만드는 고리가 생길 수 있습니다.",
+              file=sys.stderr)
+
+    # 규칙·분류 체계는 '거르기'에만 쓴다. 없어도 제안은 돌되, 무엇을 못 거르는지 알린다.
+    rule_doc, tax_raw, suffixes = None, None, None
+    doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
+    if os.path.isfile(doc_rules_path):
+        rule_doc = docvocab.load_doc(doc_rules_path)
+        # 끝말 목록은 규칙 파일 옆 유의어 사전에서 온다(core 가 기준).
+        suffixes = (docvocab.load_synonyms(doc_rules_path) or {}).get("suffixes")
+    else:
+        print(f"[MpowerClassify] 규칙 파일이 없어 '이미 있는 말'을 거르지 못합니다: "
+              f"{doc_rules_path}", file=sys.stderr)
+    taxonomy_path = args.taxonomy or AX.default_taxonomy_path()
+    if os.path.isfile(taxonomy_path):
+        try:
+            tax = AX.load_taxonomy(taxonomy_path)
+            tax_raw = {"by_id": {n.dc_id: {"title": n.title} for n in tax}}
+        except AX.TaxonomyValidationError as e:
+            # 제안은 분류 체계 없이도 돈다 — 검증 실패로 멈출 자리가 아니다.
+            print(f"[MpowerClassify] 분류체계를 읽지 못해 '다른 분류 이름'을 "
+                  f"거르지 못합니다: {e}", file=sys.stderr)
+
+    stopwords = TS.load_stopwords(stop_path)
+
+    # 훑을 분류를 정한다. all 이면 확정 문서가 한 건이라도 있는 분류 전부.
+    want = str(args.suggest_terms).strip()
+    labelled = sorted({d for doc in docs for d in doc["labels"]})
+    if want.lower() == "all":
+        nodes = labelled
+        if not nodes:
+            print("[MpowerClassify] 확정된 문서가 한 건도 없습니다 — "
+                  "검토 화면에서 분류를 확정하면 재료가 쌓입니다.")
+            return config.EXIT_OK
+    else:
+        nodes = [want]
+        if want not in labelled:
+            print(f"[MpowerClassify] '{want}' 로 확정된 문서가 없습니다. "
+                  f"확정 문서가 있는 분류: {', '.join(labelled) or '(없음)'}",
+                  file=sys.stderr)
+
+    title_of = {}
+    if tax_raw:
+        title_of = {k: v["title"] for k, v in tax_raw["by_id"].items()}
+
+    min_docs = args.suggest_min_docs or TS.MIN_DOCS
+    log.info("단어 제안 시작 nodes=%d docs=%d text_dir=%s",
+             len(nodes), len(docs), args.text_dir or "-")
+    print(f"[MpowerClassify] 재료 {len(docs)}건"
+          f"(기준문서 {'있음' if have_seed else '없음'} · "
+          f"검토이력 {'있음' if have_ov else '없음'} · "
+          f"본문 {'있음' if args.text_dir else '없음'})")
+
+    out = []
+    for node in nodes:
+        res = TS.suggest(node, docs, rule_doc=rule_doc, stopwords=stopwords,
+                         tax=tax_raw, suffixes=suffixes, min_docs=min_docs)
+        out.append(res)
+        name = title_of.get(node, "")
+        head = f"\n■ {name}({node})" if name else f"\n■ {node}"
+        print(f"{head} — 확정 {res['docs']}건 / 폴더 {res['clusters']}곳"
+              + (f" · 본문 없음 {res['no_text']}건" if res["no_text"] else ""))
+        if res["reason"]:
+            print(f"  {res['reason']}")
+        if not res["candidates"] and not res["cluster_only"]:
+            if not res["reason"]:
+                print("  제안할 말이 없습니다.")
+            continue
+        for cand in res["candidates"]:
+            print(_suggest_line(cand))
+        if res["cluster_only"]:
+            # 한 폴더에 몰린 어휘는 따로 보여 준다 — 근거가 약해 자동 채택하지 않는다.
+            print("  [한 폴더 전용] 그 폴더에서만 쓰는 말일 수 있습니다:")
+            for cand in res["cluster_only"]:
+                print(_suggest_line(cand))
+
+    if args.suggest_json:
+        try:
+            with open(args.suggest_json, "w", encoding="utf-8") as fp:
+                json.dump(out, fp, ensure_ascii=False, indent=1)
+            print(f"\n[MpowerClassify] 결과를 남겼습니다: {args.suggest_json}")
+        except OSError as e:
+            return fail_err("output_write_failed",
+                            f"[MpowerClassify] 결과를 쓰지 못했습니다: {e}",
+                            args.suggest_json)
+
+    print("\n[MpowerClassify] 규칙 파일은 고치지 않았습니다 — "
+          "넣을 말은 화면(설정 ③ 판단 기준)에서 고르세요.")
+    return config.EXIT_OK
+
+
+#------------------------------------------------------------------
 # 규칙셋 검사 전용 모드 (--check-rules)
 #=> 문서는 한 건도 읽지 않고 cso_rule.yaml 의 등급 값만 확인하고 끝낸다.
 #   규칙셋을 고친 뒤 '실제 스캔을 돌리기 전에' 안전한지 확인하는 용도다.
@@ -4037,6 +4228,12 @@ def _main(argv=None):
     if getattr(args, "sync_doc_rule", False):
         log.info("문서분류규칙파일 doc_rule.yaml 생성(--sync_doc_rule)")
         return run_sync_doc_rule(args)
+
+    # (1.365) 규칙 단어 제안 모드: 확정된 라벨과 저장해 둔 본문만 본다.
+    # => 문서도 모델도 읽지 않고, 규칙에 넣을 만한 말의 후보를 보여 주기만 한다.
+    if getattr(args, "suggest_terms", None):
+        log.info("업무분류 규칙 단어 제안(--suggest-terms %s)", args.suggest_terms)
+        return run_suggest_terms(args)
 
     # (1.37) 기준 문서 등록 모드: 인자를 먼저 다 검사한 뒤 분류 경로에 태운다.
     # 문서를 절반 읽고 나서 인자가 틀린 것을 알면, 이미 쓴 것과 안 쓴 것이 섞여
