@@ -84,6 +84,22 @@ DOC_SUFFIXES = (
 
 
 #------------------------------------------------------------------
+# 프로그램 내장 활용형 꼬리 목록 가져오기
+#=> core 사전에 verb_endings 칸이 없는 배포에서 쓸 기본값이다. 목록 자체는
+#   그것을 쓰는 termsuggest 가 들고 있다 — 여기서 맞바꿔 import 하면 순환이 되므로
+#   함수 안에서 늦게 가져온다.
+#
+# -in: 없음
+#
+# -out: tuple = 활용형 꼬리들
+# -out: error = 없음
+#------------------------------------------------------------------
+def _builtin_endings():
+    from .termsuggest import VERB_ENDINGS
+    return VERB_ENDINGS
+
+
+#------------------------------------------------------------------
 # 유의어 사전은 세 겹이다 — 파일 이름 규약
 #=> 업종마다 쓰는 문서 이름이 다르다(금융의 '여신심사기준서', 의료의 '감염관리
 #   지침서'). 그렇다고 고객사마다 사전을 통째로 새로 쓸 수는 없다. 그래서
@@ -108,6 +124,9 @@ SYN_SECTIONS = ("aliases", "filename_only", "excludes", "tails", "heads")
 # 띄어쓰기 끝말 칸. 위 다섯 칸은 {이름: [말…]} 모양으로 합쳐지지만 이 칸은 말만
 # 늘어놓은 목록이라 SYN_SECTIONS 에 넣지 않고 따로 읽는다(_merge_layer 가 map 전용).
 SYN_SUFFIXES = "suffixes"
+# ⑦ 용언 활용형 꼬리 — 후보 단어에서 서술어를 걸러낼 때 쓴다.
+#   끝말(suffixes)과 같은 규약: core 가 기준을 정하고 업종·local 은 더하기만 한다.
+SYN_ENDINGS = "verb_endings"
 # 칸별 추가 단어 칸(2026-09-15). {분류이름: {칸: [말…]}} 두 겹 모양이라 역시 따로 읽는다.
 # 사람이 조정해 둔 단어를 '적은 칸에만, 개수 제한 밖에서, 뒤에' 붙인다.
 SYN_EXTRA = "extra_terms"
@@ -207,6 +226,7 @@ def _read_syn_layer(path):
     layer = {sec: (data.get(sec) or {}) for sec in SYN_SECTIONS}
     # 끝말은 목록 칸이라 따로 정리해 싣는다(모양이 틀리면 빈 목록).
     layer[SYN_SUFFIXES] = _clean_suffixes(data.get(SYN_SUFFIXES))
+    layer[SYN_ENDINGS] = _clean_endings(data.get(SYN_ENDINGS))
     # 칸별 추가 단어도 모양을 정리해 싣는다(틀린 칸·틀린 말만 버린다).
     layer[SYN_EXTRA] = _clean_extra_terms(data.get(SYN_EXTRA))
     return layer
@@ -285,6 +305,31 @@ def _clean_suffixes(raw):
         # 한 글자 끝말("서")은 거의 모든 "~서" 이름을 이상하게 끊는다.
         # 공백이 든 끝말은 "붙여 쓴 이름을 띄운다"는 뜻과 맞지 않는다.
         if len(w) < 2 or any(c.isspace() for c in w) or w in out:
+            continue
+        out.append(w)
+    return out
+
+
+#------------------------------------------------------------------
+# 활용형 꼬리 한 겹 정리하기
+#=> 끝말(_clean_suffixes)과 거의 같지만 <b>한 글자를 받는다</b>는 점이 다르다.
+#   끝말에서 한 글자를 막는 이유는 "~서"가 모든 '…서' 이름을 이상하게 끊기 때문인데,
+#   활용형 꼬리는 '된'·'는' 처럼 한 글자가 곧 뜻이라 막으면 쓸 수 없다.
+#   (대신 '인'·'한' 같은 위험한 한 글자는 사전에 적지 말라고 주석으로 막아 둔다 —
+#    '인'을 넣으면 승인·확인·가이드라인이 함께 죽는다.)
+#
+# -in: raw = yaml 에서 읽은 verb_endings 값(아무 모양이나 올 수 있다)
+#
+# -out: list = 꼬리 목록(빈 말·공백 든 말·중복은 버린다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _clean_endings(raw):
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for x in raw:
+        w = str(x if x is not None else "").strip()
+        if not w or any(c.isspace() for c in w) or w in out:
             continue
         out.append(w)
     return out
@@ -371,6 +416,7 @@ def load_synonyms(doc_rules_path):
     layers = []
     # 끝말은 core 가 기준 목록을 정하고, 업종·local 은 더하기만 한다.
     core_suffixes, extra_suffixes = [], []
+    core_endings, extra_endings = [], []
     # 칸별 추가 단어 — {분류이름: {칸: [말…]}}. 센 겹의 말이 앞에 온다(_merge_layer 와 같다).
     extra = {}
     for name in names:
@@ -386,8 +432,10 @@ def load_synonyms(doc_rules_path):
             extra[key] = _merge_layer(extra.get(key) or {}, cells)
         if name == SYN_CORE:
             core_suffixes = layer[SYN_SUFFIXES]
+            core_endings = layer[SYN_ENDINGS]
         else:
             extra_suffixes += layer[SYN_SUFFIXES]
+            extra_endings += layer[SYN_ENDINGS]
 
     if not layers:
         return {}
@@ -405,6 +453,15 @@ def load_synonyms(doc_rules_path):
             uniq.append(w)
     # 긴 끝말이 먼저 걸려야 한다. sorted 는 안정 정렬이라 길이가 같으면 적은 차례를 지킨다.
     merged[SYN_SUFFIXES] = sorted(uniq, key=lambda w: -len(w))
+
+    # 활용형 꼬리도 같은 규약이다. 이 칸이 없으면 프로그램 내장 목록을 쓴다
+    # (termsuggest.VERB_ENDINGS — 옛 사전이 깔린 곳에서 필터가 조용히 꺼지지 않게 한다).
+    base_end = core_endings or list(_builtin_endings())
+    uniq_end = []
+    for w in list(base_end) + extra_endings:
+        if w not in uniq_end:
+            uniq_end.append(w)
+    merged[SYN_ENDINGS] = sorted(uniq_end, key=lambda w: -len(w))
     merged[SYN_EXTRA] = extra
 
     # 화면에 한 줄로 보여 줄 대표 경로는 가장 센 겹(=사람이 고치는 자리)으로 둔다.

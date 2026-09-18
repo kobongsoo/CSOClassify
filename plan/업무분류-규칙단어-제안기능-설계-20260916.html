@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>업무분류 규칙 단어 제안 기능 설계</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+    --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+    --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .ok{color:var(--o);font-weight:700}
+  .bad{color:var(--c);font-weight:700}
+  .mid{color:var(--s);font-weight:700}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .danger{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .pill.todo{background:color-mix(in srgb,var(--s) 22%,transparent)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  @media (max-width:640px){ ul.toc{columns:1} header.hero{padding:20px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>업무분류 규칙 <b>단어 제안</b> 기능</h1>
+  <p>사람이 확정한 문서에서 <b>그 분류에만 유독 자주 나오는 말</b>을 뽑아
+  관리자에게 <b>후보로 보여 준다</b>. 규칙 파일은 관리자가 고른 것만,
+  <b>덧붙이는 방향으로만</b> 바뀐다.
+  <span class="pill ok">1~5단계 구현 완료 2026-09-16</span></p>
+  <div class="note" style="margin-top:14px"><b>한 줄 요약</b><br>
+  “seed 문서로 <code>doc_rule.yaml</code> 을 <u>만든다</u>”가 아니라
+  “확정 문서로 관리자에게 단어를 <u>제안한다</u>”. 자동 반영은 없다.</div>
+  <p class="muted" style="margin-top:8px">작성 2026-09-16 · 대상
+  <code>csoclassify</code>(Python) / 검토 화면(Streamlit) · Rust 판 변경 없음 · 관련
+  <a href="업무분류-내용기반-2단계-재설계.html">업무분류 내용기반 2단계 재설계</a> ·
+  <a href="문서분류체계-연동-분류규칙-설계.html">문서분류체계 연동 분류규칙 설계</a> ·
+  <a href="기준문서-seed저장소-v3평탄화-설계-20260908.html">기준문서 seed 저장소 v3</a> ·
+  <a href="추출텍스트-저장-설계-20260907.html">추출 텍스트 저장</a> · <a href="../tests/evalset/README.md">평가셋 채점 사용법</a></p>
+</header>
+
+<section class="card">
+  <h3>목차</h3>
+  <ul class="toc">
+    <li><a href="#s1">1. 배경 — 지금 무엇이 막혀 있나</a></li>
+    <li><a href="#s2">2. 범위 — 하는 것과 안 하는 것</a></li>
+    <li><a href="#s3">3. 재료 — 무엇을 어디서 읽나</a></li>
+    <li><a href="#s4">4. 데이터 요건과 현실</a></li>
+    <li><a href="#s5">5. 후보 만들기(토큰화)</a></li>
+    <li><a href="#s6">6. 점수 — 빈도가 아니라 대조</a></li>
+    <li><a href="#s7">7. 거르기 — 넣으면 안 되는 말</a></li>
+    <li><a href="#s8">8. 어느 칸에 넣을까</a></li>
+    <li><a href="#s9">9. 화면 — 두 개의 진입점</a></li>
+    <li><a href="#s10">10. 규칙에 넣기 — 덧붙이기만</a></li>
+    <li><a href="#s11">11. 기각 이력이 곧 금지 목록</a></li>
+    <li><a href="#s12">12. 파일·모듈 배치</a></li>
+    <li><a href="#s13">13. 검증과 평가 게이트</a></li>
+    <li><a href="#s14">14. 구현 순서</a></li>
+    <li><a href="#s15">15. 미결 사항</a></li>
+  </ul>
+</section>
+
+<!-- ───────────────────────── 1 ───────────────────────── -->
+<h2 id="s1"><span class="n">1</span>배경 — 지금 무엇이 막혀 있나</h2>
+<section class="card">
+
+<h3>1-1. 규칙 단어는 두 곳에서만 온다</h3>
+<div class="flow">분류 체계(doc_taxonomy.yaml)  ─┐
+                              ├─→ docvocab.sync_from_taxonomy ─→ doc_rule.yaml 4칸
+유의어 사전(synonyms/*.yaml) ─┘                                  (title/head/terms/filename)</div>
+<p>두 입력 모두 <b>그 회사의 문서를 한 장도 보지 않은</b> 말이다. 분류 이름
+(“요구사항정의서”)과 공용 사전에서 만들어 낸 표기뿐이다.</p>
+
+<h3>1-2. 그래서 놓치는 것</h3>
+<p>2026-09-14 평가셋 500건 1차 측정에서 업무분류 재현율이 낮았고(모집단
+정밀도 91.2% · 재현율 65.4%), 놓친 문서의 성격이 일정했다.</p>
+<div class="scroll"><table>
+<tr><th>놓친 묶음</th><th>왜 못 잡았나</th><th>사람이 한 조치</th></tr>
+<tr><td>보고서 34건(품목보고서 계열)</td><td>‘품목보고서’·‘실태조사’·‘이슈페이퍼’ 같은
+  <b>그 회사 표기</b>가 사전에 없다</td><td>V2b 로 title 칸에 5개 손으로 추가</td></tr>
+<tr><td>교육자료 22건</td><td>‘입문교육’·‘예방교육’·‘수료’</td><td>V2b 로 title 칸에 7개 손으로 추가</td></tr>
+<tr><td>매뉴얼 35건(decm html)</td><td>제목이 ‘도움말’ 이라 ‘매뉴얼’ 이 한 번도 안 나온다</td>
+  <td>title_terms 에 ‘도움말’ 추가</td></tr>
+</table></div>
+<p>세 번 다 <b>같은 작업</b>이었다 — 놓친 문서를 열어 보고, 공통으로 나오는 말을
+눈으로 찾고, 손으로 규칙에 적었다. <b>이 반복을 줄이는 것이 이 기능의 전부다.</b></p>
+
+<div class="note"><b>왜 유의어 사전을 늘리는 것으로는 안 되나</b><br>
+유의어 사전(<code>doc_synonyms.core.yaml</code> 등)은 <b>모든 고객사가 함께 쓰는</b>
+파일이다. ‘품목보고서’는 이 회사에서만 쓰는 말이라 core 에 넣으면 다른 곳에서 오탐이 된다.
+반대로 회사별 <code>local</code> 사전은 <b>core 의 말을 뺄 수 없고 더하기만 되며</b>, 사전은
+분류할 때가 아니라 ‘분류 불러오기’ 때만 쓰인다. 회사별 어휘가 갈 자리는 결국
+그 회사의 <code>doc_rule.yaml</code> 이다.</div>
+</section>
+
+<!-- ───────────────────────── 2 ───────────────────────── -->
+<h2 id="s2"><span class="n">2</span>범위 — 하는 것과 안 하는 것</h2>
+<section class="card">
+<div class="scroll"><table>
+<tr><th>한다</th><th>안 한다</th></tr>
+<tr>
+<td>
+<ul>
+<li>확정 문서에서 <b>후보 단어 목록</b>을 만든다</li>
+<li>단어마다 <b>근거</b>(몇 건에 나왔나 · 다른 분류에는 얼마나 나오나 · 어느 문서인가)를 보여 준다</li>
+<li>단어마다 <b>넣을 칸</b>(title/head/terms/filename)을 제안한다</li>
+<li>관리자가 고른 것만 <b>덧붙인다</b></li>
+<li>채택·기각 이력을 남긴다</li>
+</ul>
+</td>
+<td>
+<ul>
+<li><b>doc_rule.yaml 을 새로 만들지 않는다</b> — 시작값은 지금처럼 분류 체계+사전에서 온다</li>
+<li><b>자동 반영하지 않는다</b> — 사람이 체크한 것만 들어간다</li>
+<li><b>단어를 지우지 않는다</b> — 삭제는 규칙 편집 화면의 일이다</li>
+<li><b>형태소 분석기를 새로 넣지 않는다</b>(konlpy 등 의존성 추가 금지)</li>
+<li><b>seed 스키마를 바꾸지 않는다</b> · <b>Rust 판을 건드리지 않는다</b></li>
+<li>보안등급(cso_rule.yaml)은 대상이 아니다 — 다음 과제</li>
+</ul>
+</td>
+</tr>
+</table></div>
+
+<div class="warn"><b>“seed 로 doc_rule 을 생성” 안을 기각한 이유</b>(요약)<br>
+① seed 는 19건·6개 분류뿐이라 재료가 없다 ·
+② seed 는 엔진 판정에서 자동 선별되기도 해(<code>t_seed 0.85</code>) 규칙→seed→규칙
+<b>자기강화 고리</b>가 생긴다 ·
+③ doc_rule.yaml 은 화면이 저장할 때마다 통째로 다시 쓰여, 자동 생성분과 사람이 튜닝한
+값을 구분할 방법이 없다.<br>
+이 세 가지는 “제안만 한다 · 사람 확정분만 재료로 쓴다 · 덧붙이기만 한다”로 모두 사라진다.</div>
+</section>
+
+<!-- ───────────────────────── 3 ───────────────────────── -->
+<h2 id="s3"><span class="n">3</span>재료 — 무엇을 어디서 읽나</h2>
+<section class="card">
+
+<h3>3-1. 정답(라벨)은 두 곳에서 온다</h3>
+<div class="scroll"><table>
+<tr><th>출처</th><th>파일</th><th>무엇을 얻나</th><th>쓰는 이유</th></tr>
+<tr><td>기준 문서</td><td><code>class_seed.jsonl</code></td>
+  <td><code>file · hash · doctype[] · approved_by · source</code></td>
+  <td>관리자가 “이 문서가 이 분류의 본보기”라고 확정한 것</td></tr>
+<tr><td>검토 확정</td><td><code>cso_override.jsonl</code> (<code>axis:"doctype"</code>)</td>
+  <td><code>file · doc_id · confirmed[] · rejected[] · reviewer</code></td>
+  <td>검토 화면에서 ✔/✘ 를 누를 때마다 쌓인다 — <b>실제 재료는 대부분 여기서 나온다</b></td></tr>
+</table></div>
+
+<div class="note"><b>중요한 설계 결정 — seed 만으로는 안 된다</b><br>
+seed 는 “벡터 비교용 본보기”라 일부러 적게, 골라서 넣는다(지금 19건). 반면
+<code>cso_override.jsonl</code> 은 검토를 할수록 쌓인다. <b>재료를 seed 에 한정하지 않고
+검토 확정까지 포함</b>시키는 것이 이 기능을 실용적으로 만드는 핵심이다.<br>
+덤으로 <code>rejected</code>(“이 분류 아님”)는 그냥 버리던 정보인데,
+<a href="#s6">6장</a>의 <b>대조군을 강화하는 데</b> 쓴다.</div>
+
+<h3>3-2. 텍스트는 이미 저장할 수 있다 — 새 저장소가 필요 없다</h3>
+<p>seed 행에는 벡터만 있고 본문이 없다. 그러나 CLI 에 이미
+<code>--textsave &lt;폴더&gt;</code> 가 있고, <b>파일 이름이 원본의 SHA-256</b> 이다.
+seed 행과 결과 레코드 모두 <code>hash</code> 를 들고 있으므로 그대로 찾아진다.</p>
+<div class="flow">class_seed.jsonl     .hash ─┐
+cso_result.jsonl     .hash ─┼─→  &lt;textsave&gt;/&lt;sha256&gt;.txt   (본문)
+cso_override.jsonl   .doc_id ┘   &lt;textsave&gt;/index.jsonl     (원본 경로·길이·절단여부)</div>
+
+<div class="scroll"><table>
+<tr><th>필요한 값</th><th>어디서</th><th>없을 때</th></tr>
+<tr><td>파일 이름</td><td>레코드의 <code>file</code> 경로 끝</td><td>항상 있다</td></tr>
+<tr><td>제목</td><td>본문 첫 비어있지 않은 줄(엔진의 제목 추출과 같은 규약을 쓴다)</td>
+  <td>본문 없으면 파일 이름만으로 후보를 만든다</td></tr>
+<tr><td>앞부분(head)</td><td>본문 앞 <code>head_chars</code>(기본 400)자</td><td>본문 길이만큼</td></tr>
+<tr><td>본문</td><td><code>&lt;textsave&gt;/&lt;sha&gt;.txt</code> 전체</td>
+  <td class="mid">그 문서는 <b>제목·파일명만</b>으로 참여 · 화면에 “본문 없음 N건” 표시</td></tr>
+</table></div>
+
+<div class="danger"><b>[2026-09-16 구현하며 찾은 것] 검토 확정 이력에는 <code>hash</code> 가 없다</b><br>
+<code>cso_override.jsonl</code> 은 ‘누가 무엇을 확정했나’를 남기는 자리라 지문을 적지
+않는다. 그래서 <b>확정 이력만 있는 문서는 본문을 못 찾는다</b> — 설계상 재료의
+대부분이 거기서 오므로, 그대로 두면 기능이 반쪽이 된다.<br>
+<b>메우는 길은 이미 있다.</b> <code>--textsave</code> 는 본문을 쓸 때마다 색인 한 줄
+(<code>_index.jsonl</code>: <code>hash·txt·file·doc_id</code>)을 함께 남긴다.
+원본 경로로(그것이 안 되면 <code>doc_id</code> 로) <code>hash</code> 를 되찾아 본문을 붙인다.
+seed 스키마도 오버라이드 스키마도 바꾸지 않는다.</div>
+
+<div class="danger"><b>본문을 원본 파일에서 다시 뽑지 않는다</b><br>
+seed 는 원본이 지워지거나 바뀌면 <code>suspect</code> 로 표시되는 구조다. 제안 시점에
+원본을 다시 여는 설계면 “어제는 되던 제안이 오늘은 안 나온다”가 조용히 벌어진다.
+<b>textsave 폴더가 없거나 비어 있으면 그 사실을 화면에 그대로 말하고</b>, 파일 이름·제목만으로
+돌아가는 축소 모드로 동작한다.</div>
+</section>
+
+<!-- ───────────────────────── 4 ───────────────────────── -->
+<h2 id="s4"><span class="n">4</span>데이터 요건과 현실</h2>
+<section class="card">
+
+<h3>4-1. 분류당 최소 건수</h3>
+<div class="scroll"><table>
+<tr><th>확정 문서 수(폴더 보정 후)</th><th>동작</th><th>이유</th></tr>
+<tr><td>1~2건</td><td class="bad">제안하지 않는다</td>
+  <td>한 문서에서 뽑은 말은 규칙이 아니라 그 문서의 지문이다</td></tr>
+<tr><td>3~4건</td><td class="mid">제안하되 <b>전부 체크 해제</b> + “근거 얕음” 표식</td>
+  <td>볼 가치는 있으나 기본값으로 밀면 안 된다</td></tr>
+<tr><td>5건 이상</td><td class="ok">정상 제안</td><td>출현율 문턱(<a href="#s6">6장</a>)이 의미를 갖는 최소선</td></tr>
+</table></div>
+
+<h3>4-2. 같은 폴더 문서는 묶어서 1건으로 센다</h3>
+<p>평가에서 매뉴얼 놓침 35건이 <b>전부 한 폴더</b>(decm 관리자 도움말 html 조각)였다.
+이런 묶음을 35건으로 세면 그 폴더의 어휘가 통째로 규칙이 된다.</p>
+<pre><code>군집 키 = 원본 경로의 부모 디렉터리
+같은 군집의 문서는 출현율 계산에서 합쳐 1건으로 센다
+(화면에는 "근거 12건(폴더 3곳)" 처럼 둘 다 보여 준다)</code></pre>
+
+<h3>4-3. 지금 이 규칙을 지금 데이터에 대면</h3>
+<div class="scroll"><table>
+<tr><th>재료</th><th>건수</th><th>제안 가능 분류</th></tr>
+<tr><td>seed 만(<code>class_seed.jsonl</code> 현재)</td><td>19건 / 6개 분류
+  <span class="muted">(DC_006_002 12 · DC_004_003 8 · 나머지 4개는 1건씩)</span></td>
+  <td class="bad">폴더 보정 전 2개, 보정 후엔 <b>0~1개</b></td></tr>
+<tr><td>seed + 검토 확정</td><td>검토를 할수록 증가</td>
+  <td class="ok">검토가 쌓인 분류부터 차례로</td></tr>
+</table></div>
+<div class="warn"><b>그래서 이 기능은 “첫날부터 잘 도는” 기능이 아니다.</b>
+검토 이력이 쌓여야 켜진다. 화면은 이것을 숨기지 말고
+“확정 문서 3건 — 5건부터 제대로 제안합니다”처럼 <b>왜 비어 있는지</b>를 말해야 한다.</div>
+</section>
+
+<!-- ───────────────────────── 5 ───────────────────────── -->
+<h2 id="s5"><span class="n">5</span>후보 만들기(토큰화)</h2>
+<section class="card">
+<p>형태소 분석기를 넣지 않는다. 대신 <b>이미 있는 자산</b> 두 개를 그대로 쓴다 —
+<code>docvocab</code> 의 <b>끝말 목록</b>(core 사전 <code>suffixes:</code>, 2026-09-15 에 사전으로 이관)과
+띄어쓰기 변형 생성기(<code>_spacing_forms</code>).</p>
+
+<div class="scroll"><table>
+<tr><th>자리</th><th>자르는 법</th><th>예</th></tr>
+<tr><td>파일 이름</td>
+  <td>확장자 제거 → <code>_ - . 공백 [] ()</code> 및 숫자·날짜·버전 토큰으로 분리</td>
+  <td><code>04_EZis-V 6.0 관리자매뉴얼.doc</code> → <code>EZis</code>, <code>관리자매뉴얼</code></td></tr>
+<tr><td>제목·앞부분·본문</td>
+  <td>어절 단위 → 조사성 꼬리 제거 → <b>끝말 목록에 걸리는 복합명사만</b> 남긴다</td>
+  <td><code>품목보고서를</code> → <code>품목보고서</code> (끝말 ‘보고서’)</td></tr>
+<tr><td>영문</td><td>공백·기호 분리, 3자 이상, 소문자로 통일해 세되 <b>표기는 원문 우세형</b></td>
+  <td><code>SCPI</code>, <code>report</code></td></tr>
+</table></div>
+
+<div class="note"><b>끝말 목록을 쓰는 이유</b><br>
+한국어 문서 분류 어휘는 거의 전부 “<u>무엇</u>+<u>문서종류</u>” 꼴이다(품목<b>보고서</b>,
+입문<b>교육</b>, 관리자<b>매뉴얼</b>). 끝말로 자르면 형태소 분석기 없이도
+<b>분류에 쓸모 있는 말만</b> 골라진다. 부수 효과로 ‘~를/~에서’ 같은 조사 쓰레기가
+대부분 자동으로 빠진다.</div>
+
+<div class="warn"><b>끝말에 안 걸리는 말은?</b> ‘도움말’·‘동향’처럼 실제로 필요했던 말이
+끝말 목록에 없을 수 있다. 그래서 <b>끝말에 안 걸린 어절도 버리지 않고</b>
+따로 모아 “<span class="muted">끝말 밖 후보</span>” 묶음으로 화면 아래쪽에 보여 준다
+— 기본 체크 해제, 문턱은 더 죄어서(<a href="#s6">6장</a>).</div>
+
+<div class="note"><b>[2026-09-16 보강] 끝말은 앞부분·본문에만 요구한다</b><br>
+제목과 파일 이름은 사람이 뜻을 담아 적은 자리라, 구분자로 자른 것만으로 근거가 된다.
+여기에까지 끝말을 요구하면 ‘이슈페이퍼’·‘현황분석’처럼 <b>끝말 목록에 없지만
+제목에 또렷이 적힌 말</b>이 전부 ‘끝말 밖’으로 밀려 더 높은 문턱을 만나게 된다.
+그래서 <b>끝말 밖 표식은 앞부분·본문에서 뽑은 말에만</b> 단다.<br>
+아울러 ‘어느 자리에서 나왔나’(제목·앞부분·본문)와 ‘끝말에 걸렸나’는 <b>다른 이야기</b>라
+따로 들고 다닌다 — 섞으면 “본문 전용이니 <code>min_count</code> 를 달자”와
+“끝말 근거가 없으니 문턱을 죄자”를 함께 판단할 수 없다.</div>
+</section>
+
+<!-- ───────────────────────── 6 ───────────────────────── -->
+<h2 id="s6"><span class="n">6</span>점수 — 빈도가 아니라 대조</h2>
+<section class="card">
+
+<div class="danger"><b>빈도순으로 뽑으면 방금 뺀 말이 되돌아온다</b><br>
+2026-09-14 에 오탐 때문에 <b>‘인증’·‘고객’·‘계약’·‘휴가’ 단독어를 규칙과 core 사전에서 뺐다.</b>
+그런데 ‘인증서류’ 문서에서 단어를 빈도순으로 뽑으면 ‘인증’이 1등으로 나온다.
+<b>“이 분류에 많이 나오는가”가 아니라 “이 분류에<u>만</u> 나오는가”를 물어야 한다.</b></div>
+
+<h3>6-1. 세 개의 수</h3>
+<pre><code>D+  = 이 분류로 <b>사람이 확정</b>한 문서 (폴더 보정 후)
+D−  = 다른 분류로 확정된 문서 전부
+      + 이 분류를 <b>사람이 거절</b>(rejected)한 문서   ← 가중치 2배로 센다
+
+df+ = D+ 중 그 말이 나온 문서 비율      "이 분류 문서 몇 %에 나오나"
+df− = D− 중 그 말이 나온 문서 비율      "다른 문서에는 얼마나 나오나"
+점수 = log( (df+ + 0.5/|D+|) / (df− + 0.5/|D−|) )     로그 오즈(스무딩)</code></pre>
+
+<h3>6-2. 문턱 <span class="pill">2026-09-16 구현하며 고침</span></h3>
+<div class="danger"><b>처음 잡은 문턱(<code>df+</code> ≥ 0.60)은 틀렸다.</b>
+구현해 보니 이 기능의 대표 사례가 그 문턱에 걸려 떨어졌다 —
+<b>‘품목보고서’는 보고서 확정문서의 37.5% 에만 나온다.</b> 한 분류(보고서) 안에
+품목보고서·실태조사·이슈페이퍼처럼 갈래가 여럿이라, 어떤 말도 그 분류를 널리
+덮지 못한다. 사람이 V2b 로 넣은 말이 전부 그런 ‘갈래 말’이었다.<br><br>
+그래서 <b>묻는 것을 바꿨다</b> — “이 분류를 얼마나 덮는가”(<code>df+</code>)가 아니라
+“다른 분류에 안 나오는가”(<code>df−</code>) + “근거가 몇 건인가”다.
+20건 중 20건이 이 분류에만 나오는 말은, 그 분류의 5% 만 덮더라도 규칙으로 쓸 값이 있다.
+<code>df+</code> 는 문턱에서 빼고 화면에 보여 주는 값으로만 남긴다.</div>
+<div class="scroll"><table>
+<tr><th>조건</th><th>기본값</th><th>이유</th></tr>
+<tr><td>그 말이 나온 문서 ≥</td><td><b>3건</b></td>
+  <td>한두 건에서 뽑은 말은 규칙이 아니라 그 문서의 지문이다</td></tr>
+<tr><td>그 말이 나온 폴더 ≥</td><td><b>2곳</b></td>
+  <td>한 폴더 어휘가 규칙이 되는 것을 막는 유일한 장치다
+    (한 폴더짜리는 <a href="#s4">4-2</a>의 별도 묶음으로 간다)</td></tr>
+<tr><td><code>df−</code> ≤</td><td><b>0.05</b></td>
+  <td>‘인증’·‘계약’ 같은 말은 여기서 걸린다 — 어느 분류에나 나온다.
+    이제 이것이 유일한 ‘배타성’ 문턱이다</td></tr>
+<tr><td>끝말 밖 후보는</td><td><code>df−</code> ≤ 0.02 · <code>df+</code> ≥ 0.50</td>
+  <td>자른 근거가 약하므로, 대신 그 분류를 절반은 덮을 것을 요구한다</td></tr>
+<tr><td>점수(로그 오즈)</td><td class="mid">문턱이 아니다</td>
+  <td>스무딩 항이 코퍼스 크기에 따라 달라져, 문턱으로 쓰면 재료가 늘 때마다
+    기준이 흔들린다. <b>후보를 줄 세우는 데만</b> 쓴다</td></tr>
+</table></div>
+<p class="muted">문턱은 화면에서 조절 가능하게 두되, 기본값은 위 표대로 한다.
+느슨하게 풀면 “후보가 300개”가 되어 아무도 안 본다.</p>
+
+<h3>6-3. 검산 — 지금 규칙이 이 계산을 통과하는가</h3>
+<p>구현 전에 <b>반드시 확인할 것</b>: 사람이 V2b 로 손수 넣은 말
+(‘현황분석’·‘실태조사’·‘이슈페이퍼’·‘입문교육’·‘예방교육’·‘수료’)과
+‘도움말’이, 같은 문서들을 재료로 넣었을 때 이 문턱을 통과해 <b>후보로 나오는가</b>.
+그리고 뺀 말(‘인증’·‘고객’·‘계약’·‘휴가’)이 <b>안 나오는가</b>.
+이 두 가지가 이 기능의 유일한 정답표다(<a href="#s13">13장</a>).</p>
+</section>
+
+<!-- ───────────────────────── 7 ───────────────────────── -->
+<h2 id="s7"><span class="n">7</span>거르기 — 넣으면 안 되는 말</h2>
+<section class="card">
+<p>점수를 통과해도 아래에 걸리면 후보에서 뺀다. 순서대로 적용한다.</p>
+<div class="scroll"><table>
+<tr><th>#</th><th>거르는 것</th><th>동작</th><th>이유</th></tr>
+<tr><td>1</td><td>그 규칙에 <b>이미 있는 말</b></td><td class="bad">제외</td><td>중복. 대소문자만 다른 것도 같은 말로 본다
+  <span class="muted">(DC_007 의 <code>Mpower</code>/<code>mpower</code> 중복이 본문 건수를 두 배로 세던 실제 사고)</span></td></tr>
+<tr><td>2</td><td><b>다른 분류 규칙</b>에 있는 말</td><td class="mid">제외하되 “충돌: 매뉴얼 규칙에 있음” 으로 따로 보여 준다</td>
+  <td>같은 말이 두 규칙에 있으면 두 분류가 함께 붙는다. 사람이 판단할 일</td></tr>
+<tr><td>3</td><td><b>금지 목록</b>(<a href="#s11">11장</a>)</td><td class="bad">제외</td>
+  <td>과거에 사람이 기각했거나 오탐으로 뺀 말이 되살아나는 것을 막는다</td></tr>
+<tr><td>4</td><td>형태 쓰레기</td><td class="bad">제외</td>
+  <td>한글 1자 · 영문 2자 이하 · 확장자 · <b>숫자가 든 말</b>(<code>제1조</code>·<code>2026년</code>·<code>3차</code>) ·
+    <b>‘~다’로 끝나는 말</b>(<code>정한다</code>).<br>
+    <span class="muted">[근거] 현행 <code>doc_rule.yaml</code> 의 규칙 단어 325개를 세어 보니
+    숫자가 든 것 0개 · ‘다’로 끝나는 것 0개였다(2026-09-16).</span></td></tr>
+<tr><td>4-2</td><td><b>앞부분·본문</b>에서 나온 두 글자 말</td><td class="bad">제외</td>
+  <td>제목·파일 이름에서 나온 두 글자는 그대로 둔다.<br>
+    <span class="muted">[근거] 같은 325개 중 두 글자 말이 29개 있다(규정·지침·교육·동향…) —
+    버리면 안 되는 말이다. 그런데 그 말들은 전부 ‘제목에 적히는 문서 종류’이고,
+    본문에 흩어진 ‘목적’·‘절차’·‘방법’과는 다르다. 실제로 V2b 때 ‘동향’을 앞부분 칸에도
+    넣었다가 오탐이 나 제목 칸만 남겼다.</span></td></tr>
+<tr><td>5</td><td>분류 체계의 <b>다른 분류 이름</b></td><td class="bad">제외</td>
+  <td>‘계약서’ 문서에서 ‘회의록’이 뽑히면 규칙이 서로를 먹는다</td></tr>
+<tr><td>6</td><td><b>고유명사 의심</b></td><td class="mid">제외하지 않고 <span class="mid">⚠ 표식</span></td>
+  <td>회사명·제품명·인명. 대부분 과적합이지만 DC_007(엠파워제품)처럼
+    <b>제품명이 정답인 분류도 있다</b> — 기계가 정할 수 없다</td></tr>
+</table></div>
+
+<h3>7-1. 고유명사 의심 판정(경험칙)</h3>
+<ul>
+<li>대상 문서들의 <b>폴더 이름</b>에도 그대로 나오는 말 → 그 폴더 전용 어휘일 확률이 높다</li>
+<li>영문 대문자만으로 된 말(<code>EZis</code>, <code>SCPI</code>)</li>
+<li>끝말 목록에 안 걸리는 말</li>
+</ul>
+<div class="warn">판정이 맞든 틀리든 <b>막지 않는다.</b> 이 표식의 목적은 관리자가
+“이건 이 폴더에서만 통하는 말인데?”를 <b>한 번 더 생각하게</b> 하는 것뿐이다.</div>
+</section>
+
+<!-- ───────────────────────── 8 ───────────────────────── -->
+<h2 id="s8"><span class="n">8</span>어느 칸에 넣을까</h2>
+<section class="card">
+
+<div class="danger"><b>이 장이 이 기능에서 가장 위험한 부분이다.</b>
+같은 단어라도 칸이 다르면 결과가 뒤집힌다. 실제로
+<b>V2(제목+앞부분 둘 다) → 이력서에서 ‘교육과정·수료’ 오탐 → V2b(제목만)</b> 로
+되돌린 일이 있다. 점수는 “이 말이 이 분류에 편중되는가”만 말해 줄 뿐,
+<b>어느 칸이 안전한가는 말해 주지 않는다.</b></div>
+
+<h3>8-1. 발견 위치에 따라 제안 칸을 정한다</h3>
+<div class="scroll"><table>
+<tr><th>그 말이 나온 자리</th><th>제안 칸</th><th>기본 체크</th><th>신뢰도(weight=medium 기준)</th></tr>
+<tr><td>제목 또는 파일 이름</td><td><code>title_terms</code> + <code>filename</code></td>
+  <td class="ok">✔ 켬</td><td>title 0.65 · name 0.30</td></tr>
+<tr><td>앞부분(head)에서만</td><td><code>head_terms</code></td>
+  <td class="mid">□ 끔</td><td>head 0.55 — 단독으로도 후보를 만든다</td></tr>
+<tr><td>본문에서만</td><td><code>terms</code> + <code>min_count: 2</code> 동반</td>
+  <td class="mid">□ 끔</td><td>body 0.15 — 단독으로 후보를 못 만든다</td></tr>
+</table></div>
+
+<h3>8-2. 왜 이렇게 기울여 두나</h3>
+<ul>
+<li><b>제목·파일명은 거의 안전하다.</b> 문서를 대표하는 자리라 우연히 들어오지 않는다.
+  현행 문턱 <code>t_low 0.35</code> 는 “파일 이름 하나만 걸린 후보”(0.30)를 일부러
+  떨어뜨리도록 맞춰져 있어, filename 만 늘어나는 것은 조용한 편이다.</li>
+<li><b>head 는 앞 400자다.</b> 표지·머리말이 들어오는 자리라 문서 종류와 무관한 말
+  (회사 소개, 목차, 머리말 상투구)이 섞인다. V2 오탐이 정확히 이 자리에서 났다.</li>
+<li><b>본문은 넓다.</b> 규정 설명·인용 속 한 번 언급으로 걸린다. 보안등급 쪽에서
+  같은 문제를 <code>min_count</code>·<code>term_min_count</code> 로 막은 전례가 있으므로,
+  본문 제안은 처음부터 <code>min_count: 2</code> 를 달아서 제안한다.</li>
+</ul>
+<p class="muted">※ 제안 칸은 어디까지나 <b>기본값</b>이다. 화면에서 네 칸 모두 체크로 바꿀 수 있다.</p>
+</section>
+
+<!-- ───────────────────────── 9 ───────────────────────── -->
+<h2 id="s9"><span class="n">9</span>화면 — 두 개의 진입점</h2>
+<section class="card">
+
+<h3>9-1. ① 검토 화면에서 “이 문서에서 단어 뽑기” <span class="pill">작게 시작</span></h3>
+<p>분류 검토 중 <b>놓친 문서</b>(후보가 없거나 틀린 분류만 붙은 문서)를 열어
+사람이 직접 분류를 확정하는 순간이 있다. <b>바로 그 자리</b>에 버튼을 둔다.</p>
+<div class="flow">[검토 화면 — 문서 1건]
+  파일: 2026년 3분기 품목보고서.hwp
+  엔진 제안: (없음)
+  ▸ 관리자가 "보고서(DC_001_003)" 로 확정  ──┐
+                                             │
+  ┌──────────────────────────────────────────┘
+  │ 💡 이 문서를 규칙이 못 잡았습니다.
+  │    "보고서" 규칙에 없는 말 중 이 문서에 있는 것:
+  │      ☑ 품목보고서   제목  · 같은 분류 확정문서 7건 중 6건에 있음 · 다른 분류 0건
+  │      ☐ 품목         제목  · 6/7 · 다른 분류 12%           ⚠ 흔한 말
+  │      ☐ 분기실적     본문  · 3/7 · 다른 분류 2%
+  │    [규칙에 넣기]  [이 말들 다시 보지 않기]</div>
+<p>같은 계산을 쓰지만 <b>그 문서에 실제로 있는 말</b>로 목록을 좁혀 보여 주는 것이
+차이다. 관리자가 지금 그 문서를 보고 있으므로 판단이 가장 정확한 순간이다.</p>
+
+<h3>9-2. ② 설정 → 판단 기준 화면의 “단어 제안” 탭 <span class="pill">전체 훑기</span></h3>
+<p>분류를 하나 고르면 그 분류의 확정 문서 전체에서 후보를 뽑아 표로 보여 준다.</p>
+<div class="scroll"><table>
+<tr><th>☑</th><th>단어</th><th>넣을 칸</th><th>근거</th><th>다른 분류</th><th>점수</th><th>표식</th></tr>
+<tr><td>☑</td><td><b>품목보고서</b></td><td>제목·파일이름</td><td>6/7건 (폴더 3곳)</td><td>0%</td><td>4.2</td><td></td></tr>
+<tr><td>☑</td><td><b>실태조사</b></td><td>제목·파일이름</td><td>5/7건 (폴더 2곳)</td><td>1%</td><td>3.1</td><td></td></tr>
+<tr><td>☐</td><td>현황분석</td><td>앞부분</td><td>5/7건</td><td>3%</td><td>2.4</td><td class="mid">앞부분만</td></tr>
+<tr><td>☐</td><td>EZis</td><td>제목·파일이름</td><td>7/7건 (폴더 1곳)</td><td>0%</td><td>5.0</td><td class="mid">⚠ 한 폴더 · 고유명사 의심</td></tr>
+<tr><td>—</td><td class="muted">인증</td><td colspan="4" class="muted">금지 목록에 있음 — 2026-09-14 오탐으로 제외됨</td><td class="bad">제외</td></tr>
+</table></div>
+
+<div class="danger"><b>[2026-09-16 구현하며 찾은 것] 접힌 칸도 안쪽 코드는 돈다</b><br>
+검토함은 문서 30여 건의 패널을 한 화면에 그린다. 그런데 streamlit 의
+<code>expander</code> 는 <b>접혀 있어도 안쪽 코드를 그대로 실행한다</b> — 처음에
+제안 패널을 접힌 칸에 넣었더니 화면을 열 때마다 문서 수만큼 제안 계산이 돌았다.<br>
+그래서 <b>버튼 뒤</b>로 옮겼다. 사람이 누른 문서 하나만 계산한다.
+재료 읽기도 버튼을 누른 뒤에 한다(캐시는 세 파일의 수정시각으로 무효화).</div>
+
+<div class="note"><b>[2026-09-16 구현] 탭이 아니라 규칙 표 바로 아래</b><br>
+설계에는 ‘단어 제안 탭’으로 적었지만, 만들면서 규칙 편집 표 <b>바로 아래</b>로 옮겼다.
+제안된 말이 들어갈 자리가 그 표이고, 탭으로 갈라 두면 “넣었는데 어디 들어갔지”를
+확인하러 탭을 오가야 한다. 같은 화면에 두면 넣은 결과가 위 표에 바로 보인다.<br>
+두 진입점의 성격 차이도 그대로 뒀다 — <b>문서 화면(①)은 문턱을 못 넘은 말도 까닭을
+달아 올리고, 이 화면(②)은 문턱을 넘은 것만 올린다.</b> 한 번에 수십 개를 훑는
+자리라 조용해야 한다.</div>
+
+<h3>9-3. 화면이 반드시 말해야 하는 것</h3>
+<ul>
+<li>재료가 부족하면 <b>왜 비었는지</b>: “확정 문서 2건 — 3건부터 제안합니다”</li>
+<li>본문을 못 읽었으면: “본문 없음 5건 — 제목·파일 이름만으로 계산했습니다
+  (<code>--textsave</code> 폴더 설정을 확인하세요)”</li>
+<li>근거 문서를 <b>눌러서 열어 볼 수 있어야</b> 한다 — 근거 없이 체크하는 화면은 위험하다</li>
+</ul>
+<div class="note"><b>용어</b>는 <code>ui/uiwords.py</code> 규약을 따른다 —
+‘토큰’·‘로그오즈’ 같은 말은 화면에 내지 않는다.
+점수는 숫자 대신 <b>막대나 “매우 뚜렷함/뚜렷함/약함”</b> 세 단계로 보여도 된다.</div>
+</section>
+
+<!-- ───────────────────────── 10 ───────────────────────── -->
+<h2 id="s10"><span class="n">10</span>규칙에 넣기 — 덧붙이기만</h2>
+<section class="card">
+
+<div class="scroll"><table>
+<tr><th>규칙</th><th>왜</th></tr>
+<tr><td>기존 단어는 <b>순서까지 그대로</b> 두고 <b>뒤에 덧붙인다</b></td>
+  <td><code>docvocab.sync_nodes(enrich_existing=True)</code> 와 같은 원칙 — 사람이 적은 값이 진실이다</td></tr>
+<tr><td>단어를 <b>지우지 않는다</b></td><td>삭제는 규칙 편집 화면의 일이다. 이 기능은 더하기 전용</td></tr>
+<tr><td>규칙이 없는 분류면 <b>규칙을 새로 만들지 않는다</b></td>
+  <td>규칙 생성은 ‘분류 불러오기’의 일이다. 두 곳에서 만들면 결과가 갈라진다</td></tr>
+<tr><td>넣기 직전 <code>validate_doc_rule_data()</code> 를 돌린다</td>
+  <td>저장 후에 알면 늦다. 위반이 있으면 넣지 않고 무엇이 왜 걸렸는지 보여 준다</td></tr>
+<tr><td><code>version:</code> 은 <b>사람이 올리게 안내</b>한다</td>
+  <td>“결과만 보고 어느 기준으로 매긴 값인지 되짚을 수 있게” — 본보기 파일의 규약</td></tr>
+<tr><td>저장은 <code>docvocab.save_doc()</code> 한 경로만 쓴다</td>
+  <td>화면 저장과 같은 경로여야 주석 머리글·키 순서가 갈라지지 않는다</td></tr>
+</table></div>
+
+<div class="danger"><b>복사본 동기화 문제는 이 기능이 해결하지 않는다</b><br>
+지금 <code>doc_rule.yaml</code> 은 정본(<code>ui/policy</code>) 외에 배포본 6곳에 복사되어 있고,
+손으로 맞춰 왔다. 이 기능이 정본만 고치고 끝나면 <b>“화면에서는 넣었는데 배포본은 옛날 규칙”</b>
+이 된다. 넣기가 끝나면 화면이 <b>“배포본 6곳 동기화가 필요합니다”</b> 를 반드시 알린다.
+<span class="muted">(동기화 자동화는 별도 과제 — <a href="#s15">15장</a>)</span></div>
+</section>
+
+<!-- ───────────────────────── 11 ───────────────────────── -->
+<h2 id="s11"><span class="n">11</span>기각 이력이 곧 금지 목록</h2>
+<section class="card">
+<p>지금 “이 말은 오탐이라 뺐다”는 지식이 <b>커밋 메시지와 사람 머릿속에만</b> 있다.
+그래서 같은 말이 계속 되살아난다(‘인증’·‘고객’·‘계약’·‘휴가’를 규칙과 core 사전
+양쪽에서 두 번 빼야 했다).</p>
+
+<h3>11-1. 새 파일 하나</h3>
+<pre><code># doc_rule_stopwords.yaml  (규칙 파일 옆, doc_rule.yaml 과 같은 폴더)
+version: 2026.09.16
+global:                 # 어느 분류에서도 제안하지 않는다
+  - 인증
+  - 고객
+  - 계약
+  - 휴가
+by_node:                # 그 분류에서만 제안하지 않는다
+  DC_001_003:
+    - 보고               # '보고서' 규칙에 '보고' 단독어는 너무 넓다</code></pre>
+
+<h3>11-2. 이력</h3>
+<pre><code># doc_rule_suggest_audit.jsonl  (append-only, seedstore 감사 로그와 같은 원칙)
+{"ts":"2026-09-16 10:12:03","node":"DC_001_003","term":"품목보고서",
+ "action":"accept","fields":["title","filename"],"df_pos":0.86,"df_neg":0.0,
+ "docs":7,"clusters":3,"reviewer":"kim"}
+{"ts":"2026-09-16 10:12:11","node":"DC_001_003","term":"품목",
+ "action":"reject","reason":"too_common","reviewer":"kim"}</code></pre>
+
+<div class="note"><b>고리를 닫는 부분</b><br>
+[이 말들 다시 보지 않기] 를 누르면 <code>reject</code> 가 쌓이고, 그 말은
+<b>다음 제안에서 자동으로 빠진다</b>(7장 필터 3). 쓸수록 조용해지는 화면이 된다.
+반대로 <code>accept</code> 이력은 나중에 “이 단어가 언제·어느 근거로 들어왔나”를
+되짚는 유일한 기록이다 — <code>doc_rule.yaml</code> 에는 주석이 남지 않기 때문이다.</div>
+
+<div class="warn"><b>금지 목록은 제안만 막는다.</b> 이미 규칙에 들어 있는 말을 지우지는
+않는다. 지우는 것은 사람이 규칙 편집 화면에서 할 일이다 — 두 파일이 서로를
+고치기 시작하면 무엇이 진실인지 알 수 없게 된다.</div>
+
+<div class="note"><b>[2026-09-16 구현] 기각은 그 분류에만 건다</b><br>
+화면의 [다시 보지 않기] 는 <code>by_node</code> 에만 적는다. ‘인증’이 인증서류에서는
+너무 넓어도 다른 분류에서는 쓸 만할 수 있어서다. <code>global</code> 금지는 파일을
+손으로 고쳐 넣는다 — 모든 분류에 거는 결정은 한 문서를 보다가 내릴 일이 아니다.</div>
+
+<div class="danger"><b>[2026-09-16 구현하며 찾은 것] 안내가 <code>st.rerun()</code> 에 씻겨 나간다</b><br>
+넣기·기각 뒤에 화면을 다시 그리면 그 자리에서 띄운 <code>st.success</code> 가 곧바로
+사라진다. 특히 <b>“배포본 복사본도 맞춰 주세요”</b>는 놓치면 규칙과 배포본이
+어긋나는 안내라, 세션에 담아 다음 그리기까지 들고 왔다가 한 번 보여 주고 지운다.</div>
+</section>
+
+<!-- ───────────────────────── 12 ───────────────────────── -->
+<h2 id="s12"><span class="n">12</span>파일·모듈 배치</h2>
+<section class="card">
+<div class="scroll"><table>
+<tr><th>파일</th><th>새/수정</th><th>책임</th></tr>
+<tr><td><code>src/csoclassify/classify/termsuggest.py</code></td><td class="ok">새로</td>
+  <td><b>순수 로직.</b> 재료 모으기 · 토큰화 · 점수 · 거르기 · 칸 배치 제안.
+    streamlit 을 모른다. <code>yaml</code> 외 의존성 없음</td></tr>
+<tr><td><code>ui/docruleedit.py</code></td><td>수정</td><td>‘단어 제안’ 탭(진입점 ②)</td></tr>
+<tr><td><code>ui/app.py</code> · <code>ui/doctype_review.py</code></td><td>수정</td>
+  <td>검토 화면 진입점 ①</td></tr>
+<tr><td><code>src/csoclassify/cli.py</code></td><td>수정 <span class="pill">선택</span></td>
+  <td><code>--suggest-terms DC_xxx</code> — 화면 없이 확인·자동화용</td></tr>
+<tr><td><code>&lt;policy&gt;/doc_rule_stopwords.yaml</code></td><td class="ok">새로</td><td>금지 목록(11장)</td></tr>
+<tr><td><code>&lt;policy&gt;/doc_rule_suggest_audit.jsonl</code></td><td class="ok">새로</td><td>채택·기각 이력</td></tr>
+<tr><td><code>tests/test_termsuggest.py</code></td><td class="ok">새로</td><td>13장의 정답표</td></tr>
+</table></div>
+
+<div class="note"><b>왜 <code>ui/</code> 가 아니라 패키지 안인가</b><br>
+<code>docvocab.py</code> 가 원래 <code>ui/docruleedit.py</code> 에만 있어서
+화면의 [분류 불러오기] 와 CLI 의 <code>--scaffold-doc-rule</code> 이
+<b>서로 다른 결과를 냈던</b> 전례가 있다. 같은 일을 두 곳에서 하지 않도록 처음부터
+패키지에 둔다.</div>
+
+<div class="note"><b>Rust 판 영향 없음</b><br>
+이 기능은 <code>doc_rule.yaml</code> 의 <b>스키마를 바꾸지 않는다</b> — 있는 칸에 문자열을
+더할 뿐이다. 엔진은 규칙 파일만 읽으므로 <code>MpowerClassify-rs</code> 는 건드릴 것이 없다.
+(관리 도구이므로 Rust 포팅도 하지 않는다.)</div>
+</section>
+
+<!-- ───────────────────────── 13 ───────────────────────── -->
+<h2 id="s13"><span class="n">13</span>검증과 평가 게이트</h2>
+<section class="card">
+
+<h3>13-1. 단위 테스트의 정답표 — 과거 결정을 재현하는가</h3>
+<div class="scroll"><table>
+<tr><th>#</th><th>넣는 재료</th><th>기대</th></tr>
+<tr><td>T1</td><td>보고서로 확정된 문서들(V2b 대상이던 것)</td>
+  <td class="ok">‘현황분석’·‘실태조사’·‘이슈페이퍼’ 가 후보에 <b>있다</b></td></tr>
+<tr><td>T2</td><td>교육자료 확정 문서</td><td class="ok">‘입문교육’·‘예방교육’ 이 <b>있다</b></td></tr>
+<tr><td>T3</td><td>매뉴얼 확정 문서(decm 도움말 포함)</td>
+  <td class="ok">‘도움말’ 이 <b>있고</b>, 폴더 보정이 걸려 “1건(폴더 1곳)”으로 센다</td></tr>
+<tr><td>T4</td><td>인증서류 확정 문서</td><td class="bad">‘인증’ 이 <b>없다</b>(df− 문턱에 걸림)</td></tr>
+<tr><td>T5</td><td>고객자료·계약서·복리후생</td><td class="bad">‘고객’·‘계약’·‘휴가’ 가 <b>없다</b></td></tr>
+<tr><td>T6</td><td>같은 폴더 35건</td><td>근거 건수가 <b>1</b> 로 세어진다</td></tr>
+<tr><td>T7</td><td>본문에만 나오는 말</td><td><code>terms</code> + <code>min_count: 2</code> 로, <b>체크 해제</b> 상태로 제안</td></tr>
+<tr><td>T8</td><td>기각 이력이 있는 말</td><td>후보에 <b>없다</b></td></tr>
+<tr><td>T9</td><td>확정 문서 2건</td><td>제안 <b>없음</b> + “3건부터” 안내</td></tr>
+<tr><td>T10</td><td>textsave 폴더 없음</td><td>제목·파일명만으로 동작 · “본문 없음 N건” 보고</td></tr>
+</table></div>
+<p class="muted">T1~T5 가 핵심이다. <b>사람이 이미 내린 결정을 재현하지 못하는 제안기는
+쓸 값이 없다.</b></p>
+
+<h3>13-2. 넣은 뒤에는 평가셋으로 확인한다</h3>
+<div class="scroll"><table>
+<tr><th>측정</th><th>기준</th></tr>
+<tr><td>평가셋 500건 before/after</td><td>재현율이 오르되 <b>정밀도가 떨어지면 반려</b></td></tr>
+<tr><td>사람 라벨 부분집합으로 따로</td>
+  <td class="mid">평가셋 500건 중 368건이 AI 라벨이다. 제안기와 AI 라벨이 같은 신호를
+    공유하면 점수가 실제보다 좋게 나온다 — <b>사람 라벨만으로 한 번 더 본다</b></td></tr>
+<tr><td>분류함 전체 새 라벨 수</td>
+  <td>갑자기 수백 건이 새로 붙으면 그 단어가 너무 넓다는 뜻
+    <span class="muted">(<code>t_low 0.30</code> 실험에서 새 라벨 161건이 나와 기각한 전례)</span></td></tr>
+</table></div>
+
+<div class="note"><b>선결 과제 — 2026-09-16 완료</b><br>
+채점 스크립트를 <code>tests/evalset/score_evalsets.py</code> 로 들여왔다(사용법은
+<code>tests/evalset/README.md</code>). 이제 이 게이트는 명령 한 줄이다.
+<pre style="margin:8px 0 0"><code>python tests/evalset/score_evalsets.py --run 새결과.jsonl --prev 이전결과.jsonl</code></pre></div>
+</section>
+
+<!-- ───────────────────────── 14 ───────────────────────── -->
+<h2 id="s14"><span class="n">14</span>구현 순서</h2>
+<section class="card">
+<div class="scroll"><table>
+<tr><th>단계</th><th>내용</th><th>끝났다고 볼 기준</th></tr>
+<tr><td>0</td><td>채점 스크립트를 저장소로 들여오기 <span class="pill ok">완료</span></td>
+  <td class="ok">된다 — <code>tests/evalset/score_evalsets.py</code> (2026-09-16)</td></tr>
+<tr><td>1</td><td><code>termsuggest.py</code> — 재료 모으기 + 점수 + 거르기
+  <span class="pill ok">완료</span></td>
+  <td class="ok">된다 — <code>src/csoclassify/classify/termsuggest.py</code>,
+  시험 <code>tests/test_termsuggest.py</code> 39건 통과(T1~T10 포함, 2026-09-16)</td></tr>
+<tr><td>2</td><td><code>--suggest-terms</code> CLI <span class="pill ok">완료</span></td>
+  <td class="ok">된다 — <code>--suggest-terms &lt;dc_id&gt;|all</code>,
+  시험 <code>tests/test_cli_suggest_terms.py</code> 9건(2026-09-16).
+  <b>실데이터 확인은 아직</b> — 검토 확정 이력이 쌓여야 한다</td></tr>
+<tr><td>3</td><td>진입점 ① — 검토 화면 버튼 <span class="pill ok">완료</span></td>
+  <td class="ok">된다 — 확정 패널 아래 [💡 이 문서에서 규칙에 넣을 말 찾기],
+  체크 → [기준에 넣기] 까지 한 바퀴(2026-09-16).
+  <b>계산은 버튼을 누른 문서 하나만</b> 한다 — 아래 주의 참고</td></tr>
+<tr><td>4</td><td>금지 목록 + 이력 파일 <span class="pill ok">완료</span></td>
+  <td class="ok">된다 — [이 말들 다시 보지 않기] → <code>doc_rule_stopwords.yaml</code> →
+  다음 제안에서 사라지는 것까지 실제 화면에서 확인(2026-09-16).
+  채택·기각 모두 <code>doc_rule_suggest_audit.jsonl</code> 에 근거 숫자와 함께 남는다</td></tr>
+<tr><td>5</td><td>진입점 ② — 설정 화면 <span class="pill ok">완료</span></td>
+  <td class="ok">된다 — 설정 ② 판단 기준 · 업무분류 탭 맨 아래 [💡 확정된 문서에서 단어 찾기].
+  분류를 고르면 표로 훑고, 체크해서 넣거나 기각한다(2026-09-16).
+  탭이 아니라 그 화면 <b>맨 아래</b>에 뒀다 — 아래 주의 참고</td></tr>
+<tr><td>6</td><td>평가셋 before/after</td><td>정밀도 유지 + 재현율 상승을 수치로 보고</td></tr>
+</table></div>
+<div class="note"><b>1단계에서 멈춰도 가치가 있다.</b> CLI 로 후보 목록만 봐도
+지금 사람이 문서를 하나씩 열어 보던 일이 없어진다. 화면은 그 뒤에 붙여도 된다.</div>
+</section>
+
+<!-- ───────────────────────── 15 ───────────────────────── -->
+<h2 id="s15"><span class="n">15</span>미결 사항</h2>
+<section class="card">
+<div class="scroll"><table>
+<tr><th>#</th><th>질문</th><th>지금 생각</th></tr>
+<tr><td>Q1</td><td>textsave 폴더를 <b>운영에서 늘 켜 둘 것인가</b>?
+  본문에는 개인정보가 들어 있을 수 있고 CLI 도 그 경고를 낸다</td>
+  <td>이 기능은 켜져 있을 때만 제대로 돈다. “검토 대상 문서만 저장”처럼
+    범위를 좁히는 선택지가 있는지 확인 필요</td></tr>
+<tr><td>Q2</td><td>제안 재료에 <b>seed 를 포함할 것인가</b>?
+  seed 는 자동 선별분이 섞여 있다</td>
+  <td><code>approved_by</code> 가 있는 행만 포함. 자동 선별분(<code>t_seed</code> 통과분)은 제외</td></tr>
+<tr><td>Q3</td><td>배포본 6곳 <b>복사 동기화</b>를 이 기회에 자동화할 것인가</td>
+  <td>별개 과제로 분리. 다만 이 기능이 손 동기화 부담을 늘리는 것은 사실이라
+    최소한 <b>알림</b>은 넣는다(10장)</td></tr>
+<tr><td>Q4</td><td>보안등급(<code>cso_rule.yaml</code>) 에도 같은 것을 할까</td>
+  <td>구조가 다르다(키워드 묶음·<code>base</code> 등급·<code>term_min_count</code>).
+    업무분류에서 효과를 확인한 뒤 판단</td></tr>
+<tr><td>Q5</td><td>제안 단어를 <b>유의어 사전(local)</b> 으로 보낼 길도 줄까</td>
+  <td>당장은 안 한다. 사전은 ‘분류 불러오기’ 때만 쓰여 효과가 간접적이고,
+    core 말을 뺄 수 없는 겹치기 구조라 헷갈림만 는다</td></tr>
+</table></div>
+</section>
+
+<footer>MpowerClassify · 업무분류 규칙 단어 제안 기능 설계 · 2026-09-16 작성 · 구현 전</footer>
+
+</div>
+</body>
+</html>

@@ -199,3 +199,66 @@ def todo_label(need_sec, need_doc):
     if need_doc:
         return "분류 확인 필요"
     return "✅ 확정됨"
+
+
+# 규칙의 칸 이름 → 화면 말. 개발 용어(title_terms)를 그대로 보여주지 않는다.
+RULE_CELL = {"title_terms": "제목", "head_terms": "앞부분",
+             "terms": "본문", "filename": "파일 이름", "exclude": "제외"}
+
+
+#------------------------------------------------------------------
+# 제안한 말을 '어디에 넣을지' 한 줄로
+#=> 체크박스 옆에 붙는 짧은 꼬리표다. 규칙 칸 이름을 사람 말로 바꿔 잇는다.
+#
+#   [HTML 을 쓰지 않는다] streamlit 의 체크박스 라벨은 마크다운만 읽고 HTML 태그는
+#   글자 그대로 찍는다. 회색 글씨를 만들려고 <span> 을 넣었다가 라벨에
+#   태그가 그대로 보였다(2026-09-16 화면에서 확인). 꾸미지 않고 말로만 쓴다.
+#
+# -in: fields = 규칙 칸 이름 목록(예 ["title_terms","filename"])
+#
+# -out: str = 예 "— 제목·파일 이름 칸에"
+# -out: error = 없음
+#------------------------------------------------------------------
+def suggest_where(fields):
+    names = "·".join(RULE_CELL.get(f, f) for f in (fields or []))
+    return f"— {names} 칸에" if names else ""
+
+
+#------------------------------------------------------------------
+# 제안한 말의 근거를 한 줄로
+#=> "왜 이 말인가"와 "왜 조심해야 하나"를 한 줄에 담는다. 관리자가 체크를 켤지
+#   말지 판단할 재료는 이것뿐이라, 숫자를 숨기지 않고 사람 말로 바꿔 보여 준다.
+#
+# -in: cand = termsuggest 가 만든 후보 dict
+#
+# -out: str = 예 "이 분류 6건에 있음(폴더 2곳) · 다른 분류에는 0% · ⚠ 흔한 말"
+# -out: error = 없음
+#------------------------------------------------------------------
+def suggest_why(cand):
+    parts = [f"이 분류 {cand.get('docs', 0)}건에 있음"
+             f"(폴더 {cand.get('clusters', 0)}곳)",
+             # `or 0` 을 쓰면 0.0 이 정수 0 으로 바뀌어 "0%" 로 찍힌다.
+             # 비율은 자리를 맞춰 보여야 눈으로 견줄 수 있다.
+             f"다른 분류에는 {(cand.get('df_neg') if cand.get('df_neg') is not None else 0) * 100:.1f}%"]
+    if cand.get("extra", {}).get("min_count"):
+        parts.append(f"본문에 {cand['extra']['min_count']}회 이상일 때만 인정")
+    for flag in cand.get("flags") or []:
+        parts.append(f"⚠ {flag}")
+    return " · ".join(parts)
+
+
+# 단어 결정 이력의 동작 이름 — 'accept'/'reject' 를 그대로 보여주지 않는다.
+SUGGEST_ACTION = {"accept": "기준에 넣음", "reject": "다시 보지 않음"}
+
+
+#------------------------------------------------------------------
+# 단어 결정 이력의 동작을 사람 말로
+#=> 이력 줄에 쓴다. 모르는 값이 와도 화면이 깨지지 않게 그대로 돌려준다.
+#
+# -in: action = "accept" | "reject"
+#
+# -out: str = 화면에 보일 말
+# -out: error = 없음
+#------------------------------------------------------------------
+def suggest_action(action):
+    return SUGGEST_ACTION.get(action, str(action or ""))

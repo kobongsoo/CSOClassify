@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>업무분류 1차 분류 — 원점 재검토</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+    --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+    --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .ok{color:var(--o);font-weight:700}
+  .bad{color:var(--c);font-weight:700}
+  .mid{color:var(--s);font-weight:700}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .danger{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .pill.todo{background:color-mix(in srgb,var(--s) 22%,transparent)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  @media (max-width:640px){ ul.toc{columns:1} header.hero{padding:20px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>업무분류 <b>1차 분류</b> — 원점 재검토</h1>
+  <p>임베딩 폴백 <b>앞에</b> 서는 분류 층을 무엇으로 할 것인가.
+  지금까지 만든 것을 옆에 치워 두고, 신호부터 다시 고른다.
+  <span class="pill todo">검토서 · 구현 없음</span></p>
+  <div class="note" style="margin-top:14px"><b>한 줄 요약</b><br>
+  업무분류 축은 <u>주제</u>가 아니라 <u>장르</u>인데, 1차 분류는 주제어 가방으로 돼 있다.
+  장르는 <b>형식</b>에 드러난다 — 이름의 핵어, 정형 문구, 문서 구조.
+  이 신호들은 <b>고객이 바뀌어도 안 바뀐다</b>.</div>
+  <p class="muted" style="margin-top:8px">작성 2026-09-16 · 대상
+  <code>doc_rule.yaml</code> / 업무분류 엔진(Python·Rust 공통) · 관련
+  <a href="업무분류-규칙단어-제안기능-설계-20260916.html">규칙 단어 제안 기능</a> ·
+  <a href="업무분류-내용기반-2단계-재설계.html">업무분류 내용기반 2단계 재설계</a> ·
+  <a href="문서분류체계-연동-분류규칙-설계.html">문서분류체계 연동 분류규칙</a></p>
+</header>
+
+<section class="card">
+  <h3>목차</h3>
+  <ul class="toc">
+    <li><a href="#s1">1. 1차 분류가 만족해야 할 조건</a></li>
+    <li><a href="#s2">2. 배경 — 지금 무엇이 막혀 있나</a></li>
+    <li><a href="#s3">3. 잘못 깔린 전제 — 주제 ≠ 장르</a></li>
+    <li><a href="#s4">4. 쓰지 않고 있는 신호 넷</a></li>
+    <li><a href="#s5">5. 제안 구조 — 층으로 묻기</a></li>
+    <li><a href="#s6">6. 점수 합산 대신 결정 목록</a></li>
+    <li><a href="#s7">7. 사전을 어디에 둘 것인가</a></li>
+    <li><a href="#s8">8. 무엇이 좋아지나</a></li>
+    <li><a href="#s9">9. 위험한 곳</a></li>
+    <li><a href="#s10">10. 검토했으나 기각한 안</a></li>
+    <li><a href="#s11">11. 정하고 넘어가야 할 것</a></li>
+    <li><a href="#s12">12. 검증 방법</a></li>
+  </ul>
+</section>
+
+<section class="card">
+<h2 id="s1"><span class="n">1</span> 1차 분류가 만족해야 할 조건</h2>
+
+<p>임베딩 폴백 앞에 서는 층이므로, 폴백이 <b>잘하는 일을 뺏지 않는</b> 것이 조건에 들어간다.</p>
+
+<table>
+<tr><th>조건</th><th>왜</th></tr>
+<tr><td><b>모델 없이 돈다</b></td><td>빠르고, 배포가 가볍고, 결과가 매번 같다. 폴백은 느려도 되지만 1차는 아니다</td></tr>
+<tr><td><b>왜 그렇게 봤는지 말한다</b></td><td>관리자가 고칠 수 있어야 한다. 고칠 수 없는 층은 시간이 갈수록 나빠진다</td></tr>
+<tr><td><b>못 잡으면 조용히 빠진다</b></td><td>억지로 찍으면 폴백이 받을 기회를 뺏는다. <b>“판단 보류”가 1급 결과</b>여야 한다</td></tr>
+</table>
+
+<div class="note">지금 구조는 ①②는 만족한다. 문제는 <b>어떤 신호를 보느냐</b>다.</div>
+</section>
+
+<section class="card">
+<h2 id="s2"><span class="n">2</span> 배경 — 지금 무엇이 막혀 있나</h2>
+
+<p class="muted">아래는 재설계 동기이지 이 문서의 주제는 아니다. 특정 코퍼스 하나에서 잰
+값이므로 <b>경향</b>으로만 읽는다.</p>
+
+<p>평가셋 500건 중 정답이 달린 411건으로 현행 규칙을 채점한 결과:</p>
+
+<table>
+<tr><th>결과</th><th>건수</th><th>비율</th></tr>
+<tr><td class="ok">맞음</td><td>291</td><td>70.8%</td></tr>
+<tr><td class="bad"><b>미분류 — 아무 규칙도 안 걸림</b></td><td><b>107</b></td><td><b>26.0%</b></td></tr>
+<tr><td class="mid">틀린 분류</td><td>13</td><td>3.2%</td></tr>
+</table>
+
+<div class="note"><b>오답 120건 중 107건(89%)이 “못 잡은 것”이지 “잘못 잡은 것”이 아니다.</b><br>
+1차 분류의 문제는 <u>정확도</u>가 아니라 <u>덮는 범위</u>다.</div>
+
+<p>못 잡은 107건을 다시 쪼개면 성격이 갈린다.</p>
+
+<table>
+<tr><th>까닭</th><th>건수</th><th>뜻</th></tr>
+<tr><td>정답 분류의 단어가 <b>이미 규칙에 있는데</b> 못 잡음</td><td>27 (25%)</td><td>규칙 문제가 아니라 <b>배점 문제</b></td></tr>
+<tr><td>꼬리말이 규칙적 (…계획서·…제안서·…확인서)</td><td>29</td><td>단어가 아니라 <b>패턴 문제</b></td></tr>
+<tr><td>진짜 새 어휘</td><td>51</td><td>여기만 “규칙을 만드는” 문제</td></tr>
+</table>
+
+<p>첫 줄의 까닭은 배점표에 있다.</p>
+
+<pre><code>signals.name:   {high: 0.3, medium: 0.3, low: 0.3}   # 파일명 최대 0.30
+defaults.t_low: 0.35                                  # 인정 문턱  0.35</code></pre>
+
+<div class="warn"><b>파일명이 아무리 완벽하게 맞아도 0.30이라, 단독으로는 문턱을 넘지 못한다.</b>
+본문이 같이 걸려 줘야만 한다. 본문 추출이 약한 문서(스캔 PDF·이미지 슬라이드)는
+이름이 아무리 분명해도 통째로 빠진다.</div>
+
+<p>그리고 <b>제목을 못 읽는 포맷</b>이 따로 있다. <code>title</code> 신호는
+<code>.ppt</code>·<code>.xls</code>·<code>.xlsx</code> 에서 통째로 꺼진다(첫 줄이 제목인
+비율이 각각 16.7%·50%). <b>그 포맷에서는 파일명이 유일한 제목성 신호다.</b></p>
+
+<table>
+<tr><th></th><th>문서 수</th><th>미분류</th></tr>
+<tr><td><code>title</code> 켜짐</td><td>383</td><td>91건 (24%)</td></tr>
+<tr><td><b><code>title</code> 꺼짐</b> (ppt/xls/xlsx)</td><td>28</td><td class="bad"><b>16건 (57%)</b></td></tr>
+</table>
+
+<p>제목을 못 읽는 문서의 미분류율이 <b>두 배가 넘는다.</b>
+파일명이 못 미더워도 그쪽에는 다른 게 없다.</p>
+
+<h3>배점을 어떻게 고칠 것인가 — 통째로가 아니라 자리별로</h3>
+
+<p>파일명 적중을 <b>무조건</b> 인정하는 안을 모의로 계산하면
+<b>맞음 +23 · 틀림 +1</b>(재현율 70.8% → 76.4%, 정밀도 변동 없음)이 나왔다.
+값은 좋지만 <b>이 안은 거칠다</b> — 파일명은 변하는 문자열이고,
+<code>0.30</code>이라는 낮은 천장은 그 이유로 정해진 것이다.</p>
+
+<p>그래서 자리를 갈라야 한다.</p>
+
+<div class="flow">지금    파일명 어디든 나오면    0.30   → 단독으로는 문턱 미달
+거친안  파일명 어디든 나오면    인정    ← 값은 좋지만 파일명을 통째로 믿는 셈
+제대로  파일명 어디든 나오면    0.30   (그대로)
+        파일명 <b>핵어 자리</b>       조금 더 (문턱을 넘는 수준)</div>
+
+<div class="note"><b>“파일명을 믿는다”가 아니라 “파일명 중 믿을 수 있는 부분만 믿는다”다.</b>
+거친 안은 <code>제안서_검토_회의록</code> 과 <code>회의록_양식_제안서</code> 를
+여전히 못 가른다. 자리를 보는 안은 가른다(3장).</div>
+
+<p class="muted">어느 쪽이든 <b>단어는 한 개도 쓰지 않는다.</b>
+아래 어떤 재설계를 하든 <b>이것부터 정리하는 것이 먼저다.</b></p>
+</section>
+
+<section class="card">
+<h2 id="s3"><span class="n">3</span> 잘못 깔린 전제 — 주제 ≠ 장르</h2>
+
+<p><code>doc_rule.yaml</code>은 본질적으로 <b>주제어 가방</b>이다. 묻는 것은 하나뿐이다 —
+“이 문서 <u>어딘가에</u> ‘제안’이 나오는가?”</p>
+
+<p>그런데 업무분류 축은 <b>주제가 아니라 장르</b>다. 매뉴얼·제안서·규정·회의록은
+<i>무엇에 대한 글이냐</i>가 아니라 <i>어떤 형식의 글이냐</i>다. 같은 보안 제품을 두고도
+매뉴얼이 있고 제안서가 있고 규정이 있다.</p>
+
+<p>주제어로 장르를 맞히려니 <b>단어가 끝없이 필요하다.</b> 현재 22개 규칙에
+<b>단어 1,046개</b>가 들어 있고, 그래도 넷 중 하나를 놓친다.</p>
+
+<p>그리고 위치를 안 보니 이런 것들이 구분되지 않는다.</p>
+
+<div class="flow">제안서_검토_회의록.doc   →  정답은 회의록.  '제안'도 '회의록'도 둘 다 들어 있다
+회의록_양식_제안서.doc   →  정답은 제안서.  단어 구성은 위와 완전히 같다</div>
+
+<div class="danger"><b>가방으로 보면 두 문서는 같은 문서다.</b>
+단어를 아무리 더해도 이 둘은 영원히 갈리지 않는다. 더할수록 서로를 오염시킬 뿐이다.</div>
+</section>
+
+<section class="card">
+<h2 id="s4"><span class="n">4</span> 쓰지 않고 있는 신호 넷</h2>
+
+<h3>4-1. 제목의 끝 — 한국어는 핵어가 뒤에 온다</h3>
+
+<div class="note"><b>먼저 오해를 막는다 — 핵어는 <u>신호원</u>이 아니라 <u>읽는 법</u>이다.</b><br>
+파일명 전용 기법이 아니다. <b>제목류 문자열이면 어디에나 똑같이 적용된다</b> —
+표지 첫 줄(<code>title</code>) · 문서속성 제목 · 파일명(<code>name</code>).
+그리고 <b>가중치는 그 문자열의 원래 값을 그대로 물려받는다.</b>
+파일명에서 핵어를 찾아도 여전히 파일명 신뢰도로 다룬다 —
+핵어라고 해서 파일명이 갑자기 믿을 만해지지 않는다.</div>
+
+<p>한국어 복합명사는 <b>마지막 명사가 그 말의 정체</b>다.
+<code>보안전송관리시스템_작업계획서</code>는 계획서이지 시스템이 아니다.
+앞은 전부 수식이고 <b>맨 뒤 한 덩어리가 문서종류</b>다.</p>
+
+<p>그리고 <b>문서 안의 제목이 파일명보다 깨끗하다.</b>
+<code>title</code> 신호의 정체는 “첫 비어있지 않은 줄”이고(실측 354건 —
+길이 중앙값 13자, 60자 이하 91%), <code>최종</code>·<code>복사본</code> 같은
+관리 꼬리는 파일명에나 붙지 표지 제목에는 붙지 않는다.
+<b>핵어를 읽기에 가장 좋은 자리는 파일명이 아니라 여기다.</b></p>
+
+<p>다만 문자열의 조립 방식은 양쪽이 같다. 파일명은 대개 이 꼴을 따른다.</p>
+
+<div class="flow">[주체]_[대상]_[문서종류]_[버전]_[날짜].[확장자]
+                 ↑
+            여기만 보면 된다</div>
+
+<p>버전·날짜·괄호·일련번호를 걷어내고 <b>마지막 명사만</b> 보면,
+“어디든 나오면 인정”이 <b>“핵어면 인정”</b>으로 바뀐다.</p>
+
+<div class="note">이건 이 고객 문서의 성질이 아니라 <b>한국어의 성질</b>이다.
+어느 고객에게나 통한다. 필요한 것은 형태소 분석기가 아니라
+<b>문서종류 명사 사전 하나</b>이고, 닫힌 집합이며 몇십~백 개 수준이다.</div>
+
+<div class="warn"><b>그 사전은 이미 있다 — 다만 판정에 안 쓰인다.</b><br>
+<code>doc_synonyms.core.yaml</code> 의 <code>tails</code>/<code>heads</code> 가 바로
+이 조립 규칙이다(<i>“OO정의서” → “OO명세서”</i>). 그런데 이걸 읽는
+<code>docvocab.synonyms_of()</code> 는 설정 화면의 <b>“분류 불러오기”에서만</b> 불린다.
+즉 <b>규칙에 넣을 단어를 만들 때만 쓰이고, 문서를 판정할 때는 쓰이지 않는다.</b><br><br>
+그래서 이 장의 제안은 <span class="bad">“핵어 사전을 새로 만들자”</span>가 아니라
+<span class="ok">“이미 있는 조립 규칙을 판정 시점에도 쓰자”</span>다.
+비용이 훨씬 싸고, 그만큼 먼저 해 볼 만하다.</div>
+
+<h3>4-2. 장르 표지 — 형식이 스스로 밝히는 정체</h3>
+
+<p>문서 종류마다 <b>거의 반드시 나오는 정형 문구</b>가 있다.</p>
+
+<table>
+<tr><th>종류</th><th>표지</th></tr>
+<tr><td>규정·지침</td><td><code>제1조(목적)</code> · <code>본 규정은</code> · <code>시행일</code> · <code>부칙</code></td></tr>
+<tr><td>계약서</td><td><code>갑</code> / <code>을</code> · <code>제1조</code> · <code>서명</code></td></tr>
+<tr><td>회의록</td><td><code>일시</code> · <code>장소</code> · <code>참석자</code> · <code>안건</code></td></tr>
+<tr><td>제안서</td><td><code>제안 개요</code> · <code>제안 배경</code> · <code>기대 효과</code></td></tr>
+<tr><td>매뉴얼</td><td>목차 · <code>본 매뉴얼은</code> · <code>1.1 개요</code></td></tr>
+<tr><td>보고서</td><td><code>검토 결과</code> · <code>조치 사항</code></td></tr>
+</table>
+
+<div class="note"><b><code>제1조(목적)</code>이 있으면 그건 규정이다.</b>
+주제가 인사든 보안이든 상관없다. 지금 안 쓰는 신호 중 <b>가장 세다</b> —
+단어 1,000개보다 표지 30개가 세다. 그리고 <b>이 사전도 고객 무관이다.</b>
+회사가 달라도 규정은 제1조로 시작한다.</div>
+
+<h3>4-3. 문서 자체가 들고 있는 메타 정보</h3>
+
+<p>본문을 읽기 전에 공짜로 있는 것들이다.</p>
+
+<table>
+<tr><th>신호</th><th>쓸모</th><th>세기</th></tr>
+<tr><td><b>문서번호 체계</b> (<code>ISMS-GU-005</code>)</td><td>관리되는 공식 문서. 접두사 하나로 통째로 갈린다</td><td class="ok">강</td></tr>
+<tr><td><b>Office 속성</b> (제목 필드·작성 부서·템플릿 이름)</td><td>사내 표준 서식을 쓰면 여기가 정확하다</td><td class="mid">중</td></tr>
+<tr><td><b>구조</b> (쪽수·표 비중·슬라이드 수·목차 유무)</td><td>30쪽 목차 문서와 3슬라이드 문서는 다른 종류다</td><td class="mid">중</td></tr>
+<tr><td><b>확장자</b></td><td>xls는 목록·계산, ppt는 발표·제안 쪽으로 기운다</td><td class="bad">약</td></tr>
+</table>
+
+<h3>4-4. 첫 줄 — 표지의 제목</h3>
+
+<p>한국 회사 문서는 대개 표지가 있고 <b>첫 유의미한 줄이 곧 제목</b>이다.
+지금은 <code>head_chars: 400</code>으로 앞부분을 뭉뚱그려 보는데,
+<b>첫 줄과 400자는 신뢰도가 전혀 다르다.</b>
+첫 줄은 사실상 제목이고, 나머지 390자는 배경 소음이다.
+같은 0.55점을 줄 자리가 아니다.</p>
+</section>
+
+<section class="card">
+<h2 id="s5"><span class="n">5</span> 제안 구조 — 층으로 묻기</h2>
+
+<p>하나의 점수 합산이 아니라, <b>확실한 것부터 순서대로 묻는 층</b>이다.</p>
+
+<div class="flow">0층  문서번호·문서속성    확실하면 즉결        ── 관리되는 문서
+1층  이름 핵어            끝 명사 → 문서종류    ── 한국어 규칙, 고객 무관
+2층  장르 표지            제1조 / 참석자 …      ── 장르 관습, 고객 무관
+3층  주제어(현행 규칙)    대분류 가르기 전용    ── 고객별, 역할 강등
+─────────────────────────────────────────────────────
+4층  임베딩 폴백                                 ── 여기는 그대로</div>
+
+<p>바뀌는 것은 셋이다.</p>
+
+<table>
+<tr><th>#</th><th>바뀌는 것</th><th>까닭</th></tr>
+<tr><td>1</td><td><b>0~2층은 결정 목록</b> — 먼저 맞은 규칙이 이긴다</td><td>“제1조가 있으면 규정”은 0.55점을 주고 더할 일이 아니라 그냥 참이다</td></tr>
+<tr><td>2</td><td><b>주제어는 대분류까지만</b> 맡는다</td><td>주제어가 잘하는 일은 “보안 쪽 문서다”까지다. “매뉴얼이냐 제안서냐”는 1~2층이 훨씬 잘한다</td></tr>
+<tr><td>3</td><td><b>층마다 못 정하면 넘긴다</b></td><td>끝까지 못 정하면 폴백이 받는다. 억지로 찍지 않는다</td></tr>
+</table>
+
+<div class="note"><b>두 축을 다른 신호에 맡기는 것</b>이 핵심이다.
+지금은 주제어 하나가 21개 잎 중 하나를 바로 고른다.
+장르(문서종류)와 주제(업무 영역)는 다른 증거로 정해야 한다.</div>
+</section>
+
+<section class="card">
+<h2 id="s6"><span class="n">6</span> 점수 합산 대신 결정 목록</h2>
+
+<p>지금은 신호마다 점수를 매겨 더하고 <code>t_low</code>와 견준다.
+이 방식이 <b>확정적인 규칙을 표현하지 못한다.</b></p>
+
+<table>
+<tr><th></th><th>점수 합산 (지금)</th><th>결정 목록 (제안)</th></tr>
+<tr><td>표현</td><td>“여러 신호를 합쳐 0.41”</td><td>“제1조가 있어서 규정으로 봤다”</td></tr>
+<tr><td>관리자가 고칠 때</td><td>어느 숫자를 건드려야 하는지 모른다</td><td>그 줄을 고치거나 지우면 된다</td></tr>
+<tr><td>확정 규칙</td><td>표현 못 함 — 0.65점짜리 애매한 신호가 된다</td><td>그대로 표현된다</td></tr>
+<tr><td>애매한 증거</td><td>잘 다룬다</td><td>못 다룬다 → <b>3층은 점수제로 남긴다</b></td></tr>
+</table>
+
+<div class="warn"><b>결정 목록은 순서가 곧 정책이다.</b>
+두 표지가 같이 나오면 앞선 것이 이기는데, 그 순서를 누가 정하느냐가 새 논쟁거리가 된다.
+점수제에는 없던 문제다. <b>순서를 파일에 드러내 놓고 주석으로 까닭을 적는 것</b>이
+최소한의 대비다.</div>
+</section>
+
+<section class="card">
+<h2 id="s7"><span class="n">7</span> 사전을 어디에 둘 것인가</h2>
+
+<p>이 재설계의 <b>실질적 이득이 걸린 자리</b>다.</p>
+
+<table>
+<tr><th>사전</th><th>고객마다 다른가</th><th>어디에</th></tr>
+<tr><td>문서종류 핵어 (…계획서·…매뉴얼)</td><td class="ok">거의 같다</td><td><b>제품 내장</b></td></tr>
+<tr><td><b>핵어 → 분류 매핑</b> (계획서 → <code>DC_00X</code>)</td><td class="bad">분류체계에 매인다</td><td><b>따로 두지 않는다</b> — 아래 참조</td></tr>
+<tr><td>장르 표지 (제1조·참석자)</td><td class="ok">거의 같다</td><td><b>제품 내장</b></td></tr>
+<tr><td>잡음 꼬리 (최종·수정본·회람용)</td><td class="ok">거의 같다</td><td><b>제품 내장</b></td></tr>
+<tr><td>문서번호 체계</td><td class="bad">완전히 다르다</td><td>고객 정책</td></tr>
+<tr><td>주제어</td><td class="bad">완전히 다르다</td><td>고객 정책</td></tr>
+</table>
+
+<p>권고는 <b>내장 + 고객이 덧붙이기</b>다.
+이미 유의어 사전이 쓰고 있는 <code>core → 업종 → local</code> 구조를 그대로 따른다 —
+core가 기준을 세우고, 나머지는 <b>더하기만</b> 한다.</p>
+
+<h3>“내장”은 코드가 아니다</h3>
+
+<p><b>제품과 함께 배포되는 YAML</b>을 뜻한다. <code>doc_synonyms.core.yaml</code> 머리말에
+그렇게 적혀 있다.</p>
+
+<pre><code>① doc_synonyms.core.yaml   ← 이 파일. 업종과 무관한 말. <b>제품이 들고 다닌다</b></code></pre>
+
+<p>전례도 있다. 활용형 꼬리 46개(<code>된</code>·<code>는</code>·<code>하는</code> …)는
+원래 <code>termsuggest.py</code> 에 박혀 있었고, 이것을 사전으로 옮긴 것이
+<a href="업무분류-끝말목록-사전이관-설계-20260915.html">끝말 목록 사전 이관</a>과
+같은 계열의 작업이다(커밋 <code>b41e2a3</code>).
+<b>목록을 코드에 두면 고치는 데 배포가 필요하다</b> — 그래서 두지 않는다.</p>
+
+<h3>매핑표는 새로 만들지 않는다 — 분류체계 파일이 곧 매핑표다</h3>
+
+<p>핵어 목록은 고객 무관이지만 <b>핵어를 어느 분류에 붙일지는 분류체계에 매인다.</b>
+<code>DC_…</code> 같은 id는 고객 분류체계에서 나오므로 core 에 넣을 수 없다.
+<b>여기까지는 새 파일이 필요해 보인다. 그런데 이미 있다.</b></p>
+
+<p>현 고객의 잎 분류 21개 제목을 문서종류 명사인지 아닌지로 나누면 이렇다.
+<span class="muted">(실제 제목·id 는 고객 데이터라 이 문서에 옮기지 않고, 유형과 일반 예만 적는다)</span></p>
+
+<table>
+<tr><th>유형</th><th>개수</th><th>일반 예</th></tr>
+<tr><td>제목이 곧 문서종류 명사</td><td class="ok">19</td><td>회의록 · 계약서 · 견적서 · 세금계산서 · 요구사항정의서 …</td></tr>
+<tr><td>주제형 제목</td><td class="bad">1</td><td>(예) 복리후생 같은 업무 주제</td></tr>
+<tr><td>고유명 제목</td><td class="bad">1</td><td>(예) 자사 제품명</td></tr>
+</table>
+
+<div class="note"><b>21개 중 19개가 문서종류 명사 그 자체다.</b>
+그러니 매핑에 새 파일이 필요 없다.
+<div class="flow" style="margin:8px 0 0">핵어 '회의록'  →  제목이 '회의록' 인 잎  →  그 잎의 <code>dc_id</code></div></div>
+
+<p>기존 사전이 이미 이 방식으로 돌아간다.</p>
+
+<pre><code>def synonyms_of(title, syn, for_filename=False):
+    tight = str(title or "").replace(" ", "").strip()</code></pre>
+
+<p><b>입력이 <code>dc_id</code> 가 아니라 분류 제목이다.</b> 사전 어디에도 <code>DC_</code> 가
+적히지 않는다. 분류 제목이 “매뉴얼”이면 그 제목으로 사전을 찾을 뿐이다.
+핵어도 같은 방식을 따르면 된다.</p>
+
+<h3>단, <code>doc_taxonomy.yaml</code> 에 쓰지는 않는다</h3>
+
+<pre><code>taxonomy:
+  source: &lt;고객 시스템의 분류 테이블&gt;
+  exported_at: '2026MMDDhhmmss'</code></pre>
+
+<p><b>고객 시스템에서 내보낸 파일이다.</b> 다음 내보내기 때 통째로 덮어써지므로
+우리가 무엇을 적어 두면 사라진다. <b>읽기만 한다</b> —
+지금도 <code>axes.load_taxonomy()</code> 가 읽기 전용으로 쓴다.</p>
+
+<h3>유도가 깨지는 고객이 있다</h3>
+
+<p>위 유도가 되는 것은 <b>이 고객의 분류체계가 문서종류 축이기 때문</b>이다.
+축이 다르면 깨진다.</p>
+
+<table>
+<tr><th>분류</th><th>유도</th><th>왜</th></tr>
+<tr><td class="muted">(예) <code>경영 &gt; 회의록</code></td><td class="ok">된다</td><td>제목이 곧 문서종류</td></tr>
+<tr><td class="muted">(예) <code>인사 &gt; 복리후생</code></td><td class="bad">안 된다</td><td>주제다. ‘복리후생’ 이라는 문서종류는 없다</td></tr>
+<tr><td class="muted">(예) 자사 제품명</td><td class="bad">안 된다</td><td>주제·고유명</td></tr>
+<tr><td class="muted">(가상) <code>보안사업부 &gt; 2026년</code></td><td class="bad">전혀 안 된다</td><td>조직·기간 축</td></tr>
+</table>
+
+<div class="warn"><b>분류체계를 주제 축으로 짠 고객에게는 별도 매핑이 반드시 필요하다.</b>
+현 고객에서 유도가 잘 되는 것은 <u>운이 좋은 것</u>이지 구조적 보장이 아니다.
+이 점을 설계가 전제로 깔면 안 된다.</div>
+
+<h3>이 연결은 이미 절반 돌고 있다 — 다만 <u>설정 시점</u>에만</h3>
+
+<p>제목을 핵어로 쓴다는 발상은 이 제품에 이미 있다.
+화면의 [분류 불러오기] 가 부르는 <code>docvocab.sync_from_taxonomy()</code> 다.</p>
+
+<div class="flow">doc_taxonomy.yaml 의 title
+        ↓  synonyms_of(title, syn)      ← core 사전의 유의어·조립 규칙
+   '매뉴얼' → 메뉴얼 · 사용설명서 · 사용자안내서 …
+        ↓
+doc_rule.yaml 의 title_terms / filename 칸에 <b>구워 넣는다</b></div>
+
+<p>걱정거리도 이미 걸러 준다.</p>
+
+<pre><code>if str(n.get("status", "1")) == "1"              # 비활성 분류는 뺀다
+and not is_drawer(bool(parent), dc_id in kids)   # 대분류 같은 중간 노드는 뺀다</code></pre>
+
+<h3>그런데 구워 넣기는 조용히 썩는다 <span class="pill todo">이 장의 핵심</span></h3>
+
+<div class="flow">2026-09  분류체계 title: 매뉴얼        →  doc_rule.yaml 에 '매뉴얼' 구워 넣음
+2027-03  고객이 title 을 '사용설명서' 로 바꿈
+         → doc_taxonomy.yaml 은 새 export 로 갱신됨
+         → doc_rule.yaml 은 여전히 '매뉴얼'
+         → 아무도 모른다. 오류도 안 난다. 그냥 조금씩 틀린다</div>
+
+<div class="danger"><b>[분류 불러오기] 를 다시 눌러야 한다는 것을 아무도 기억하지 못한다.</b>
+게다가 그 기능은 <i>“이미 단어가 있는 규칙은 건드리지 않는다”</i>가 기본값이라,
+눌러도 안 고쳐진다. <b>실패가 소리를 내지 않는다</b> — 가장 나쁜 종류의 고장이다.</div>
+
+<h3 class="muted">기각한 안 — “사람이 적었으면 그것만 쓴다”(우선순위)</h3>
+
+<p class="muted">검토 중에 이런 안이 나왔다. <b>덫이 있어 버린다.</b></p>
+
+<pre><code>① doc_rule.yaml 에 핵어가 있으면  → 그것만 쓴다
+② 없으면 doc_taxonomy.yaml 제목에서 유도</code></pre>
+
+<div class="warn"><b>관리자가 단어를 <u>한 개만</u> 추가해도 그 분류의 분류체계 연동이 통째로 꺼진다.</b>
+아무 경고도 없다. 그리고 한번 구워지면 ①이 영원히 이기므로,
+<b>위의 “조용히 썩는다” 문제를 그대로 물려받는다.</b>
+이 안은 쓰지 않는다 — 같은 안이 다시 나오지 않도록 여기 남겨 둔다.</div>
+
+<h3>판정할 때 두 곳을 <b>모두</b> 본다 (합집합)</h3>
+
+<div class="flow">핵어는 두 곳에서 온다
+  · doc_rule.yaml 의 핵어 칸       — 사람이 적은 것
+  · doc_taxonomy.yaml 의 잎 제목   — 자동, <b>항상 최신</b>
+    (+ core 사전의 유의어·조립 규칙을 얹는다)</div>
+
+<table>
+<tr><th></th><th>우선순위(기각)</th><th>합집합(채택)</th></tr>
+<tr><td>판정할 때</td><td>①이 있으면 ①만</td><td><b>둘 다</b></td></tr>
+<tr><td>제목이 바뀌면</td><td class="bad">①이 있으면 안 따라옴</td><td class="ok">자동으로 따라옴</td></tr>
+<tr><td>관리자가 한 글자 적으면</td><td class="bad">연동이 조용히 끊김</td><td class="ok">아무 일 없음</td></tr>
+<tr><td>“사람이 채운 값이 진실”</td><td>지켜짐</td><td class="ok">지켜짐 — 사람이 적은 말은 그대로 산다</td></tr>
+</table>
+
+<h3>합집합이 치르는 값 — 셋이 더 필요하다</h3>
+
+<p><b>① 끄는 스위치.</b> 제목이 다 핵어는 아니다.</p>
+
+<table>
+<tr><th></th><th>제목</th><th>핵어로</th></tr>
+<tr><td>좁고 안전</td><td>세금계산서 · 요구사항정의서 · 화면설계서 · 견적서</td><td class="ok">그대로</td></tr>
+<tr><td><b>넓다</b></td><td><b>보고서 · ○○자료 · ○○서류 같은 묶음 제목</b></td><td class="mid">위험</td></tr>
+<tr><td>문서종류 아님</td><td>업무 주제 · 제품명 같은 고유명</td><td class="bad">쓰면 안 됨</td></tr>
+</table>
+
+<p><code>보고서</code> 를 핵어로 쓰면 <b>점검보고서·시험보고서·장애보고서가 전부</b>
+그 <code>보고서</code> 잎으로 간다. core 사전 머리말도 같은 경고를 단다 —
+<i>“계산서”를 세금계산서의 별칭으로 넣으면 손익계산서·원가계산서까지 전부 걸린다.</i></p>
+
+<div class="warn">합집합에서는 이것을 <b>“안 적는 것”으로 막을 수 없다</b> —
+안 적어도 유도가 자동으로 넣기 때문이다. 그래서 명시적으로 끄는 자리가 필요하다.
+<b>이것이 합집합이 우선순위 안보다 더 치르는 값이다.</b></div>
+
+<p><b>그런데 끄는 스위치를 노드 id 에 걸면 새 함정이 생긴다.</b></p>
+
+<pre><code>- node: DC_xxx            # 제목이 '보고서' 인 잎
+  title_from_taxonomy: false   # '보고서' 는 너무 넓다   &lt;- 기각</code></pre>
+
+<p>끄는 이유는 노드가 아니라 <b>말</b>에 있다 — “보고서”가 넓은 것이지 그 노드
+가 나쁜 것이 아니다. 그런데 스위치는 노드에 걸려 있으니, 기업 분류체계가 바뀌어
+제목이 <code>주간보고서</code> 로 좁아져도 <b>꺼진 채로 남는다.</b> 다시 켜려면 관리자가
+그 사실을 기억하고 판단해야 한다 — 합집합이 없애려던 “사람이 따라 고쳐야 한다”가
+끄는 쪽으로 되돌아온다. 스위치를 <code>doc_taxonomy.yaml</code> 노드에 두는 것도 안 된다 —
+고객 시스템에서 다시 뽑으면 덮어써져 사라진다.</p>
+
+<p>그래서 <b>세 겹으로 거르고, 기본값은 “쓴다”</b>로 둔다.</p>
+
+<table>
+<tr><th>겹</th><th>어떻게</th><th>제목이 바뀌면</th></tr>
+<tr><td><b>ⓐ 자동 판정</b><br><span class="muted">대부분 여기서 끝</span></td>
+    <td>판정할 때마다 제목을 규칙으로 거른다.<br>
+        · core 의 <b>넓은 말 목록</b>(기타·일반·공통·자료·문서·보고서…)에 있으면 안 씀<br>
+        · 끝이 문서종류 명사(core 의 heads)로 끝나지 않으면 — 주제형 제목 — 안 씀<br>
+        · 같은 핵어가 여러 잎에 걸리면 모호하니 안 씀<br>
+        · 서랍·<code>status≠1</code> 노드는 기존처럼 제외(<code>syncable_nodes</code>)</td>
+    <td class="ok">매 실행 다시 계산 — 저절로 따라감</td></tr>
+<tr><td><b>ⓑ 말 단위 제외</b><br><span class="muted">ⓐ가 놓친 예외만</span></td>
+    <td>관리자가 <b>“이 말은 핵어로 안 쓴다”</b>를 적는다. 노드 id 를 적지 않는다</td>
+    <td class="ok">새 제목은 목록에 없는 말이라 <b>손대지 않아도 쓰인다</b></td></tr>
+<tr><td><b>ⓒ 노드 단위 끄기</b><br><span class="muted">드문 경우만</span></td>
+    <td>말은 괜찮은데 그 노드에서만 끄고 싶을 때. <b>끌 당시 제목을 함께 기록</b>한다</td>
+    <td class="mid">제목이 달라지면 끄기가 <b>효력을 잃고</b> 화면에 “재검토”로 뜬다</td></tr>
+</table>
+
+<pre><code># doc_rule.yaml
+taxonomy_title_exclude:          # ⓑ 말 단위 — 대부분의 수동 제외는 이것
+  - ○○자료                     # 주제 묶음이지 문서종류가 아니다
+
+taxonomy_node_off:               # ⓒ 노드 단위 — 드물게
+  - node: DC_yyy
+    title_at_decision: ○○서류   # 불러올 때 지금 제목과 다르면 이 끄기는 무효</code></pre>
+
+<p>질문의 경우가 이렇게 풀린다 — <code>보고서</code> 는 ⓐ의 넓은 말 목록에서 걸러지고,
+제목이 <code>주간보고서</code> 로 바뀌면 목록에 없는 말이라 <b>아무도 손대지 않아도</b> 핵어로 쓰인다.
+거꾸로 id 는 바뀌고 제목은 <code>○○자료</code> 그대로면 ⓑ가 계속 막는다 — 문제가 말에 있으니 그게 맞다.
+ⓒ는 조용히 계속 꺼져 있지도, 조용히 다시 켜지지도 않는다.</p>
+
+<table>
+<tr><th>상황</th><th>노드 id 스위치(기각)</th><th>세 겹</th></tr>
+<tr><td>제목이 바뀜</td><td class="bad">관리자가 기억해서 켜야 함</td><td class="ok">자동으로 쓰임</td></tr>
+<tr><td>새 잎이 생김</td><td class="mid">넓어도 끄기 전까지 쓰임</td><td class="ok">ⓐ가 넓은 말을 거름</td></tr>
+<tr><td>체계가 통째로 바뀜</td><td class="bad">스위치를 전부 다시 봐야 함</td><td class="ok">ⓑ는 그대로 유효, ⓒ만 “재검토”</td></tr>
+</table>
+
+<div class="note"><b>왜 기본값이 “쓴다”인가.</b> 1차 분류 실패의 89%가 못 잡는 것(재현율)이고
+오분류는 3.2%다(2장). 제목을 괜히 끄는 손해가 더 크다. 넓어서 틀리는 경우는
+ⓐ의 규칙과 ②의 출처 표시로 잡는다.<br>
+<b>남는 위험 — 넓은 말 목록의 품질.</b> 목록이 짧으면 넓은 제목이 새어 들어온다. 12장에서 잰다.</div>
+
+<p><b>② 왜 잡혔는지 말해야 한다.</b> 유도된 말은 파일 어디에도 안 적혀 있다(1장 조건 ②).
+판정 결과에 출처를 남긴다. <code>why.doctype</code> 이 이미 매칭된 단어를 다 기록하므로
+<b>표시 하나만 더하면 된다.</b></p>
+
+<pre><code>name: [회의록]   &lt;- 분류체계 제목에서 옴 (doc_taxonomy 20270301…)</code></pre>
+
+<p><b>③ 구워 넣은 옛 말은 지우지 않는다.</b> 제목이 바뀌어도
+<code>doc_rule.yaml</code> 의 ‘매뉴얼’ 은 남는다. 사람이 적었을 수도 있고,
+실제로 그렇게 불리는 문서가 아직 있을 수 있다. 대신 <b>화면에서 표시</b>한다 —
+<i>“이 말은 현재 분류체계 제목에 없습니다”</i> 정도면 관리자가 판단한다.</p>
+
+<div class="note"><b>덤 — 감사 추적이 이미 된다.</b>
+판정 결과에 <code>taxonomy_version</code>(= <code>exported_at</code>)이 이미 찍힌다.
+<b>제목이 바뀐 시점과 판정이 바뀐 시점을 대조할 수 있다.</b>
+구워 넣기에는 없던 이점이다 — 구운 시점은 아무 데도 안 남는다.</div>
+
+<h3>그래서 파일은 이렇게 나뉜다</h3>
+
+<table>
+<tr><th>파일</th><th>역할</th><th>누가 쓰나</th></tr>
+<tr><td><code>doc_synonyms.core.yaml</code></td><td>핵어 목록·조립 규칙·잡음 꼬리·<b>넓은 말 목록</b></td><td>제품(배포로 갱신)</td></tr>
+<tr><td><code>doc_taxonomy.yaml</code></td><td><b>제목 = 핵어</b> · 제목 ↔ <code>dc_id</code></td><td class="bad">고객 시스템(읽기 전용)</td></tr>
+<tr><td><code>doc_rule.yaml</code></td><td>사람이 더할 핵어 · <b>제외할 말</b>(ⓑ) · 노드 끄기(ⓒ, 드묾) · 주제어</td><td>관리자(화면)</td></tr>
+<tr><td><code>doc_synonyms.local.yaml</code></td><td>그 회사에만 있는 말</td><td>관리자</td></tr>
+</table>
+
+<div class="note"><b>새 파일 없고, 손으로 적을 일 없고, 제목이 바뀌면 자동으로 따라오고,
+그래도 끌 수 있다.</b><br>
+손이 필요한 것은 둘뿐이다 — <b>넓거나 문서종류가 아닌 제목을 끄는 일</b>, 그리고
+<b>유도로 안 나오는 말을 더하는 일</b>.</div>
+
+<div class="danger"><b>지금은 1차 분류의 재료가 전부 고객별이다.</b>
+그래서 신규 고객마다 단어 1,000개를 처음부터 다시 써야 한다.
+이건 기술 문제가 아니라 <b>사업 문제</b>다.</div>
+</section>
+
+<section class="card">
+<h2 id="s8"><span class="n">8</span> 무엇이 좋아지나</h2>
+
+<p>가장 큰 것은 정확도가 아니라 <b>유지 비용</b>이다.</p>
+
+<table>
+<tr><th></th><th>지금</th><th>제안</th></tr>
+<tr><td>1차 분류의 재료</td><td>전부 고객별 주제어</td><td class="ok">대부분 제품 내장</td></tr>
+<tr><td>신규 고객 착수</td><td>단어 1,000개를 새로 씀</td><td class="ok">핵어·표지는 그대로, 주제어만 보탬</td></tr>
+<tr><td>분류체계가 바뀌면</td><td>단어를 전부 재배치</td><td class="ok">새 분류 제목으로 사전을 다시 찾을 뿐 — <b>손볼 게 거의 없다</b>(7장)</td></tr>
+<tr><td>틀렸을 때 설명</td><td>“점수가 낮아서”</td><td class="ok">“핵어를 X로 봤는데 아니다”</td></tr>
+<tr><td>본문 추출이 실패하면</td><td class="bad">거의 못 잡음 (이름만으로는 문턱 미달)</td><td class="ok">1층이 이름만으로 돈다</td></tr>
+<tr><td>같은 단어 다른 위치</td><td class="bad">구분 불가</td><td class="ok">핵어 위치로 갈린다</td></tr>
+</table>
+</section>
+
+<section class="card">
+<h2 id="s9"><span class="n">9</span> 위험한 곳 — 솔직하게</h2>
+
+<table>
+<tr><th>위험</th><th>내용</th><th>대비</th></tr>
+<tr><td><b>잡음 꼬리가 핵어를 가린다</b></td>
+    <td class="bad">핵어 방식의 성패가 여기서 갈린다 — <b>아래 9-1 참조</b></td>
+    <td>잡음 꼬리 목록 + 못 걷어내면 그 자리를 포기한다</td></tr>
+<tr><td><b>장르 표지는 추출 품질에 매인다</b></td>
+    <td>스캔 PDF·이미지 슬라이드는 본문이 없어 2층이 통째로 죽는다</td>
+    <td>1층(이름)이 본문 없이도 도는 게 그래서 중요하다</td></tr>
+<tr><td><b>결정 목록의 순서</b></td>
+    <td>순서가 정책인데, 그 순서를 정하는 근거가 없다</td>
+    <td>순서를 파일에 드러내고 까닭을 주석으로 남긴다</td></tr>
+<tr><td><b>확장자 신호의 편향</b></td>
+    <td>xls=목록 같은 연상은 약하고, 조직 습관에 쉽게 뒤집힌다</td>
+    <td>단독 근거로 쓰지 않는다. 동점일 때만 기울인다</td></tr>
+<tr><td><b>전부 가설이다</b></td>
+    <td>이 문서의 어느 것도 아직 재보지 않았다</td>
+    <td>12장</td></tr>
+</table>
+
+<h3>9-1. 잡음 꼬리가 핵어를 가린다 <span class="pill todo">최대 난관</span></h3>
+
+<p>파일명은 변한다. 그리고 <b>변하는 방식이 하필 핵어를 덮는다.</b></p>
+
+<div class="flow">제안서_최종.doc              →  마지막 명사가 '최종'
+보고서_최종_최종본.hwp        →  마지막 명사가 '최종본'
+매뉴얼 - 복사본.docx          →  마지막 명사가 '복사본'
+요구사항 v3.5(안)-회람용.pdf  →  마지막 명사가 '회람용'</div>
+
+<div class="danger"><b>핵어 규칙이 가장 크게 틀리는 자리이자, 가장 흔한 자리다.</b>
+“마지막 명사를 본다”는 규칙은 <u>끝이 깨끗할 때만</u> 맞는다.
+그리고 실무 파일명의 끝은 대체로 깨끗하지 않다.
+<code>signals.name</code> 이 <code>0.30</code> 이라는 낮은 천장을 가진 것도
+바로 이 사정 때문이며, 그 판단은 옳았다.</div>
+
+<p>대비는 셋이다.</p>
+
+<table>
+<tr><th>대비</th><th>내용</th></tr>
+<tr><td><b>잡음 꼬리 목록</b></td>
+    <td><code>최종</code>·<code>최종본</code>·<code>수정본</code>·<code>복사본</code>·<code>회람용</code>·<code>배포용</code>·<code>검토용</code>·<code>v2</code>·<code>(안)</code>…
+        오른쪽부터 걷어낸 뒤 남는 명사를 핵어로 본다. 닫힌 집합이고 고객 무관이라 <b>core 에 넣는다</b></td></tr>
+<tr><td><b>못 걷어내면 포기한다</b></td>
+    <td>걷어낸 뒤에도 사전에 없는 말이 남으면 <b>핵어 판정을 하지 않는다.</b>
+        억지로 찍지 않고 다음 층으로 넘긴다(1장 조건 ③)</td></tr>
+<tr><td><b>제목류를 먼저 본다</b></td>
+    <td>표지 첫 줄에는 이 꼬리가 거의 붙지 않는다. <b>파일명은 마지막에 본다</b> —
+        4-1의 우선순위가 이 위험에 대한 대비이기도 하다</td></tr>
+</table>
+
+<div class="warn"><b>이 목록이 얼마나 잘 듣는지가 핵어 방식 전체의 성패다.</b>
+12장의 “핵어가 가방보다 낫다” 검증은 <u>잡음 꼬리를 걷어낸 뒤</u>로 재야 하고,
+걷어내기 전후를 <b>따로 재서 이 목록의 기여를 분리해</b> 봐야 한다.</div>
+</section>
+
+<section class="card">
+<h2 id="s10"><span class="n">10</span> 검토했으나 기각한 안</h2>
+
+<h3>폴더 이름을 신호로 쓰기 <span class="pill">기각</span></h3>
+
+<p>문서가 <code>01_제품매뉴얼</code>, <code>08_사내규정_인사</code>처럼 이미 정리돼 있어
+가장 그럴듯해 보였던 안이다. 재봤다.</p>
+
+<pre><code>폴더의 최빈 분류를 미분류 107건에 붙이면  →  맞음 33 · 틀림 69  (정밀도 32%)
+폴더만으로 전체를 분류하면                →  정답률 50.8%  (규칙 70.8%보다 나쁨)</code></pre>
+
+<div class="danger"><b>폴더는 주제별로 묶여 있고, 분류체계는 문서종류별이다.</b>
+축이 어긋나 있어 섞으면 오히려 나빠진다. 어느 폴더는 최빈 정답이 24%밖에 안 됐다.</div>
+
+<p class="muted">직관적으로 가장 유망했던 안이 데이터에서 가장 확실하게 기각됐다.
+<b>3장의 “주제 ≠ 장르”를 다른 각도에서 확인해 준 셈</b>이다.</p>
+
+<h3>seed 문서에서 규칙을 자동 생성 <span class="pill">기각(기존)</span></h3>
+<p>seed가 19건·6개 노드뿐이고, 규칙이 만든 라벨이 다시 규칙을 만드는 고리가 생긴다.
+<a href="업무분류-규칙단어-제안기능-설계-20260916.html">규칙 단어 제안 기능</a>에서
+사람이 고르는 방식으로 이미 바꿨다.</p>
+</section>
+
+<section class="card">
+<h2 id="s11"><span class="n">11</span> 정하고 넘어가야 할 것</h2>
+
+<table>
+<tr><th>#</th><th>결정할 것</th><th>선택지</th><th>의견</th></tr>
+<tr><td>1</td><td>핵어·장르표지 사전을 어디에</td>
+    <td>제품 내장 / 고객 정책</td>
+    <td><b>내장 + 고객이 덧붙이기.</b> 유의어 사전의 core→업종→local 구조를 그대로</td></tr>
+<tr><td><b>1-1</b></td>
+    <td><b>분류체계 제목을 핵어로 언제 쓸 것인가</b><br>
+        <span class="muted">= 구워 넣을 것인가, 판정할 때 읽을 것인가</span></td>
+    <td>구워 넣기(현행) / 우선순위 / <b>합집합</b></td>
+    <td><b>합집합 — 7장에서 결론까지 났다.</b><br>
+        구워 넣기는 제목이 바뀌어도 <u>소리 없이</u> 낡는다. 우선순위는
+        관리자가 단어 한 개만 적어도 연동이 끊긴다(7장 기각).<br>
+        <b>따라오는 값 셋:</b> 넓은 제목 거르기 · 판정 결과에 출처 표시 · 옛 말은 지우지 않고 화면에 표시<br>
+        <b>넓은 제목 거르기 — 결정: 세 겹, 기본값 “쓴다”.</b>
+        ⓐ core 넓은 말 목록·문서종류 명사 끝 여부로 매번 자동 판정 →
+        ⓑ 관리자 제외는 <u>노드 id 가 아니라 말</u>로 적는다(<code>taxonomy_title_exclude</code>) →
+        ⓒ 노드 단위 끄기는 끌 당시 제목을 함께 적고, 제목이 바뀌면 무효 + “재검토” 표시.<br>
+        <span class="muted">노드 id 스위치(<code>title_from_taxonomy: false</code>)는 기각 —
+        제목이 바뀌어도 꺼진 채 남아, 관리자가 기억해서 다시 켜야 한다(7장)</span></td></tr>
+<tr><td>2</td><td>결정 목록을 도입할 것인가</td>
+    <td>도입 / 점수제 안에서 해결</td>
+    <td><b>0~2층만 결정 목록, 3층은 점수제 유지.</b> 점수제에 넣으면 확정 규칙이 다시 애매한 신호가 된다</td></tr>
+<tr><td>3</td><td>업무분류를 2단계로 쪼갤 것인가</td>
+    <td>대분류→잎 / 현행 평면</td>
+    <td><b>쪼개는 쪽.</b> 안 쪼개면 층마다 21개 잎을 다 상대해야 한다</td></tr>
+<tr><td>4</td><td>배점 조정을 먼저 할 것인가</td>
+    <td>선행 / 재설계에 포함</td>
+    <td><b>선행.</b> 재설계와 독립이고, 숫자 하나에 재현율 +5.6%p다</td></tr>
+<tr><td>5</td><td>Rust 판은 언제</td>
+    <td>동시 / 나중</td>
+    <td><b>결정 — Python·Rust 동시에 한다.</b>
+        두 엔진이 같은 정책 파일을 읽으므로, 한쪽만 바꾸면 같은 문서가 엔진마다 다르게
+        분류된다. 단계마다 <b>두 엔진을 같은 커밋에서</b> 바꾸고, 평가셋으로 두 결과가
+        일치하는지 함께 확인한다.<br>
+        <b>1-1 때문에 Rust 도 판정할 때 <code>doc_taxonomy.yaml</code> 을 읽어야 한다</b> —
+        지금은 규칙 파일만 읽으면 되던 것이 늘어난다. 파일이 없을 때의 동작(분류체계 유도만
+        끄고 계속 돈다)도 두 엔진이 같아야 한다</td></tr>
+</table>
+</section>
+
+<section class="card">
+<h2 id="s12"><span class="n">12</span> 검증 방법</h2>
+
+<p>이 문서는 전부 가설이다. 무엇으로 참·거짓을 가릴 것인지 먼저 정해 둔다.</p>
+
+<table>
+<tr><th>가설</th><th>재는 법</th><th>통과 기준</th></tr>
+<tr><td>배점 조정만으로 재현율이 오른다</td>
+    <td><code>t_low</code>/<code>signals.name</code>만 바꾸고 평가셋 500건 재채점</td>
+    <td>재현율 +5%p 이상, <b>정밀도 하락 1%p 이내</b></td></tr>
+<tr><td>핵어가 가방보다 낫다</td>
+    <td>같은 문자열(제목·파일명)로 두 방식을 각각 채점해 비교.
+        <b>잡음 꼬리를 걷어내기 전후를 따로 재서</b> 그 목록의 기여를 분리한다(9-1)</td>
+    <td>같은 재현율에서 정밀도가 더 높을 것</td></tr>
+<tr><td>장르 표지가 강하다</td>
+    <td>표지 30개를 손으로 적고, 그것만으로 채점</td>
+    <td>표지가 나온 문서에서 정밀도 95% 이상</td></tr>
+<tr><td>핵어 사전이 고객 무관이다</td>
+    <td>다른 코퍼스에서 같은 사전으로 채점</td>
+    <td>재현율 하락이 크지 않을 것</td></tr>
+<tr><td class="mid"><b>매핑 유도가 고객 무관이다</b><br>
+        <span class="muted">= 분류 제목만으로 <code>dc_id</code> 를 찾을 수 있다</span></td>
+    <td><b>문서를 한 건도 읽지 않고 잰다</b> — 고객별 <code>doc_taxonomy.yaml</code> 의
+        잎 제목이 <u>문서종류 명사</u>인 비율을 센다. 판정이 아니라 <b>분류체계만</b> 보는
+        시험이라 고객 분류체계 파일 하나만 있으면 된다</td>
+    <td>여러 고객에서 <b>80% 이상</b>.<br>
+        <span class="muted">현 고객 19/21 = 90%</span></td></tr>
+<tr><td class="mid"><b>넓은 제목을 자동으로 거를 수 있다</b><br>
+        <span class="muted">= 7장 ⓐ만으로 수동 제외가 거의 필요 없다</span></td>
+    <td>이것도 <b>문서 없이</b> 잰다 — 잎 제목마다 사람이 “핵어로 써도 된다/안 된다”를 먼저 적고,
+        ⓐ 자동 판정 결과와 대조한다. <b>놓친 것(써선 안 되는데 통과)</b>과
+        <b>과잉(써도 되는데 걸러짐)</b>을 따로 센다</td>
+    <td>놓친 것 0건, 과잉은 잎의 10% 이내.<br>
+        <span class="muted">첫 확인: 현 고객의 문서종류 아닌 제목 2개(주제형·고유명)와
+        넓은 제목(보고서 등)이 ⓑ·ⓒ 없이 걸러지는가</span></td></tr>
+</table>
+
+<div class="danger"><b>이 항목이 통과하지 못하면 7장의 “새 파일을 안 만든다”가 무너진다.</b>
+유도가 안 되는 분류가 많은 고객에서는 <code>doc_rule.yaml</code> 에 핵어를 손으로 다 적어야 하고,
+그러면 <b>“신규 고객 착수가 싸진다”(8장)는 이득이 사라진다.</b>
+그래서 이 시험은 네 가설 중 <u>가장 먼저</u> 해 볼 만하다 —
+<b>문서가 필요 없어 고객 분류체계 파일만 받으면 오늘이라도 잴 수 있다.</b></div>
+
+<div class="warn"><b>모든 채점은 사람이 단 정답으로만 한다.</b>
+엔진 판정이나 자동 라벨을 정답에 섞으면, 규칙이 자기를 정당화하는 고리가 생긴다.
+채점 절차는 <a href="../tests/evalset/README.md">tests/evalset/README.md</a>에 있다.</div>
+
+<div class="note"><b>순서 권고</b><br>
+⓪ <b>매핑 유도 시험 + 넓은 제목 자동 거르기 시험</b> — 둘 다 문서가 필요 없다. 고객 분류체계 파일만 있으면 된다.
+<u>가장 싸고, 실패하면 설계가 통째로 바뀐다</u> →
+① 배점 조정(재설계와 독립, 하루) →
+② 핵어 가설 검증(잡음 꼬리 목록부터, 9-1) →
+③ 장르 표지 검증(표지 30개 손으로) →
+④ 결과를 보고 구조를 정한다.<br>
+<b>⓪~③을 하기 전에 구현을 시작하지 않는다.</b></div>
+</section>
+
+<footer>
+  MpowerClassify · 업무분류 1차 분류 원점 재검토 · 2026-09-16 · 검토서(구현 없음)
+</footer>
+
+</div>
+</body>
+</html>

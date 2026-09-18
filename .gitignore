@@ -71,6 +71,10 @@ Thumbs.db
 **/resources/policy/doc_rule.yaml
 **/resources/policy/_old-*/
 # UI 가 실제로 읽고 쓰는 정책 폴더 — 실문서 경로·임베딩 벡터·승인자 이름이 들어간다.
+# 추출 본문(--textsave) — 고객사 문서의 '내용'이 그대로 들어간다(개인정보 포함 가능).
+# 공개 저장소이므로 폴더 이름을 바꿔 쓰더라도 걸리도록 두 갈래로 막는다.
+/ui/_extracted/
+_extracted/
 /ui/policy/
 /ui/policy_org/
 /ui/settings.yaml
