@@ -497,8 +497,13 @@ def records_to_df(records, latest, latest_dt=None, tax=None, seed_files=None):
         #   비어 있을 때만 '미분류'다 — 이 구분이 없으면 보안등급만 쓰는 배포에서
         #   모든 문서가 "업무분류 확인 필요"로 잡힌다.
         dt_axis_on = csorecord.doctype_of(r) is not None
+        # [약한 라벨] 파일 이름 끝자리 핵어로만 붙은 라벨(설계서 13장 D1)은 확정이
+        # 아니다. 그런 것만 붙은 문서를 '이미 분류됨'으로 두면, 엔진이 확정하지
+        # 않으려고 단 표시를 화면이 무시하는 셈이 된다 — 그래서 큐에 올린다.
+        alive = [c for c in cands if c.get("status") != "rejected"]
+        only_weak = bool(alive) and all(c.get("status") == "proposed" for c in alive)
         # 사람이 한 번 보고 "해당 없음"으로 정리한 문서는 다시 부르지 않는다.
-        need_doc = dt_axis_on and (not cands) and (not reviewed)
+        need_doc = dt_axis_on and (not cands or only_weak) and (not reviewed)
         # 보안등급은 판단 못 했거나 확신이 낮으면 사람이 본다. 이미 사람이 고친
         # 문서는 다시 부르지 않는다 — 검토를 끝낸 문서가 큐에 계속 남으면 안 된다.
         need_sec = (not decided) and (final == "보류" or conf < LOW_CONF)
@@ -1477,20 +1482,29 @@ def render_doctype_panel(rec, latest_dt, history_dt, ov_path, reviewer, tax, sco
 
     n_conf = sum(1 for c in candidates if c["status"] == "confirmed")
     n_auto = sum(1 for c in candidates if c.get("auto"))
+    # 확정도 거절도 아닌 채 사람을 기다리는 후보(파일 이름 핵어로만 붙은 약한 라벨).
+    n_wait = sum(1 for c in candidates if c["status"] == "proposed")
     # 자동 확정은 '확정'이되 사람이 아직 확인하지 않은 확정이다. 그 사실을 배지에
     # 남긴다 — 나중에 "이 분류 누가 정했어?" 를 화면만 보고 답할 수 있어야 한다.
     if reviewed and n_conf:
         badge = "확정됨"
     elif reviewed:
         badge = "해당 없음으로 확정"
+    elif n_wait and not n_auto:
+        # 약한 라벨만 있는 문서 — 확정된 것이 하나도 없다는 뜻이다.
+        badge = "확인 필요 · 자동 확정하지 않음"
     elif n_auto:
-        badge = "자동 확정 · 관리자 확인 전"
+        badge = "자동 확정 · 관리자 확인 전" + (f" · 확인 필요 {n_wait}" if n_wait else "")
     else:
         badge = "확정 대기"
     st.markdown(f"##### {W.AXIS_DOC} <span style='font-weight:400;color:gray'>— "
                 f"{W.AXIS_DOC_SUB}</span>", unsafe_allow_html=True)
+    tail = ("" if not n_wait else
+            " · **확인 필요** 로 표시된 것은 파일 이름만 보고 제안한 것이라 "
+            "확정하지 않았습니다 — 내용을 보고 정해 주세요")
     st.caption(f"{badge} · 문서당 **여러 개 가능** · 자동으로 찾은 분류는 "
-               "**확정된 것으로 봅니다** — 틀린 것만 체크를 풀고 [이대로 확정] 하세요")
+               "**확정된 것으로 봅니다** — 틀린 것만 체크를 풀고 [이대로 확정] 하세요"
+               + tail)
 
     # 회사 분류 체계를 연결하지 않은 배포에서는 기능을 숨기지 않고 '꺼짐'으로 보여
     # 준다 — 숨기면 그런 기능이 있다는 것을 영영 모른다(설계서 12-1).

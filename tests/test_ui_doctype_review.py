@@ -224,8 +224,12 @@ def test_summarize_후보없음():
 #------------------------------------------------------------------
 def test_summarize_상태별_건수():
     candidates = [{"status": "confirmed"}, {"status": "confirmed"},
-                  {"status": "rejected"}, {"status": "proposed"}]
-    assert DR.summarize_status(candidates) == "관리자 확정 2 · 거절 1 · 자동 확정 1"
+                  {"status": "rejected"},
+                  {"status": "confirmed", "auto": True}, {"status": "proposed"}]
+    # 2026-09-21: 'proposed' 를 자동 확정과 합쳐 세던 것을 갈랐다. 지금은 확정도
+    # 거절도 아닌 채 사람을 기다리는 라벨(파일 이름 핵어, D1 ②)이 여기 온다 —
+    # 합쳐 세면 "확정된 것처럼 보이는데 아무도 안 본" 라벨이 생긴다.
+    assert DR.summarize_status(candidates) == "관리자 확정 2 · 거절 1 · 자동 확정 1 · 확인 필요 1"
 
 
 #------------------------------------------------------------------
@@ -361,3 +365,54 @@ def test_근거_문장에_원문_조각이_없다():
     # 20개를 다 뱉지 않고 앞 6개 + "외 N개" 로 줄인다.
     assert "말6" not in text and "외 14개" in text
     assert len(text) < 200
+
+
+# ── 검토 대상 표시(review) — 설계서 13장 D1 ② ─────────────────────
+
+#------------------------------------------------------------------
+# 파일 이름 핵어로만 붙은 라벨은 자동 확정하지 않는다
+#=> 엔진이 review 표시를 달아 보내는 이유가 이것이다. 화면이 이 표시를 무시하고
+#   여느 제안처럼 자동 확정해 버리면 안전장치가 있으나 마나다.
+#   사람이 내린 결정(확정·거절)은 그대로 이긴다 — 표시는 '아직 아무도 안 봤을
+#   때'의 기본값만 바꾼다.
+#
+# -in: 없음
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_검토대상_라벨은_자동확정되지_않는다():
+    rec = mk_record("x.hwp", [
+        {"dc_id": "A", "path": "법무/규정 > 계약서", "confidence": 0.9, "from": ["rule"]},
+        {"dc_id": "B", "path": "기술/개발 > 매뉴얼", "confidence": 0.35,
+         "from": ["name_head"], "review": True, "basis": "name_head"},
+    ])
+    cands, _rev = DR.effective_doctype(rec, {})
+    by_id = {c["dc_id"]: (c["status"], c.get("auto")) for c in cands}
+    assert by_id == {"A": ("confirmed", True), "B": ("proposed", False)}
+    assert DR.summarize_status(cands) == "자동 확정 1 · 확인 필요 1"
+
+    # 사람이 확정하면 그 결정이 이긴다.
+    cands2, _r2 = DR.effective_doctype(rec, {"x.hwp": {"confirmed": ["B"]}})
+    assert {c["dc_id"]: c["status"] for c in cands2}["B"] == "confirmed"
+
+
+#------------------------------------------------------------------
+# 검토 대상 라벨에는 경고와 '유도한 말' 설명이 붙는다
+#=> 파일 어디에도 그대로 적혀 있지 않은 말이라, 출처를 말해 주지 않으면
+#   검토자가 근거를 찾다가 못 찾는다(설계서 7장 ②).
+#
+# -in: 없음
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_검토대상_라벨은_근거와_경고를_보여준다():
+    cand = {"dc_id": "B", "confidence": 0.35, "from": ["name_head"], "review": True,
+            "signals": {"name_head": {"c": 0.35, "terms": ["매뉴얼"],
+                                      "taxonomy_title": "매뉴얼",
+                                      "source": "doc_taxonomy"}}}
+    block = DR.reason_block(cand)
+    assert block["kind"] == "evidence"
+    line = block["lines"][0]["text"]
+    assert "파일 이름 끝자리" in line and "매뉴얼" in line
+    assert "분류 이름" in line          # 어디서 나온 말인지 말해 준다
+    assert "파일 이름만" in block["warn"] and "확정하지" in block["warn"]
