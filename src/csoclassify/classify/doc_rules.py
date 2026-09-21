@@ -198,6 +198,11 @@ class DocRuleSet:
     # 신호별 신뢰도 표. None 이면 정책 파일이 안 건드린 것 —
     # 채점 쪽이 코드 기본값(doctype._SIG_CONF)을 그대로 쓴다.
     signals: dict = None
+    # 분류체계 제목에서 유도한 핵어 사전 {dc_id: {"title","heads"}} — 설계서 7장.
+    # taxonomy 없이 로드했거나 쓸 만한 제목이 없으면 빈 dict(그 신호만 끄고 계속).
+    head_lexicon: dict = None
+    # 핵어 자리를 보기 전에 걷어낼 잡음 꼬리 말(core 사전의 noise_tails).
+    head_noise: tuple = ()
 
     #------------------------------------------------------------------
     # 실제로 매칭에 쓸 규칙만
@@ -851,9 +856,24 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
     if not rules:
         warnings.append("doctype_rules 가 비어 있어 doctype 축이 아무 문서도 분류하지 않습니다")
 
+    # 핵어 사전은 로드할 때 한 번만 만든다(문서 수만큼 다시 만들면 비싸다).
+    # 분류체계 파일이 없으면 이 신호만 끄고 계속한다(설계서 13-4 결정 5).
+    head_lexicon, head_noise = {}, ()
+    if taxonomy is not None:
+        from . import taxhead
+        from .docvocab import load_synonyms
+        syn = load_synonyms(path)
+        head_lexicon, head_warnings = taxhead.build_head_lexicon(
+            taxonomy, syn,
+            data.get("taxonomy_title_exclude") or (),
+            data.get("taxonomy_node_off") or ())
+        head_noise = tuple(taxhead.noise_tails(syn))
+        warnings += head_warnings
+
     return DocRuleSet(conflict=conflict, version=str(data.get("version", "unknown")),
                       rules=tuple(rules), warnings=tuple(warnings),
-                      defaults=defaults, embed=embed, signals=signals)
+                      defaults=defaults, embed=embed, signals=signals,
+                      head_lexicon=head_lexicon, head_noise=head_noise)
 
 
 # 새 doc_rule.yaml 의 머리 부분을 가져올 본보기 파일 이름(화면·CLI 공용 규약).

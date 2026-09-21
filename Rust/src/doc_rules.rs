@@ -119,6 +119,11 @@ pub struct DocRuleSet {
     pub rules: Vec<DoctypeRule>,
     /// 로드 중 발견한 경고(T6·T12 등 — 로드를 막지 않는 문제).
     pub warnings: Vec<String>,
+    /// 분류체계 제목에서 유도한 핵어 사전(설계서 7장 · 13장 D1).
+    /// taxonomy 없이 로드했거나 쓸 만한 제목이 없으면 비어 있다(그 신호만 끄고 계속).
+    pub head_lexicon: std::collections::HashMap<String, crate::taxhead::HeadEntry>,
+    /// 핵어 자리를 보기 전에 걷어낼 잡음 꼬리 말(core 사전의 noise_tails).
+    pub head_noise: Vec<String>,
 }
 
 impl DocRuleSet {
@@ -142,6 +147,8 @@ impl DocRuleSet {
             version: "none".into(),
             rules: Vec::new(),
             warnings: Vec::new(),
+            head_lexicon: std::collections::HashMap::new(),
+            head_noise: Vec::new(),
         }
     }
 
@@ -823,8 +830,33 @@ pub fn load_doc_rules(path: &std::path::Path, taxonomy: Option<&Taxonomy>) -> Re
         warnings.push("doctype_rules 가 비어 있어 doctype 축이 아무 문서도 분류하지 않습니다".into());
     }
 
+    // 핵어 사전은 로드할 때 한 번만 만든다(문서 수만큼 다시 만들면 비싸다).
+    // 분류체계 파일이 없으면 이 신호만 끄고 계속한다(설계서 13-4 결정 5).
+    let mut head_lexicon = std::collections::HashMap::new();
+    let mut head_noise: Vec<String> = vec![];
+    if let Some(t) = taxonomy {
+        let syn = crate::docvocab::load_synonyms(path);
+        // ⓑ 말 단위 제외 · ⓒ 노드 단위 끄기 — 둘 다 doc_rule.yaml 에 적는다.
+        let excludes: Vec<String> = data.get("taxonomy_title_exclude")
+            .and_then(|v| v.as_array()).map(|a| a.iter()
+                .filter_map(|x| x.as_str()).map(|x| x.to_string()).collect())
+            .unwrap_or_default();
+        let node_off: Vec<(String, String)> = data.get("taxonomy_node_off")
+            .and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| {
+                let node = x.get("node").and_then(|v| v.as_str())?;
+                let was = x.get("title_at_decision").and_then(|v| v.as_str()).unwrap_or("");
+                Some((node.to_string(), was.to_string()))
+            }).collect()).unwrap_or_default();
+        let (lex, head_warnings) =
+            crate::taxhead::build_head_lexicon(t, &syn, &excludes, &node_off);
+        head_lexicon = lex;
+        head_noise = syn.head_list("noise_tails");
+        warnings.extend(head_warnings);
+    }
+
     Ok(DocRuleSet { conflict, defaults, embed, signals,
-                    version: s(&data, "version", "unknown"), rules, warnings })
+                    version: s(&data, "version", "unknown"), rules, warnings,
+                    head_lexicon, head_noise })
 }
 
 #[cfg(test)]

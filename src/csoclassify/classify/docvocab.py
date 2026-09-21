@@ -99,6 +99,40 @@ def _builtin_endings():
     return VERB_ENDINGS
 
 
+# ── 핵어 판정용 내장 목록 (2026-09-21, 설계서 7장 ⓐ·13장 D1) ──────────
+#=> 분류체계 제목을 '핵어'로 써도 되는지 가릴 때 쓰는 네 목록이다.
+#   원본은 core 사전의 broad_words·container_tails·common_endings·noise_tails
+#   칸이고, 아래는 그 칸이 없는 배포(사전 없음·옛 core)에서 쓰는 기본값이다.
+#   Rust/src/docvocab.rs 의 같은 목록과 내용이 같아야 하며,
+#   tests/test_policy_synonyms.py 가 사전과 이 목록을 비교한다.
+
+# 제목이 통째로 이 말이면 너무 넓어 핵어로 쓸 수 없다.
+BROAD_WORDS = (
+    "자료", "서류", "문서", "기록", "목록", "현황", "양식", "서식",
+    "파일", "기타", "일반", "공통", "참고", "첨부",
+)
+# 제목이 이 말로 끝나면 앞은 주제이고 끝은 '묶음'이다 — 문서종류를 말하지 않는다.
+CONTAINER_TAILS = ("자료", "서류", "문서", "파일", "기타", "관련", "일반")
+# 문서종류 명사이긴 하나 본문·파일명에 너무 흔해, 끝말이 이것이면 한 분류로 못 보낸다.
+COMMON_ENDINGS = ("규정", "지침", "세칙", "준칙", "규약", "규칙")
+# 파일명·제목 끝에 붙는 관리용 꼬리. 핵어 자리를 보기 전에 걷어낸다.
+NOISE_TAILS = (
+    "최종본", "최종", "수정본", "수정안", "수정", "복사본", "사본", "회람용",
+    "배포용", "검토용", "제출용", "보고용", "공개용", "내부용", "참고용",
+    "초안", "원본", "백업", "샘플", "완료",
+    "final", "draft", "copy", "backup", "sample", "new",
+)
+
+# 핵어 판정용 목록 칸 — {칸 이름: 내장 기본값}. 끝말(suffixes)과 같은 규약으로
+# core 가 기준을 정하고 업종·local 은 더하기만 한다.
+SYN_HEAD_LISTS = {
+    "broad_words": BROAD_WORDS,
+    "container_tails": CONTAINER_TAILS,
+    "common_endings": COMMON_ENDINGS,
+    "noise_tails": NOISE_TAILS,
+}
+
+
 #------------------------------------------------------------------
 # 유의어 사전은 세 겹이다 — 파일 이름 규약
 #=> 업종마다 쓰는 문서 이름이 다르다(금융의 '여신심사기준서', 의료의 '감염관리
@@ -229,6 +263,9 @@ def _read_syn_layer(path):
     layer[SYN_ENDINGS] = _clean_endings(data.get(SYN_ENDINGS))
     # 칸별 추가 단어도 모양을 정리해 싣는다(틀린 칸·틀린 말만 버린다).
     layer[SYN_EXTRA] = _clean_extra_terms(data.get(SYN_EXTRA))
+    # 핵어 판정용 네 목록도 같은 규약으로 읽는다(빈 말·공백 든 말·중복은 버린다).
+    for sec in SYN_HEAD_LISTS:
+        layer[sec] = _clean_endings(data.get(sec))
     return layer
 
 
@@ -417,6 +454,9 @@ def load_synonyms(doc_rules_path):
     # 끝말은 core 가 기준 목록을 정하고, 업종·local 은 더하기만 한다.
     core_suffixes, extra_suffixes = [], []
     core_endings, extra_endings = [], []
+    # 핵어 판정용 목록도 끝말과 같은 규약 — core 가 기준, 나머지는 더하기만.
+    core_heads = {sec: [] for sec in SYN_HEAD_LISTS}
+    extra_heads = {sec: [] for sec in SYN_HEAD_LISTS}
     # 칸별 추가 단어 — {분류이름: {칸: [말…]}}. 센 겹의 말이 앞에 온다(_merge_layer 와 같다).
     extra = {}
     for name in names:
@@ -433,9 +473,13 @@ def load_synonyms(doc_rules_path):
         if name == SYN_CORE:
             core_suffixes = layer[SYN_SUFFIXES]
             core_endings = layer[SYN_ENDINGS]
+            for sec in SYN_HEAD_LISTS:
+                core_heads[sec] = layer[sec]
         else:
             extra_suffixes += layer[SYN_SUFFIXES]
             extra_endings += layer[SYN_ENDINGS]
+            for sec in SYN_HEAD_LISTS:
+                extra_heads[sec] += layer[sec]
 
     if not layers:
         return {}
@@ -463,6 +507,16 @@ def load_synonyms(doc_rules_path):
             uniq_end.append(w)
     merged[SYN_ENDINGS] = sorted(uniq_end, key=lambda w: -len(w))
     merged[SYN_EXTRA] = extra
+
+    # 핵어 판정용 목록 — 같은 규약(core 가 기준, 나머지는 더하기, 긴 말 먼저).
+    # 긴 말이 먼저 걸려야 '최종본' 이 '최종' 보다 먼저 걷힌다.
+    for sec, builtin in SYN_HEAD_LISTS.items():
+        base_h = core_heads[sec] or list(builtin)
+        uniq_h = []
+        for w in list(base_h) + extra_heads[sec]:
+            if w not in uniq_h:
+                uniq_h.append(w)
+        merged[sec] = sorted(uniq_h, key=lambda w: -len(w))
 
     # 화면에 한 줄로 보여 줄 대표 경로는 가장 센 겹(=사람이 고치는 자리)으로 둔다.
     merged["path"] = layers[-1]
