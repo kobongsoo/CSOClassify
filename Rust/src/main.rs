@@ -27,6 +27,7 @@ mod propagate;
 mod record;
 mod rules;
 mod seedcli;
+mod taxhead;
 mod seedstore;
 mod xls;
 mod xlsdate;
@@ -3519,6 +3520,10 @@ fn candidates_from_json(v: &Value) -> Vec<doctype::Candidate> {
             // 레코드에는 근거가 signals 한 칸으로 합쳐져 있다(2026-09-10).
             // 엔진 속 계산은 두 칸으로 다루므로 여기서 되돌린다.
             evidence, score_parts,
+            // 검토 대상 표시(13장 D1 ②)도 왕복에서 살린다 — 전파를 한 번 거쳤다고
+            // 파일명만으로 붙은 약한 라벨이 확정 라벨로 둔갑하면 안 된다.
+            review: c.get("review").and_then(|x| x.as_bool()).unwrap_or(false),
+            basis: c.get("basis").and_then(|x| x.as_str()).unwrap_or("").to_string(),
         });
     }
     out

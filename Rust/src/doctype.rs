@@ -390,6 +390,11 @@ pub struct Candidate {
     pub evidence: Map<String, Value>,
     /// noisy-OR 구성요소. 임계값을 바꿨을 때를 재실행 없이 시뮬레이션하는 데 쓴다.
     pub score_parts: Vec<(String, f64)>,
+    /// 파일명 핵어로만 붙은 약한 라벨인가(설계서 13장 D1 ②). true 면 받는 쪽이
+    /// 자동 확정하지 않고 사람 앞에 올린다.
+    pub review: bool,
+    /// review 가 true 일 때 그 근거 이름("name_head").
+    pub basis: String,
 }
 
 impl Candidate {
@@ -399,7 +404,8 @@ impl Candidate {
     pub fn bare(dc_id: String, path: String, path_ids: Vec<String>,
                 confidence: f64, from: Vec<String>) -> Self {
         Candidate { dc_id, path, path_ids, confidence, from,
-                    stage: "rule".into(), evidence: Map::new(), score_parts: vec![] }
+                    stage: "rule".into(), evidence: Map::new(), score_parts: vec![],
+                    review: false, basis: String::new() }
     }
 }
 
@@ -494,6 +500,13 @@ impl DoctypeSignal {
                 if !v.stage.is_empty() {
                     m.insert("stage".into(), json!(v.stage));
                 }
+                // 파일명 핵어로만 붙은 약한 라벨은 '검토 대상'으로 표시한다(13장 D1 ②).
+                // 값이 있을 때만 적는다 — 없으면 "그냥 보통 라벨"이라는 뜻이다.
+                if v.review {
+                    m.insert("review".into(), json!(true));
+                    m.insert("basis".into(), json!(if v.basis.is_empty() { "name_head" }
+                                                   else { v.basis.as_str() }));
+                }
                 let sigs = merge_signals(&v.evidence, &v.score_parts);
                 if !sigs.is_empty() {
                     m.insert("signals".into(), Value::Object(sigs));
@@ -531,11 +544,14 @@ struct Merged {
     from: HashSet<String>,
     evidence: Map<String, Value>,
     parts: Vec<(String, f64)>,
+    /// 파일명 핵어로만 붙은 약한 라벨 표시(13장 D1 ②).
+    review: bool,
 }
 
 impl Merged {
     fn empty() -> Self {
-        Merged { confidence: 0.0, from: HashSet::new(), evidence: Map::new(), parts: vec![] }
+        Merged { confidence: 0.0, from: HashSet::new(), evidence: Map::new(), parts: vec![],
+                 review: false }
     }
 }
 
@@ -590,6 +606,10 @@ fn finalize(merged: HashMap<String, Merged>, taxonomy: &Taxonomy, conflict: &Con
         Some(Candidate {
             dc_id, path, path_ids, confidence: m.confidence, from,
             stage: stage.into(), evidence: m.evidence.clone(), score_parts: m.parts.clone(),
+            // 약한 라벨 표시는 노드 단위로 따라다닌다 — 받는 쪽이 자동 확정하지
+            // 않게 하는 것이 유일한 목적이다.
+            review: m.review,
+            basis: if m.review { "name_head".to_string() } else { String::new() },
         })
     }).collect();
 
@@ -631,7 +651,47 @@ pub fn scan_doctype(text: &str, file: &str, doc_rule_set: &DocRuleSet, taxonomy:
             entry.parts = hit.parts;
         }
     }
+
+    // ── 1층 핵어(13장 D1) — 다른 후보가 하나도 없을 때만 ───────────
+    // 파일명은 바뀔 수 있는 문자열이라 이것만으로 확정하지 않는다. 그래서
+    // ① 규칙이 아무 후보도 못 만든 문서에만 작동하고 ② 검토 대상으로 표시하며
+    // ③ 임베딩 씨앗으로는 쓰지 않는다(seedcli 의 씨앗 자격 검사).
+    if merged.is_empty() {
+        add_name_head(&mut merged, file, doc_rule_set, taxonomy);
+    }
     finalize(merged, taxonomy, &doc_rule_set.conflict)
+}
+
+/// 파일명 끝자리 핵어로 약한 후보 하나 만들기(13장 D1 · Python _add_name_head).
+///
+/// 분류체계 제목에서 유도한 핵어 사전을 파일 이름의 끝자리에 걸어 본다. 걸리면
+/// 문턱값(t_low)짜리 후보 하나를 만든다 — "파일 이름 어딘가에 그 말이 있다"
+/// (name 0.30, 문턱 미달)와 달리 '핵어 자리'에 왔으므로 문턱은 넘기되, 확정이
+/// 아니라 검토 대상으로 둔다. 분류체계 파일이 없으면 사전이 비어 아무 일도 안 한다.
+fn add_name_head(merged: &mut HashMap<String, Merged>, file: &str,
+                 doc_rule_set: &DocRuleSet, taxonomy: &Taxonomy) {
+    let hit = match crate::taxhead::match_filename_head(
+        file, &doc_rule_set.head_lexicon, &doc_rule_set.head_noise) {
+        Some(h) => h, None => return,
+    };
+    let (dc_id, word, title) = hit;
+    // 스냅샷이 갱신돼 사전이 낡았을 수 있다 — 없는 노드면 조용히 버린다.
+    if taxonomy.get(&dc_id).is_none() { return; }
+    let conf = doc_rule_set.defaults.t_low;
+    let mut evidence = Map::new();
+    // 유도된 말은 파일 어디에도 안 적혀 있으므로 출처를 남긴다(7장 ②).
+    evidence.insert("name_head".into(), json!({
+        "terms": [word],
+        "taxonomy_title": title,
+        "source": "doc_taxonomy",
+    }));
+    merged.insert(dc_id, Merged {
+        confidence: conf,
+        from: HashSet::from(["name_head".to_string()]),
+        evidence,
+        parts: vec![("name_head".into(), conf)],
+        review: true,
+    });
 }
 
 /// 임베딩 전파 후보를 규칙 후보와 병합(D7, 설계서 5-4·재설계 11-1).
@@ -660,6 +720,7 @@ pub fn merge_embed_candidates(existing: &[Candidate], embed_values: &[(String, f
             from: v.from.iter().cloned().collect(),
             evidence: v.evidence.clone(),
             parts: v.score_parts.clone(),
+            review: v.review,
         });
     }
     // 근거 칸의 모양은 파이썬 merge_embed_candidates 의 ev_block 과 키 순서까지 같다.
@@ -691,6 +752,7 @@ pub fn merge_embed_candidates(existing: &[Candidate], embed_values: &[(String, f
                     from: HashSet::from(["embed".to_string()]),
                     evidence: ev,
                     parts: vec![("embed".into(), capped)],
+                    review: false,
                 });
             }
         }
@@ -764,6 +826,11 @@ mod tests {
             version: "t".into(),
             rules,
             warnings: vec![],
+            // 핵어 층은 분류체계 제목에서 유도한 사전이 있어야 돈다. 아래 시험들은
+            // 사전 없이(=핵어 층이 꺼진 채) 점수제만 본다 — 핵어 층 자체는
+            // taxhead.rs 의 시험과 핵어_사전이_있으면… 시험이 따로 본다.
+            head_lexicon: std::collections::HashMap::new(),
+            head_noise: vec![],
         }
     }
 
@@ -1085,6 +1152,46 @@ mod tests {
 
     // doc_rule.yaml 이 없는 배포(seed 전파 전용)에서는 1차 스캔이 반드시 빈손이어야
     // 한다 — 그래야 "규칙으로는 못 정했다"가 되고 전파가 유일한 분류 수단이 된다.
+    //--------------------------------------------------------------
+    // 핵어 층(13장 D1) — 파일명 끝자리 핵어는 '다른 후보가 없을 때만' 돈다
+    //=> 세 가지를 한꺼번에 본다: 붙는다 · 검토 대상으로 표시된다 ·
+    //   다른 후보가 있으면 안 돈다(①). 셋 중 하나만 깨져도 D1 의 전제가 무너진다.
+    //--------------------------------------------------------------
+    #[test]
+    fn 핵어_층은_후보가_없을_때만_약한_라벨을_붙인다() {
+        let t = mk_taxonomy();
+        // 본문 단어만 있는 규칙은 단독으로 후보가 안 되므로(8-4) 제목 신호를 쓴다.
+        let mut c_rule = blank("dt_c", "CONTRACT", "medium");
+        c_rule.title_terms = sv(&["계약서"]);
+        let mut drs = mk_set(vec![c_rule], staged());
+        drs.head_lexicon.insert("PROPOSAL".to_string(), crate::taxhead::HeadEntry {
+            title: "제안서".into(), heads: vec!["제안서".to_string()] });
+
+        // 다른 신호가 전혀 없는 문서 — 파일명 끝자리 핵어로 약한 라벨이 붙는다.
+        let sig = scan_doctype("내용 없음", r"D:\x\보안관제_제안서_최종_v2.hwp", &drs, &t);
+        assert_eq!(sig.values.len(), 1);
+        assert_eq!(sig.values[0].dc_id, "PROPOSAL");
+        assert_eq!(sig.values[0].from, vec!["name_head".to_string()]);
+        assert!((sig.values[0].confidence - drs.defaults.t_low).abs() < 1e-9);
+        assert!(sig.values[0].review);
+        let v = sig.as_dict();
+        assert_eq!(v["values"][0]["review"], serde_json::json!(true));
+        assert_eq!(v["values"][0]["basis"], serde_json::json!("name_head"));
+        // 왜 이 라벨인지 — 파일 어디에도 안 적힌 말이므로 출처를 남긴다(7장 ②).
+        assert_eq!(v["values"][0]["signals"]["name_head"]["source"],
+                   serde_json::json!("doc_taxonomy"));
+
+        // 규칙이 이미 후보를 만든 문서에는 돌지 않는다(안전장치 ①).
+        let sig2 = scan_doctype("용역 계약서\n갑과 을은…", r"D:\x\보안관제_제안서.hwp", &drs, &t);
+        let ids: Vec<&str> = sig2.values.iter().map(|c| c.dc_id.as_str()).collect();
+        assert_eq!(ids, vec!["CONTRACT"]);
+        assert!(!sig2.values[0].review);
+
+        // 끝자리가 아니면 안 붙는다 — '제안서_검토_회의록' 을 제안서로 보내지 않는다.
+        let sig3 = scan_doctype("내용 없음", r"D:\x\제안서_검토_회의록.hwp", &drs, &t);
+        assert!(sig3.values.is_empty());
+    }
+
     #[test]
     fn 규칙0건_스캔은_아무것도_못맞힌다() {
         let drs = crate::doc_rules::DocRuleSet::seed_only();

@@ -384,3 +384,52 @@ def test_본문에는_공백제거_보정을_쓰지_않는다():
     sig = DT.scan_doctype("앞 문장 끝. 회 의 록 이라고 띄어 씀", "D:/x/문서.hwp",
                           mk_set([rule]), mk_taxonomy())
     assert "body" not in sig.values[0]["from"]
+
+
+# ── 1층 핵어(13장 D1) ─────────────────────────────────────────────
+
+#------------------------------------------------------------------
+# 핵어 층은 '다른 후보가 없을 때만' 약한 라벨을 붙인다 (설계서 13장 D1)
+#=> 세 가지를 한꺼번에 본다.
+#     · 파일명 끝자리가 분류 제목이면 문턱(t_low)짜리 후보가 하나 생긴다
+#     · 그 라벨에는 검토 대상 표시(review·basis)와 출처가 남는다
+#     · 규칙이 이미 후보를 만든 문서에는 돌지 않는다(안전장치 ①)
+#   Rust 판 doctype.rs 에 같은 뜻의 시험이 있다.
+#------------------------------------------------------------------
+def test_핵어_층은_후보가_없을_때만_약한_라벨을_붙인다():
+    lex = {"MINUTES": {"title": "회의록", "heads": ["회의록"]}}
+    rules = [D.DoctypeRule(id="r", node="CONTRACT", title_terms=("계약서",))]
+    drs = D.DocRuleSet(conflict=D.ConflictSpec(strategy="all"), rules=tuple(rules),
+                       defaults=STAGED, head_lexicon=lex)
+    tax = mk_taxonomy()
+
+    # 다른 신호가 전혀 없는 문서 — 파일명 끝자리 핵어로 약한 라벨이 붙는다.
+    sig = DT.scan_doctype("내용 없음", r"D:\x\3분기 영업_회의록_최종_v2.hwp", drs, tax)
+    assert len(sig.values) == 1
+    v = sig.values[0]
+    assert v["dc_id"] == "MINUTES" and v["from"] == ("name_head",)
+    assert v["confidence"] == STAGED.t_low and v["review"] is True
+    out = sig.as_dict()["values"][0]
+    assert out["review"] is True and out["basis"] == "name_head"
+    # 왜 이 라벨인지 — 파일 어디에도 안 적힌 말이므로 출처를 남긴다(7장 ②).
+    assert out["signals"]["name_head"]["source"] == "doc_taxonomy"
+
+    # 규칙이 이미 후보를 만든 문서에는 돌지 않는다.
+    sig2 = DT.scan_doctype("용역 계약서\n갑과 을은…", r"D:\x\영업_회의록.hwp", drs, tax)
+    assert [x["dc_id"] for x in sig2.values] == ["CONTRACT"]
+    assert not sig2.values[0].get("review")
+
+    # 끝자리가 아니면 안 붙는다 — '회의록_양식_제안서' 를 회의록으로 보내지 않는다.
+    assert DT.scan_doctype("내용 없음", r"D:\x\회의록_양식.hwp", drs, tax).values == ()
+
+
+#------------------------------------------------------------------
+# 핵어로만 붙은 라벨은 임베딩 씨앗이 되지 않는다 (13장 D1 ③)
+#=> 파일명만으로 붙은 라벨이 기준 문서가 되면 틀린 라벨이 다른 문서로 번진다.
+#------------------------------------------------------------------
+def test_검토_대상_라벨은_씨앗이_되지_않는다():
+    from csoclassify.classify import seedgen
+    cand = {"dc_id": "MINUTES", "confidence": 0.95, "from": ("name_head", "title"),
+            "review": True}
+    ok, why = seedgen.candidate_ok(cand, mk_taxonomy(), t_seed=0.85)
+    assert not ok and why == "검토대상"

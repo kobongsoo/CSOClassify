@@ -32,6 +32,7 @@ import re
 from dataclasses import dataclass
 
 from . import rules as R
+from . import taxhead
 from .conflict import resolve_doctype
 
 # ── legacy 모드 신뢰도 (종전 값 그대로) ─────────────────────────────
@@ -524,6 +525,11 @@ class DoctypeSignal:
             # 후보) 키 자체를 만들지 않아, 소비자가 "안 씀"과 "비었음"을 구분할 수 있다.
             if v.get("stage"):
                 item["stage"] = v["stage"]
+            # 파일명 핵어로만 붙은 약한 라벨은 '검토 대상'으로 표시한다(13장 D1 ②).
+            # 값이 있을 때만 적는다 — 없으면 "그냥 보통 라벨"이라는 뜻이다.
+            if v.get("review"):
+                item["review"] = True
+                item["basis"] = v.get("basis") or "name_head"
             sigs = _merge_signals(v.get("evidence"), v.get("score_parts"))
             if sigs:
                 item["signals"] = sigs
@@ -617,7 +623,54 @@ def scan_doctype(text, file, doc_rule_set, taxonomy):
                 entry["evidence"] = hit["evidence"]
                 entry["parts"] = hit["parts"]
 
+    # ── 1층 핵어(13장 D1) — 다른 후보가 하나도 없을 때만 ───────────
+    # 파일명은 바뀔 수 있는 문자열이라 이것만으로 확정하지 않는다. 그래서
+    # ① 규칙이 아무 후보도 못 만든 문서에만 작동하고 ② 검토 대상으로 표시하며
+    # ③ 임베딩 씨앗으로는 쓰지 않는다(seedgen.candidate_ok).
+    if not merged:
+        _add_name_head(merged, file, doc_rule_set, taxonomy, defaults)
+
     return _finalize(merged, taxonomy, doc_rule_set.conflict)
+
+
+#------------------------------------------------------------------
+# 파일명 끝자리 핵어로 약한 후보 하나 만들기 (13장 D1)
+#=> 분류체계 제목에서 유도한 핵어 사전(doc_rule_set.head_lexicon)을 파일 이름의
+#   끝자리에 걸어 본다. 걸리면 문턱값(t_low)짜리 후보 하나를 만든다 —
+#   "파일 이름 어딘가에 그 말이 있다"(name 0.30, 문턱 미달)와 달리 '핵어 자리'에
+#   왔으므로 문턱은 넘기되, 확정이 아니라 검토 대상으로 둔다.
+#   분류체계 파일이 없거나 쓸 만한 제목이 없으면 사전이 비어 아무 일도 안 한다.
+#
+# -in: merged       = 노드별 후보 dict(제자리에서 고친다 — 비어 있을 때만 불린다)
+# -in: file         = 파일 경로
+# -in: doc_rule_set = DocRuleSet(head_lexicon·head_noise 를 읽는다)
+# -in: taxonomy     = axes.Taxonomy(사전이 낡아 없는 노드를 가리키면 버린다)
+# -in: defaults     = doc_rules.Defaults(t_low 를 점수로 쓴다)
+#
+# -out: 없음(merged 를 고친다)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _add_name_head(merged, file, doc_rule_set, taxonomy, defaults):
+    lexicon = getattr(doc_rule_set, "head_lexicon", None) or {}
+    hit = taxhead.match_filename_head(file, lexicon,
+                                      getattr(doc_rule_set, "head_noise", None))
+    if not hit:
+        return
+    dc_id, word, title = hit
+    # 스냅샷이 갱신돼 사전이 낡았을 수 있다 — 없는 노드면 조용히 버린다.
+    if taxonomy.get(dc_id) is None:
+        return
+    conf = float(defaults.t_low)
+    merged[dc_id] = {
+        "confidence": conf,
+        "from": {"name_head"},
+        # 유도된 말은 파일 어디에도 안 적혀 있으므로 출처를 남긴다(7장 ②).
+        "evidence": {"name_head": {"terms": [word], "taxonomy_title": title,
+                                   "source": "doc_taxonomy"}},
+        "parts": [{"signal": "name_head", "c": conf}],
+        "review": True,
+        "basis": "name_head",
+    }
 
 
 #------------------------------------------------------------------
@@ -686,6 +739,11 @@ def _finalize(merged, taxonomy, conflict):
             "evidence": m.get("evidence") or {},
             "score_parts": m.get("parts") or [],
         })
+        if m.get("review"):
+            # 약한 라벨 표시는 노드 단위로 따라다닌다 — 이 라벨을 받는 쪽(화면·
+            # 고객 시스템)이 자동 확정하지 않게 하는 것이 유일한 목적이다.
+            candidates[-1]["review"] = True
+            candidates[-1]["basis"] = m.get("basis") or "name_head"
 
     res = resolve_doctype(candidates, conflict)
     return DoctypeSignal(values=res.values, strategy=conflict.strategy,

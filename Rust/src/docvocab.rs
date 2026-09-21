@@ -17,13 +17,14 @@ use std::path::{Path, PathBuf};
 
 /// 붙여 쓴 이름을 끊을 자리(꼬리말)의 기본값. 원본 DOC_SUFFIXES 와 같은 차례여야 한다.
 /// 2026-09-15 "메뉴얼"(흔한 표기 변형) 추가 — "OO메뉴얼" 도 "OO_메뉴얼" 파일명을 받는다.
+/// 2026-09-18 "예산서" 추가 — 문서종류 명사인데 빠져 있었다(분류체계 제목 시험 ⓪-b 에서 발견).
 /// [2026-09-15 사전 이관] 원본은 core 사전의 suffixes: 칸이다. 이 배열은 사전에 그 칸이
 /// 없을 때(사전 없음·옛 core) 쓰인다. 예전에 마지막 항목을 DOC_SUFFIX_LAST 로 따로 두던
 /// 사정(원본과 개수 맞추기)은 의미가 없어져 한 배열로 합쳤다(결과는 같다).
-pub const DOC_SUFFIXES: [&str; 43] = [
+pub const DOC_SUFFIXES: [&str; 44] = [
     "회의록", "계획서", "정의서", "설계서", "명세서", "제안서",
     "보고서", "결과서", "확인서", "신청서", "승인서", "의뢰서", "합의서", "계약서",
-    "계산서", "견적서", "발주서", "검수서", "내역서", "산출물", "매뉴얼", "메뉴얼", "가이드",
+    "계산서", "예산서", "견적서", "발주서", "검수서", "내역서", "산출물", "매뉴얼", "메뉴얼", "가이드",
     "지침서", "표준서", "규정집", "일지", "일보", "대장", "양식", "규정", "지침",
     "약관", "정관", "각서", "조서", "명부", "목록", "현황",
     "서류", "자료", "문서", "기록",
@@ -31,6 +32,33 @@ pub const DOC_SUFFIXES: [&str; 43] = [
 
 /// 범용어(filename_only)가 개수 제한에서 따로 갖는 자리 수.
 pub const GENERIC_SLOTS: usize = 6;
+
+// ── 핵어 판정용 내장 목록 (2026-09-21, 설계서 7장 ⓐ·13장 D1) ──────────
+// 분류체계 제목을 '핵어'로 써도 되는지 가릴 때 쓴다. 원본은 core 사전의
+// broad_words·container_tails·common_endings·noise_tails 칸이고, 아래는 그 칸이
+// 없는 배포(사전 없음·옛 core)에서 쓰는 기본값이다.
+// Python classify/docvocab.py 의 같은 목록과 내용이 같아야 한다.
+
+/// 제목이 통째로 이 말이면 너무 넓어 핵어로 쓸 수 없다.
+pub const BROAD_WORDS: [&str; 14] = [
+    "자료", "서류", "문서", "기록", "목록", "현황", "양식", "서식",
+    "파일", "기타", "일반", "공통", "참고", "첨부",
+];
+/// 제목이 이 말로 끝나면 앞은 주제이고 끝은 '묶음'이다 — 문서종류를 말하지 않는다.
+pub const CONTAINER_TAILS: [&str; 7] = ["자료", "서류", "문서", "파일", "기타", "관련", "일반"];
+/// 문서종류 명사이긴 하나 본문·파일명에 너무 흔해, 끝말이 이것이면 한 분류로 못 보낸다.
+pub const COMMON_ENDINGS: [&str; 6] = ["규정", "지침", "세칙", "준칙", "규약", "규칙"];
+/// 파일명·제목 끝에 붙는 관리용 꼬리. 핵어 자리를 보기 전에 걷어낸다.
+pub const NOISE_TAILS: [&str; 26] = [
+    "최종본", "최종", "수정본", "수정안", "수정", "복사본", "사본", "회람용",
+    "배포용", "검토용", "제출용", "보고용", "공개용", "내부용", "참고용",
+    "초안", "원본", "백업", "샘플", "완료",
+    "final", "draft", "copy", "backup", "sample", "new",
+];
+
+/// 핵어 판정용 목록 칸 이름(사전에서 읽는 차례대로).
+pub const SYN_HEAD_LISTS: [&str; 4] =
+    ["broad_words", "container_tails", "common_endings", "noise_tails"];
 
 const SYN_CORE: &str = "doc_synonyms.core.yaml";
 const SYN_LOCAL: &str = "doc_synonyms.local.yaml";
@@ -123,6 +151,31 @@ fn clean_suffixes(raw: Option<&serde_yaml::Value>) -> Vec<String> {
 }
 
 //------------------------------------------------------------------
+// 목록 칸 한 겹 정리하기(핵어 판정용 네 목록)
+//=> 끝말(clean_suffixes)과 거의 같지만 한 글자 말도 받는다. 빈 말·공백이 든
+//   말·중복만 버린다(Python _clean_endings 과 같은 규약).
+//
+// -in: raw = yaml 의 그 칸 값
+// -out: Vec<String> = 쓸 수 있는 말 목록
+//------------------------------------------------------------------
+fn clean_words(raw: Option<&serde_yaml::Value>) -> Vec<String> {
+    let seq = match raw.and_then(|v| v.as_sequence()) { Some(s) => s, None => return vec![] };
+    let mut out: Vec<String> = vec![];
+    for x in seq {
+        let w = match x {
+            serde_yaml::Value::String(s) => s.trim().to_string(),
+            serde_yaml::Value::Number(n) => n.to_string(),
+            _ => continue,
+        };
+        if w.is_empty() || w.chars().any(|c| c.is_whitespace()) || out.contains(&w) {
+            continue;
+        }
+        out.push(w);
+    }
+    out
+}
+
+//------------------------------------------------------------------
 // 이 분류는 '서랍'인가 — 규칙을 걸지 않는 노드인가
 //=> 규칙을 만들 곳과, 규칙이 없다고 알릴 곳(T12)이 같은 기준을 써야 한다.
 //   서랍 = 최상위이면서 자식이 있는 노드.
@@ -151,11 +204,34 @@ pub struct Syn {
     pub suffixes: Vec<String>,
     /// 칸별 추가 단어 — (분류이름, [(칸, [말…])]). 규칙 칸 뒤에 개수 제한 없이 붙는다.
     pub extra_terms: Vec<(String, Vec<(String, Vec<String>)>)>,
+    /// 핵어 판정용 네 목록(SYN_HEAD_LISTS 차례). 비면 내장 기본값을 쓴다.
+    pub head_lists: Vec<Vec<String>>,
     pub layers: Vec<String>,
 }
 
 impl Syn {
     pub fn is_empty(&self) -> bool { self.layers.is_empty() }
+
+    //--------------------------------------------------------------
+    // 핵어 판정용 목록 하나 꺼내기
+    //=> 사전에 그 칸이 있으면 그것을, 없으면 내장 기본값을 돌려준다.
+    //   사전이 깔리지 않은 배포에서 판정이 조용히 꺼지지 않게 한다.
+    //
+    // -in: sec = 칸 이름(SYN_HEAD_LISTS 중 하나)
+    // -out: Vec<String> = 말 목록(칸 이름이 틀리면 빈 목록)
+    //--------------------------------------------------------------
+    pub fn head_list(&self, sec: &str) -> Vec<String> {
+        let idx = match SYN_HEAD_LISTS.iter().position(|s| *s == sec) {
+            Some(i) => i, None => return vec![],
+        };
+        if let Some(got) = self.head_lists.get(idx) {
+            if !got.is_empty() { return got.clone(); }
+        }
+        let builtin: &[&str] = match idx {
+            0 => &BROAD_WORDS, 1 => &CONTAINER_TAILS, 2 => &COMMON_ENDINGS, _ => &NOISE_TAILS,
+        };
+        builtin.iter().map(|s| s.to_string()).collect()
+    }
 
     fn get<'a>(list: &'a [(String, Vec<String>)], key: &str) -> Option<&'a Vec<String>> {
         list.iter().find(|(k, _)| k == key).map(|(_, v)| v)
@@ -238,7 +314,7 @@ fn spacing_forms(word: &str, suffixes: &[String]) -> Vec<String> {
 //
 // -out: Vec<String> = 유의어 목록
 //------------------------------------------------------------------
-fn synonyms_of(title: &str, syn: &Syn, for_filename: bool) -> Vec<String> {
+pub fn synonyms_of(title: &str, syn: &Syn, for_filename: bool) -> Vec<String> {
     if syn.is_empty() { return vec![]; }
     let tight: String = title.chars().filter(|c| *c != ' ').collect();
     let tight = tight.trim().to_string();
@@ -451,6 +527,9 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
     // 끝말은 core 가 기준 목록을 정하고, 업종·local 은 더하기만 한다.
     let mut core_suffixes: Vec<String> = vec![];
     let mut extra_suffixes: Vec<String> = vec![];
+    // 핵어 판정용 목록도 끝말과 같은 규약 — core 가 기준, 업종·local 은 더하기만.
+    let mut core_heads: Vec<Vec<String>> = vec![vec![]; SYN_HEAD_LISTS.len()];
+    let mut extra_heads: Vec<Vec<String>> = vec![vec![]; SYN_HEAD_LISTS.len()];
     for name in names {
         // synonyms/ 하위를 먼저 보고, 없으면 규칙 파일 옆도 본다(옛 배치 호환).
         let mut p: PathBuf = base_dir.join(SYN_DIR).join(&name);
@@ -463,6 +542,11 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
         syn.layers.push(p.to_string_lossy().into_owned());
         let sufs = clean_suffixes(doc.get(SYN_SUFFIXES));
         if name == SYN_CORE { core_suffixes = sufs; } else { extra_suffixes.extend(sufs); }
+        for (i, sec) in SYN_HEAD_LISTS.iter().enumerate() {
+            // 한 글자 말도 받는다(끝말과 달리 '뜻이 한 글자'인 잡음 꼬리가 있을 수 있다).
+            let words = clean_words(doc.get(*sec));
+            if name == SYN_CORE { core_heads[i] = words; } else { extra_heads[i].extend(words); }
+        }
         // 칸별 추가 단어 — 칸마다 따로 합치고, 센 겹(나중 파일)의 말이 앞에 온다.
         for (key, cells) in clean_extra_terms(doc.get(SYN_EXTRA)) {
             let slot = match syn.extra_terms.iter().position(|(k, _)| *k == key) {
@@ -525,6 +609,18 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
     // 긴 끝말이 먼저 — sort_by_key 는 안정 정렬이라 파이썬 sorted 와 같은 차례가 된다.
     uniq.sort_by_key(|w| std::cmp::Reverse(clen(w)));
     syn.suffixes = uniq;
+
+    // 핵어 판정용 목록 — 같은 규약(core 가 기준, 나머지는 더하기, 긴 말 먼저).
+    // 긴 말이 먼저 걸려야 '최종본' 이 '최종' 보다 먼저 걷힌다.
+    syn.head_lists = (0..SYN_HEAD_LISTS.len()).map(|i| {
+        let base: Vec<String> = if core_heads[i].is_empty() { vec![] } else { core_heads[i].clone() };
+        let mut out: Vec<String> = vec![];
+        for w in base.into_iter().chain(extra_heads[i].clone()) {
+            if !out.contains(&w) { out.push(w); }
+        }
+        out.sort_by_key(|w| std::cmp::Reverse(clen(w)));
+        out
+    }).collect();
     syn
 }
 

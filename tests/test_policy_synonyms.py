@@ -156,6 +156,35 @@ def test_core_끝말과_내장_목록이_같다():
 
 
 #------------------------------------------------------------------
+# core 사전의 핵어 판정용 목록과 코드 내장 목록이 같다 (2026-09-21, D1)
+#=> 넓은 말·묶음 끝말·흔한 끝말·잡음 꼬리도 끝말과 같은 규약이다 — 원본은 core
+#   사전이고 코드의 목록은 사전이 없을 때 쓰는 기본값이다. 둘이 어긋나면
+#   "사전이 있는 배포"와 "없는 배포"가 서로 다른 제목을 핵어로 쓴다.
+#
+# -in: 없음
+#
+# -out: 없음
+# -out: error = 어긋나면 AssertionError, 사전이 없으면 skip
+#------------------------------------------------------------------
+def test_core_핵어목록과_내장_목록이_같다():
+    import pytest
+    import yaml
+    core = os.path.join(UI, "policy", DRE.SYN_DIR, DRE.SYN_CORE)
+    if not os.path.isfile(core):
+        pytest.skip("배포 core 사전이 없어 건너뜀")
+    with open(core, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    for sec, builtin in DRE.SYN_HEAD_LISTS.items():
+        raw = data.get(sec)
+        assert isinstance(raw, list), f"core 사전에 {sec} 목록이 없다"
+        # 버려지는 항목이 있으면 사전에 적힌 것과 실제로 쓰이는 것이 다르다.
+        assert DRE._clean_endings(raw) == [str(x).strip() for x in raw]
+        assert set(raw) == set(builtin), (
+            "%s — core 에만: %s / 코드에만: %s"
+            % (sec, sorted(set(raw) - set(builtin)), sorted(set(builtin) - set(raw))))
+
+
+#------------------------------------------------------------------
 # 배포되는 업종 사전을 전부 확인한다
 #=> 업종 사전은 앞으로 하나씩 늘어난다(금융·법률·교육 …). 새로 만든 사전이
 #   공통 사전 위에 얹혔을 때 순서가 무너지거나 겹친 말을 만들어 내면, 그
