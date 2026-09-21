@@ -207,30 +207,29 @@ def headable_nodes(taxonomy):
 
 
 #------------------------------------------------------------------
-# 분류체계 → 분류별 핵어 사전 만들기 (ⓐ+ⓑ+ⓒ)
-#=> 잎 제목을 ⓐ 로 거르고, 통과한 제목과 core 사전의 유의어를 그 분류의 핵어로
-#   삼는다. 파일명 전용 말(filename_only — 규정·지침 계열)은 넣지 않는다.
-#   그 말들이야말로 파일명에 흔해서, 끝자리에 와도 한 분류로 보낼 수 없다.
-#    1) 대상 잎을 고른다(headable_nodes)
-#    2) ⓑ 말 단위 제외 목록에 있는 제목은 건너뛴다
-#    3) ⓒ 노드 끄기는 '끌 당시 제목'이 지금 제목과 같을 때만 듣는다.
+# 분류마다 '핵어로 쓰나'를 가리기 (ⓐ+ⓑ+ⓒ)
+#=> 판정 엔진과 설정 화면이 같은 답을 보게 하는 한 곳이다. 엔진은 '쓴다'가 된
+#   것만 사전에 담고, 화면은 이 표를 그대로 보여 준다 — 둘이 갈리면 관리자가
+#   화면에서 본 것과 실제 판정이 달라진다.
+#    1) ⓑ 말 단위 제외 목록에 있는 제목이면 끝("word_off")
+#    2) ⓒ 노드 끄기는 '끌 당시 제목'이 지금 제목과 같을 때만 듣는다("node_off").
 #       달라졌으면 끄기를 무시하고 "재검토" 경고를 남긴다
-#    4) ⓐ 자동 판정을 통과한 제목만 사전에 담는다
+#    3) 남은 것은 ⓐ 자동 판정에 건다(ok / container / not_doctype / …)
+#   사람이 끈 것을 자동 판정보다 앞에 두는 이유 — 관리자의 결정이 이겨야 한다.
 #
-# -in: taxonomy = axes.Taxonomy
+# -in: nodes    = [{"dc_id","title","path"}] (대상 잎 목록)
 # -in: syn      = docvocab.load_synonyms() 결과
 # -in: excludes = ⓑ 말 단위 제외 목록(doc_rule.yaml 의 taxonomy_title_exclude)
 # -in: node_off = ⓒ 노드 끄기 목록 [{"node":dc_id,"title_at_decision":제목}]
 #
-# -out: (lexicon, warnings) = {dc_id: {"title":제목, "heads":[말…]}}, 경고 문자열 목록
+# -out: (rows, warnings) = rows 는 분류마다 {dc_id,title,tight,path,use,reason,by},
+#        warnings 는 ⓒ 가 무효가 된 경우의 안내 문자열
 # -out: error = 없음
 #------------------------------------------------------------------
-def build_head_lexicon(taxonomy, syn, excludes=(), node_off=()):
-    nodes = headable_nodes(taxonomy)
-    if not nodes:
-        return {}, []
+def head_status(nodes, syn, excludes=(), node_off=()):
     endings = doctype_endings(syn)
-    tights = {n.dc_id: str(n.title or "").replace(" ", "").strip() for n in nodes}
+    tights = {str(n.get("dc_id")): str(n.get("title") or "").replace(" ", "").strip()
+              for n in nodes}
     skip_words = {str(w).replace(" ", "").strip() for w in (excludes or ()) if str(w).strip()}
 
     warnings = []
@@ -252,19 +251,57 @@ def build_head_lexicon(taxonomy, syn, excludes=(), node_off=()):
             continue
         off.add(dc_id)
 
-    lexicon = {}
+    rows = []
     for n in nodes:
-        dc_id = n.dc_id
-        tight = tights[dc_id]
-        if not tight or tight in skip_words or dc_id in off:
+        dc_id = str(n.get("dc_id"))
+        tight = tights.get(dc_id) or ""
+        row = {"dc_id": dc_id, "title": n.get("title") or "", "tight": tight,
+               "path": n.get("path") or dc_id, "use": False, "reason": "empty", "by": "auto"}
+        rows.append(row)
+        if not tight:
+            continue
+        # 사람이 끈 것이 자동 판정보다 앞선다 — 관리자의 결정이 이겨야 한다.
+        if tight in skip_words:
+            row.update(reason="word_off", by="word")
+            continue
+        if dc_id in off:
+            row.update(reason="node_off", by="node")
             continue
         others = [t for k, t in tights.items() if k != dc_id]
-        use, _why = judge_title(n.title, others, endings, syn)
-        if not use:
+        use, why = judge_title(n.get("title"), others, endings, syn)
+        row.update(use=use, reason=why)
+    return rows, warnings
+
+
+#------------------------------------------------------------------
+# 분류체계 → 분류별 핵어 사전 만들기 (ⓐ+ⓑ+ⓒ)
+#=> 판정 결과(head_status)에서 '쓴다'가 된 분류만 골라, 제목과 core 사전의
+#   유의어를 그 분류의 핵어로 담는다. 파일명 전용 말(filename_only — 규정·지침
+#   계열)은 넣지 않는다. 그 말들이야말로 파일명에 흔해서, 끝자리에 와도 한
+#   분류로 보낼 수 없다.
+#
+# -in: taxonomy = axes.Taxonomy
+# -in: syn      = docvocab.load_synonyms() 결과
+# -in: excludes = ⓑ 말 단위 제외 목록(doc_rule.yaml 의 taxonomy_title_exclude)
+# -in: node_off = ⓒ 노드 끄기 목록 [{"node":dc_id,"title_at_decision":제목}]
+#
+# -out: (lexicon, warnings) = {dc_id: {"title":제목, "heads":[말…]}}, 경고 문자열 목록
+# -out: error = 없음
+#------------------------------------------------------------------
+def build_head_lexicon(taxonomy, syn, excludes=(), node_off=()):
+    nodes = [{"dc_id": n.dc_id, "title": n.title} for n in headable_nodes(taxonomy)]
+    if not nodes:
+        return {}, []
+    skip_words = {str(w).replace(" ", "").strip() for w in (excludes or ()) if str(w).strip()}
+    rows, warnings = head_status(nodes, syn, excludes, node_off)
+    lexicon = {}
+    for row in rows:
+        if not row["use"]:
             continue
+        tight = row["tight"]
         heads = [tight] + [w for w in docvocab.synonyms_of(tight, syn, for_filename=False)
                            if w not in skip_words]
-        lexicon[dc_id] = {"title": tight, "heads": heads}
+        lexicon[row["dc_id"]] = {"title": tight, "heads": heads}
     return lexicon, warnings
 
 

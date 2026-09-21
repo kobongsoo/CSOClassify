@@ -238,3 +238,86 @@ from csoclassify.classify.docvocab import (      # noqa: E402,F401
     split_synonyms, synonyms_of, sync_from_taxonomy, sync_nodes, syncable_nodes,
     title_variants,
 )
+
+
+#------------------------------------------------------------------
+# 핵어로 쓰는 분류 표 (설계서 7장 ⓐ·ⓑ·ⓒ)
+#=> "지금 어떤 분류 제목이 파일 이름 끝자리 판정에 쓰이는가"를 화면이 보여 줄 수
+#   있게, 판정 엔진과 <b>같은 함수</b>로 분류마다 한 줄을 만든다. 화면이 따로
+#   계산하면 표와 실제 판정이 갈린다.
+#
+# -in: doc = load_doc() 결과(제외 목록·노드 끄기를 여기서 읽는다)
+# -in: tax = taxonomy.load_taxonomy() 결과
+# -in: syn = load_synonyms() 결과
+#
+# -out: (rows, warnings) = rows 는 [{dc_id,path,title,use,reason,by}],
+#        warnings 는 ⓒ 끄기가 무효가 된 경우의 안내
+# -out: error = 없음(분류 체계가 없으면 빈 목록)
+#------------------------------------------------------------------
+def head_rows(doc, tax, syn=None):
+    from csoclassify.classify import taxhead
+    nodes = syncable_nodes(tax)
+    if not nodes:
+        return [], []
+    return taxhead.head_status(nodes, syn,
+                               (doc or {}).get("taxonomy_title_exclude") or (),
+                               (doc or {}).get("taxonomy_node_off") or ())
+
+
+#------------------------------------------------------------------
+# 체크된 제목을 '핵어로 쓰지 않을 말'로 저장 (ⓑ)
+#=> 노드 id 가 아니라 <b>말</b>로 적는다. 문제는 말에 있지 노드에 있지 않아서,
+#   나중에 고객이 그 분류 이름을 바꾸면 목록에 없는 말이라 저절로 다시 쓰인다.
+#   [지우지 않는 것] 지금 분류 체계에 없는 말은 그대로 둔다 — 분류가 잠시
+#   빠졌다가 돌아올 수 있고, 관리자가 미리 적어 둔 말일 수도 있다.
+#
+# -in: doc    = load_doc() 결과(이 dict 를 제자리에서 고친다)
+# -in: off    = 끄기로 체크된 제목들(띄어쓰기는 무시한다)
+# -in: titles = 지금 분류 체계에 있는 제목 전부(체크가 풀린 말을 지울 판단 근거)
+#
+# -out: list = 저장된 제외 목록
+# -out: error = 없음
+#------------------------------------------------------------------
+def apply_head_off(doc, off, titles):
+    tight = lambda s: str(s or "").replace(" ", "").strip()          # noqa: E731
+    want = [tight(w) for w in (off or []) if tight(w)]
+    now = {tight(t) for t in (titles or []) if tight(t)}
+    out = []
+    # ① 지금 분류 체계에 없는 말은 건드리지 않는다(사람이 적어 둔 것일 수 있다).
+    for w in (doc.get("taxonomy_title_exclude") or []):
+        if tight(w) not in now and tight(w) not in want and tight(w) not in out:
+            out.append(tight(w))
+    # ② 체크된 제목을 더한다.
+    for w in want:
+        if w not in out:
+            out.append(w)
+    if out:
+        doc["taxonomy_title_exclude"] = out
+    else:
+        doc.pop("taxonomy_title_exclude", None)
+    return out
+
+
+#------------------------------------------------------------------
+# 이 분류에서만 끄기·되살리기 (ⓒ)
+#=> 말은 괜찮은데 그 분류에서만 끄고 싶을 때 쓴다(드물다). 끌 당시 제목을 함께
+#   적어 둔다 — 제목이 달라지면 이 끄기는 저절로 무효가 되고 화면이 재검토를
+#   알린다. 그래야 조용히 꺼진 채로 남지 않는다.
+#
+# -in: doc   = load_doc() 결과(제자리에서 고친다)
+# -in: dc_id = 분류 id
+# -in: title = 지금 제목(끄기일 때만 쓴다). None 이면 되살리기
+#
+# -out: list = 저장된 노드 끄기 목록
+# -out: error = 없음
+#------------------------------------------------------------------
+def set_node_off(doc, dc_id, title=None):
+    items = [x for x in (doc.get("taxonomy_node_off") or [])
+             if isinstance(x, dict) and x.get("node") != dc_id]
+    if title is not None:
+        items.append({"node": dc_id, "title_at_decision": str(title)})
+    if items:
+        doc["taxonomy_node_off"] = items
+    else:
+        doc.pop("taxonomy_node_off", None)
+    return items

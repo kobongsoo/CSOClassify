@@ -63,6 +63,21 @@ DOCTYPE_STAGE_LABEL = {
 # 검토 상태 표기.
 STATUS_LABEL = {"proposed": "자동 제안", "confirmed": "확정됨", "rejected": "아니라고 표시함"}
 
+# 분류 제목을 '핵어'로 쓰는지, 안 쓴다면 왜인지(taxhead.head_status 의 reason 과 1:1).
+#=> 관리자가 읽는 말로 바꾼다. 이유를 안 보여 주면 "왜 이 분류는 안 잡히지"를
+#   물어볼 곳이 없어진다(설계서 7장 ⓐ).
+HEAD_REASON = {
+    "ok": "쓰는 중",
+    "word_off": "끔 — 이 말을 안 씀",
+    "node_off": "끔 — 이 분류에서만",
+    "broad_exact": "너무 넓은 말",
+    "container": "묶음 제목(○○자료·○○서류)",
+    "not_doctype": "문서종류가 아님(주제·고유명)",
+    "common_head": "끝말이 너무 흔함(규정·지침…)",
+    "ambiguous": "다른 분류 제목과 겹침",
+    "empty": "제목이 없음",
+}
+
 # 기준 문서에서 '축 하나'의 상태 표기(seedstore 의 state 값과 1:1).
 #   active  = 지금 잣대로 쓰인다   retired = 관리자가 뺐다
 #   suspect = 시스템이 이상을 발견해 잠시 빼 두었다(사람이 확인해야 한다)
