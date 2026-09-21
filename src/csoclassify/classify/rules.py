@@ -564,6 +564,11 @@ def max_grade(grades, where=None):
 class Defaults:
     bulk_threshold: int = 5
     case_insensitive: bool = True
+    # 검토함 편입선(2026-09-21). 이 값보다 확신이 낮은 판정은 사람이 한 번 본다.
+    # 등급(C/S/O)은 이 값과 무관하다 — '사람이 볼까 말까'만 가른다.
+    # 예전에는 화면 코드에 박혀 있어(ui/app.py 의 LOW_CONF) 고치려면 배포가
+    # 필요했다. 고객마다 검토량이 다를 수 있어 정책 파일로 옮겼다.
+    review_threshold: float = 0.6
 
 
 #------------------------------------------------------------------
@@ -1825,6 +1830,20 @@ def validate_rules_data(data):
         if data.get(gone):
             violations.append(_violation("V12", gone, "-", None, "(블록)", why))
 
+    # 검토함 편입선 — 0 초과 1 이하의 수여야 한다. 틀린 값이 들어가면 검토 큐가
+    # 통째로 비거나(0) 전부 들어가(1 초과) 화면이 못 쓰게 된다. 조용히 기본값으로
+    # 되돌리지 않고 알린다 — 고쳤는데 왜 안 바뀌지가 되면 안 된다.
+    rt = (data.get("defaults") or {}).get("review_threshold")
+    if rt is not None:
+        try:
+            v = float(rt)
+        except (TypeError, ValueError):
+            v = None
+        if v is None or not (0.0 < v <= 1.0):
+            violations.append(_violation("V13", "defaults", "review_threshold", "-", rt,
+                                         "0 보다 크고 1 이하인 수여야 합니다"
+                                         "(검토함 편입선 — 이보다 확신이 낮으면 사람이 봅니다)"))
+
     for section, single_fields, bulk_pair in _GRADE_SECTIONS:
         items = data.get(section) or []
         # 섹션이 리스트가 아니면(예: 들여쓰기 실수로 dict 가 됨) 순회 자체가 무의미하다.
@@ -1959,6 +1978,9 @@ def load_rules(path=None, validate=True):
     defaults = Defaults(
         bulk_threshold=int(d.get("bulk_threshold", 5)),
         case_insensitive=bool(d.get("case_insensitive", True)),
+        # 값이 없으면 종전과 같은 0.6 — 옛 규칙셋이 깔린 곳에서 검토량이
+        # 조용히 달라지지 않게 한다.
+        review_threshold=float(d.get("review_threshold", 0.6)),
     )
 
     # 신뢰도 표: 기본값 위에 yaml 의 confidence 블록을 덮어쓴다(없으면 기본값 그대로).

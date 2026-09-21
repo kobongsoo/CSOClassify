@@ -118,9 +118,31 @@ GRADE_LABEL = W.GRADE_LABEL
 GRADE_ORDER = W.GRADE_ORDER
 GRADE_CHOICES = W.GRADE_CHOICES
 
-# 저확신 기준(검토함 편입선). 예전엔 사이드바 슬라이더였으나, 실무자가 매번 정할
-# 값이 아니라서 화면에서 내리고 상수로 고정했다(설계서 원칙 5).
+# 저확신 기준(검토함 편입선) — 이 값보다 확신이 낮은 판정은 사람이 한 번 본다.
+# [2026-09-21] 코드 상수에서 정책 파일로 옮겼다(cso_rule.yaml 의 defaults.review_threshold).
+#   목록·문턱을 코드에 두면 고치는 데 배포가 필요하고, 고객마다 검토량이 다르다.
+#   아래 값은 그 칸이 없는 옛 규칙셋에서 쓰는 기본값이다 — 종전과 같은 0.6 이라
+#   업그레이드만으로 검토량이 달라지지 않는다.
 LOW_CONF = 0.6
+
+
+#------------------------------------------------------------------
+# 검토함 편입선 읽기
+#=> cso_rule.yaml 의 defaults.review_threshold 를 읽는다. 파일이 없거나 값이
+#   이상하면 기본값(LOW_CONF)으로 돌아간다 — 현황 화면이 규칙셋 문제로 통째로
+#   멈추면 안 된다(그 문제는 규칙 편집 화면이 따로 알려 준다).
+#
+# -in: path = cso_rule.yaml 경로
+#
+# -out: float = 0 초과 1 이하의 문턱값
+# -out: error = 없음(읽기·파싱 실패는 기본값으로 삼킨다)
+#------------------------------------------------------------------
+def load_review_threshold(path):
+    try:
+        v = float((rulesedit.load_doc(path).get("defaults") or {}).get("review_threshold"))
+    except Exception:
+        return LOW_CONF
+    return v if 0.0 < v <= 1.0 else LOW_CONF
 
 # '비슷한 문서 참고'가 등급을 옮길지 정하는 문턱값. 엔진의 판정 기준을 화면이
 # 그대로 되뇌는 값이라, 엔진이 바뀌면 여기도 같이 고쳐야 한다
@@ -481,7 +503,8 @@ def grade_changed(rec, latest):
 #                   + doctype(표시 문자열)/dt_n/dt_reviewed/need_sec/need_doc/todo
 # -out: error = 없음
 #------------------------------------------------------------------
-def records_to_df(records, latest, latest_dt=None, tax=None, seed_files=None):
+def records_to_df(records, latest, latest_dt=None, tax=None, seed_files=None,
+                  low_conf=LOW_CONF):
     latest_dt = latest_dt or {}
     seed_files = seed_files or set()
     rows = []
@@ -506,16 +529,24 @@ def records_to_df(records, latest, latest_dt=None, tax=None, seed_files=None):
         need_doc = dt_axis_on and (not cands or only_weak) and (not reviewed)
         # 보안등급은 판단 못 했거나 확신이 낮으면 사람이 본다. 이미 사람이 고친
         # 문서는 다시 부르지 않는다 — 검토를 끝낸 문서가 큐에 계속 남으면 안 된다.
-        need_sec = (not decided) and (final == "보류" or conf < LOW_CONF)
+        need_sec = (not decided) and (final == "보류" or conf < low_conf)
         # 기준 문서로 올린 문서는 검토 대상에서 뺀다 — 관리자가 "이 문서를 잣대로
         # 삼겠다"고 직접 정한 문서를 다시 "확인이 필요합니다"라고 불러 세우면
         # 큐가 영영 줄지 않는다. (등급이 아직 '보류'인 채 업무분류만 등록한 문서도
         # 마찬가지로 뺀다. 그 사실은 문서함의 상태 열에 그대로 남는다.)
         is_seed = seedstore.norm_file(r.get("file", "")) in seed_files
+        # 빼기 '전'의 값을 따로 남긴다. 현황 화면이 "차트에는 10건인데 확인 필요는
+        # 11건"처럼 어긋나 보일 때, 그 차이가 어디서 왔는지(기준 문서 제외·약한
+        # 라벨) 말해 주려면 두 값이 다 있어야 한다.
+        raw_need_sec, raw_need_doc = need_sec, need_doc
         if is_seed:
             need_sec = need_doc = False
         rows.append({
             "is_seed": is_seed,
+            "raw_need_sec": raw_need_sec,
+            "raw_need_doc": raw_need_doc,
+            # 파일 이름 끝자리 핵어로만 붙은 약한 라벨뿐인 문서(13장 D1).
+            "dt_weak_only": only_weak,
             "file": r.get("file", ""),
             "folder": os.path.dirname(r.get("file", "")),
             "name": os.path.basename(r.get("file", "")),
@@ -831,7 +862,7 @@ def render_override_panel(rec, latest, history, ov_path, reviewer, scope="list")
 # -out: 없음(Streamlit 출력)
 # -out: error = 없음
 #------------------------------------------------------------------
-def render_home(df, doctype_on, run_meta=None):
+def render_home(df, doctype_on, run_meta=None, low_conf=LOW_CONF):
     total = len(df)
     counts = Counter(df["final"])
     # 세 칸이 서로 겹치지 않게 나눈다 — 같은 문서가 두 칸에 동시에 잡히면 합계가
@@ -862,8 +893,11 @@ def render_home(df, doctype_on, run_meta=None):
     # 위 세 칸을 더한 값이 곧 '검토함에서 처리할 문서 수'라는 것을 한 줄로 알려 준다.
     todo_all = both_n + sec_only + doc_only
     if todo_all:
+        seed_drop = int((df["is_seed"] & (df["raw_need_sec"] | df["raw_need_doc"])).sum())
         st.caption(f"→ 관리자 확인이 필요한 문서는 모두 **{todo_all}건**입니다 "
-                   f"({both_n} + {sec_only} + {doc_only}). **검토함**에서 처리하세요.")
+                   f"({both_n} + {sec_only} + {doc_only}). **검토함**에서 처리하세요."
+                   + (f" 기준 문서로 등록한 {seed_drop}건은 세지 않았습니다 — "
+                      "관리자가 이미 잣대로 정한 문서입니다." if seed_drop else ""))
     else:
         st.caption("→ 관리자 확인이 필요한 문서가 없습니다 👍")
 
@@ -882,8 +916,14 @@ def render_home(df, doctype_on, run_meta=None):
         _pad_l, _mid, _pad_r = st.columns([1, 12, 1])
         with _mid:
             st.bar_chart(dist, horizontal=True, height=190)
+        hold_n = int((df["raw_need_sec"] & (df["final"] == "보류")).sum())
+        low_n = int((df["raw_need_sec"] & (df["final"] != "보류")).sum())
+        # 기준 문서로 올린 문서는 큐에서 뺀다. 빼고 나면 '판단 못 함 + 확신 낮음'과
+        # 숫자가 안 맞는데, 그 이유를 안 적으면 화면이 틀린 것처럼 보인다.
+        drop_n = int((df["is_seed"] & df["raw_need_sec"]).sum())
         st.info(f"확인이 필요한 문서 **{both_n + sec_only}건** — 판단 못 함 "
-                f"{counts.get('보류', 0)}건 + 확신 {int(LOW_CONF * 100)}% 미만")
+                f"{hold_n}건 + 확신 {int(low_conf * 100)}% 미만 {low_n}건"
+                + (f" · 기준 문서 {drop_n}건은 뺐습니다" if drop_n else ""))
 
     #--------------------------------------------------------------
     # 업무분류 카드 그리기. 분류마다 색을 나누지 않고 전부 같은 막대로 둔다 —
@@ -909,12 +949,23 @@ def render_home(df, doctype_on, run_meta=None):
             with _mid:
                 st.bar_chart(rdf.sort_values("건수", ascending=False),
                              horizontal=True, height=190)
-            # 위 지표(업무분류 확인 필요)는 '해당 없음'으로 정리한 문서를 뺀 수라,
-            # 차트 밖 문서 수(none_n)와 다를 수 있다. 두 숫자가 어긋나 보이지
-            # 않도록 그 차이를 여기서 밝힌다.
-            done_n = none_n - (both_n + doc_only)
+            # 위 지표(업무분류 확인 필요)와 이 차트의 '분류 없음'은 세는 기준이
+            # 다르다. 세 가지가 갈린다 — ① 사람이 '해당 없음'으로 정리한 문서는
+            # 지표에서 빠지고 ② 기준 문서도 빠지며 ③ 파일 이름만 보고 붙인 약한
+            # 라벨은 '분류가 있는' 문서인데도 확인 대상이다. 그래서 두 숫자가
+            # 다를 수 있고, 다른 이유를 여기서 밝힌다.
+            done_n = int((df["dt_n"] == 0).sum() - (df["raw_need_doc"] & (df["dt_n"] == 0)).sum())
+            weak_n = int(df["dt_weak_only"].sum())
+            drop_n = int((df["is_seed"] & df["raw_need_doc"]).sum())
+            bits = []
+            if done_n:
+                bits.append(f"그중 {done_n}건은 ‘해당 없음’으로 정리됨")
+            if weak_n:
+                bits.append(f"파일 이름만 보고 제안해 확인이 필요한 문서 {weak_n}건 별도")
+            if drop_n:
+                bits.append(f"기준 문서 {drop_n}건은 확인 대상에서 뺌")
             st.caption(f"아직 분류 없음 {none_n}건"
-                       + (f"(그중 {done_n}건은 ‘해당 없음’으로 정리됨)" if done_n > 0 else "")
+                       + (" (" + " · ".join(bits) + ")" if bits else "")
                        + " · 합계가 전체 문서 수보다 큰 것은 "
                        "**정상**입니다 — 한 문서가 여러 분류에 해당할 수 있습니다.")
         else:
@@ -2584,8 +2635,17 @@ def render_rules_editor():
         return
 
     st.caption(f"기준 파일 `{os.path.abspath(path)}` · 버전 `{doc.get('version')}`")
-    bulk = st.number_input("bulk 임계값 (PII 가 이 건수 이상이면 등급 상향)",
+    n1, n2 = st.columns(2)
+    bulk = n1.number_input("bulk 임계값 (PII 가 이 건수 이상이면 등급 상향)",
                            min_value=1, value=int(doc.get("defaults", {}).get("bulk_threshold", 5)))
+    # 검토함 편입선 — 등급을 바꾸지 않고 '사람이 볼지'만 가른다. 값을 올리면
+    # 검토할 문서가 늘고, 내리면 준다. 예전에는 코드에 박혀 있어 배포해야 고쳤다.
+    review = n2.number_input(
+        "검토함 편입선 (확신이 이 값보다 낮으면 사람이 확인)",
+        min_value=0.05, max_value=1.0, step=0.05,
+        value=float(doc.get("defaults", {}).get("review_threshold", LOW_CONF)),
+        help="등급(C/S/O)은 이 값과 무관합니다 — '사람이 한 번 볼까'만 정합니다. "
+             "올리면 검토할 문서가 늘고, 내리면 줄어듭니다.")
 
     st.markdown("**이 말이 나오면 → 이 등급으로** (단어는 콤마로 구분)")
     st.caption("**본문 단어**는 문서 안을 보고, **파일명 단어**는 파일 이름만 봅니다. 파일명 칸을 비워 두면 그 규칙은 파일 이름을 보지 않습니다 — 본문 단어를 빌려 쓰지 않습니다. (예: 제품명은 본문에서만 보게 두면, 제품 매뉴얼이 이름 때문에 기밀이 되는 일이 없습니다.)")
@@ -2682,7 +2742,7 @@ def render_rules_editor():
     sample = st.text_area("샘플 텍스트", value=_pii18_sample, height=320)
     if st.button("미리보기 실행"):
         preview_doc = rulesedit.load_doc(path)      # 원본 사본에 편집 반영(디스크 미변경)
-        rulesedit.apply_all(preview_doc, bulk, krows, rrows)
+        rulesedit.apply_all(preview_doc, bulk, krows, rrows, review)
         perrs, pwarn = rulesedit.validate_regex_rules(preview_doc)
         if perrs:
             st.error("PII 라벨 오류 — 고친 뒤 다시: " + "; ".join(f"{i}: {m}" for i, m in perrs))
@@ -2703,7 +2763,7 @@ def render_rules_editor():
 
     st.divider()
     if st.button("💾 보안등급 기준 저장", type="primary", key="rules_save"):
-        rulesedit.apply_all(doc, bulk, krows, rrows)
+        rulesedit.apply_all(doc, bulk, krows, rrows, review)
         errs, warns = rulesedit.validate_regex_rules(doc)
         if errs:
             st.error("저장 취소 — PII 라벨 오류: " + "; ".join(f"{i}: {m}" for i, m in errs))
@@ -4031,7 +4091,10 @@ def main():
     latest_dt, history_dt = doctype_review.load_doctype_overrides(paths["override"])
     # 기준 문서 목록은 화면마다 다시 읽지 않고 여기서 한 번만 읽어 표에 실어 둔다.
     seed_files = seedstore.load_seed_files(paths.get("seed"))
-    df = records_to_df(records, latest, latest_dt, tax, seed_files)
+    # 검토함 편입선은 정책 파일이 정한다(cso_rule.yaml). 화면마다 다시 읽지 않고
+    # 여기서 한 번 읽어 넘긴다 — 두 화면이 다른 문턱을 쓰면 숫자가 어긋난다.
+    low_conf = load_review_threshold(paths.get("rules") or "")
+    df = records_to_df(records, latest, latest_dt, tax, seed_files, low_conf)
     run_meta = load_run_meta(grades_path)
 
     # ── 메뉴 ── 검토함에는 남은 건수를 붙여, 열지 않고도 할 일이 있는지 보이게 한다.
@@ -4055,7 +4118,7 @@ def main():
             goto(menu=MENU_SET)
 
     if menu == MENU_HOME:
-        render_home(df, doctype_on, run_meta)
+        render_home(df, doctype_on, run_meta, low_conf)
     elif menu == MENU_BOX:
         render_docbox(df, records, latest, history, latest_dt, history_dt,
                       paths["override"], reviewer or "", tax)

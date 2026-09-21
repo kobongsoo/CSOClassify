@@ -263,9 +263,12 @@ def validate_regex_rules(doc):
 # -out: 없음(doc 변형)
 # -out: error = 없음
 #------------------------------------------------------------------
-def apply_all(doc, bulk, keyword_rows, regex_rows=None):
+def apply_all(doc, bulk, keyword_rows, regex_rows=None, review=None):
     d = doc.setdefault("defaults", {})
     d["bulk_threshold"] = int(bulk)
+    # 검토함 편입선(2026-09-21). None 이면 화면이 안 건드린 것이라 그대로 둔다.
+    if review is not None:
+        d["review_threshold"] = round(float(review), 2)
     apply_keyword_edits(doc, keyword_rows)
     if regex_rows is not None:
         apply_regex_edits(doc, regex_rows)
