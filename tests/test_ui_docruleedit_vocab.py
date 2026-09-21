@@ -446,3 +446,89 @@ def test_알림_칸은_저장에_섞이지_않는다():
     assert "제목 확인" not in r
     # 구운 제목 기록은 살아남는다 — 다음에도 같은 안내를 할 수 있어야 한다.
     assert r[DRE.FILLED_FROM] == "매뉴얼"
+
+
+# ── 핵어로 쓰는 분류 표 (설계서 7장 ⓐ·ⓑ·ⓒ) ────────────────────────
+
+#------------------------------------------------------------------
+# 표는 판정 엔진과 같은 답을 보여 준다
+#=> 화면이 따로 계산하면 "표에는 쓰는 중인데 실제로는 안 잡힌다"가 생긴다.
+#   자동으로 걸러지는 이유도 줄마다 달라야 한다.
+#------------------------------------------------------------------
+def test_핵어_표는_이유까지_보여준다():
+    tax = {"by_id": {
+        "ROOT": {"dc_id": "ROOT", "parent": None, "title": "경영", "status": "1",
+                 "path": "경영"},
+        "A": {"dc_id": "A", "parent": "ROOT", "title": "회의록", "status": "1",
+              "path": "경영 > 회의록"},
+        "B": {"dc_id": "B", "parent": "ROOT", "title": "행사자료", "status": "1",
+              "path": "경영 > 행사자료"},
+        "C": {"dc_id": "C", "parent": "ROOT", "title": "복리후생", "status": "1",
+              "path": "경영 > 복리후생"},
+    }}
+    rows, warns = DRE.head_rows({}, tax, mk_syn())
+    by = {r["dc_id"]: (r["use"], r["reason"]) for r in rows}
+    assert by == {"A": (True, "ok"), "B": (False, "container"),
+                  "C": (False, "not_doctype")}
+    assert warns == []
+    # 서랍(자식이 있는 최상위)은 표에 나오지 않는다 — 규칙도 안 거는 자리다.
+    assert "ROOT" not in by
+
+
+#------------------------------------------------------------------
+# 체크한 제목은 '말'로 저장된다 (ⓑ)
+#=> 노드 id 로 적으면 제목이 바뀌어도 꺼진 채 남는다. 말로 적어야 제목이
+#   바뀌었을 때 저절로 다시 쓰인다.
+#------------------------------------------------------------------
+def test_끄기는_노드가_아니라_말로_저장된다():
+    tax = {"by_id": {
+        "ROOT": {"dc_id": "ROOT", "parent": None, "title": "경영", "status": "1",
+                 "path": "경영"},
+        "A": {"dc_id": "A", "parent": "ROOT", "title": "회의록", "status": "1",
+              "path": "경영 > 회의록"},
+    }}
+    doc = {}
+    DRE.apply_head_off(doc, ["회의록"], ["회의록"])
+    assert doc["taxonomy_title_exclude"] == ["회의록"]
+    # 저장한 다음 표를 다시 그리면 '끔'으로 보인다.
+    rows, _w = DRE.head_rows(doc, tax, mk_syn())
+    assert (rows[0]["use"], rows[0]["reason"], rows[0]["by"]) == (False, "word_off", "word")
+
+    # 체크를 풀면 목록에서 빠진다.
+    DRE.apply_head_off(doc, [], ["회의록"])
+    assert "taxonomy_title_exclude" not in doc
+
+    # 지금 분류 체계에 없는 말은 건드리지 않는다 — 사람이 적어 둔 것일 수 있다.
+    doc2 = {"taxonomy_title_exclude": ["옛분류자료"]}
+    DRE.apply_head_off(doc2, ["회의록"], ["회의록"])
+    assert doc2["taxonomy_title_exclude"] == ["옛분류자료", "회의록"]
+
+
+#------------------------------------------------------------------
+# 이 분류에서만 끄기는 제목이 바뀌면 무효가 된다 (ⓒ)
+#=> 조용히 꺼진 채 남지도, 조용히 다시 켜지지도 않는다.
+#------------------------------------------------------------------
+def test_노드_끄기는_제목이_바뀌면_무효가_된다():
+    def mk(title):
+        return {"by_id": {
+            "ROOT": {"dc_id": "ROOT", "parent": None, "title": "경영", "status": "1",
+                     "path": "경영"},
+            "A": {"dc_id": "A", "parent": "ROOT", "title": title, "status": "1",
+                  "path": f"경영 > {title}"},
+        }}
+    doc = {}
+    DRE.set_node_off(doc, "A", "회의록")
+    assert doc["taxonomy_node_off"] == [{"node": "A", "title_at_decision": "회의록"}]
+
+    rows, warns = DRE.head_rows(doc, mk("회의록"), mk_syn())
+    assert (rows[0]["use"], rows[0]["by"]) == (False, "node") and warns == []
+
+    # 제목이 바뀌면 끄기를 무시하고(=다시 쓰고) 재검토를 알린다.
+    # 새 제목도 ⓐ 자동 판정은 통과해야 한다('…보고서'는 문서종류 끝말이다).
+    rows2, warns2 = DRE.head_rows(doc, mk("협의결과보고서"), mk_syn())
+    assert rows2[0]["use"] is True
+    assert len(warns2) == 1 and "재검토" in warns2[0]
+
+    # 되살리기는 목록에서 뺀다.
+    DRE.set_node_off(doc, "A", None)
+    assert "taxonomy_node_off" not in doc

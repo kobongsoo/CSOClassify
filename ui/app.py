@@ -3028,7 +3028,101 @@ def render_doc_rules_editor(path, tax):
         st.caption(f"⚠ **{len(missing)}개 분류에는 기준이 없어** 자동으로 제안되지 않습니다 — "
                    + ", ".join(missing[:6]) + (" …" if len(missing) > 6 else ""))
 
+    render_head_titles(path, doc, tax, syn)
+
     render_term_suggest_bulk(path, tax)
+
+
+#------------------------------------------------------------------
+# 핵어로 쓰는 분류 — 보여 주고, 끄고 (설계서 7장 ⓐ·ⓑ·ⓒ)
+#=> 파일 이름 끝자리가 분류 제목과 같으면, 다른 단서가 없는 문서에 그 분류를
+#   '확인 필요'로 제안한다(13장 D1). 그 판정에 어떤 제목이 쓰이고 있는지는
+#   지금까지 화면 어디에도 없었다 — 관리자가 분류 체계를 바꿔도 무엇이 달라졌는지
+#   볼 곳이 없었다. 이 표가 그 자리다.
+#    1) 분류마다 '쓰는 중 / 왜 안 쓰는지'를 판정 엔진과 같은 함수로 계산해 보여 준다
+#    2) 자동 판정이 놓친 예외는 체크 한 번으로 끈다(ⓑ 말 단위 — 기본)
+#    3) "이 분류에서만" 끄기(ⓒ)는 드물어서 접어 둔다
+#
+# -in: path = doc_rule.yaml 경로
+# -in: doc  = load_doc() 결과
+# -in: tax  = 회사 분류 체계
+# -in: syn  = 유의어 사전
+#
+# -out: 없음(Streamlit 출력)
+# -out: error = 저장 실패는 화면에 표시
+#------------------------------------------------------------------
+def render_head_titles(path, doc, tax, syn):
+    rows, warns = docruleedit.head_rows(doc, tax, syn)
+    if not rows:
+        return
+    n_use = sum(1 for r in rows if r["use"])
+    with st.expander(f"파일 이름 끝자리로 찾기 — 쓰는 분류 {n_use}/{len(rows)}개"):
+        st.caption("파일 이름의 **끝자리**가 분류 제목과 같으면, 다른 단서가 없는 문서에 "
+                   "그 분류를 **‘확인 필요’로 제안**합니다(확정하지 않습니다). "
+                   "제목은 판정할 때마다 회사 분류 체계에서 다시 읽으므로, "
+                   "**제목이 바뀌면 저절로 따라갑니다.**")
+        for w in warns:
+            # ⓒ 끄기가 제목이 바뀌어 무효가 된 경우 — 조용히 넘어가면 안 된다.
+            st.warning(w.replace("[taxonomy_node_off] ", "이 분류에서만 끄기 — "))
+
+        table = pd.DataFrame([{
+            "분류": r["path"],
+            "제목": r["title"],
+            "핵어로": ("✅ " if r["use"] else "⛔ ") + W.HEAD_REASON.get(r["reason"], r["reason"]),
+            # 자동으로 걸러진 줄은 체크를 막는다 — 이미 안 쓰고 있어서 끌 것이 없다.
+            "쓰지 않기": r["by"] == "word",
+            "_dc": r["dc_id"], "_title": r["title"], "_lock": not (r["use"] or r["by"] == "word"),
+        } for r in rows])
+        edited = st.data_editor(
+            table, hide_index=True, width="stretch", num_rows="fixed",
+            key="headtitle_editor",
+            disabled=["분류", "제목", "핵어로"],
+            column_config={
+                "분류": st.column_config.TextColumn("분류", width="medium"),
+                "제목": st.column_config.TextColumn("제목", width="small"),
+                "핵어로": st.column_config.TextColumn("핵어로 쓰나", width="medium"),
+                "쓰지 않기": st.column_config.CheckboxColumn(
+                    "쓰지 않기", help="체크하면 이 '말'을 핵어로 쓰지 않습니다"),
+                "_dc": None, "_title": None, "_lock": None,
+            })
+        st.caption("⛔ 로 표시된 줄은 이미 자동으로 걸러진 것이라 체크할 것이 없습니다. "
+                   "체크는 **노드가 아니라 말**에 걸립니다 — 나중에 그 분류 이름이 바뀌면 "
+                   "목록에 없는 말이라 **저절로 다시 쓰입니다**.")
+
+        if st.button("저장", key="headtitle_save", type="primary"):
+            recs = edited.to_dict("records")
+            # 자동으로 걸러진 줄에 실수로 체크가 들어가도 무시한다(끌 것이 없다).
+            off = [r["_title"] for r in recs if r.get("쓰지 않기") and not r.get("_lock")]
+            docruleedit.apply_head_off(doc, off, [r["_title"] for r in recs])
+            try:
+                docruleedit.save_doc(path, doc)
+                st.success(f"저장됨 · 핵어로 쓰지 않을 말 {len(off)}개")
+                st.rerun()
+            except Exception as e:
+                uierrlog.show_error(f"저장 실패: {e}", exc=e, where="핵어 제외 저장")
+
+        # ⓒ 노드 단위 — 설계서도 "드문 경우만"이라 접어 둔다.
+        with st.expander("이 분류에서만 끄기 (드묾)"):
+            st.caption("말은 괜찮은데 **이 분류에서만** 끄고 싶을 때 씁니다. "
+                       "끌 당시 제목을 함께 적어 두므로, 나중에 제목이 바뀌면 "
+                       "이 끄기는 **무효가 되고 재검토로 알려 드립니다**.")
+            on_now = {r["dc_id"]: r for r in rows if r["use"] or r["by"] == "node"}
+            cur_off = [r["dc_id"] for r in rows if r["by"] == "node"]
+            picked = st.multiselect(
+                "이 분류에서만 끄기", list(on_now),
+                default=cur_off,
+                format_func=lambda d: f"{on_now[d]['path']} ({on_now[d]['title']})",
+                key="headtitle_nodeoff")
+            if st.button("이 설정으로 저장", key="headtitle_nodeoff_save"):
+                for dc_id, r in on_now.items():
+                    docruleedit.set_node_off(doc, dc_id,
+                                             r["title"] if dc_id in picked else None)
+                try:
+                    docruleedit.save_doc(path, doc)
+                    st.success(f"저장됨 · 이 분류에서만 끄기 {len(picked)}개")
+                    st.rerun()
+                except Exception as e:
+                    uierrlog.show_error(f"저장 실패: {e}", exc=e, where="노드 끄기 저장")
 
 
 #------------------------------------------------------------------
