@@ -845,6 +845,65 @@ def is_drawer(has_parent, has_children):
     return (not has_parent) and has_children
 
 
+# 규칙을 '어느 제목에서 구웠는지' 적어 두는 칸(2026-09-21, 설계서 7장 ③).
+#=> 분류 제목은 고객 시스템에서 바뀐다. 그때 구워 넣은 말은 지우지 않지만(사람이
+#   적었을 수도 있고 그렇게 불리는 문서가 아직 있을 수도 있다), 바뀐 사실은
+#   알려야 한다. 이 칸이 없으면 "이 말이 옛 제목에서 온 것인지"를 추측할 수밖에
+#   없다. 판정 엔진은 이 칸을 읽지 않는다 — 화면이 안내할 때만 쓴다.
+FILLED_FROM = "filled_from_title"
+
+
+#------------------------------------------------------------------
+# 규칙 한 줄이 '옛 제목'에서 온 것인가
+#=> 규칙 화면이 "제목이 바뀌었습니다"를 알릴 수 있게, 규칙과 지금 제목을 견준다.
+#   두 가지 길이 있고 위쪽이 확실하다.
+#    1) filled_from_title 이 적혀 있고 지금 제목과 다르면 — 확실하다("changed")
+#    2) 그 칸이 없는 옛 규칙이면 — 추측한다("guess"). 지금 제목에서 만들어질
+#       말 목록에 없으면서 '문서종류 명사 꼴'인 말만 고른다. 관리자가 직접 적은
+#       주제어(갑·을·제품명)까지 집으면 안내가 소음이 되기 때문이다
+#   어느 쪽도 "지워라"가 아니다 — 사람이 판단할 재료만 준다.
+#
+# -in: rule  = 규칙 dict(doctype_rules 의 한 항목)
+# -in: title = 지금 분류 제목
+# -in: syn   = load_synonyms() 결과
+#
+# -out: dict|None = {"kind":"changed","was":옛 제목} 또는
+#                   {"kind":"guess","words":[의심되는 말…]} · 알릴 것이 없으면 None
+# -out: error = 없음
+#------------------------------------------------------------------
+def stale_title_hint(rule, title, syn=None):
+    rule = rule or {}
+    tight = str(title or "").replace(" ", "").strip()
+    was = str(rule.get(FILLED_FROM) or "").replace(" ", "").strip()
+    if was:
+        # 적어 둔 값이 있으면 추측하지 않는다 — 같으면 알릴 것도 없다.
+        return None if was == tight else {"kind": "changed", "was": rule[FILLED_FROM]}
+    if not tight:
+        return None
+
+    # 지금 제목에서 '만들어질' 말 — 불러오기가 쓰는 바로 그 함수를 그대로 쓴다.
+    fresh = set()
+    for key, words in (rule_vocab(title, syn=syn) or {}).items():
+        if key != "exclude":
+            fresh.update(words)
+
+    endings = set((syn or {}).get(SYN_SUFFIXES) or DOC_SUFFIXES)
+    endings |= set((syn or {}).get("tails") or {})
+    suspect = []
+    # 제목에서 왔을 만한 칸만 본다. 본문 칸(terms)은 사람이 주제어를 넣는 자리라
+    # 여기서 보면 헛경고가 쏟아진다.
+    for key in ("title_terms", "filename"):
+        for w in (rule.get(key) or []):
+            w = str(w).strip()
+            wt = w.replace(" ", "")
+            if not wt or wt in fresh or w in suspect:
+                continue
+            # 문서종류 명사 꼴(끝말로 끝나는 말)만 의심한다.
+            if any(wt.endswith(e) and len(wt) >= len(e) for e in endings):
+                suspect.append(w)
+    return {"kind": "guess", "words": suspect} if suspect else None
+
+
 #------------------------------------------------------------------
 # 자동으로 가져올 분류 고르기
 #=> 분류 체계에 있는 것을 전부 규칙으로 만들지는 않는다. 두 가지를 뺀다.
@@ -943,6 +1002,9 @@ def sync_nodes(doc, nodes, fill_existing=True, enrich_existing=False, syn=None,
             rule = {"id": f"dt_{dc_id.lower()}", "node": dc_id}
             rule.update(NEW_RULE_FALLBACK if new_rule is None else new_rule)
             rule.update({
+                # 어느 제목에서 구운 말인지 적어 둔다(7장 ③) — 나중에 제목이
+                # 바뀌면 화면이 그 사실을 정확히 알릴 수 있다.
+                FILLED_FROM: title,
                 "title_terms": vocab["title_terms"],
                 "head_terms": vocab["head_terms"],
                 "terms": vocab["terms"],
@@ -959,6 +1021,7 @@ def sync_nodes(doc, nodes, fill_existing=True, enrich_existing=False, syn=None,
                     cur[key] = vocab[key]
                 if vocab["exclude"]:
                     cur["exclude"] = vocab["exclude"]
+                cur[FILLED_FROM] = title
                 filled += 1
         elif enrich_existing:
             # 이미 말이 들어 있는 규칙. 사람이 적은 것은 앞에 그대로 두고,
@@ -971,6 +1034,9 @@ def sync_nodes(doc, nodes, fill_existing=True, enrich_existing=False, syn=None,
                     cur[key] = have + more
                     grew = True
             if grew:
+                # 지금 제목에서 나온 말을 덧붙였으니 기준 제목도 지금 것으로 옮긴다.
+                # 안 옮기면 방금 맞춘 규칙이 계속 "제목이 바뀌었습니다"로 뜬다.
+                cur[FILLED_FROM] = title
                 enriched += 1
     return (added, filled, enriched)
 

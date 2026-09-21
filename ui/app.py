@@ -2865,7 +2865,7 @@ def render_doc_rules_editor(path, tax):
     # 새 규칙에 얹을 값(weight 등)도 본보기에서 가져온다 — 코드에 박아 두면
     # 회사마다 다른 값을 주려 할 때 프로그램을 고쳐야 한다.
     new_rule = docruleedit.load_template(path).get("new_rule")
-    rows = docruleedit.to_rows(doc, tax)
+    rows = docruleedit.to_rows(doc, tax, syn)
     edited = pd.DataFrame(rows)
     if rows:
         edited = st.data_editor(
@@ -2873,6 +2873,10 @@ def render_doc_rules_editor(path, tax):
             key="docrule_editor", num_rows="fixed",
             column_config={
                 "분류": st.column_config.TextColumn("이 분류로", disabled=True, width="medium"),
+                # 분류 제목이 바뀌었을 때만 글자가 찬다(7장 ③). 고칠 수 없는 칸이다 —
+                # 알림이지 값이 아니다.
+                "제목 확인": st.column_config.TextColumn("제목 확인", disabled=True,
+                                                      width="small"),
                 # 판정력이 센 칸부터 놓는다. 같은 말이라도 어느 칸에 넣느냐로
                 # 결과가 갈린다 — "규정"은 제목 칸이면 정확하고 앞부분 칸이면 오탐이다.
                 "제목에": st.column_config.TextColumn("제목(첫 줄)에 이 말이 있으면",
@@ -2994,6 +2998,30 @@ def render_doc_rules_editor(path, tax):
             st.rerun()
         except Exception as e:
             uierrlog.show_error(f"저장 실패: {e}", exc=e, where="분류체계 저장")
+
+    # 제목이 바뀐 규칙 안내(7장 ③) — 지우지 않고 사람이 판단하게 한다.
+    stale = []
+    by_id = (tax or {}).get("by_id") or {}
+    for r in doc.get("doctype_rules") or []:
+        h = docruleedit.stale_title_hint(r, (by_id.get(r.get("node")) or {}).get("title"), syn)
+        if h:
+            stale.append((taxlib.path_of(tax, r.get("node")), h))
+    if stale:
+        with st.container(border=True):
+            st.markdown(f"**분류 제목이 바뀐 것 같은 규칙 {len(stale)}개**")
+            for path_, h in stale[:8]:
+                if h["kind"] == "changed":
+                    st.caption(f"· **{path_}** — 이 줄은 분류 제목이 "
+                               f"**{h['was']}** 이던 때 만들어졌습니다")
+                else:
+                    말 = ", ".join(f"**{w}**" for w in h["words"][:5])
+                    st.caption(f"· **{path_}** — {말} 은(는) 지금 분류 제목에 없는 말입니다")
+            if len(stale) > 8:
+                st.caption(f"… 외 {len(stale) - 8}개")
+            st.caption("**지우지 않았습니다.** 그렇게 불리는 문서가 아직 있을 수 있고, "
+                       "관리자가 직접 적은 말일 수도 있습니다. 지금 제목에서 나온 말을 "
+                       "더하려면 아래 **분류 불러오기** 에서 “빠진 유의어만 더하기”를 켜세요 — "
+                       "적어 둔 말은 지우지 않습니다.")
 
     missing = docruleedit.nodes_without_rules(doc, tax)
     if missing:

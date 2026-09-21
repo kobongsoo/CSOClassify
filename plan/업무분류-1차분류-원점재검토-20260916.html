@@ -1321,6 +1321,22 @@ AI 정답 기준으로 읽던 “정밀도 92%”와는 다른 세계다 — 13-
 <span class="muted">고친 파일: <code>ui/doctype_review.py</code> · <code>ui/app.py</code> · <code>ui/uiwords.py</code> ·
 시험 <code>tests/test_ui_doctype_review.py</code>(신규 2 · 기존 1 수정)</span></div>
 
+<div class="note"><b>구워 넣은 옛 말도 화면이 알린다 (2026-09-21 추가 — 7장 ③).</b>
+합집합 설계가 치르기로 한 값 셋 중 마지막이다. 제목이 바뀌어도 <code>doc_rule.yaml</code> 의 옛 말은
+<b>지우지 않는다</b>(사람이 적었을 수도, 아직 그렇게 불리는 문서가 있을 수도 있다) — 대신 표시한다.
+<ul>
+<li><b>구운 제목을 적어 둔다</b> — [분류 불러오기]·<code>--sync-doc-rule</code> 이 규칙 줄에
+    <code>filled_from_title: 매뉴얼</code> 을 함께 쓴다. 판정 엔진은 이 칸을 읽지 않는다.
+    두 엔진의 결과 파일이 글자까지 같은 것을 확인했다</li>
+<li><b>규칙 화면이 알린다</b> — “이 줄은 분류 제목이 <b>매뉴얼</b> 이던 때 만들어졌습니다”.
+    표에 ‘제목 확인’ 칸이 생기고, 표 아래에 무엇을 하면 되는지를 적는다</li>
+<li><b>그 칸이 없는 옛 규칙은 추측한다</b> — 지금 제목에서 만들어질 말 목록에 없으면서
+    <u>문서종류 명사 꼴</u>인 말만 집는다. 관리자가 적은 주제어(갑·을·제품명)까지 집으면
+    안내가 소음이 되기 때문이다. 추측이므로 헛집음·놓침이 있고, 그래서 오류가 아니라 안내로 둔다</li>
+</ul>
+<span class="muted">고친 파일: <code>docvocab.py</code>·<code>docvocab.rs</code>(구운 제목 기록 + 판정 도우미) ·
+<code>ui/docruleedit.py</code>·<code>ui/app.py</code> · 본보기 · 시험 4건 추가</span></div>
+
 <div class="warn"><b>남은 것.</b>
 <b>고객 시스템</b>은 아직 <code>review</code>·<code>basis</code> 를 읽지 않는다 — 우리 화면 밖으로 나간 라벨은
 여전히 확정처럼 보인다. 그리고 ⓑ·ⓒ 두 칸은 지금 <b>규칙 파일에 손으로 적는 자리</b>다

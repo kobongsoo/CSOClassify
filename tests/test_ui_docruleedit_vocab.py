@@ -350,3 +350,99 @@ def test_자식_없는_최상위도_규칙을_받는다():
     }}
     got = {n["dc_id"] for n in DRE.syncable_nodes(tax)}
     assert got == {"R1", "R2A"}, got     # R2 는 서랍이라 빠지고, R1 은 들어온다
+
+
+# ── 분류 제목이 바뀌었을 때 알리기 (설계서 7장 ③) ──────────────────
+
+#------------------------------------------------------------------
+# 시험용 분류 체계 한 그루
+#=> ui/taxonomy.load_taxonomy() 가 만드는 모양(by_id)만 흉내 낸다.
+#
+# -in: title = 잎 분류의 지금 제목
+#
+# -out: dict = {"by_id": {...}}
+# -out: error = 없음
+#------------------------------------------------------------------
+def mk_tax(title):
+    return {"by_id": {
+        "ROOT": {"dc_id": "ROOT", "parent": None, "title": "기술/개발",
+                 "status": "1", "path": "기술/개발"},
+        "LEAF": {"dc_id": "LEAF", "parent": "ROOT", "title": title,
+                 "status": "1", "path": f"기술/개발 > {title}"},
+    }}
+
+
+#------------------------------------------------------------------
+# 불러오기가 '어느 제목에서 구웠는지' 적어 둔다
+#=> 이 값이 없으면 나중에 제목이 바뀌었을 때 추측할 수밖에 없다.
+#   새로 만든 규칙·빈 규칙을 채운 경우 모두 적혀야 한다.
+#------------------------------------------------------------------
+def test_불러오기가_구운_제목을_적어_둔다():
+    nodes = [{"dc_id": "LEAF", "title": "매뉴얼", "path": "기술/개발 > 매뉴얼"}]
+    doc = {"doctype_rules": []}
+    DRE.sync_nodes(doc, nodes, syn=mk_syn())
+    assert doc["doctype_rules"][0][DRE.FILLED_FROM] == "매뉴얼"
+
+    # 이미 있는 빈 규칙을 채운 경우도 마찬가지다.
+    doc2 = {"doctype_rules": [{"id": "dt_leaf", "node": "LEAF"}]}
+    DRE.sync_nodes(doc2, nodes, fill_existing=True, syn=mk_syn())
+    assert doc2["doctype_rules"][0][DRE.FILLED_FROM] == "매뉴얼"
+
+
+#------------------------------------------------------------------
+# 제목이 바뀌면 알린다 — 그러나 말은 지우지 않는다
+#=> 적어 둔 값이 있으면 추측하지 않고 사실만 말한다.
+#------------------------------------------------------------------
+def test_제목이_바뀌면_표에_알림이_뜬다():
+    rule = {"id": "dt_leaf", "node": "LEAF", DRE.FILLED_FROM: "매뉴얼",
+            "title_terms": ["매뉴얼"], "filename": ["매뉴얼", "사용설명서"]}
+    doc = {"doctype_rules": [rule]}
+
+    # 제목이 그대로면 조용하다.
+    rows = DRE.to_rows(doc, mk_tax("매뉴얼"), mk_syn())
+    assert rows[0]["제목 확인"] == ""
+
+    # 바뀌면 옛 제목을 알린다.
+    rows = DRE.to_rows(doc, mk_tax("사용자가이드"), mk_syn())
+    assert "매뉴얼" in rows[0]["제목 확인"]
+    # 알리기만 한다 — 규칙의 말은 그대로다.
+    assert doc["doctype_rules"][0]["filename"] == ["매뉴얼", "사용설명서"]
+
+
+#------------------------------------------------------------------
+# 그 칸이 없는 옛 규칙은 추측으로라도 알린다
+#=> 이미 깔려 있는 고객 파일에는 filled_from_title 이 없다. 그때는 지금 제목에서
+#   만들어질 말 목록에 없으면서 '문서종류 명사 꼴'인 말만 집는다 —
+#   관리자가 적은 주제어까지 집으면 안내가 소음이 된다.
+#------------------------------------------------------------------
+def test_옛_규칙은_문서종류_꼴만_의심한다():
+    syn = mk_syn()
+    old = {"id": "dt_leaf", "node": "LEAF",
+           "title_terms": ["매뉴얼"], "filename": ["매뉴얼"],
+           "terms": ["설치", "환경설정"]}          # 주제어는 보지 않는다
+    hint = DRE.stale_title_hint(old, "회의록", syn)
+    assert hint["kind"] == "guess" and hint["words"] == ["매뉴얼"]
+
+    # 지금 제목에서 나오는 말이면 조용하다.
+    assert DRE.stale_title_hint(old, "매뉴얼", syn) is None
+
+    # 주제형 제목(문서종류 명사가 아님)만 있는 규칙도 조용하다 — 헛경고 방지.
+    topic = {"id": "dt_t", "node": "LEAF",
+             "title_terms": ["복리후생"], "filename": ["복리후생"]}
+    assert DRE.stale_title_hint(topic, "인사총무", syn) is None
+
+
+#------------------------------------------------------------------
+# 알림 칸은 표 왕복에서 규칙을 건드리지 않는다
+#=> '제목 확인'은 값이 아니라 알림이다. 저장할 때 규칙에 섞여 들어가면 안 된다.
+#------------------------------------------------------------------
+def test_알림_칸은_저장에_섞이지_않는다():
+    doc = {"doctype_rules": [{"id": "dt_leaf", "node": "LEAF",
+                              DRE.FILLED_FROM: "매뉴얼", "title_terms": ["매뉴얼"]}]}
+    rows = DRE.to_rows(doc, mk_tax("사용자가이드"), mk_syn())
+    assert rows[0]["제목 확인"]          # 알림이 떠 있는 상태에서 저장한다
+    DRE.apply_rows(doc, rows)
+    r = doc["doctype_rules"][0]
+    assert "제목 확인" not in r
+    # 구운 제목 기록은 살아남는다 — 다음에도 같은 안내를 할 수 있어야 한다.
+    assert r[DRE.FILLED_FROM] == "매뉴얼"
