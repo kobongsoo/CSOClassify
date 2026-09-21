@@ -72,13 +72,19 @@ NEW_RULE_FALLBACK = {"weight": "medium"}
 #                "_id","_node"}, …]
 # -out: error = 없음
 #------------------------------------------------------------------
-def to_rows(doc, tax=None):
+def to_rows(doc, tax=None, syn=None):
     import taxonomy as taxlib
+    by_id = (tax or {}).get("by_id") or {}
     rows = []
     for r in doc.get("doctype_rules") or []:
         node = r.get("node") or ""
+        # 분류 제목이 바뀌었는데 규칙의 말은 옛 제목에서 온 것일 수 있다(7장 ③).
+        # 지우지 않고 표시만 한다 — 사람이 적었을 수도, 아직 그렇게 불리는 문서가
+        # 있을 수도 있어서다.
+        hint = stale_title_hint(r, (by_id.get(node) or {}).get("title"), syn)
         rows.append({
             "분류": taxlib.path_of(tax, node) if tax else node,
+            "제목 확인": _hint_cell(hint),
             # 제목·표제부 칸을 앞에 둔다 — 판정력이 가장 센 칸부터 보이게.
             "제목에": ", ".join(r.get("title_terms") or []),
             "앞부분에": ", ".join(r.get("head_terms") or []),
@@ -90,6 +96,24 @@ def to_rows(doc, tax=None):
             "_node": node,
         })
     return rows
+
+
+#------------------------------------------------------------------
+# 제목 바뀜 안내를 표 한 칸 글자로
+#=> 표는 좁으니 한 줄로 줄인다. 자세한 설명은 표 아래 안내가 맡는다.
+#
+# -in: hint = stale_title_hint() 결과(None 이면 알릴 것이 없다)
+#
+# -out: str = 표에 넣을 짧은 글(알릴 것이 없으면 빈 문자열)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _hint_cell(hint):
+    if not hint:
+        return ""
+    if hint.get("kind") == "changed":
+        return f"⚠ 옛 제목: {hint.get('was')}"
+    n = len(hint.get("words") or [])
+    return f"⚠ 지금 제목에 없는 말 {n}개"
 
 
 #------------------------------------------------------------------
@@ -209,7 +233,8 @@ from csoclassify.classify.docvocab import (      # noqa: E402,F401
     SYN_SUFFIXES, SYN_EXTRA, EXTRA_CELLS, SYN_HEAD_LISTS,
     NEW_RULE_FALLBACK, SAVE_HEADER, TEMPLATE_NAME, UI_ONLY_KEYS,
     _is_doubled, _spacing_forms, _clean_suffixes, _clean_extra_terms, _clean_endings,  # 사전 점검 테스트가 직접 쓴다
+    FILLED_FROM, stale_title_hint,
     industry_of, load_doc, load_synonyms, load_template, rule_vocab, save_doc,
-    split_synonyms, synonyms_of, sync_from_taxonomy, syncable_nodes,
+    split_synonyms, synonyms_of, sync_from_taxonomy, sync_nodes, syncable_nodes,
     title_variants,
 )

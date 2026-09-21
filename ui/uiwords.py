@@ -46,6 +46,9 @@ SIGNAL_LABEL = {
     "form": "서식 항목",
     "structure": "문서 짜임새",
     "body": "본문 전체",
+    # 파일 이름의 '끝자리'(핵어 자리). 파일 이름 어딘가에 있는 것(name)과 다르다 —
+    # 끝자리는 한국어에서 그 말의 정체라 훨씬 세다(설계서 4-1 · 13장 D1).
+    "name_head": "파일 이름 끝자리",
 }
 
 # 업무분류 후보가 어디에서 나왔는지 — 규칙인지, 비슷한 문서인지, 둘 다인지.
@@ -148,9 +151,14 @@ def doctype_chip(cand):
 # -out: error = 없음
 #------------------------------------------------------------------
 def doctype_by(cand):
-    if (cand or {}).get("status") == "rejected":
+    cand = cand or {}
+    if cand.get("status") == "rejected":
         return STATUS_LABEL["rejected"]
-    return "자동 확정" if (cand or {}).get("auto") else "관리자 확정"
+    # 확정도 거절도 아닌 채 사람을 기다리는 것 — 파일 이름 핵어로만 붙은 약한
+    # 라벨이다(D1 ②). '자동 확정'이라고 적으면 거짓말이 된다.
+    if cand.get("status") == "proposed":
+        return "확인 필요 — 파일 이름만 보고 제안" if cand.get("review") else "확인 필요"
+    return "자동 확정" if cand.get("auto") else "관리자 확정"
 
 
 #------------------------------------------------------------------

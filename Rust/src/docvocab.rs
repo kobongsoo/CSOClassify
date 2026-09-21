@@ -33,6 +33,11 @@ pub const DOC_SUFFIXES: [&str; 44] = [
 /// 범용어(filename_only)가 개수 제한에서 따로 갖는 자리 수.
 pub const GENERIC_SLOTS: usize = 6;
 
+/// 규칙을 '어느 제목에서 구웠는지' 적어 두는 칸(2026-09-21, 설계서 7장 ③).
+/// 분류 제목이 바뀌어도 구워 넣은 말은 지우지 않되, 바뀐 사실은 화면이 알려야 한다.
+/// 판정 엔진은 이 칸을 읽지 않는다. Python classify/docvocab.py 의 FILLED_FROM 과 같다.
+pub const FILLED_FROM: &str = "filled_from_title";
+
 // ── 핵어 판정용 내장 목록 (2026-09-21, 설계서 7장 ⓐ·13장 D1) ──────────
 // 분류체계 제목을 '핵어'로 써도 되는지 가릴 때 쓴다. 원본은 core 사전의
 // broad_words·container_tails·common_endings·noise_tails 칸이고, 아래는 그 칸이
@@ -909,6 +914,9 @@ pub fn sync_doc_rule(taxonomy: &crate::axes::Taxonomy, out_path: &Path,
                 m.insert(ystr("id"), ystr(&format!("dt_{}", dc_id.to_lowercase())));
                 m.insert(ystr("node"), ystr(dc_id));
                 for (k, val) in &new_rule { m.insert(ystr(k), val.clone()); }
+                // 어느 제목에서 구운 말인지 적어 둔다(설계서 7장 ③) — 나중에 제목이
+                // 바뀌면 화면이 그 사실을 정확히 알릴 수 있다. 판정은 읽지 않는다.
+                m.insert(ystr(FILLED_FROM), ystr(title));
                 m.insert(ystr("title_terms"), yseq(&v.title_terms));
                 m.insert(ystr("head_terms"), yseq(&v.head_terms));
                 m.insert(ystr("terms"), yseq(&v.terms));
@@ -929,6 +937,7 @@ pub fn sync_doc_rule(taxonomy: &crate::axes::Taxonomy, out_path: &Path,
                         m.insert(ystr("terms"), yseq(&v.terms));
                         m.insert(ystr("filename"), yseq(&v.filename));
                         if !v.exclude.is_empty() { m.insert(ystr("exclude"), yseq(&v.exclude)); }
+                        m.insert(ystr(FILLED_FROM), ystr(title));
                         filled += 1;
                     }
                 } else if enrich {
@@ -949,7 +958,12 @@ pub fn sync_doc_rule(taxonomy: &crate::axes::Taxonomy, out_path: &Path,
                             grew = true;
                         }
                     }
-                    if grew { enriched += 1; }
+                    if grew {
+                        // 지금 제목에서 나온 말을 덧붙였으니 기준 제목도 옮긴다.
+                        // 안 옮기면 방금 맞춘 규칙이 계속 "제목이 바뀌었습니다"로 뜬다.
+                        m.insert(ystr(FILLED_FROM), ystr(title));
+                        enriched += 1;
+                    }
                 }
             }
         }

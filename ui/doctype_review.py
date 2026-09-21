@@ -145,6 +145,12 @@ def effective_doctype(rec, latest_dt, tax=None):
             status = "confirmed"
         elif dc_id in rejected_ids:
             status = "rejected"
+        elif v.get("review"):
+            # [검토 대상] 파일 이름 끝자리 핵어로만 붙은 약한 라벨(설계서 13장 D1 ②).
+            # 파일명은 바뀔 수 있는 문자열이라 이것만으로 확정하지 않는다 — 자동
+            # 확정에서 빼고 사람 앞에 올린다. 엔진이 표시를 달아도 화면이 자동
+            # 확정해 버리면 안전장치가 있으나 마나다.
+            status = "proposed"
         else:
             status, auto = "confirmed", True
         seen.add(dc_id)
@@ -187,8 +193,11 @@ def summarize_status(candidates):
     n_rejected = sum(1 for c in candidates if c["status"] == "rejected")
     # 사람이 확정한 것과 자동 확정을 갈라 센다 — 둘을 합쳐 버리면 "이 문서를
     # 사람이 봤는가"를 요약만 보고는 알 수 없게 된다.
-    n_auto = sum(1 for c in candidates
-                 if c.get("auto") or c["status"] == "proposed")
+    n_auto = sum(1 for c in candidates if c.get("auto"))
+    # 확정도 거절도 아닌 채 사람을 기다리는 것 — 지금은 파일 이름 핵어로만 붙은
+    # 약한 라벨이 여기 온다(D1 ②). '자동 확정'과 합치면 안 된다. 합치는 순간
+    # "확정된 것처럼 보이는데 아무도 안 본" 라벨이 생긴다.
+    n_wait = sum(1 for c in candidates if c["status"] == "proposed")
     parts = []
     if n_confirmed:
         parts.append(f"관리자 확정 {n_confirmed}")
@@ -196,6 +205,8 @@ def summarize_status(candidates):
         parts.append(f"거절 {n_rejected}")
     if n_auto:
         parts.append(f"자동 확정 {n_auto}")
+    if n_wait:
+        parts.append(f"확인 필요 {n_wait}")
     return " · ".join(parts)
 
 
@@ -237,6 +248,24 @@ def reason_text(signal, ev):
     if signal == "name":
         terms = [t if isinstance(t, str) else t.get("term") for t in (ev.get("terms") or [])]
         return f"{label}에 " + ", ".join(f"**{t}**" for t in terms[:6] if t)
+
+    # 파일 이름 끝자리 핵어 — 분류체계 제목에서 '유도한' 말이라 파일 어디에도
+    # 그대로 적혀 있지 않다. 그 사실을 말해 주지 않으면 검토자가 근거를 찾다가
+    # 못 찾는다(설계서 7장 ②).
+    if signal == "name_head":
+        terms = [t if isinstance(t, str) else (t or {}).get("term")
+                 for t in (ev.get("terms") or [])]
+        word = ", ".join(f"**{t}**" for t in terms[:3] if t)
+        src = str(ev.get("taxonomy_title") or "")
+        first = str(next((t for t in terms if t), "") or "")
+        if not src:
+            tail = ""
+        elif first.replace(" ", "") == src.replace(" ", ""):
+            # 걸린 말과 분류 이름이 같으면 같은 말을 두 번 적지 않는다.
+            tail = " — 회사 분류 체계의 **분류 이름과 같습니다**"
+        else:
+            tail = f" — 회사 분류 체계의 분류 이름 **{src}** 에서 나온 말입니다"
+        return f"{label}가 {word}{tail}"
 
     if signal == "path":
         return f"{label} — " + ", ".join(str(x) for x in (ev.get("matched") or [])[:4])
@@ -347,7 +376,11 @@ def reason_block(cand):
             summary = (f"→ 근거 {len(parts)}가지 중 가장 강한 하나로 {W.pct(conf)} "
                        f"(여러 개라고 더 올라가지는 않는 방식)")
     warn = None
-    if cand.get("stage") == "embed":
+    if cand.get("review"):
+        # 이 한 줄이 D1 ②의 화면 쪽 절반이다 — 레코드의 표시를 사람에게 옮긴다.
+        warn = ("**파일 이름만** 보고 제안한 분류입니다 — 자동으로 확정하지 "
+                "않았습니다. 파일 이름은 바뀔 수 있으니 내용을 보고 정해 주세요.")
+    elif cand.get("stage") == "embed":
         warn = ("규칙에 걸린 말은 없고 **비슷한 문서**만 보고 제안한 후보입니다 "
                 "— 특히 눈으로 확인해 주세요.")
     return {"kind": "evidence", "lines": lines, "summary": summary, "warn": warn}

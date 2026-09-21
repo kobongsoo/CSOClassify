@@ -497,8 +497,13 @@ def records_to_df(records, latest, latest_dt=None, tax=None, seed_files=None):
         #   비어 있을 때만 '미분류'다 — 이 구분이 없으면 보안등급만 쓰는 배포에서
         #   모든 문서가 "업무분류 확인 필요"로 잡힌다.
         dt_axis_on = csorecord.doctype_of(r) is not None
+        # [약한 라벨] 파일 이름 끝자리 핵어로만 붙은 라벨(설계서 13장 D1)은 확정이
+        # 아니다. 그런 것만 붙은 문서를 '이미 분류됨'으로 두면, 엔진이 확정하지
+        # 않으려고 단 표시를 화면이 무시하는 셈이 된다 — 그래서 큐에 올린다.
+        alive = [c for c in cands if c.get("status") != "rejected"]
+        only_weak = bool(alive) and all(c.get("status") == "proposed" for c in alive)
         # 사람이 한 번 보고 "해당 없음"으로 정리한 문서는 다시 부르지 않는다.
-        need_doc = dt_axis_on and (not cands) and (not reviewed)
+        need_doc = dt_axis_on and (not cands or only_weak) and (not reviewed)
         # 보안등급은 판단 못 했거나 확신이 낮으면 사람이 본다. 이미 사람이 고친
         # 문서는 다시 부르지 않는다 — 검토를 끝낸 문서가 큐에 계속 남으면 안 된다.
         need_sec = (not decided) and (final == "보류" or conf < LOW_CONF)
@@ -1477,20 +1482,29 @@ def render_doctype_panel(rec, latest_dt, history_dt, ov_path, reviewer, tax, sco
 
     n_conf = sum(1 for c in candidates if c["status"] == "confirmed")
     n_auto = sum(1 for c in candidates if c.get("auto"))
+    # 확정도 거절도 아닌 채 사람을 기다리는 후보(파일 이름 핵어로만 붙은 약한 라벨).
+    n_wait = sum(1 for c in candidates if c["status"] == "proposed")
     # 자동 확정은 '확정'이되 사람이 아직 확인하지 않은 확정이다. 그 사실을 배지에
     # 남긴다 — 나중에 "이 분류 누가 정했어?" 를 화면만 보고 답할 수 있어야 한다.
     if reviewed and n_conf:
         badge = "확정됨"
     elif reviewed:
         badge = "해당 없음으로 확정"
+    elif n_wait and not n_auto:
+        # 약한 라벨만 있는 문서 — 확정된 것이 하나도 없다는 뜻이다.
+        badge = "확인 필요 · 자동 확정하지 않음"
     elif n_auto:
-        badge = "자동 확정 · 관리자 확인 전"
+        badge = "자동 확정 · 관리자 확인 전" + (f" · 확인 필요 {n_wait}" if n_wait else "")
     else:
         badge = "확정 대기"
     st.markdown(f"##### {W.AXIS_DOC} <span style='font-weight:400;color:gray'>— "
                 f"{W.AXIS_DOC_SUB}</span>", unsafe_allow_html=True)
+    tail = ("" if not n_wait else
+            " · **확인 필요** 로 표시된 것은 파일 이름만 보고 제안한 것이라 "
+            "확정하지 않았습니다 — 내용을 보고 정해 주세요")
     st.caption(f"{badge} · 문서당 **여러 개 가능** · 자동으로 찾은 분류는 "
-               "**확정된 것으로 봅니다** — 틀린 것만 체크를 풀고 [이대로 확정] 하세요")
+               "**확정된 것으로 봅니다** — 틀린 것만 체크를 풀고 [이대로 확정] 하세요"
+               + tail)
 
     # 회사 분류 체계를 연결하지 않은 배포에서는 기능을 숨기지 않고 '꺼짐'으로 보여
     # 준다 — 숨기면 그런 기능이 있다는 것을 영영 모른다(설계서 12-1).
@@ -2851,7 +2865,7 @@ def render_doc_rules_editor(path, tax):
     # 새 규칙에 얹을 값(weight 등)도 본보기에서 가져온다 — 코드에 박아 두면
     # 회사마다 다른 값을 주려 할 때 프로그램을 고쳐야 한다.
     new_rule = docruleedit.load_template(path).get("new_rule")
-    rows = docruleedit.to_rows(doc, tax)
+    rows = docruleedit.to_rows(doc, tax, syn)
     edited = pd.DataFrame(rows)
     if rows:
         edited = st.data_editor(
@@ -2859,6 +2873,10 @@ def render_doc_rules_editor(path, tax):
             key="docrule_editor", num_rows="fixed",
             column_config={
                 "분류": st.column_config.TextColumn("이 분류로", disabled=True, width="medium"),
+                # 분류 제목이 바뀌었을 때만 글자가 찬다(7장 ③). 고칠 수 없는 칸이다 —
+                # 알림이지 값이 아니다.
+                "제목 확인": st.column_config.TextColumn("제목 확인", disabled=True,
+                                                      width="small"),
                 # 판정력이 센 칸부터 놓는다. 같은 말이라도 어느 칸에 넣느냐로
                 # 결과가 갈린다 — "규정"은 제목 칸이면 정확하고 앞부분 칸이면 오탐이다.
                 "제목에": st.column_config.TextColumn("제목(첫 줄)에 이 말이 있으면",
@@ -2980,6 +2998,30 @@ def render_doc_rules_editor(path, tax):
             st.rerun()
         except Exception as e:
             uierrlog.show_error(f"저장 실패: {e}", exc=e, where="분류체계 저장")
+
+    # 제목이 바뀐 규칙 안내(7장 ③) — 지우지 않고 사람이 판단하게 한다.
+    stale = []
+    by_id = (tax or {}).get("by_id") or {}
+    for r in doc.get("doctype_rules") or []:
+        h = docruleedit.stale_title_hint(r, (by_id.get(r.get("node")) or {}).get("title"), syn)
+        if h:
+            stale.append((taxlib.path_of(tax, r.get("node")), h))
+    if stale:
+        with st.container(border=True):
+            st.markdown(f"**분류 제목이 바뀐 것 같은 규칙 {len(stale)}개**")
+            for path_, h in stale[:8]:
+                if h["kind"] == "changed":
+                    st.caption(f"· **{path_}** — 이 줄은 분류 제목이 "
+                               f"**{h['was']}** 이던 때 만들어졌습니다")
+                else:
+                    말 = ", ".join(f"**{w}**" for w in h["words"][:5])
+                    st.caption(f"· **{path_}** — {말} 은(는) 지금 분류 제목에 없는 말입니다")
+            if len(stale) > 8:
+                st.caption(f"… 외 {len(stale) - 8}개")
+            st.caption("**지우지 않았습니다.** 그렇게 불리는 문서가 아직 있을 수 있고, "
+                       "관리자가 직접 적은 말일 수도 있습니다. 지금 제목에서 나온 말을 "
+                       "더하려면 아래 **분류 불러오기** 에서 “빠진 유의어만 더하기”를 켜세요 — "
+                       "적어 둔 말은 지우지 않습니다.")
 
     missing = docruleedit.nodes_without_rules(doc, tax)
     if missing:
