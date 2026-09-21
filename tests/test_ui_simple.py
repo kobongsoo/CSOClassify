@@ -9,6 +9,8 @@ import json
 import os
 import sys
 
+import pytest
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "ui"))
 sys.path.insert(0, os.path.join(_HERE, "..", "src"))
@@ -129,3 +131,42 @@ def test_축약본_경로():
     assert app.simple_path("d:/x/cso_result.jsonl") == "d:/x/cso_result.simple.jsonl"
     # 확장자가 없어도 무언가는 만들어져야 한다(경로만 이상하게 만들고 끝내지 않는다).
     assert app.simple_path("d:/x/result").endswith(".simple.jsonl")
+
+
+# ── 검토함 편입선(review_threshold) — 코드에서 정책 파일로 (2026-09-21) ──────
+
+#------------------------------------------------------------------
+# 규칙셋이 검토함 편입선을 정한다
+#=> 예전에는 화면 코드(LOW_CONF)에 박혀 있어 고치려면 배포해야 했다. 고객마다
+#   검토량이 달라 정책 파일로 옮겼다. 값이 없는 옛 규칙셋에서는 종전과 같은
+#   0.6 이어야 한다 — 업그레이드만으로 검토량이 달라지면 안 된다.
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = 어긋나면 AssertionError
+#------------------------------------------------------------------
+def test_검토함_편입선은_규칙셋이_정한다(tmp_path):
+    import yaml
+    from csoclassify.classify import rules as R
+
+    base = yaml.safe_load(open(os.path.join(_HERE, "..", "resources", "policy",
+                                            "cso_rule.yaml"), encoding="utf-8"))
+    # ① 값이 있으면 그것을 쓴다.
+    base["defaults"]["review_threshold"] = 0.75
+    p = tmp_path / "cso_rule.yaml"
+    p.write_text(yaml.safe_dump(base, allow_unicode=True), encoding="utf-8")
+    assert R.load_rules(str(p)).defaults.review_threshold == 0.75
+
+    # ② 값이 없으면 종전과 같은 0.6.
+    base["defaults"].pop("review_threshold")
+    p.write_text(yaml.safe_dump(base, allow_unicode=True), encoding="utf-8")
+    assert R.load_rules(str(p)).defaults.review_threshold == 0.6
+
+    # ③ 이상한 값은 조용히 넘기지 않고 막는다 — 0 이면 검토 큐가 통째로 비고,
+    #    1 을 넘으면 모든 문서가 들어온다. 둘 다 화면을 못 쓰게 만든다.
+    for bad in (0, 1.5, "높게"):
+        base["defaults"]["review_threshold"] = bad
+        p.write_text(yaml.safe_dump(base, allow_unicode=True), encoding="utf-8")
+        with pytest.raises(R.RuleSetValidationError):
+            R.load_rules(str(p))
