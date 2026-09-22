@@ -160,6 +160,29 @@ def test_records_to_df_marks_todo_per_axis():
 
 
 #------------------------------------------------------------------
+# 파일 이름 끝자리(핵어)로만 붙은 약한 라벨 문서는 검토함에 올리지 않는다
+#=> [2026-09-22 변경] 1차 규칙이 아무 후보도 못 낸 문서에만 붙는 라벨이라
+#   '분류된 문서'로 센다. 대신 약한 라벨이라는 사실(dt_weak_only)은 남아
+#   현황 화면이 몇 건인지 따로 알린다. 사람이 '아니라고 표시'해 후보가 다
+#   빠지면 다시 할 일이 된다.
+#
+# -in: 없음
+#
+# -out: 없음(단언)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_name_head_only_is_not_in_review_queue():
+    weak = {"dc_id": "DC_2", "path": "기술/개발 > 매뉴얼", "confidence": 0.35,
+            "from": ["name_head"], "review": True, "basis": "name_head"}
+    recs = [{"file": "D:/망분리 관리자 메뉴얼.ppt", "grade": "O", "confidence": 0.9,
+             "labels": {"doctype": {"values": [weak]}}}]
+    row = app.records_to_df(recs, {}, {}).iloc[0]
+    assert bool(row["dt_weak_only"]) is True
+    assert bool(row["need_doc"]) is False
+    assert row["todo"] == app.W.todo_label(False, False)
+
+
+#------------------------------------------------------------------
 # '이대로 확정'한 문서는 검토함에서 내려간다 (같은 등급 확정)
 #=> 실제로 났던 버그다. 확신이 낮아 검토함에 올라온 문서를 담당자가 보고
 #   "자동 판정이 맞다"고 판단하면 끝낼 방법이 없었다 — 같은 등급으로 저장하는
