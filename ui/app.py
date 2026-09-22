@@ -521,13 +521,16 @@ def records_to_df(records, latest, latest_dt=None, tax=None, seed_files=None,
         #   비어 있을 때만 '미분류'다 — 이 구분이 없으면 보안등급만 쓰는 배포에서
         #   모든 문서가 "업무분류 확인 필요"로 잡힌다.
         dt_axis_on = csorecord.doctype_of(r) is not None
-        # [약한 라벨] 파일 이름 끝자리 핵어로만 붙은 라벨(설계서 13장 D1)은 확정이
-        # 아니다. 그런 것만 붙은 문서를 '이미 분류됨'으로 두면, 엔진이 확정하지
-        # 않으려고 단 표시를 화면이 무시하는 셈이 된다 — 그래서 큐에 올린다.
+        # [약한 라벨] 파일 이름 끝자리 핵어로만 붙은 라벨(설계서 13장 D1)뿐인 문서.
+        # [2026-09-22 변경] 예전에는 이런 문서도 검토함에 올렸다. 평가셋에서 핵어
+        # 라벨이 7건 중 7건 맞았고, 1차 규칙이 아무 후보도 못 낸 문서에만 붙으므로
+        # '분류된 문서'로 보고 검토함에는 올리지 않는다. 결과 파일의 review 표시는
+        # 그대로라 문서 상세에는 "확인 필요 — 파일 이름만 보고 제안"으로 보이고,
+        # 기준 문서(seed)로도 여전히 쓰지 않는다(seedgen 이 review 표시를 본다).
         alive = [c for c in cands if c.get("status") != "rejected"]
         only_weak = bool(alive) and all(c.get("status") == "proposed" for c in alive)
         # 사람이 한 번 보고 "해당 없음"으로 정리한 문서는 다시 부르지 않는다.
-        need_doc = dt_axis_on and (not cands or only_weak) and (not reviewed)
+        need_doc = dt_axis_on and (not cands) and (not reviewed)
         # 보안등급은 판단 못 했거나 확신이 낮으면 사람이 본다. 이미 사람이 고친
         # 문서는 다시 부르지 않는다 — 검토를 끝낸 문서가 큐에 계속 남으면 안 된다.
         need_sec = (not decided) and (final == "보류" or conf < low_conf)
@@ -951,10 +954,10 @@ def render_home(df, doctype_on, run_meta=None, low_conf=LOW_CONF):
                 st.bar_chart(rdf.sort_values("건수", ascending=False),
                              horizontal=True, height=190)
             # 위 지표(업무분류 확인 필요)와 이 차트의 '분류 없음'은 세는 기준이
-            # 다르다. 세 가지가 갈린다 — ① 사람이 '해당 없음'으로 정리한 문서는
-            # 지표에서 빠지고 ② 기준 문서도 빠지며 ③ 파일 이름만 보고 붙인 약한
-            # 라벨은 '분류가 있는' 문서인데도 확인 대상이다. 그래서 두 숫자가
-            # 다를 수 있고, 다른 이유를 여기서 밝힌다.
+            # 다르다. 두 가지가 갈린다 — ① 사람이 '해당 없음'으로 정리한 문서는
+            # 지표에서 빠지고 ② 기준 문서도 빠진다. 그래서 두 숫자가 다를 수 있고,
+            # 다른 이유를 여기서 밝힌다. 파일 이름만 보고 붙은 약한 라벨은 분류된
+            # 문서로 세되(검토함에 안 올림), 몇 건인지는 따로 알린다.
             done_n = int((df["dt_n"] == 0).sum() - (df["raw_need_doc"] & (df["dt_n"] == 0)).sum())
             weak_n = int(df["dt_weak_only"].sum())
             drop_n = int((df["is_seed"] & df["raw_need_doc"]).sum())
@@ -962,7 +965,7 @@ def render_home(df, doctype_on, run_meta=None, low_conf=LOW_CONF):
             if done_n:
                 bits.append(f"그중 {done_n}건은 ‘해당 없음’으로 정리됨")
             if weak_n:
-                bits.append(f"파일 이름만 보고 제안해 확인이 필요한 문서 {weak_n}건 별도")
+                bits.append(f"파일 이름만 보고 붙인 분류 {weak_n}건은 분류된 것으로 셈")
             if drop_n:
                 bits.append(f"기준 문서 {drop_n}건은 확인 대상에서 뺌")
             st.caption(f"아직 분류 없음 {none_n}건"
