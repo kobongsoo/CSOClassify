@@ -64,6 +64,7 @@
   ul.toc a:hover{text-decoration:underline}
   .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
     background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .muted{color:var(--muted);font-size:13px}
   .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
   footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
   @media (max-width:640px){ ul.toc{columns:1} header.hero{padding:20px} }
@@ -76,10 +77,12 @@
   <h1>업무분류 규칙 파일(<code>doc_rule.yaml</code>) 자동 생성 설계</h1>
   <p>분류체계가 바뀔 때마다 <code>doc_rule.yaml</code> 을 <b>통째로 새로 만든다</b>. 사람은 규칙 파일을 고치지 않고,
   회사마다 다른 조정은 <b>local 겹</b>에만 적는다. <code>doc_taxonomy.yaml</code> 은 없애고, 규칙마다 제 분류의 제목·경로만 적는다.
-  <span class="pill">2026-09-22 설계 · 구현 없음</span></p>
+  <span class="pill">2026-09-22 설계 · 같은 날 구현 끝(15장 0~7)</span></p>
   <div class="note" style="margin-top:14px"><b>2026-09-22 수정</b> — 새 규칙 파일에 <code>taxonomy:</code> 칸(출처·내보낸 시각·노드 목록)을 두지 않는다.
   분류체계 정보는 <b>각 규칙 줄 안에</b> <code>title</code>·<code>path</code>·<code>path_ids</code> 로만 적는다(9장).
   옛 분류체계 파일의 흔적을 규칙 파일에 남기지 않기 위해서다. 같은 날 3장 ①의 P2 되돌아감은 바로잡았다(15장 0번).</div>
+  <div class="note" style="margin-top:10px"><b>구현 끝</b> — 15장 0~7단계를 모두 마쳤다(2026-09-22). 16장의 결정 상태와
+  구현 뒤에 더 바뀐 것은 <a href="#s17">17장</a>에 적었다.</div>
 </header>
 
 <section class="card">
@@ -101,6 +104,7 @@
   <li><a href="#s14">14. 위험과 대책</a></li>
   <li><a href="#s15">15. 작업 순서</a></li>
   <li><a href="#s16">16. 정해야 할 것</a></li>
+  <li><a href="#s17">17. 구현 뒤에 바뀐 것</a></li>
 </ul>
 </section>
 
@@ -440,12 +444,12 @@ doctype_rules:
 <section class="card">
 <div class="scroll"><table>
 <tr><th>#</th><th>작업</th><th>끝나는 기준</th></tr>
-<tr><td>0</td><td><b>P2 되돌아감 바로잡기</b> (이 설계와 별개, 먼저) <span class="pill ok">2026-09-22 끝</span></td><td>고객 원본의 DC_007 앞부분·본문 칸을 비우고 사본 6곳 반영(백업 <code>_backup/p2-restore-20260922</code>·<code>_backup/policy-sync/</code>).
+<tr><td>0</td><td><b>P2 되돌아감 바로잡기</b> (이 설계와 별개, 먼저) <span class="pill ok">2026-09-22 끝</span></td><td>고객 원본의 DC_007 앞부분·본문 칸을 비우고 사본 6곳 반영(백업 <code>_backup/p2-restore-20260922</code>·<code>_backup/policy-sync/</code> — 전환 확인 뒤 지움).
   평가셋(사람 판정 256건) 정밀도 65.1% → 71.8%, 재현율 50.0% 그대로</td></tr>
 <tr><td>1</td><td><code>doc_rule.local.yaml</code> 모양 확정 · 로더·검증(두 엔진) <span class="pill ok">2026-09-22 끝</span></td><td>잘못된 칸은 로드에서 막힘(L0~L6)</td></tr>
 <tr><td>2</td><td><code>--build-doc-rule</code> (두 엔진) — 8장 순서 <span class="pill ok">2026-09-22 끝</span></td><td>같은 입력 → 두 엔진 결과 글자까지 같음 — 고객 정책 사본으로 확인(판 <code>doctype-gen-86c1c23a0ece</code>)</td></tr>
 <tr><td>3</td><td>엔진이 새 규칙 파일 하나만 읽기(체계·핵어 내장) + 옛 모양 호환 <span class="pill ok">2026-09-22 끝</span></td><td>기존 시험 전부 통과(Python 959 · Rust 259) · 평가셋 500건 옛 방식과 판정·근거 모두 같음(두 엔진)</td></tr>
-<tr><td>4</td><td>차이 뽑기 도구 → 이 고객 local · <b>고객 폴더 전환</b> <span class="pill ok">2026-09-22 끝</span></td><td><code>scripts/migrate_doc_rule_local.py</code>. 이 고객의 차이는 DC_007 <code>clear: [head_terms, terms]</code>(P2) 한 건뿐 — <code>ui/policy/doc_rule.local.yaml</code> 로 옮기고 다시 만들어 사본 6곳 반영(판 <code>doctype-gen-b29e4fa53046</code>, 전환 전 파일 <code>_backup/doc-rule-switch-20260922/</code>). 평가셋 500건 판정 변화 0건. 배포본 4곳 새로 빌드(리눅스 Rust 묶음에 체계 JSON·본보기·회사 조정 추가)</td></tr>
+<tr><td>4</td><td>차이 뽑기 도구 → 이 고객 local · <b>고객 폴더 전환</b> <span class="pill ok">2026-09-22 끝</span></td><td><code>scripts/migrate_doc_rule_local.py</code>. 이 고객의 차이는 DC_007 <code>clear: [head_terms, terms]</code>(P2) 한 건뿐 — <code>ui/policy/doc_rule.local.yaml</code> 로 옮기고 다시 만들어 사본 6곳 반영(판 <code>doctype-gen-b29e4fa53046</code>, 전환 전 파일 <code>_backup/doc-rule-switch-20260922/</code> — 전환 확인 뒤 지움). 평가셋 500건 판정 변화 0건. 배포본 4곳 새로 빌드(리눅스 Rust 묶음에 체계 JSON·본보기·회사 조정 추가)</td></tr>
 <tr><td>5</td><td>화면 — 규칙 편집이 local 을 고치게 · [규칙 다시 만들기] <span class="pill ok">2026-09-22 끝</span></td><td>화면에서 고친 조정이 다시 만들어도 남음. 옛 방식 화면에 [새 방식으로 바꾸기] — 조정을 뽑아 재현을 확인한 뒤에만 바꾼다(시험 사본에서 전환·재생성 확인)</td></tr>
 <tr><td>6</td><td>연동 문서·실행 가이드·DOC_Rule.html 고치기 · 배포 <span class="pill ok">2026-09-22 끝</span></td><td>엠파워 준비 절차 한 단계(CLI 4개 → 3개). 실행 가이드·DOC_Rule.html(13장 회사 조정 신설)·README 갱신. Python <code>--check-rules</code> 가 자동 생성 규칙이면 스냅샷을 찾지 않게 고침</td></tr>
 <tr><td>7</td><td>옛 CLI·<code>doc_taxonomy.yaml</code> 읽기 제거 <span class="pill ok">2026-09-22 끝</span></td><td>두 엔진에서 <code>--export-taxonomy</code>·<code>--scaffold-doc-rule</code>·<code>--sync-doc-rule</code>·<code>--no-fill-blank</code>·<code>--sync-enrich</code>·<code>--taxonomy</code> 제거(주면 종료 3 <code>unsupported_option</code>). 옛 모양 규칙은 종료 4(<code>[G0]</code>), 규칙이 없으면 업무분류 축을 끔('seed 전파 전용' 없앰). 화면은 옛 모양이면 [새 방식으로 바꾸기]만 보여 줌. <code>scripts/export_taxonomy.py</code> 삭제. 고객 한 곳뿐이라 호환 기간 없이 끊음(11장 권고)</td></tr>
@@ -455,16 +459,35 @@ doctype_rules:
 <h2 id="s16"><span class="n">16</span>정해야 할 것</h2>
 <section class="card">
 <ol>
-  <li><b>local 을 한 파일로? 두 파일로?</b> — 권고: 두 파일(말은 사전, 조정·설정은 <code>doc_rule.local.yaml</code>). 6장.</li>
-  <li><b>조정의 열쇠</b> — 권고: dc_id(+ <code>title_at_decision</code> 으로 이름 변경 안내). 10장.</li>
-  <li><b>이름이 바뀐 분류의 옛 말</b> — 기본은 "새 이름 말만"(자동). 옛 말을 계속 쓸지는 분류마다 사람이 local 에 적는다. 이 기본값으로 좋은가.</li>
+  <li><s><b>local 을 한 파일로? 두 파일로?</b></s> — 정함(2026-09-22): 두 파일(말은 사전, 조정·설정은 <code>doc_rule.local.yaml</code>). 권고대로 구현했다. 6장.</li>
+  <li><s><b>조정의 열쇠</b></s> — 정함(2026-09-22): dc_id(+ <code>title_at_decision</code> 으로 이름 변경 안내). 권고대로 구현했다. 10장.</li>
+  <li><b>이름이 바뀐 분류의 옛 말</b> — 기본은 "새 이름 말만"(자동). 옛 말을 계속 쓸지는 분류마다 사람이 local 에 적는다. 이 기본값으로 좋은가.
+    <br><span class="muted">상태(2026-09-22): 이 기본값으로 구현·운영 중. 따로 확정하지는 않았다 — 이름이 바뀐 분류가 실제로 나오면 그때 본다.</span></li>
   <li><s><b>P2 기준</b></s> — 정함(2026-09-22): P2 판. 고객 원본·배포본에 반영했다.</li>
-  <li><b>옛 모양 호환 기간</b> — 권고: 한 판. 고객 배포가 이 한 곳뿐이면 바로 끊어도 된다.</li>
-  <li><b>업종 선택</b> — 지금 고객 규칙 파일에는 업종이 일곱 개 모두 적혀 있다. local 로 옮길 때 이 고객 업종만 남길지.</li>
+  <li><s><b>옛 모양 호환 기간</b></s> — 정함(2026-09-22): 호환 기간 없이 바로 끊음(고객 배포 한 곳). 15장 7번.</li>
+  <li><b>업종 선택</b> — 지금 고객 규칙 파일에는 업종이 일곱 개 모두 적혀 있다. local 로 옮길 때 이 고객 업종만 남길지.
+    <br><span class="muted">상태(2026-09-22): 재 보니 이 고객은 업종 사전 일곱 개가 규칙에 더하는 말이 <b>0개</b>다(판정 영향 없음).
+    그대로 두었다 — 정리하려면 본보기 <code>industry: []</code> 또는 이 고객 local 에서 업종을 뺀다.</span></li>
 </ol>
 </section>
 
-<footer>MpowerClassify · 업무분류 규칙 파일 자동 생성 설계 · 2026-09-22 · 설계서(구현 없음)</footer>
+<h2 id="s17"><span class="n">17</span>구현 뒤에 바뀐 것</h2>
+<section class="card">
+<p>15장을 마친 뒤 같은 날 더 손본 것이다. 설계의 틀(자동 생성 + local 조정)은 그대로다.</p>
+<div class="scroll"><table>
+<tr><th>무엇</th><th>내용</th><th>어디</th></tr>
+<tr><td><b>테스트결과서 조정</b></td><td>고객 local 에 DC_002_003 <code>add: head_terms: [테스트 결과, 테스트 목록]</code>.
+  평가셋 맞춘 것 +3 · 새 오탐 0. 폴더 재분류에서 미분류 22 → 16, 검토함 42 → 36</td><td>고객 <code>doc_rule.local.yaml</code>(저장소 밖)</td></tr>
+<tr><td><b>filename 과 heads 는 따로 둔다</b></td><td>둘 다 '파일 이름'을 보지만 filename 은 규칙 조각(점수 0.30), heads 는 후보가 없을 때만 쓰는 핵어(0.35 · 검토 표시)라 합치지 않는다. DOC_Rule.html 에 한 줄 적음</td><td>PR #18</td></tr>
+<tr><td><b>핵어 라벨은 검토함에 올리지 않는다</b></td><td>파일 이름 끝자리(핵어)로만 붙은 라벨(<code>basis: name_head</code>)은 화면 검토함 기준에서 뺐다. 엔진 결과(<code>review: true</code>)와 기준 문서 자동 생성 제외는 그대로. 평가셋 핵어 라벨 7/7 맞음</td><td>PR #19 · <code>ui/app.py</code></td></tr>
+<tr><td><b><code>t_high</code>·<code>scoring</code> 제거</b></td><td>판정에 쓰이지 않던 확정 후보선 <code>t_high</code> 와 채점 스위치(<code>legacy</code>/<code>staged</code>)를 두 엔진·본보기·문서에서 없앴다. 채점은 noisy-OR 하나뿐. 옛 파일에 남아 있어도 넘어간다. 순서 검사는 <code>t_low ≤ t_seed</code> 만.
+  새 배포본으로 평가셋 500건 판정 변화 0, 두 엔진 500건 일치</td><td>PR #20</td></tr>
+<tr><td><b>본보기 <code>conflict</code> 설명</b></td><td><code>all</code>/<code>top_n</code> 차이와 <code>{strategy: top_n, n: 2}</code> 쓰는 예를 본보기 주석에 적음. 값(<code>all</code>)은 그대로</td><td>PR #21</td></tr>
+</table></div>
+<p class="muted">지금 고객 규칙 판: <code>doctype-gen-b2fe4a3ca52e</code>(사본 6곳·배포본 4곳 같음). 회사 조정 2건 — DC_007 <code>clear</code>(P2) · DC_002_003 <code>add</code>(테스트결과서).</p>
+</section>
+
+<footer>MpowerClassify · 업무분류 규칙 파일 자동 생성 설계 · 2026-09-22 · 설계 + 구현 기록</footer>
 </div>
 </body>
 </html>
