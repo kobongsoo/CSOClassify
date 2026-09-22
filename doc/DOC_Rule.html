@@ -225,7 +225,7 @@
     <tr><td class="f">min_distinct</td><td class="opt">선택</td><td>본문 신호: 서로 다른 말이 몇 종 이상 나와야 하나</td><td><code>defaults</code> 값(1)</td></tr>
     <tr><td class="f">min_count</td><td class="opt">선택</td><td>본문 신호: 합쳐서 몇 번 이상 나와야 하나</td><td><code>defaults</code> 값(1)</td></tr>
     <tr><td class="f">title · path · path_ids</td><td class="opt">자동</td><td>분류 제목·경로·조상 id. 판정할 때 분류 체계를 이 칸들에서 다시 짓습니다</td><td>—</td></tr>
-    <tr><td class="f">heads</td><td class="opt">자동</td><td>이 분류의 핵어 목록(<a href="#head">7장</a>). 비어 있으면 핵어 층에서 이 분류를 쓰지 않습니다</td><td>—</td></tr>
+    <tr><td class="f">heads</td><td class="opt">자동</td><td>이 분류의 핵어 목록(<a href="#head">7장</a>). 비어 있으면 핵어 층에서 이 분류를 쓰지 않습니다<br><span class="muted"><code>filename</code> 과 말이 겹쳐 보여도 일이 다릅니다 — <code>filename</code> 은 파일 이름 <b>어디에든</b> 있으면 다른 신호와 합쳐지는 보조 증거(0.30)이고, <code>heads</code> 는 후보가 하나도 없을 때 파일 이름 <b>끝자리</b>만 보고 ‘확인 필요’ 라벨(0.35)을 붙이므로 더 좁게(넓은 말·주제 이름 분류는 빼고) 만듭니다.</span></td><td>—</td></tr>
     <tr><td class="f">local</td><td class="opt">자동</td><td>회사 조정이 들어간 칸(예 <code>clear:terms</code>). <b>판정은 이 칸을 읽지 않습니다</b></td><td>—</td></tr>
   </table></div>
   <p class="muted">화면의 규칙 표에서는 칸 이름이 이렇게 보입니다 — 제목(첫 줄)에 · 앞부분(400자)에 · 본문 어디든(보조) · 파일 이름에 · 단, 이 말이 있으면 제외.</p>
