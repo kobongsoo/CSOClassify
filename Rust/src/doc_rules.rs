@@ -38,7 +38,6 @@ pub struct Defaults {
     pub head_chars: usize,
     pub min_distinct: usize,
     pub min_count: u32,
-    pub t_high: f64,
     pub t_low: f64,
     pub t_seed: f64,
     pub embed_cap: f64,
@@ -50,7 +49,7 @@ impl Default for Defaults {
     fn default() -> Self {
         Defaults {
             head_chars: 400, min_distinct: 1, min_count: 1,
-            t_high: 0.70, t_low: 0.30, t_seed: 0.85, embed_cap: 0.65,
+            t_low: 0.30, t_seed: 0.85, embed_cap: 0.65,
             scoring: "legacy".into(),
         }
     }
@@ -281,7 +280,6 @@ pub(crate) fn parse_defaults(raw: &Value) -> (Defaults, Vec<DVio>) {
     if let Some(v) = num(raw, "head_chars", true, 1.0, f64::INFINITY, &mut out) { d.head_chars = v as usize; }
     if let Some(v) = num(raw, "min_distinct", true, 1.0, f64::INFINITY, &mut out) { d.min_distinct = v as usize; }
     if let Some(v) = num(raw, "min_count", true, 1.0, f64::INFINITY, &mut out) { d.min_count = v as u32; }
-    if let Some(v) = num(raw, "t_high", false, 0.0, 1.0, &mut out) { d.t_high = v; }
     if let Some(v) = num(raw, "t_low", false, 0.0, 1.0, &mut out) { d.t_low = v; }
     if let Some(v) = num(raw, "t_seed", false, 0.0, 1.0, &mut out) { d.t_seed = v; }
     if let Some(v) = num(raw, "embed_cap", false, 0.0, 1.0, &mut out) { d.embed_cap = v; }
@@ -295,17 +293,14 @@ pub(crate) fn parse_defaults(raw: &Value) -> (Defaults, Vec<DVio>) {
         }
     }
 
-    // 값 하나하나가 정상이어도 조합이 뒤집히면 "약한 후보가 확정 후보보다 세다"
-    // 같은 모순이 생긴다.
-    if d.t_low > d.t_high {
-        out.push(DVio { code: "T20", rule_id: None, field: "defaults.t_low",
-            value: d.t_low.to_string(),
-            detail: format!("t_low 는 t_high({}) 이하여야 합니다", d.t_high) });
-    }
-    if d.t_high > d.t_seed {
+    // 값 하나하나가 정상이어도 조합이 뒤집히면 "후보도 못 되는 점수로 기준 문서를
+    // 뽑는다" 같은 모순이 생긴다.
+    // [2026-09-22] 판정에 쓰이지 않던 t_high(확정 후보선)를 없애 t_low ≤ t_seed 만 본다.
+    // 옛 파일에 t_high 가 남아 있어도 모르는 칸이라 읽고 넘어간다(효과 없음).
+    if d.t_low > d.t_seed {
         out.push(DVio { code: "T20", rule_id: None, field: "defaults.t_seed",
             value: d.t_seed.to_string(),
-            detail: format!("t_seed 는 t_high({}) 이상이어야 합니다", d.t_high) });
+            detail: format!("t_seed 는 t_low({}) 이상이어야 합니다", d.t_low) });
     }
     (d, out)
 }
@@ -778,6 +773,24 @@ mod tests {
     //=> 이 표가 두 판에서 갈리면 같은 문서에 다른 점수가 나오는데, 오류도
     //   경고도 없이 결과만 달라져 가장 알아채기 어렵다.
     //------------------------------------------------------------------
+    //------------------------------------------------------------------
+    // defaults 순서 검사 — t_low ≤ t_seed 만 본다(2026-09-22 t_high 제거)
+    //=> t_high 는 판정에 쓰이지 않아 없앴다. 옛 파일에 남아 있어도 막지 않고,
+    //   t_low 를 0.7 위로 올려도 t_seed 아래면 통과해야 한다. 파이썬 판과 같다.
+    //------------------------------------------------------------------
+    #[test]
+    fn defaults_순서는_t_low_와_t_seed_만_본다() {
+        // 옛 칸(t_high)이 남아 있어도, t_low 가 옛 t_high(0.7)보다 커도 통과
+        let (d, vio) = parse_defaults(&serde_json::json!({"t_low": 0.75, "t_high": 0.7, "t_seed": 0.85}));
+        assert!(vio.is_empty(), "{}", vio.len());
+        assert_eq!(d.t_low, 0.75);
+        // t_low 가 t_seed 보다 크면 T20
+        let (_, vio) = parse_defaults(&serde_json::json!({"t_low": 0.9, "t_seed": 0.85}));
+        assert_eq!(vio.len(), 1);
+        assert_eq!(vio[0].code, "T20");
+        assert_eq!(vio[0].field, "defaults.t_seed");
+    }
+
     #[test]
     fn signals_블록을_파이썬과_같은_규칙으로_읽는다() {
         use crate::doctype::default_cell;

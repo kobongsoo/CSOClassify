@@ -690,7 +690,7 @@ doctype_rules:
     <tr><td><b>name</b></td><td><code>filename</code></td><td>폴더를 뺀 파일 이름 <span class="def">weight 를 보지 않아 세 칸이 같음</span></td><td>0.30</td><td>0.30</td><td>0.30</td></tr>
     <tr><td><b>body</b></td><td><code>terms</code></td><td>문서 전체 <span class="def">단독으로는 후보가 못 됨</span></td><td>0.25</td><td>0.15</td><td>0.10</td></tr>
   </table></div>
-  <p class="muted">예) <code>title</code>(0.65) + <code>name</code>(0.30) → <code>1 - 0.35×0.70 = 0.755</code>. <code>t_high</code>(기본 0.70) 이상이면 채택됩니다.</p>
+  <p class="muted">예) <code>title</code>(0.65) + <code>name</code>(0.30) → <code>1 - 0.35×0.70 = 0.755</code>. <code>t_low</code>(기본 0.35) 이상이면 그 분류가 붙습니다.</p>
   <div class="warn"><b>form · path · structure 세 신호는 없어졌습니다</b> <span class="pill">2026-09-07</span> — 설계에는 있었지만 <b>어느 규칙도 그 필드를 채우지 않아
   한 번도 돌지 않았습니다</b>. 도는 코드와 안 도는 코드가 섞이면 읽는 사람이 매번
   "이건 도는 건가"를 되짚어야 해서 두 판에서 함께 걷어냈습니다. 제거 전후로 실제 문서의
