@@ -112,7 +112,7 @@ def append_doctype_override(path, file, doc_id, confirmed, rejected, reason, rev
 #
 # -in: rec       = 분류 레코드(labels.doctype 가 없을 수 있음 — 그 축을 안 쓴 배포)
 # -in: latest_dt = load_doctype_overrides() 의 latest(파일별 최신 결정)
-# -in: tax       = taxonomy.load_taxonomy() 결과. '직접 추가'로 확정된 분류의
+# -in: tax       = taxonomy.load_from_export() 결과(화면) 또는 Taxonomy. '직접 추가'로 확정된 분류의
 #                  이름(전체경로)을 찾는 데만 쓴다. None 이면 DC_ID 를 그대로 쓴다
 #
 # -out: (candidates, reviewed) = candidates: [{dc_id,path,path_ids,confidence,

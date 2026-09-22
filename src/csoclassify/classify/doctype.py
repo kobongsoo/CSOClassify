@@ -581,7 +581,7 @@ def _title_allowed(file):
 # -in: text          = 정제된 문서 텍스트(없으면 파일명·경로 신호만으로 판단)
 # -in: file          = 파일 경로(파일명·경로 신호에 씀)
 # -in: doc_rule_set  = doc_rules.load_doc_rules() 결과(DocRuleSet)
-# -in: taxonomy      = axes.load_taxonomy() 결과(axes.Taxonomy) — 경로·조상 계산에 필수
+# -in: taxonomy      = 자동 생성 규칙에서 지은 axes.Taxonomy — 경로·조상 계산에 필수
 #
 # -out: DoctypeSignal = 매칭 결과(후보가 없으면 values=())
 # -out: error = 없음 (문서에 아무 신호도 없으면 그냥 빈 결과)

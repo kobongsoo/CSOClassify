@@ -200,10 +200,10 @@ def test_옛_규칙_필드는_사유를_알린다(field, value):
 def test_두_판이_같은_점수를_낸다(tmp_path):
     if not os.path.isfile(RS_EXE):
         pytest.skip("Rust exe 없음(cargo build --release 먼저)")
+    # 분류체계는 자동 생성 규칙 안에 있다 — 규칙 파일 하나만 있으면 된다.
     dr = os.path.join(POLICY, "doc_rule.yaml")
-    tx = os.path.join(POLICY, "doc_taxonomy.yaml")
     rules = os.path.join(POLICY, "cso_rule.yaml")
-    if not (os.path.isfile(dr) and os.path.isfile(tx)):
+    if not os.path.isfile(dr):
         pytest.skip("정책 파일 없음")
 
     base = yaml.safe_load(io.open(dr, encoding="utf-8").read())
@@ -219,7 +219,7 @@ def test_두_판이_같은_점수를_낸다(tmp_path):
             env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"), PYTHONIOENCODING="utf-8")
             r = subprocess.run(cmd + ["--dir", str(doc), "--rule-only", "--nosummary",
                                       "--rules", rules, "--doc-rules", str(rule_path),
-                                      "--taxonomy", tx, "--format", "jsonl"],
+                                      "--format", "jsonl"],
                                cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
             got = []
             for line in r.stdout.splitlines():

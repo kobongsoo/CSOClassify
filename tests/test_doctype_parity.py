@@ -37,7 +37,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RS_EXE = os.path.join(ROOT, "Rust", "target", "release", "MpowerClassify-rs.exe")
 POLICY = os.path.join(ROOT, "ui", "policy", "cso_rule.yaml")
 DOC_RULES = os.path.join(ROOT, "ui", "policy", "doc_rule.yaml")
-TAXONOMY = os.path.join(ROOT, "ui", "policy", "doc_taxonomy.yaml")
 MODEL_DIR = os.path.join(ROOT, "dist-onedir", "windows", "models", "e5-small-ko")
 
 # 규칙으로 등급이 확정되고 seed_eligible 까지 붙는 문서여야 한다 — 그래야 위
@@ -75,7 +74,7 @@ def _run(engine, doc_dir, seeds):
                PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
     r = subprocess.run(
         cmd + ["--dir", str(doc_dir), "--rules", POLICY,
-               "--doc-rules", DOC_RULES, "--taxonomy", TAXONOMY,
+               "--doc-rules", DOC_RULES,
                "--seeds", str(seeds), "--format", "jsonl", "--nosummary"] + extra,
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
     recs = [json.loads(l) for l in r.stdout.splitlines()
@@ -140,7 +139,7 @@ def _make_fixture(tmp_path):
                PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
     r = subprocess.run(
         [sys.executable, "-m", "csoclassify", "--dir", str(doc_dir),
-         "--rules", POLICY, "--doc-rules", DOC_RULES, "--taxonomy", TAXONOMY,
+         "--rules", POLICY, "--doc-rules", DOC_RULES,
          "--with-vector", "--format", "jsonl", "--nosummary"],
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
     recs = [json.loads(l) for l in r.stdout.splitlines()

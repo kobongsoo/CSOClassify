@@ -75,7 +75,6 @@ def run(mat, node, tmp_path, *extra):
                      "--overrides", mat["overrides"],
                      "--text-dir", mat["text"],
                      "--doc-rules", str(tmp_path / "없는규칙.yaml"),
-                     "--taxonomy", str(tmp_path / "없는체계.yaml"),
                      *extra])
 
 
@@ -116,8 +115,7 @@ def test_본문폴더_없이도_돈다(tmp_path, capsys):
     mat = make_material(tmp_path, REPORT_DOCS, as_seed=False)
     code = cli.main(["--suggest-terms", "DC_001_003",
                      "--seeds", mat["seeds"], "--overrides", mat["overrides"],
-                     "--doc-rules", str(tmp_path / "없는규칙.yaml"),
-                     "--taxonomy", str(tmp_path / "없는체계.yaml")])
+                     "--doc-rules", str(tmp_path / "없는규칙.yaml")])
     assert code == config.EXIT_OK
     out = capsys.readouterr().out
     assert "본문 없음 6건" in out
@@ -170,8 +168,7 @@ def test_규칙파일을_고치지_않는다(tmp_path, capsys):
     mat = make_material(tmp_path, REPORT_DOCS, as_seed=False)
     code = cli.main(["--suggest-terms", "DC_001_003",
                      "--seeds", mat["seeds"], "--overrides", mat["overrides"],
-                     "--text-dir", mat["text"], "--doc-rules", str(rule_path),
-                     "--taxonomy", str(tmp_path / "없는체계.yaml")])
+                     "--text-dir", mat["text"], "--doc-rules", str(rule_path)])
     assert code == config.EXIT_OK
     assert rule_path.read_text(encoding="utf-8") == before
     assert "규칙 파일은 고치지 않았습니다" in capsys.readouterr().out
@@ -188,8 +185,7 @@ def test_이미_있는_말은_빠진다(tmp_path, capsys):
     mat = make_material(tmp_path, REPORT_DOCS, as_seed=False)
     cli.main(["--suggest-terms", "DC_001_003",
               "--seeds", mat["seeds"], "--overrides", mat["overrides"],
-              "--text-dir", mat["text"], "--doc-rules", str(rule_path),
-              "--taxonomy", str(tmp_path / "없는체계.yaml")])
+              "--text-dir", mat["text"], "--doc-rules", str(rule_path)])
     out = capsys.readouterr().out
     assert "품목보고서" not in out
     assert "실태조사" in out           # 규칙에 없는 말은 그대로 나온다

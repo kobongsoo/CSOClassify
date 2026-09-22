@@ -46,17 +46,10 @@ MpowerClassify-rs --build-doc-rule \
   --doc-rules    <정책 폴더>/doc_rule.yaml
 ```
 
-규칙 파일은 분류체계를 품고 있어 `doc_taxonomy.yaml` 이 따로 필요 없다. 회사별로 칸을 비우거나
+규칙 파일은 분류체계를 품고 있어 따로 둘 스냅샷 파일이 없다. 회사별로 칸을 비우거나
 말을 빼고 더하려면 화면(설정 › ② 판단 기준 › 업무분류)에서 고친다 — 그 결정은 `doc_rule.local.yaml` 에 남는다.
 
-옛 방식(다음 판에서 없앰)은 스냅샷과 규칙 골격을 따로 만들었다:
-
-```bash
-python scripts/export_taxonomy.py \
-  --input  resources/policy/samples/doc_classification_export.itsec.json \
-  --output resources/policy/doc_taxonomy.yaml \
-  --scaffold-doc-rule resources/policy/doc_rule.yaml
-```
+(2026-09-22 부터 옛 스냅샷 `doc_taxonomy.yaml`·`scripts/export_taxonomy.py`·`--scaffold-doc-rule` 은 없어졌다.)
 
 ## 칸 설명
 

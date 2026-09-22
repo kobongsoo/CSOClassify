@@ -20,7 +20,7 @@ from csoclassify.classify import axes as A
 #
 # -in: nodes = {dc_id, parent, order, title, status} dict 목록
 #
-# -out: dict = validate_taxonomy_data/load_taxonomy 에 넣을 수 있는 원시 데이터
+# -out: dict = validate_taxonomy_data/taxonomy_from_snapshot 에 넣을 수 있는 원시 데이터
 # -out: error = 없음
 #------------------------------------------------------------------
 def mk(nodes):
@@ -44,31 +44,31 @@ def codes(violations):
 # ── 실제 배포 스냅샷 회귀 ────────────────────────────────────────────
 
 #------------------------------------------------------------------
-# 저장소의 doc_taxonomy.yaml 은 검증을 통과하고, 관리 화면과 같은 경로를 낸다
-#=> scripts/export_taxonomy.py 로 이미 만들어 둔 실제 스냅샷을 회귀로 묶는다.
-#   설계서 로드맵 D1 완료 판정("22개 노드가 로드되고, 임의 DC_ID 의 전체경로가
-#   관리 화면과 글자까지 같게 나온다")을 그대로 코드로 옮긴 것이다.
+# 배포 규칙(자동 생성)에서 지은 분류체계가 관리 화면과 같은 경로를 낸다
+#=> 분류할 때 쓰는 트리는 자동 생성 doc_rule.yaml 의 path·path_ids 에서 다시 짓는다
+#   (2026-09-22 — doc_taxonomy.yaml 없앰). 설계서 로드맵 D1 완료 판정("임의 DC_ID 의
+#   전체경로가 관리 화면과 글자까지 같게 나온다")을 그 트리로 확인한다.
 #
 # -in: 없음
 # -out: 없음(단언)
-# -out: error = 스냅샷이 없거나 검증에 실패하면 AssertionError/예외
+# -out: error = 규칙이 검증에 실패하면 AssertionError/예외
 #------------------------------------------------------------------
-def test_배포_스냅샷은_검증을_통과하고_경로가_관리화면과_일치한다():
-    # 실제 스냅샷은 고객사 DB 에서 나온 값이라 저장소에 올리지 않는다. 갓 받아온
-    # 클론에는 없는 것이 정상이므로 실패가 아니라 건너뛴다 — 형식만 보려면 같은
-    # 폴더의 doc_taxonomy.sample.yaml 을 보면 된다.
-    if not os.path.isfile(A.default_taxonomy_path()):
-        pytest.skip("배포 스냅샷(doc_taxonomy.yaml)이 없습니다 — "
-                    "scripts/export_taxonomy.py 로 만든 뒤에만 도는 회귀입니다.")
-    taxonomy = A.load_taxonomy()
+def test_배포_규칙에서_지은_체계는_경로가_관리화면과_일치한다():
+    from csoclassify.classify import doc_rules as DR
+    # 실제 규칙은 고객사 체계에서 나온 값이라 저장소에 올리지 않는다. 갓 받아온
+    # 클론에는 없는 것이 정상이므로 실패가 아니라 건너뛴다.
+    path = DR.default_doc_rules_path()
+    if not os.path.isfile(path):
+        pytest.skip("배포 규칙(doc_rule.yaml)이 없습니다 — --build-doc-rule 로 만든 뒤에만 도는 회귀입니다.")
+    taxonomy = DR.load_doc_rules(path).taxonomy
+    if taxonomy is None:
+        pytest.skip("배포 규칙이 자동 생성본이 아닙니다 — --build-doc-rule 로 다시 만드세요.")
     assert len(taxonomy) >= 1
     node = taxonomy.get("DC_002_001_001")
     assert node is not None
     assert taxonomy.path("DC_002_001_001") == "기술/개발 > 설계문서 > 요구사항정의서"
     assert taxonomy.path_ids("DC_002_001_001") == ("DC_002", "DC_002_001", "DC_002_001_001")
 
-
-# ── 정상 케이스 ────────────────────────────────────────────────────
 
 #------------------------------------------------------------------
 # 정상 트리는 위반이 없다
@@ -198,7 +198,7 @@ def test_자기참조는_T7():
 #------------------------------------------------------------------
 # A→B→A 처럼 두 노드가 서로를 부모로 가리키면 순환(T7)
 #=> 설계서 8장 T7 예시(A→B→A)를 그대로 재현한다. 이 경우를 검증 없이
-#   Taxonomy.path_ids() 로 바로 계산하면 무한루프에 빠지므로, load_taxonomy()
+#   Taxonomy.path_ids() 로 바로 계산하면 무한루프에 빠지므로, taxonomy_from_snapshot()
 #   가 이 상태를 만들기 전에 반드시 막아야 한다.
 #
 # -in: 없음
@@ -215,7 +215,7 @@ def test_두_노드가_서로를_가리키면_T7():
 
 #------------------------------------------------------------------
 # 검증 없이 만든 Taxonomy 도 path_ids() 가 순환에서 무한루프에 빠지지 않는다
-#=> load_taxonomy() 가 아니라 Taxonomy 생성자를 직접 써서(검증 우회) 순환
+#=> taxonomy_from_snapshot() 이 아니라 Taxonomy 생성자를 직접 써서(검증 우회) 순환
 #   트리를 만들었을 때, path_ids() 자체가 안전망으로 ValueError 를 내는지
 #   확인한다(axes.py 의 이중 방어).
 #
@@ -232,55 +232,32 @@ def test_검증을_건너뛴_순환_트리는_path_ids에서_ValueError():
         taxonomy.path_ids("A")
 
 
-# ── load_taxonomy() 예외 경로 ────────────────────────────────────────
+# ── taxonomy_from_snapshot() 예외 경로 ──────────────────────────────
 
 #------------------------------------------------------------------
-# 존재하지 않는 경로는 FileNotFoundError
+# 검증 실패한 스냅샷은 TaxonomyValidationError, 위반 목록을 담는다
 #
 # -in: 없음
 # -out: 없음(단언)
 # -out: error = 없음
 #------------------------------------------------------------------
-def test_파일_없으면_FileNotFoundError(tmp_path):
-    missing = tmp_path / "없는파일.yaml"
-    with pytest.raises(FileNotFoundError):
-        A.load_taxonomy(str(missing))
-
-
-#------------------------------------------------------------------
-# 검증 실패한 파일은 TaxonomyValidationError, 위반 목록을 담는다
-#
-# -in: 없음
-# -out: 없음(단언)
-# -out: error = 없음
-#------------------------------------------------------------------
-def test_검증_실패시_TaxonomyValidationError(tmp_path):
-    import yaml as _yaml
-    bad = tmp_path / "doc_taxonomy.yaml"
-    bad.write_text(
-        _yaml.safe_dump(mk([{"dc_id": "A", "parent": "A", "order": 1,
-                             "title": "A", "status": 1}]), allow_unicode=True),
-        encoding="utf-8",
-    )
+def test_검증_실패시_TaxonomyValidationError():
+    bad = mk([{"dc_id": "A", "parent": "A", "order": 1, "title": "A", "status": 1}])
     with pytest.raises(A.TaxonomyValidationError) as exc_info:
-        A.load_taxonomy(str(bad))
+        A.taxonomy_from_snapshot(bad, "(시험)")
     assert exc_info.value.violations[0]["code"] == "T7"
 
 
 #------------------------------------------------------------------
-# validate=False 면 위반이 있어도 그대로 로드된다(도구용 탈출구)
+# validate=False 면 위반이 있어도 그대로 만든다(도구용 탈출구)
 #
 # -in: 없음
 # -out: 없음(단언)
 # -out: error = 없음
 #------------------------------------------------------------------
-def test_validate_False면_고아_parent도_로드된다(tmp_path):
-    import yaml as _yaml
-    p = tmp_path / "doc_taxonomy.yaml"
-    p.write_text(
-        _yaml.safe_dump(mk([{"dc_id": "A1", "parent": "없는부모", "order": 1,
-                             "title": "A1", "status": 1}]), allow_unicode=True),
-        encoding="utf-8",
-    )
-    taxonomy = A.load_taxonomy(str(p), validate=False)
+def test_validate_False면_고아_parent도_로드된다():
+    data = mk([{"dc_id": "A1", "parent": "없는부모", "order": 1, "title": "A1", "status": 1}])
+    taxonomy = A.taxonomy_from_snapshot(data, "(시험)", validate=False)
     assert len(taxonomy) == 1
+
+

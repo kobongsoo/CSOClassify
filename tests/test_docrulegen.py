@@ -55,21 +55,25 @@ def _row(rows, node):
 
 
 #------------------------------------------------------------------
-# 새 방식 판정 — 조정 파일이 있거나 규칙 파일이 자동 생성본이면
+# 옛 모양 판정 — 규칙 파일이 자동 생성본이 아니고 조정 파일도 없을 때만
+#=> 규칙 파일이 아직 없으면 옛 모양이 아니다(새로 만들면 된다).
 #
 # -in: tmp_path = pytest 임시 폴더
 # -out: 없음(assert)
 # -out: error = 실패 시 AssertionError
 #------------------------------------------------------------------
-def test_generated_mode_detection(tmp_path):
+def test_legacy_rules_detection(tmp_path):
     rules, exp = _policy(tmp_path)
-    assert not G.is_generated_mode(rules)
+    assert not G.is_legacy_rules(rules)                      # 아직 없음
+    with open(rules, "w", encoding="utf-8") as f:
+        yaml.safe_dump({"doctype_rules": [{"id": "a", "node": "DC_001_001"}]}, f)
+    assert G.is_legacy_rules(rules)                          # 옛 모양
+    G.save_local(rules, {"version": "t"})
+    assert not G.is_legacy_rules(rules)                      # 조정 파일이 있으면 새 방식
+    os.remove(G.local_path_of(rules))
     doc, _ = DB.build_doc_rule(exp, os.path.dirname(rules))
     DB.write_doc_rule(rules, doc)
-    assert G.is_generated_mode(rules)
-    os.remove(rules)
-    G.save_local(rules, {"version": "t"})
-    assert G.is_generated_mode(rules)
+    assert not G.is_legacy_rules(rules)                      # 자동 생성본
 
 
 #------------------------------------------------------------------

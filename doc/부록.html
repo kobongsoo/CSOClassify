@@ -182,11 +182,12 @@
             전혀 다른 대응을 하게 됩니다</td></tr>
     <tr><td><code>--failsafe</code> 값이 <code>C/S/O</code> 가 아님</td><td><span class="chg-b">4</span></td><td><b>3</b></td>
         <td>부른 쪽이 준 값이 틀린 것이므로 인자 오류입니다</td></tr>
-    <tr><td><code>--axis doctype</code> 인데 분류체계 <b>파일이 없음</b></td><td><span class="chg-b">4</span></td><td><b>3</b></td>
+    <tr><td><code>--axis doctype</code> 인데 업무분류 규칙(<code>doc_rule.yaml</code>) <b>파일이 없음</b></td><td><span class="chg-b">4</span></td><td><b>3</b></td>
         <td>'파일 없음'은 경로를 고치면 되는 문제라, 내용이 틀린 것과 같은 코드로
             뭉뚱그리면 배치가 대응을 나눌 수 없습니다</td></tr>
     <tr><td><code>--export-taxonomy</code> 원본 JSON <b>내용</b> 오류</td><td><span class="chg-b">3</span></td><td><b>4</b></td>
-        <td>위와 반대 방향 — "경로를 다시 묻는다"와 "원본 데이터를 고친다"를 가릅니다</td></tr>
+        <td>위와 반대 방향 — "경로를 다시 묻는다"와 "원본 데이터를 고친다"를 가릅니다
+            <span class="def">(2026-09-22 부터 <code>--export-taxonomy</code> 는 없어졌다 — 규칙은 <code>--build-doc-rule</code> 로 만든다)</span></td></tr>
     <tr><td>Rust 판에서 <b>추출에 실패</b>했을 때</td><td><span class="chg-b">0</span></td><td><b>1</b></td>
         <td>실패 건수를 세기만 하고 종료코드에 반영하지 않았습니다. 파이썬 판·이 문서는
             1 을 약속하고 있었으므로 <b>배치가 두 판에서 다르게 굴렀습니다</b></td></tr>
@@ -312,7 +313,7 @@
     <tr><td>실행 흔적(상태 줄·오류 로그)</td><td><b>영구</b> <span class="def">최소 정책 개정 주기의 2배</span></td>
         <td>한 줄짜리인데 <b>재현의 열쇠</b>입니다. 지울 이유가 없습니다</td></tr>
     <tr><td class="chg-b">정책 파일 버전별 사본<br>
-            <span class="def">cso_rule.yaml · doc_taxonomy.yaml · doc_rule.yaml</span></td>
+            <span class="def">cso_rule.yaml · doc_rule.yaml · doc_rule.local.yaml</span></td>
         <td class="chg-b"><b>감사용 파일보다 오래</b></td>
         <td><b>가장 놓치기 쉬운 것</b> — 아래 경고를 보세요</td></tr>
   </table></div>

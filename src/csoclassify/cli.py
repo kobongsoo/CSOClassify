@@ -118,6 +118,39 @@ class _VersionAction(argparse.Action):
         parser.exit(message=version_text() + "\n")
 
 
+# 없어진 옵션 → 대신 쓸 것. 2026-09-22 업무분류 규칙 자동 생성으로 옛 분류체계
+# 스냅샷(doc_taxonomy.yaml)과 그것을 만들던 명령을 없앴다(설계서 업무분류-규칙파일-자동생성 7단계).
+REMOVED_OPTIONS = {
+    "--export-taxonomy":   "업무분류 규칙은 --build-doc-rule 로 만듭니다(분류체계가 규칙 안에 들어갑니다)",
+    "--scaffold-doc-rule": "업무분류 규칙은 --build-doc-rule 로 만듭니다(분류체계가 규칙 안에 들어갑니다)",
+    "--sync-doc-rule":     "업무분류 규칙은 --build-doc-rule 로 만듭니다(분류체계가 규칙 안에 들어갑니다)",
+    "--no-fill-blank":     "업무분류 규칙은 --build-doc-rule 로 만듭니다(분류체계가 규칙 안에 들어갑니다)",
+    "--sync-enrich":       "업무분류 규칙은 --build-doc-rule 로 만듭니다(분류체계가 규칙 안에 들어갑니다)",
+    "--taxonomy":          "분류체계는 doc_rule.yaml(--build-doc-rule 로 만든 것) 안에 있습니다",
+}
+
+
+#------------------------------------------------------------------
+# 없어진 옵션을 줬는지 본다
+#=> 숨겨 둔 옛 옵션(REMOVED_OPTIONS)이 하나라도 들어왔으면 무엇을 대신 쓰는지 알리고 멈춘다.
+#   조용히 무시하면 부른 쪽은 옛 명령이 먹힌 줄 안다 — 그래서 '인자 오류(3)'로 끝낸다.
+#
+# -in: args = 파싱된 인자
+#
+# -out: code = 멈춰야 하면 종료코드(3), 아니면 None
+# -out: error = 없음
+#------------------------------------------------------------------
+def check_removed_options(args):
+    for flag, hint in REMOVED_OPTIONS.items():
+        dest = "removed_taxonomy" if flag == "--taxonomy" else "removed_" + flag[2:].replace("-", "_")
+        val = getattr(args, dest, None)
+        # --taxonomy 는 값(문자열)을, 나머지는 True 를 담는다 — 둘 다 '줬다'는 뜻이다.
+        if val is not None and val is not False:
+            return fail_err("unsupported_option",
+                            f"[MpowerClassify] {flag} 는 없어졌습니다 — {hint}.")
+    return None
+
+
 #------------------------------------------------------------------
 # 인자 파서 구성
 #=> 설계서 §6 의 옵션들을 argparse 로 정의한다. 긴 이름은 '--'(GNU 관례)로 통일하고
@@ -265,11 +298,9 @@ def build_parser():
                    help="규칙셋(cso_rule.yaml)의 등급 값만 검사하고 종료(문서는 읽지 않음). "
                         "정상 0, 검증 실패 4")
     # 업무 분류(doctype) 축 — 문서분류체계 연동(설계서 §3~6).
-    p.add_argument("--taxonomy", dest="taxonomy", default=None,
-                   help="분류체계 스냅샷 경로(기본 resources/policy/doc_taxonomy.yaml). "
-                        "--export-taxonomy 로 생성(저장 경로로도 쓰임)")
     p.add_argument("--doc-rules", dest="doc_rules", default=None,
                    help="업무분류 규칙셋 경로(기본 resources/policy/doc_rule.yaml). "
+                        "--build-doc-rule 로 만든 파일이며 분류체계가 그 안에 있다. "
                         "없으면 doctype 축을 건너뛰고 security 만 처리(경고 후 계속)")
     p.add_argument("--axis", dest="axis", choices=["security", "doctype"], default=None,
                    help="처리할 축을 하나로 제한(미지정 시 가능한 축 전부). "
@@ -277,33 +308,24 @@ def build_parser():
     p.add_argument("--conflict", dest="conflict", default=None,
                    help="doctype 축의 충돌 전략을 실행 시 덮어쓰기: 예) --conflict doctype=top_n:3 "
                         "(security 축은 서열이 있어 덮어쓸 수 없음 — 주면 오류)")
-    # 분류체계 스냅샷 내보내기(문서 처리 없음, --export-taxonomy 단독 모드).
-    p.add_argument("--export-taxonomy", dest="export_taxonomy", action="store_true",
-                   help="DOC_CLASSIFICATION JSON(MpowerV11 내보내기)을 --taxonomy 경로에 "
-                        "doc_taxonomy.yaml 스냅샷으로 변환하고 종료(문서는 읽지 않음). "
-                        "--file/--dir 불필요")
+    # 업무분류 규칙 자동 생성(문서 처리 없음, --build-doc-rule 단독 모드).
     p.add_argument("--export-input", dest="export_input", default=None,
-                   help="--export-taxonomy 의 원본 JSON 경로(기본 "
-                        "resources/policy/doc_classification_export.json)")
-    p.add_argument("--scaffold-doc-rule", dest="scaffold_doc_rule", action="store_true",
-                   help="--export-taxonomy 와 함께 쓰면 --doc-rules 경로에 doc_rule.yaml "
-                        "골격(빈 terms, filename 만 title 로 채움)도 생성. 이미 있으면 건너뜀")
+                   help="--build-doc-rule 의 원본 체계 JSON 경로(기본: 규칙 파일 옆 "
+                        "doc_classification_export.json)")
     p.add_argument("--build-doc-rule", dest="build_doc_rule", action="store_true",
                    help="체계 JSON(--export-input) · 유의어 사전 · 본보기 · doc_rule.local.yaml 로 "
                         "--doc-rules 파일을 통째로 새로 만든다(자동 생성 — 사람이 고치지 않는 파일). "
-                        "doc_taxonomy.yaml 은 만들지도 읽지도 않는다. 기존 파일은 .bak 으로 남긴다")
-    p.add_argument("--sync-doc-rule", dest="sync_doc_rule", action="store_true",
-                   help="분류 체계(doc_taxonomy.yaml)를 훑어 --doc-rules 파일에 규칙을 "
-                        "채운다. 빠진 분류는 새로 만들고, 이름·띄어쓰기 변형·유의어 "
-                        "사전(synonyms/)의 같은 뜻 다른 말까지 넣는다. 이미 있는 파일에도 "
-                        "덧붙이므로 --scaffold-doc-rule 과 달리 건너뛰지 않는다")
-    p.add_argument("--no-fill-blank", dest="sync_fill_blank", action="store_false",
-                   default=True,
-                   help="--sync-doc-rule 에서 '단어가 하나도 없는 기존 규칙'을 "
-                        "채우지 않는다(기본은 채운다)")
-    p.add_argument("--sync-enrich", dest="sync_enrich", action="store_true",
-                   help="--sync-doc-rule 에서 '이미 단어가 있는 규칙'에도 빠진 유의어만 "
-                        "덧붙인다(사람이 적어 둔 말은 지우지 않는다). 기본은 하지 않음")
+                        "기존 파일은 .bak 으로 남긴다")
+    # 없어진 옵션 — 도움말에는 숨기되 받아는 둔다. 모르는 옵션으로 argparse 가 멈추면
+    # "왜 없어졌고 무엇을 쓰면 되는지"를 알려 줄 수 없다(엠파워 배치가 옛 명령을 부를 수 있다).
+    for flag in REMOVED_OPTIONS:
+        if flag == "--taxonomy":
+            # 값을 받던 옵션이라 값까지 삼켜야 뒤 인자가 대상 파일로 잘못 읽히지 않는다.
+            p.add_argument(flag, dest="removed_taxonomy", nargs="?", const="",
+                           default=None, help=argparse.SUPPRESS)
+        else:
+            p.add_argument(flag, dest="removed_" + flag[2:].replace("-", "_"),
+                           action="store_true", help=argparse.SUPPRESS)
     # ── 규칙 단어 제안(--suggest-terms) — 문서도 모델도 필요 없는 단독 모드 ──
     # 사람이 확정한 문서에서 "이 분류에만 나오는 말"을 뽑아 보여 주기만 한다.
     # 규칙 파일은 건드리지 않는다 — 넣는 것은 사람이 화면에서 할 일이다.
@@ -1559,62 +1581,25 @@ def run_text_only(files, opts, out_fp):
 
 
 #------------------------------------------------------------------
-# 분류체계 스냅샷 노후 경고 (T13)
-#=> exported_at 이 max_age_days 보다 오래됐으면 경고 문구를 만든다. DB 를 다시
-#   조회하지 않고 판단할 수 있는 유일한 근거가 이 타임스탬프뿐이라(설계서 3-3 —
-#   MpowerClassify 는 분류 중 DB 에 전혀 접속하지 않는다), 완벽히 막지는 못해도
-#   "느슨하게 동기화되지만 조용히 낡지는 않는다"를 지키기 위한 안전망이다.
-#
-# -in: taxonomy     = axes.Taxonomy
-# -in: max_age_days = 경고 기준 일수(기본 90)
-#
-# -out: str | None = 경고 문구(문제 없거나 exported_at 을 못 읽으면 None)
-# -out: error = 없음
-#------------------------------------------------------------------
-def _check_stale_taxonomy(taxonomy, max_age_days=90):
-    import datetime
-    try:
-        exported = datetime.datetime.strptime(taxonomy.exported_at, "%Y%m%d%H%M%S")
-    except (ValueError, TypeError):
-        return None   # 형식이 다르면 판단하지 않는다(오탐보다 조용히 넘기는 편이 안전)
-    age_days = (datetime.datetime.now() - exported).days
-    if age_days <= max_age_days:
-        return None
-    return (f"[MpowerClassify] 분류체계 스냅샷(doc_taxonomy.yaml)이 {age_days}일 전 것입니다"
-           f"(exported_at={taxonomy.exported_at}) — DB 와 어긋났을 수 있습니다. "
-           f"scripts/export_taxonomy.py 로 다시 내보내는 것을 권장합니다.")
-
-
-#------------------------------------------------------------------
-# 업무분류(doctype) 축 로드 — 있으면 켜고 없으면 끄는 외장 자산 (설계서 4-6·T14·T16)
-#=> doc_taxonomy.yaml·doc_rule.yaml 을 함께 로드해 taxonomy/doc_rules 를 만든다.
-#   security 축과 달리 이 두 파일은 필수가 아니다 — 아래 표(4-6)대로 동작한다.
+# 업무분류(doctype) 축 로드 — 자동 생성 규칙 파일 하나로 켠다 (설계서 4-6)
+#=> --build-doc-rule 로 만든 doc_rule.yaml 을 읽는다. 분류체계(제목·경로·조상)가
+#   규칙 줄 안에 있으므로 다른 파일은 읽지 않는다(2026-09-22 — doc_taxonomy.yaml 없앰).
 #    1) --axis security 면 애초에 시도하지 않는다(파일이 깨져 있어도 상관없다 —
 #       이번 실행이 쓰지 않을 축이므로 검증할 이유가 없다)
-#    2) doc_taxonomy.yaml 이 없으면: --axis doctype 명시 시 종료(4), 아니면 경고 후
-#       security 만(축 자체를 끈다)
-#    3) 스냅샷 검증(T0·T7·T8) 실패는 항상 치명적 — 파일이 있는데 깨졌다는 것은
-#       "안 쓴다"가 아니라 "고쳐야 한다"는 뜻이라 조용히 넘기지 않는다
-#    4) 스냅샷이 오래됐으면(T13) 경고만
-#    5) doc_rule.yaml 도 같은 방식으로 로드(taxonomy 를 넘겨 T5·T6·T12 교차검증까지)
-#    6) T6·T12 경고는 화면에 그대로 보여준다(로드 자체는 막지 않음)
-#   [doc_rule.yaml 이 없을 때 — 축을 끄지 않는다]
-#     규칙 파일이 없어도 분류 수단이 하나 더 남아 있다: class_seed.jsonl 과의
-#     임베딩 전파. 그래서 파일이 없으면 '빈 규칙셋'(seed_only_ruleset)으로 축을
-#     켠 채로 둔다 — 1차 규칙 스캔은 아무것도 못 맞히지만 전파가 라벨을 채우고,
-#     seed 마저 없으면 미분류로 남아 사람이 나중에 분류한다. 축을 통째로 끄면
-#     labels.doctype 키가 아예 안 생겨 전파 단계까지 건너뛰게 되므로(그러면
-#     "seed 로라도 분류" 자체가 불가능) 이 구분이 중요하다.
-#     반면 doc_taxonomy.yaml 은 여전히 필수다 — 노드 경로·조상 관계를 모르면
-#     seed 가 준 dc_id 를 사람이 읽는 분류로 풀 수도, 조상 흡수를 할 수도 없다.
+#    2) 규칙 파일이 없으면: --axis doctype 명시 시 종료(3), 아니면 경고 후 security 만.
+#       예전의 'seed 전파 전용'(규칙 없이 축 켜기)은 없다 — 분류체계가 규칙 안에
+#       있어서, 규칙 파일이 없으면 seed 의 dc_id 를 경로로 풀 방법도 없다
+#    3) 파일이 있는데 옛 모양(자동 생성본이 아님)이면 항상 종료(4) — 조용히 축을 끄면
+#       "왜 업무분류가 안 나오지"가 된다. 새로 만드는 법을 알려 준다(YAML 이 깨졌으면
+#       같은 코드로 읽기 오류를 알린다)
+#    4) 자동 생성본이면 _load_generated_axis 로 켠다
 #
-# -in: args = argparse 결과(taxonomy/doc_rules/axis 필드 사용)
+# -in: args = argparse 결과(doc_rules/axis/doctype_vector_only 필드 사용)
 # -in: log  = 로거
 #
 # -out: (taxonomy, doc_rules_set, code) — code 가 None 이 아니면 호출자는 그 값을
 #        즉시 반환해야 한다(치명적 오류). code 가 None 이면 taxonomy/doc_rules_set
-#        은 (축이 꺼졌으면 둘 다 None, 켜졌으면 둘 다 값이 있음 — 규칙 파일이
-#        없었으면 doc_rules_set 은 규칙 0건짜리 빈 규칙셋) 중 하나다
+#        은 축이 꺼졌으면 둘 다 None, 켜졌으면 둘 다 값이 있다
 # -out: error = 없음(모든 실패는 code 로 환원)
 #------------------------------------------------------------------
 def _load_doctype_axis(args, log):
@@ -1622,78 +1607,44 @@ def _load_doctype_axis(args, log):
     if axis == "security":
         return None, None, None   # 이번 실행은 doctype 을 아예 안 쓴다 — 시도조차 안 함
 
-    from .classify import axes as AX
     from .classify import doc_rules as DR
 
-    # 자동 생성 규칙 파일이면 분류체계가 규칙 줄 안에 있다 — doc_taxonomy.yaml 을 찾지 않는다.
     doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
-    if _is_generated_rules(doc_rules_path):
-        return _load_generated_axis(args, log, doc_rules_path)
-
-    taxonomy_path = args.taxonomy or AX.default_taxonomy_path()
-    try:
-        # doc_taxonomy.yaml 불러오기
-        # => doc_taxonomy.yaml 파일을 읽어옴.(엠파워 분류체게 설정한 dc_id 적용을 위해..)
-        taxonomy = AX.load_taxonomy(taxonomy_path)
-    except FileNotFoundError as e:
+    if not os.path.isfile(doc_rules_path):
         if axis == "doctype":
             # '파일 없음'은 내용 오류(4)가 아니라 부른 쪽이 고칠 문제(3)다.
-            return None, None, fail_err("taxonomy_missing", f"[MpowerClassify] {e}",
-                                        taxonomy_path)
-        print(f"[MpowerClassify] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.\n"
-              f"              보안등급(security)만 판정합니다. 분류체계를 쓰려면\n"
-              f"              scripts/export_taxonomy.py 로 내보낸 뒤 exe 옆에 두세요.",
-              file=sys.stderr)
+            # 코드 이름은 옛 약속(taxonomy_missing)을 그대로 쓴다 — 분류체계가 없다는 뜻은 같다.
+            return None, None, fail_err(
+                "taxonomy_missing",
+                f"[MpowerClassify] 업무분류 규칙 파일(doc_rule.yaml)이 없습니다 — 분류체계가 "
+                f"그 안에 있습니다. --build-doc-rule 로 만드세요. 찾은 경로: {doc_rules_path}",
+                doc_rules_path)
+        print("[MpowerClassify] doc_rule.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다. "
+              "규칙은 --build-doc-rule 로 만드세요.", file=sys.stderr)
+        log.warning("doc_rule.yaml 없음 — 업무분류 축 끔 :: path=%s", doc_rules_path)
         return None, None, None
-    except AX.TaxonomyValidationError as e:
-        log.error("분류체계 스냅샷 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return None, None, fail_err("taxonomy_invalid", f"[MpowerClassify] {e}", e.path)
 
-    # doc_taxonomy.yaml 파일 점검
-    # => exported_at 날짜가 현재기준 90일 이전꺼면 노후화된 분류체계 로그 남김.
-    stale = _check_stale_taxonomy(taxonomy)
-    if stale:
-        print(stale, file=sys.stderr)
-        log.warning("분류체계 스냅샷 노후 :: exported_at=%s", taxonomy.exported_at)
-
-    # doc_rules.yaml 불러오기
-    try:
-        doc_rules_set = DR.load_doc_rules(doc_rules_path, taxonomy=taxonomy)
-    except FileNotFoundError:
-        # 규칙 파일이 없다고 축을 끄지는 않는다 — 규칙이 없을 뿐 분류할 방법은
-        # 아직 하나 더 있다(class_seed.jsonl 과의 임베딩 전파). 빈 규칙셋으로 축을
-        # 켜 두면 1차 스캔은 아무것도 못 맞히지만 전파가 라벨을 채울 수 있고,
-        # seed 마저 없으면 미분류로 남아 사람이 나중에 분류하게 된다.
-        doc_rules_set = DR.seed_only_ruleset()
-        print(f"[MpowerClassify] doc_rule.yaml 이 없어 업무분류(doctype)를 "
-              f"'seed 전파 전용'으로 돌립니다.\n"
-              f"              규칙 대신 class_seed.jsonl 과의 임베딩 유사도로만 분류합니다"
-              f"(seed 도 없으면 전부 미분류).\n"
-              f"              찾은 경로: {doc_rules_path}", file=sys.stderr)
-        log.warning("doc_rule.yaml 없음 — seed 전파 전용 모드 :: path=%s", doc_rules_path)
-        return taxonomy, doc_rules_set, None
-    except DR.DocRuleValidationError as e:
-        log.error("업무분류 규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return None, None, fail_err("doc_rules_invalid", f"[MpowerClassify] {e}", e.path)
-
-    for w in doc_rules_set.warnings:
-        print(f"[MpowerClassify] {w}", file=sys.stderr)
-        log.warning("doctype 규칙 경고 :: %s", w)
-
-    # --doctype-vector-only : 규칙 목록만 비우고 나머지(embed 임계값·conflict 전략·
-    # defaults)는 파일에 적힌 그대로 쓴다. 규칙셋을 통째로 seed_only_ruleset() 으로
-    # 갈아치우면 그 설정까지 기본값으로 되돌아가, 관리자가 정해 둔 임계값이 조용히
-    # 무시된다. 1차 스캔이 빈손이 되므로 그 뒤 단계는 '규칙 파일이 없는 배포'와
-    # 똑같이 흘러간다 — 엔진에 새 분기를 만들지 않아도 되는 이유다.
-    if getattr(args, "doctype_vector_only", False):
-        doc_rules_set = dataclasses.replace(doc_rules_set, rules=())
-        print("[MpowerClassify] 업무분류: 규칙을 쓰지 않고 기준 문서(class_seed) 비교로만 "
-              "분류합니다(--doctype-vector-only).", file=sys.stderr)
-        log.info("doctype 벡터 전용 모드 :: path=%s", doc_rules_path)
-
-    # doc_taxonomy.yaml, doc_rules.yaml 파일 class 리턴.
-    return taxonomy, doc_rules_set, None
-
+    if not _is_generated_rules(doc_rules_path):
+        # YAML 자체가 깨졌으면 '옛 모양'이 아니라 읽기 오류를 그대로 알린다(Rust 판과 같은 갈래).
+        import yaml
+        try:
+            with open(doc_rules_path, encoding="utf-8") as f:
+                yaml.safe_load(f)
+        except (OSError, yaml.YAMLError) as e:
+            log.error("업무분류 규칙을 읽지 못함 :: path=%s", doc_rules_path)
+            return None, None, fail_err("doc_rules_invalid",
+                                        f"[MpowerClassify] 업무분류 규칙 파일을 읽지 못했습니다: "
+                                        f"{doc_rules_path}\n  {e}", doc_rules_path)
+        # 읽히는데 자동 생성본이 아니다 — 옛 모양(분류체계를 doc_taxonomy.yaml 로 따로 읽던 방식).
+        log.error("업무분류 규칙이 자동 생성본이 아님 :: path=%s", doc_rules_path)
+        return None, None, fail_err(
+            "doc_rules_invalid",
+            f"[MpowerClassify] [G0] 옛 모양 규칙 파일입니다(분류체계 doc_taxonomy.yaml 을 "
+            f"따로 읽던 방식): {doc_rules_path}\n"
+            f"  이 판부터는 --build-doc-rule 로 만든 규칙만 읽습니다. 화면의 "
+            f"[새 방식으로 바꾸기] 또는 --build-doc-rule 로 다시 만드세요.",
+            doc_rules_path)
+    return _load_generated_axis(args, log, doc_rules_path)
 
 #------------------------------------------------------------------
 # --conflict 실행 시 덮어쓰기 파싱 (설계서 6-5·T2·T10·T11)
@@ -1948,31 +1899,6 @@ def run_classify(files, args, out_fp):
         # 전파(auto_prop)는 보류 문서 벡터가 있어야 구제 가능 → 꺼져 있으면 needed 로 올린다.
         if auto_prop and embed_mode == "none":
             embed_mode = "needed"
-
-    #-----------------------------------------------------------
-    # seed 전파 가능한지 판단
-    # 'seed 전파 전용'(doc_rule.yaml 없음)인데 전파까지 못 하는 상황이면 미리 알린다.
-    #   조용히 빈 결과를 내면 "분류할 게 없었다"로 오해되는데, 실제로는 "분류할 수단이
-    #   없었다"라서 대응이 완전히 다르다(규칙을 쓰거나 seed 를 채워야 한다).
-    #   전파를 못 하는 경우는 두 가지 — 임베딩을 아예 안 하거나(--rule-only 등),
-    #   임베딩은 하는데 비교할 doctype seed 가 없거나.
-    #-----------------------------------------------------------
-    if doc_rules_set is not None and doc_rules_set.version == "none":
-        from .classify.propagate import DoctypeSeedIndex
-        # seed 유무를 먼저 본다 — seed 가 없으면 embed_mode 도 덩달아 none 이 되므로
-        # (전파할 대상이 없으니 임베딩을 켤 이유가 없다), 순서를 반대로 하면 진짜
-        # 원인인 'seed 없음'을 '--rule-only 탓'으로 잘못 짚는다.
-        n_dt_seed = DoctypeSeedIndex.from_seed_file(seeds_path).size
-        why = None
-        if not n_dt_seed:
-            why = f"쓸 수 있는 seed(labels.doctype)가 없어({seeds_path})"
-        elif embed_mode == "none":
-            why = "임베딩을 하지 않아(--rule-only 등)"
-        if why:
-            print(f"[MpowerClassify] 업무분류: 규칙(doc_rule.yaml)도 없고 {why} 전파도 못 합니다 "
-                  f"— 전부 미분류로 두니 관리자가 분류한 뒤 seed 로 승격하세요.", file=sys.stderr)
-            log.warning("업무분류 분류수단 없음 :: embed_mode=%s dt_seed=%d seeds=%s",
-                        embed_mode, n_dt_seed, seeds_path)
 
     #-----------------------------------------------------------
     # 임베딩 수단 준비(임베딩이 필요한 정책일 때만). 데몬(웜 모델 재사용) 우선, 실패 시
@@ -2629,7 +2555,7 @@ def run_classify(files, args, out_fp):
         out_path = args.make_doctype_seeds
         if taxonomy is None or doc_rules_set is None:
             print("[MpowerClassify] 업무분류 축이 꺼져 있어 seed 를 만들 수 없습니다 "
-                  "(--taxonomy·--doc-rules 확인)", file=sys.stderr)
+                  "(--doc-rules 확인)", file=sys.stderr)
         else:
             # 업무분류측 class_seed.jsonl 씨드파일을 만든다.
             seeds, sstats = seedgen.select_doctype_seeds(
@@ -2676,8 +2602,7 @@ def run_classify(files, args, out_fp):
 
         #-------------------------------------------------------------
         # **업무분류 전파**
-        # => doc_rule.yaml, doc_taxonomy.yaml 설정된 경우에만 실행.
-        #   · 필요성 — doc_rule.yaml 이 없는 배포에서는 이 단계가 유일한 분류 수단이다.
+        # => doc_rule.yaml(분류체계 내장)이 있는 경우에만 실행.
         # 업무분류 축도 같은 seed 저장소로 전파한다. security 전파와 두 가지가 다르다:
         #   · 대상 — security 는 '보류 문서만' 구제하지만, doctype 은 이미 라벨이
         #     있는 문서에도 후보를 '더한다'(한 문서가 여러 분류에 동시에 맞을 수 있다).
@@ -3506,7 +3431,7 @@ def _loggable_record(rec):
 #------------------------------------------------------------------
 # 규칙 파일이 자동 생성본인가
 #=> 파일 맨 위를 읽어 generated 칸이 있는지 본다. 없거나 못 읽으면 False —
-#   그때는 옛 길(doc_taxonomy.yaml + doc_rule.yaml)로 간다.
+#   그때 부르는 쪽은 "옛 모양이니 --build-doc-rule 로 다시 만드세요"로 멈춘다.
 #
 # -in: path = doc_rule.yaml 경로
 #
@@ -3521,7 +3446,7 @@ def _is_generated_rules(path):
     try:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
-    except Exception:          # noqa: BLE001 (깨진 파일은 옛 길의 검증이 알린다)
+    except Exception:          # noqa: BLE001 (깨진 파일도 '자동 생성본 아님'으로 본다)
         return False
     return docbuild.is_generated(data)
 
@@ -3529,7 +3454,9 @@ def _is_generated_rules(path):
 #------------------------------------------------------------------
 # 자동 생성 규칙 파일로 업무분류 축 켜기
 #=> 분류체계를 규칙 줄에서 다시 짓는다. 경고(입력이 바뀜·손으로 고친 흔적)는
-#   화면에 그대로 보여 주고 판정은 계속한다. --doctype-vector-only 도 옛 길과 같다.
+#   화면에 그대로 보여 주고 판정은 계속한다.
+#   --doctype-vector-only 면 규칙 목록만 비우고 나머지(embed 임계값·conflict·defaults)는
+#   파일 값을 그대로 쓴다 — 통째로 갈면 관리자가 정해 둔 임계값이 조용히 무시된다.
 #
 # -in: args           = argparse 결과
 # -in: log            = 로거
@@ -3619,165 +3546,6 @@ def run_build_doc_rule(args):
 
 
 #------------------------------------------------------------------
-# 업무분류 규칙 채우기(--sync-doc-rule)
-#=> 화면의 [분류 불러오기] 버튼과 **같은 코드**로 doc_rule.yaml 을 채운다.
-#   예전에는 이 일이 화면에만 있어서, CLI 의 --scaffold-doc-rule 은 분류 이름
-#   하나만 넣은 빈 뼈대를 만들었다(유의어 없음, 파일이 있으면 건너뜀). 같은 일을
-#   두 곳이 다르게 하던 셈이라, 어휘를 만드는 층을 classify/docvocab.py 로 모으고
-#   양쪽이 그것을 부르게 했다.
-#    1) 분류 체계를 읽어 '규칙을 만들 분류'를 고른다(꺼 둔 분류·대분류는 뺀다)
-#    2) 유의어 사전(synonyms/)을 규칙 파일 옆에서 찾아 얹는다
-#    3) 빠진 분류는 새로 만들고, 옵션에 따라 빈 규칙을 채우거나 유의어를 덧붙인다
-#    4) 화면과 같은 방식으로 저장한다(머리 주석 · 키 순서 · .bak 백업)
-#
-# -in: args = 파싱된 인자(taxonomy · doc_rules · sync_fill_blank · sync_enrich)
-#
-# -out: code = 0(정상) · 3(분류 체계 없음) · 4(규칙 파일을 읽거나 쓸 수 없음)
-# -out: error = 없음(예외를 종료코드로 환원)
-#------------------------------------------------------------------
-def run_sync_doc_rule(args):
-    from .classify import axes as AX
-    from .classify import doc_rules as DR
-    from .classify import docvocab as DV
-
-    log = logsetup.get_logger("csoclassify.cli")
-    tax_path = args.taxonomy or AX.default_taxonomy_path()
-    rules_path = args.doc_rules or DR.default_doc_rules_path()
-
-    if not os.path.isfile(tax_path):
-        return fail_err("taxonomy_missing",
-                        f"[MpowerClassify] 회사 분류 체계를 찾을 수 없습니다: {tax_path}\n"
-                        f"  · --taxonomy <파일경로> 로 지정하거나,\n"
-                        f"  · --export-taxonomy 로 먼저 만드세요.", tax_path)
-    try:
-        # doc_taxonomy.yaml 파일 로딩.
-        taxonomy = AX.load_taxonomy(tax_path)
-    except Exception as e:
-        # 파일은 있는데 못 읽는다 = 내용 문제다(없음과 구분해 코드 4 로 나간다).
-        return fail_err("taxonomy_invalid",
-                        f"[MpowerClassify] 분류 체계를 읽지 못했습니다: {e}", tax_path)
-
-    # doc_taxonomy.yaml 을 읽어오면서 doc_rule.yaml 에 분류체계노드를 만듬.
-    nodes = DV.nodes_from_taxonomy(taxonomy)
-    if not nodes:
-        print("[MpowerClassify] 규칙을 만들 분류가 없습니다(꺼 둔 분류와 대분류는 "
-              "가져오지 않습니다).", file=sys.stderr)
-        return 0
-
-    try:
-        # 기존 doc_rule.yaml 에 doc_templete.yaml 을 합쳐서 dict 만듬.
-        doc = DV.load_doc(rules_path)
-    except Exception as e:
-        return fail_err("doc_rules_invalid",
-                        f"[MpowerClassify] 규칙 파일을 읽지 못했습니다: {rules_path}\n  {e}",
-                        rules_path)
-
-    # 업종별 분류체계 유의어 사전 파일을 로딩
-    # => synomins 폴더에 있는 _core 및 업종별 유의어 사전파일(doc_synomins_legal.yaml 등) 로딩.
-    syn = DV.load_synonyms(rules_path)
-    # 새 규칙에 얹을 값(weight 등)은 본보기가 정한다 — 코드에 박아 두지 않는다.
-    new_rule = (DR.load_scaffold_template(rules_path) or {}).get("new_rule")
-
-    # doc_rule.yaml 만들 doc dict 에 유의어 규칙들을 추가.
-    added, filled, enriched = DV.sync_nodes(
-        doc, nodes, fill_existing=bool(args.sync_fill_blank),
-        enrich_existing=bool(args.sync_enrich), syn=syn, new_rule=new_rule)
-
-    if not (added or filled or enriched):
-        print(f"[MpowerClassify] 바뀐 것이 없습니다 — 규칙 파일은 그대로 둡니다: {rules_path}",
-              file=sys.stderr)
-        return 0
-
-    try:
-        # 여기서 실제 doc_rule.yaml 파일 자체를 만듬.
-        DV.save_doc(rules_path, doc)
-    except OSError as e:
-        return fail_err("doc_rules_write_failed",
-                        f"[MpowerClassify] 규칙 파일을 쓰지 못했습니다: {rules_path}\n  {e}",
-                        rules_path)
-
-    layers = [os.path.basename(p) for p in (syn or {}).get("layers") or []]
-    print(f"[MpowerClassify] {rules_path} 갱신 — 새 분류 {added}개 · 빈 규칙 채움 "
-          f"{filled}개 · 유의어 더함 {enriched}개"
-          + (f" (유의어 사전: {' → '.join(layers)})" if layers else " (유의어 사전 없음)"),
-          file=sys.stderr)
-    log.info("업무분류 규칙 동기화 :: added=%d filled=%d enriched=%d path=%s",
-             added, filled, enriched, rules_path)
-    return 0
-
-
-#------------------------------------------------------------------
-# 분류체계 스냅샷 내보내기 전용 모드 (--export-taxonomy)
-#=> DOC_CLASSIFICATION JSON(MpowerV11 관리 화면/배치가 뽑은 원본)을 MpowerClassify
-#   가 읽는 doc_taxonomy.yaml 로 바꾼다. scripts/export_taxonomy.py(개발용
-#   스크립트)와 완전히 같은 axes.export_from_mpower_json() 을 쓴다 — exe 로
-#   얼려도(scripts/ 는 PyInstaller 번들에 안 들어간다) 이 변환을 할 수 있어야
-#   현장에서 소스 체크아웃 없이 스냅샷을 갱신할 수 있다.
-#    1) 원본 JSON → doc_taxonomy.yaml 변환 + round-trip 검증(축 로더가 그대로 읽는지)
-#    2) --scaffold-doc-rule 이면 doc_rule.yaml 골격도 --doc-rules 경로에 생성
-#       (이미 있으면 사람이 채운 내용을 덮어쓰지 않고 건너뜀)
-#
-# -in: args = 파싱된 인자(사용 필드: export_input·taxonomy·doc_rules·scaffold_doc_rule)
-#
-# -out: code = 0(정상) · 3(원본 JSON 없음/구조 오류) · 4(변환 결과 검증 실패)
-# -out: error = 없음(예외를 종료코드로 환원)
-#------------------------------------------------------------------
-def run_export_taxonomy(args):
-    import json as _json
-
-    from .classify import axes as AX
-    from .classify import doc_rules as DR
-
-    log = logsetup.get_logger("csoclassify.cli")
-    input_path = args.export_input or AX.default_taxonomy_export_input_path()
-    output_path = args.taxonomy or AX.default_taxonomy_path()
-
-    if not os.path.isfile(input_path):
-        return fail_err("export_input_missing",
-                        f"[MpowerClassify] 원본 JSON을 찾을 수 없습니다: {input_path}\n"
-                        f"  · --export-input <파일경로> 로 지정하거나,\n"
-                        f"  · resources/policy/doc_classification_export.json 에 두세요.",
-                        input_path)
-
-    try:
-        taxonomy, warnings = AX.export_from_mpower_json(input_path, output_path)
-    except (ValueError, _json.JSONDecodeError) as e:
-        # 원본 JSON 이 매핑이 아니거나 nodes 가 없거나 문법이 틀림 — 입력 '내용' 문제다.
-        # 파일이 없는 경우(2007)와 갈라 두면 부르는 쪽이 "경로를 다시 묻는다 / 원본
-        # 데이터를 고친다"를 구분할 수 있다.
-        log.error("분류체계 내보내기 실패(원본 문제) :: %s", e)
-        return fail_err("export_input_invalid", f"[MpowerClassify] {e}", input_path)
-    except AX.TaxonomyValidationError as e:
-        # 변환은 됐지만 결과 트리가 깨짐(순환·고아 등) — 원본 데이터 자체의 문제.
-        log.error("분류체계 내보내기 검증 실패 count=%d", len(e.violations))
-        return fail_err("export_input_invalid",
-                        f"[MpowerClassify] 변환 결과가 검증을 통과하지 못했습니다:\n{e}",
-                        input_path)
-
-    for w in warnings:
-        print(f"[MpowerClassify] 경고: {w}", file=sys.stderr)
-
-    print(f"[MpowerClassify] {output_path} 생성 완료 — "
-          f"노드 {len(taxonomy)}개, 최상위 {len(taxonomy.roots)}개, "
-          f"exported_at={taxonomy.exported_at}")
-    for root in taxonomy.roots[:3]:
-        for leaf in taxonomy.children_of(root.dc_id)[:1]:
-            print(f"  예: {taxonomy.path(leaf.dc_id)}")
-
-    if getattr(args, "scaffold_doc_rule", False):
-        doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
-        scaffold = DR.write_scaffold(taxonomy, doc_rules_path)
-        if scaffold is None:
-            print(f"[MpowerClassify] {doc_rules_path} 이 이미 있어 골격 생성을 건너뜁니다"
-                  f"(사람이 채운 내용을 덮어쓰지 않기 위함).", file=sys.stderr)
-        else:
-            print(f"[MpowerClassify] {doc_rules_path} 골격 생성 완료 — "
-                  f"규칙 {len(scaffold['doctype_rules'])}건(terms 는 비어 있음, 채워야 동작).")
-
-    return config.EXIT_OK
-
-
-#------------------------------------------------------------------
 # 규칙 단어 제안 — 후보 한 줄 찍기
 #=> 사람이 표를 눈으로 훑을 수 있게 한 줄로 만든다. 개발 용어(로그 오즈·df)를
 #   그대로 내보내지 않고, 판단에 필요한 것만 남긴다 —
@@ -3815,7 +3583,7 @@ def _suggest_line(cand):
 #   눈으로 봐야 정할 수 있다. 화면을 먼저 만들면 그 확인이 화면 뒤에 숨는다.
 #
 # -in: args = 파싱된 인자(사용: suggest_terms·seeds·overrides·text_dir·
-#             stopwords·doc_rules·taxonomy·suggest_json·suggest_min_docs·
+#             stopwords·doc_rules·suggest_json·suggest_min_docs·
 #             include_auto_seeds)
 #
 # -out: code = 0(정상) · 3(재료 없음·분류 이름이 틀림)
@@ -3868,14 +3636,15 @@ def run_suggest_terms(args):
     else:
         print(f"[MpowerClassify] 규칙 파일이 없어 '이미 있는 말'을 거르지 못합니다: "
               f"{doc_rules_path}", file=sys.stderr)
-    taxonomy_path = args.taxonomy or AX.default_taxonomy_path()
-    if os.path.isfile(taxonomy_path):
+    # 분류 이름(대분류 포함)은 자동 생성 규칙의 path·path_ids 에서 다시 짓는다.
+    if rule_doc is not None:
         try:
-            tax = AX.load_taxonomy(taxonomy_path)
+            tax = AX.taxonomy_from_rules(
+                [r for r in rule_doc.get("doctype_rules") or [] if isinstance(r, dict)])
             tax_raw = {"by_id": {n.dc_id: {"title": n.title} for n in tax}}
-        except AX.TaxonomyValidationError as e:
-            # 제안은 분류 체계 없이도 돈다 — 검증 실패로 멈출 자리가 아니다.
-            print(f"[MpowerClassify] 분류체계를 읽지 못해 '다른 분류 이름'을 "
+        except ValueError as e:
+            # 제안은 분류 체계 없이도 돈다 — 옛 모양 규칙이라 못 지었다고 멈출 자리가 아니다.
+            print(f"[MpowerClassify] 규칙에서 분류 체계를 짓지 못해 '다른 분류 이름'을 "
                   f"거르지 못합니다: {e}", file=sys.stderr)
 
     stopwords = TS.load_stopwords(stop_path)
@@ -3954,12 +3723,12 @@ def run_suggest_terms(args):
 #   특히 검증을 새로 도입한 직후, 기존 규칙셋에 이미 오타가 있는지 미리 보는 데 쓴다.
 #    1) 규칙셋을 검증까지 포함해 읽어 본다
 #    2) 문제가 없으면 규칙 건수를 요약해 보여 준다
-#    3) doc_taxonomy.yaml·doc_rule.yaml 이 있으면 그것도 같은 자리에서 검사한다
+#    3) doc_rule.yaml 이 있으면 그것도 같은 자리에서 검사한다
 #       (security 만 검사하고 doctype 은 실제 배치 때에야 오류를 만나면, "확인했는데
 #       왜 또 실패하지" 하는 상황이 생긴다 — 있는 파일은 전부 미리 본다)
-#       자동 생성 규칙이면 분류체계가 그 안에 있으므로 doc_taxonomy.yaml 은 보지 않는다
+#       분류체계는 자동 생성 규칙 안에 있다. 옛 모양 규칙이면 실제 분류처럼 종료(4)
 #
-# -in: args = 파싱된 인자(사용 필드: rules·taxonomy·doc_rules)
+# -in: args = 파싱된 인자(사용 필드: rules·doc_rules·seeds)
 #
 # -out: code = 0(정상) · 3(파일 없음) · 4(검증 실패)
 # -out: error = 없음(예외를 종료코드로 환원)
@@ -3989,7 +3758,6 @@ def run_check_rules(args):
     # doctype 축은 선택 자산이다(4-6) — 파일이 아예 없으면 "안 씀"으로 보고 건너뛴다.
     # (--axis security 로 좁히지 않는다 — --check-rules 는 배치 실행이 아니라 사람이
     # "지금 상태가 괜찮은지" 미리 보는 자리라, 있는 건 다 보여주는 편이 낫다.)
-    from .classify import axes as AX
     from .classify import doc_rules as DR
 
     # 자동 생성 규칙이면 분류체계가 규칙 줄 안에 있다 — doc_taxonomy.yaml 을 보지 않는다.
@@ -4011,48 +3779,18 @@ def run_check_rules(args):
               f"노드={len(tax)}개  최상위={len(tax.roots)}개")
         return config.EXIT_OK
 
-    taxonomy_path = args.taxonomy or AX.default_taxonomy_path()
-    if not os.path.isfile(taxonomy_path):
-        print(f"[MpowerClassify] 분류체계 스냅샷 없음(doctype 축 미사용): {taxonomy_path}")
-        return config.EXIT_OK
-    try:
-        taxonomy = AX.load_taxonomy(taxonomy_path)
-    except AX.TaxonomyValidationError as e:
-        log.error("분류체계 스냅샷 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return fail_err("taxonomy_invalid", f"[MpowerClassify] {e}", e.path)
-    stale = _check_stale_taxonomy(taxonomy)
-    if stale:
-        print(stale, file=sys.stderr)
-    print(f"[MpowerClassify] 분류체계 스냅샷 정상: {taxonomy_path}")
-    print(f"  exported_at={taxonomy.exported_at}  노드={len(taxonomy)}개  "
-          f"최상위={len(taxonomy.roots)}개")
-
-    doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
     if not os.path.isfile(doc_rules_path):
-        # 규칙이 없어도 축은 돈다(seed 전파 전용) — 그러니 "미사용"이 아니라 무엇으로
-        # 분류하게 되는지를 알려 준다. seed 저장소가 실제로 쓸 만한지도 같이 본다.
-        from .classify.propagate import DoctypeSeedIndex
-        from .classify import default_seed_path
-        seeds_path = args.seeds or default_seed_path()
-        n_seed = DoctypeSeedIndex.from_seed_file(seeds_path).size
-        print(f"[MpowerClassify] 업무분류 규칙셋 없음 → 'seed 전파 전용' 모드: {doc_rules_path}")
-        if n_seed:
-            print(f"  업무분류 seed {n_seed}건 사용 가능: {seeds_path}")
-        else:
-            print(f"  쓸 수 있는 업무분류 seed 가 없습니다({seeds_path}) — "
-                  f"업무분류는 전부 미분류로 남습니다")
+        # 규칙이 없으면 업무분류 축은 돌지 않는다(분류체계도 규칙 안에 있다).
+        print(f"[MpowerClassify] 업무분류 규칙셋 없음 → 업무분류(doctype) 축 미사용: {doc_rules_path}\n"
+              f"  규칙은 --build-doc-rule 로 만듭니다.")
         return config.EXIT_OK
-    try:
-        drs = DR.load_doc_rules(doc_rules_path, taxonomy=taxonomy)
-    except DR.DocRuleValidationError as e:
-        log.error("업무분류 규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
-        return fail_err("doc_rules_invalid", f"[MpowerClassify] {e}", e.path)
-    for w in drs.warnings:
-        print(f"[MpowerClassify] {w}")
-    print(f"[MpowerClassify] 업무분류 규칙셋 정상: {doc_rules_path}")
-    print(f"  version={drs.version}  conflict={drs.conflict.strategy}  "
-          f"규칙={len(drs.rules)}건(활성 {len(drs.active_rules)}건)")
-    return config.EXIT_OK
+    # 파일은 있는데 자동 생성본이 아니다 — 실제 분류(_load_doctype_axis)와 같은 판단으로 멈춘다.
+    return fail_err("doc_rules_invalid",
+                    f"[MpowerClassify] [G0] 옛 모양 규칙 파일입니다(분류체계 doc_taxonomy.yaml 을 "
+                    f"따로 읽던 방식): {doc_rules_path}\n"
+                    f"  이 판부터는 --build-doc-rule 로 만든 규칙만 읽습니다. 화면의 "
+                    f"[새 방식으로 바꾸기] 또는 --build-doc-rule 로 다시 만드세요.",
+                    doc_rules_path)
 
 
 #------------------------------------------------------------------
@@ -4363,24 +4101,16 @@ def _main(argv=None):
                             f"[MpowerClassify] --failsafe 값이 올바르지 않습니다: {args.failsafe!r}\n"
                             f"  정의된 등급: {' < '.join(GRADES)}")
 
-    # (1.35) 분류체계 스냅샷 내보내기 모드: 문서도 모델도 필요 없다 → 가장 먼저 처리.
-    # => 엠파워에 문서분류체계 doc_classification_export.json -> doc_taxonomy.yaml 파일로 만듬
-    # => doc_taxonomy.yaml 은 1차분류시 node 값(dc_id : 문서분류id) 만 필요.
-    if getattr(args, "export_taxonomy", False):
-        log.info("문서분류체계파일 doc_taxonomy.yaml 생성(--export_taxonomy)")
-        return run_export_taxonomy(args)
+    # (1.35) 없어진 옵션(--export-taxonomy·--sync-doc-rule·--taxonomy 등)을 줬으면 안내하고 멈춘다.
+    code = check_removed_options(args)
+    if code is not None:
+        return code
 
     # (1.355) 업무분류 규칙 자동 생성 모드: 체계 JSON 과 정책 폴더만 있으면 된다.
     # => doc_rule.yaml 을 통째로 새로 만든다(설계: 업무분류-규칙파일-자동생성-설계).
     if getattr(args, "build_doc_rule", False):
         log.info("문서분류규칙파일 doc_rule.yaml 자동 생성(--build-doc-rule)")
         return run_build_doc_rule(args)
-
-    # (1.36) 업무분류 규칙 채우기 모드: 분류 체계와 규칙 파일만 있으면 된다.
-    # => 화면의 [분류 불러오기] 버튼과 같은 일. 문서도 모델도 필요 없다.
-    if getattr(args, "sync_doc_rule", False):
-        log.info("문서분류규칙파일 doc_rule.yaml 생성(--sync_doc_rule)")
-        return run_sync_doc_rule(args)
 
     # (1.365) 규칙 단어 제안 모드: 확정된 라벨과 저장해 둔 본문만 본다.
     # => 문서도 모델도 읽지 않고, 규칙에 넣을 만한 말의 후보를 보여 주기만 한다.

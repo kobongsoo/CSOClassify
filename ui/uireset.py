@@ -49,11 +49,10 @@ FILE_NOTES = {
     "class_seed_audit.jsonl":
         ("기준 문서 변경 이력 — 누가 언제 등록·해제했나", False, ""),
     "doc_taxonomy.yaml":
-        ("회사 분류 체계 — 회사에서 내려받은 것을 옮겨 놓은 것", True,
-         "②의 [연결] 버튼"),
+        ("옛 판이 만든 회사 분류 체계 사본 — 이제 쓰지 않음", True, "필요 없음"),
     "doc_rule.yaml":
-        ("업무분류 규칙 — “무엇을 계약서로 볼 것인가”", True,
-         "③ 판단 기준 ▸ 업무분류에서 다시 만들기"),
+        ("업무분류 규칙 — “무엇을 계약서로 볼 것인가”(자동 생성)", True,
+         "① 회사 분류 체계 ▸ [다시 가져오기]"),
 }
 
 # 목록에 없는 파일의 설명. 무엇인지 모르면 '되살릴 수 있다'고 장담하지 않는다.
@@ -61,8 +60,9 @@ UNKNOWN_NOTE = ("앱이 만든 데이터", None, "")
 
 
 # 초기화하면서 함께 지울 수 있는 '만들어진' 설정 파일.
-#   doc_taxonomy.yaml : doc_classification_export.json 에서 다시 만들 수 있다
-#   doc_rule.yaml     : doc_rule_template.yaml + 분류 체계로 다시 만들 수 있다
+#   doc_taxonomy.yaml : 옛 판이 만든 분류 체계 사본 — 이제 쓰지 않으므로 남아 있으면 지운다
+#   doc_rule.yaml     : 체계 JSON + 유의어 사전 + 본보기 + 회사 조정으로 다시 만들 수 있다
+#   (회사 조정 doc_rule.local.yaml 은 사람의 결정이라 여기 넣지 않는다 — 되살릴 수 없다)
 # 둘 다 되살릴 수 있어서 선택으로 둔다(기본은 지움 — '처음 상태'가 되어야 하므로).
 GENERATED_YAML = ("doc_taxonomy.yaml", "doc_rule.yaml")
 
@@ -96,7 +96,7 @@ def scan_dirs(ui_dir):
 #   "누르면 뭐가 사라지는지 모르는 버튼"을 만들지 않기 위한 구조다.
 #
 # -in: ui_dir           = ui 폴더 경로
-# -in: drop_generated   = True 면 만들어진 doc_taxonomy.yaml · doc_rule.yaml 도 대상에 넣는다
+# -in: drop_generated   = True 면 만들어진 doc_rule.yaml(과 옛 doc_taxonomy.yaml)도 대상에 넣는다
 # -in: drop_seed        = False 면 기준 문서(class_seed.jsonl)를 남긴다(기본 True=지움).
 #                         변경 이력(class_seed_audit.jsonl)은 이 선택과 무관하게
 #                         지운다 — 사람이 고른 것은 '기준 문서'이지 그 로그가 아니다

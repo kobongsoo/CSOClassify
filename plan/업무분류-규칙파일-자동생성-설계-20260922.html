@@ -386,7 +386,7 @@ doctype_rules:
 <tr><td>로딩</td><td>분류 정보를 규칙 줄의 <code>title</code>·<code>path</code>·<code>path_ids</code> 에서 모아 <code>Taxonomy</code> 객체를 만든다(규칙이 있는 분류 + 그 조상). 판정 코드(조상 정리·경로·대분류 묶기)는 손대지 않는다</td><td><code>doc_rules.py</code> · <code>axes.py</code></td><td><code>doc_rules.rs</code> · <code>axes.rs</code></td></tr>
 <tr><td>핵어</td><td>판정 때 계산하던 것을 규칙 파일의 <code>heads</code>·<code>noise_tails</code> 에서 읽는다</td><td><code>doctype.py</code> · <code>taxhead.py</code></td><td><code>doctype.rs</code> · <code>taxhead.rs</code></td></tr>
 <tr><td>입력 확인</td><td>실행 때 <code>generated.inputs</code> 지문과 지금 파일을 견줘 다르면 경고(판정은 계속) — "사전을 고쳤는데 다시 만들지 않았다"를 잡는다</td><td>✔</td><td>✔</td></tr>
-<tr><td>옛 모양</td><td>규칙 줄에 <code>path_ids</code> 가 없는 옛 규칙 파일 + <code>doc_taxonomy.yaml</code> 은 한 판 동안 계속 읽는다(경고와 함께). 그다음 판에서 없앤다</td><td>✔</td><td>✔</td></tr>
+<tr><td>옛 모양</td><td>규칙 줄에 <code>path_ids</code> 가 없는 옛 규칙 파일 + <code>doc_taxonomy.yaml</code> 은 한 판 동안 계속 읽는다(경고와 함께). 그다음 판에서 없앤다 <span class="def">→ 2026-09-22 바로 끊음(7단계)</span></td><td>✔</td><td>✔</td></tr>
 <tr><td>없어지는 것</td><td><code>--export-taxonomy</code>, <code>--sync-doc-rule</code>, <code>--sync-enrich</code>, <code>filled_from_title</code>·<code>stale_title_hint</code>(규칙 쪽)</td><td colspan="2">옛 모양을 끊는 판에서 함께</td></tr>
 </table></div>
 <p>결과 레코드(<code>labels.doctype</code> 의 dc_id·path·path_ids)와 기준 문서(<code>class_seed.jsonl</code>, dc_id 기준)는 <b>바뀌지 않는다</b>. 엠파워 적재 쪽은 영향이 없다.</p>
@@ -448,7 +448,7 @@ doctype_rules:
 <tr><td>4</td><td>차이 뽑기 도구 → 이 고객 local · <b>고객 폴더 전환</b> <span class="pill ok">2026-09-22 끝</span></td><td><code>scripts/migrate_doc_rule_local.py</code>. 이 고객의 차이는 DC_007 <code>clear: [head_terms, terms]</code>(P2) 한 건뿐 — <code>ui/policy/doc_rule.local.yaml</code> 로 옮기고 다시 만들어 사본 6곳 반영(판 <code>doctype-gen-b29e4fa53046</code>, 전환 전 파일 <code>_backup/doc-rule-switch-20260922/</code>). 평가셋 500건 판정 변화 0건. 배포본 4곳 새로 빌드(리눅스 Rust 묶음에 체계 JSON·본보기·회사 조정 추가)</td></tr>
 <tr><td>5</td><td>화면 — 규칙 편집이 local 을 고치게 · [규칙 다시 만들기] <span class="pill ok">2026-09-22 끝</span></td><td>화면에서 고친 조정이 다시 만들어도 남음. 옛 방식 화면에 [새 방식으로 바꾸기] — 조정을 뽑아 재현을 확인한 뒤에만 바꾼다(시험 사본에서 전환·재생성 확인)</td></tr>
 <tr><td>6</td><td>연동 문서·실행 가이드·DOC_Rule.html 고치기 · 배포 <span class="pill ok">2026-09-22 끝</span></td><td>엠파워 준비 절차 한 단계(CLI 4개 → 3개). 실행 가이드·DOC_Rule.html(13장 회사 조정 신설)·README 갱신. Python <code>--check-rules</code> 가 자동 생성 규칙이면 스냅샷을 찾지 않게 고침</td></tr>
-<tr><td>7</td><td>다음 판에서 옛 CLI·<code>doc_taxonomy.yaml</code> 읽기 제거</td><td>—</td></tr>
+<tr><td>7</td><td>옛 CLI·<code>doc_taxonomy.yaml</code> 읽기 제거 <span class="pill ok">2026-09-22 끝</span></td><td>두 엔진에서 <code>--export-taxonomy</code>·<code>--scaffold-doc-rule</code>·<code>--sync-doc-rule</code>·<code>--no-fill-blank</code>·<code>--sync-enrich</code>·<code>--taxonomy</code> 제거(주면 종료 3 <code>unsupported_option</code>). 옛 모양 규칙은 종료 4(<code>[G0]</code>), 규칙이 없으면 업무분류 축을 끔('seed 전파 전용' 없앰). 화면은 옛 모양이면 [새 방식으로 바꾸기]만 보여 줌. <code>scripts/export_taxonomy.py</code> 삭제. 고객 한 곳뿐이라 호환 기간 없이 끊음(11장 권고)</td></tr>
 </table></div>
 </section>
 

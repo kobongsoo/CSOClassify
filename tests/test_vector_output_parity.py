@@ -32,7 +32,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RS_EXE = os.path.join(ROOT, "Rust", "target", "release", "MpowerClassify-rs.exe")
 POLICY = os.path.join(ROOT, "ui", "policy", "cso_rule.yaml")
 DOC_RULES = os.path.join(ROOT, "ui", "policy", "doc_rule.yaml")
-TAXONOMY = os.path.join(ROOT, "ui", "policy", "doc_taxonomy.yaml")
 MODEL_DIR = os.path.join(ROOT, "dist-onedir", "windows", "models", "e5-small-ko")
 
 # 규칙으로 등급이 확정되고 seed 승격 후보(seed_eligible)까지 붙는 문서.
@@ -68,7 +67,7 @@ def _run(engine, doc_dir, seeds, extra):
                PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
     r = subprocess.run(
         cmd + ["--dir", str(doc_dir), "--rules", POLICY,
-               "--doc-rules", DOC_RULES, "--taxonomy", TAXONOMY,
+               "--doc-rules", DOC_RULES,
                "--seeds", str(seeds),
                "--format", "jsonl", "--nosummary"] + model + list(extra),
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
@@ -112,7 +111,7 @@ def _fixture(tmp_path):
                PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
     r = subprocess.run(
         [sys.executable, "-m", "csoclassify", "--dir", str(d),
-         "--rules", POLICY, "--doc-rules", DOC_RULES, "--taxonomy", TAXONOMY,
+         "--rules", POLICY, "--doc-rules", DOC_RULES,
          "--with-vector", "--format", "jsonl", "--nosummary"],
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
     vec, dc_ids = None, []
@@ -213,7 +212,7 @@ def test_전파_2차패스가_실행헤더를_문서로_세지_않는다(tmp_pat
     doc_dir, _seeds = _fixture(tmp_path)
     env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
                PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
-    pol = ["--rules", POLICY, "--doc-rules", DOC_RULES, "--taxonomy", TAXONOMY]
+    pol = ["--rules", POLICY, "--doc-rules", DOC_RULES]
     p1 = tmp_path / "p1.jsonl"
     # 1차 — 헤더 줄이 들어간 jsonl 을 만든다(--nosummary 를 주지 않아야 요약도 붙는다).
     r1 = subprocess.run(

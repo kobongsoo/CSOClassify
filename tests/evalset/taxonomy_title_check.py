@@ -1,13 +1,13 @@
 """분류체계 제목을 핵어로 써도 되는지 자동 판정하고, 사람이 단 정답과 대조한다.
 
 설계서 plan/업무분류-1차분류-원점재검토-20260916.html 12장 ⓪-b 시험.
-문서는 한 건도 읽지 않는다 — 고객 분류체계 파일(doc_taxonomy.yaml)만 본다.
+문서는 한 건도 읽지 않는다 — 고객 분류체계 JSON(doc_classification_export.json)만 본다.
 
     # 1) 정답표 틀 만들기 (사람이 '정답' 칸에 O/X 를 채운다)
-    python tests/evalset/taxonomy_title_check.py --taxonomy ui/policy/doc_taxonomy.yaml \
+    python tests/evalset/taxonomy_title_check.py --taxonomy ui/policy/doc_classification_export.json \
         --make-sheet report/0b-넓은제목-정답표.csv
     # 2) 정답이 다 달리면 자동 판정과 대조
-    python tests/evalset/taxonomy_title_check.py --taxonomy ui/policy/doc_taxonomy.yaml \
+    python tests/evalset/taxonomy_title_check.py --taxonomy ui/policy/doc_classification_export.json \
         --labels report/0b-넓은제목-정답표.csv --out report/0b-넓은제목-결과.csv
 
 고객 분류체계 제목은 고객 데이터다. 정답표·결과는 gitignore 된 report/ 에만 둔다.
@@ -108,13 +108,13 @@ def judge_title(title, others, endings):
 #=> 판정할 때 실제로 제목을 끌어다 쓸 범위와 똑같이 맞춘다 — 꺼 둔 분류와
 #   서랍(자식 있는 뿌리)은 뺀다(docvocab.syncable_nodes 그대로).
 #
-# -in: path = doc_taxonomy.yaml 경로
+# -in: path = 체계 JSON(doc_classification_export.json) 경로
 #
 # -out: list = 노드 dict 리스트(dc_id·title·path)
 # -out: error = 파일을 못 읽으면 빈 리스트
 #------------------------------------------------------------------
 def target_nodes(path):
-    tax = taxlib.load_taxonomy(path)
+    tax = taxlib.load_from_export(path)
     return docvocab.syncable_nodes(tax)
 
 

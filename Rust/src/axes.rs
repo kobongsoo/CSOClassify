@@ -1,7 +1,9 @@
-//! 업무 분류(doctype) 축 — 분류체계 스냅샷 로드 (Python classify/axes.py 포팅).
-//! doc_taxonomy.yaml 을 읽어 dc_id 색인과 전체경로("기술/개발 > 설계문서 > ...")를
-//! 만든다. security 축(enum Grade, 서열 있음)과 달리 이 축은 트리이고 서열이 없다.
-//! rules.rs 와 같은 관례를 따른다: cso_rule.yaml/doc_taxonomy.yaml 모두
+//! 업무 분류(doctype) 축 — 분류체계 트리 (Python classify/axes.py 포팅).
+//! dc_id 색인과 전체경로("기술/개발 > 설계문서 > ...")를 만든다. 트리는 체계 JSON
+//! (--build-doc-rule 입력)이나 자동 생성 규칙 줄(path·path_ids)에서 짓는다 — 설계
+//! 7단계부터 doc_taxonomy.yaml 파일을 따로 읽는 길은 없다.
+//! security 축(enum Grade, 서열 있음)과 달리 이 축은 트리이고 서열이 없다.
+//! rules.rs 와 같은 관례를 따른다: 스냅샷 값도
 //! `#[derive(Deserialize)]` 대신 serde_yaml::Value → serde_json::Value 변환 후
 //! s()/os()/oi() 헬퍼로 수동 추출한다(이 파일이라고 새 관례를 만들지 않는다).
 
@@ -85,10 +87,6 @@ impl Taxonomy {
         self.children.get(&key).map(|idxs| idxs.iter().map(|&i| &self.nodes[i]).collect()).unwrap_or_default()
     }
 
-    pub fn roots(&self) -> Vec<&TaxonomyNode> {
-        self.children_of(None)
-    }
-
     pub fn active_nodes(&self) -> Vec<&TaxonomyNode> {
         self.nodes.iter().filter(|n| n.active()).collect()
     }
@@ -103,7 +101,7 @@ impl Taxonomy {
         loop {
             if !seen.insert(node.dc_id.clone()) {
                 return Err(format!(
-                    "분류체계 트리에 순환이 있습니다(dc_id={:?}) — export_taxonomy 로 다시 내보내 확인하세요",
+                    "분류체계 트리에 순환이 있습니다(dc_id={:?}) — --build-doc-rule 로 규칙을 다시 만들어 확인하세요",
                     node.dc_id));
             }
             chain.push(node.dc_id.clone());
@@ -130,18 +128,17 @@ impl Taxonomy {
     }
 }
 
-/// 분류체계 스냅샷 로드 실패 종류. rules::RulesError 와 같은 구분 원칙 —
-/// Invalid 만 종료코드 4, 나머지는 파일/파싱 문제로 다르게 다룬다.
+/// 분류체계 스냅샷 검증 실패. 파일을 읽는 길(doc_taxonomy.yaml)을 없앤 뒤로는
+/// '값이 틀림'(Invalid) 한 가지만 남았다 — 읽기 실패는 체계 JSON 을 읽는 쪽이 알린다.
 #[derive(Debug)]
 pub enum TaxonomyError {
-    Read(String),
     Invalid(String),
 }
 
 impl std::fmt::Display for TaxonomyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TaxonomyError::Read(s) | TaxonomyError::Invalid(s) => write!(f, "{}", s),
+            TaxonomyError::Invalid(s) => write!(f, "{}", s),
         }
     }
 }
@@ -282,31 +279,9 @@ fn format_taxonomy_violations(path: &str, violations: &[TVio]) -> String {
     lines.join("\n")
 }
 
-/// doc_taxonomy.yaml 고정 파일명(설계서 4-2-1 — 타임스탬프를 붙이지 않는다).
-pub fn default_taxonomy_filename() -> &'static str {
-    "doc_taxonomy.yaml"
-}
-
-/// doc_taxonomy.yaml 을 읽어 Taxonomy 로. 구조·트리 검증(T0·T7·T8)을 파싱 직후·
-/// 객체 생성 전에 한다 — 절반쯤 잘못된 트리로 경로 계산이 돌아가는 것을 막기 위해서다
-/// (rules::load_rules 와 같은 원칙).
-pub fn load_taxonomy(path: &std::path::Path) -> Result<Taxonomy, TaxonomyError> {
-    let text = std::fs::read_to_string(path).map_err(|e| {
-        TaxonomyError::Read(format!(
-            "분류체계 스냅샷({})을 찾을 수 없습니다: {} ({})",
-            default_taxonomy_filename(), path.display(), e))
-    })?;
-    let yv: serde_yaml::Value = serde_yaml::from_str(&text)
-        .map_err(|e| TaxonomyError::Read(format!("YAML 파싱 실패: {}", e)))?;
-    let data: Value = serde_json::to_value(&yv)
-        .map_err(|e| TaxonomyError::Read(format!("변환 실패: {}", e)))?;
-
-    taxonomy_from_value(&data, &path.display().to_string())
-}
-
 /// 스냅샷 값 → Taxonomy(Python taxonomy_from_snapshot). 파일을 읽은 뒤의 일(검증 →
 /// 노드 만들기)만 떼어 낸 것이다 — 규칙 자동 생성은 체계 JSON 을 변환한 값을
-/// doc_taxonomy.yaml 로 쓰지 않고 바로 여기로 넘긴다.
+/// 파일로 쓰지 않고 바로 여기로 넘긴다.
 pub fn taxonomy_from_value(data: &Value, where_: &str) -> Result<Taxonomy, TaxonomyError> {
     let violations = validate_taxonomy_data(data);
     if !violations.is_empty() {
@@ -486,100 +461,6 @@ pub fn convert_mpower_json(raw_data: &Value) -> Result<(Value, Vec<String>), Str
     Ok((snapshot, warnings))
 }
 
-/// 키 순서를 지정해 YAML 매핑 만들기.
-///
-/// serde_json::Value 는 이 저장소 설정에서 BTreeMap 이라 키가 알파벳순으로 섞인다
-/// (분류 결과 JSON 은 그래도 상관없지만, 여기서 만드는 두 YAML 은 **사람이 열어
-/// 보고 채우는 파일**이라 순서가 곧 읽기 쉬움이다). serde_yaml::Mapping 은 넣은
-/// 순서를 지키므로, 내보내기 경로에서만 이 헬퍼로 순서를 못박는다.
-/// (serde_json 에 preserve_order 를 켜면 분류 결과 JSON 의 키 순서까지 바뀌어
-///  파이썬 판과 대조하던 기준이 흔들리므로 그쪽은 건드리지 않는다.)
-pub(crate) fn ymap(pairs: Vec<(&str, serde_yaml::Value)>) -> serde_yaml::Value {
-    let mut m = serde_yaml::Mapping::new();
-    for (k, v) in pairs {
-        m.insert(serde_yaml::Value::String(k.to_string()), v);
-    }
-    serde_yaml::Value::Mapping(m)
-}
-
-/// 스냅샷 구조 → doc_taxonomy.yaml 파일 기록.
-///
-/// 키 순서를 파이썬 판과 똑같이(source → exported_at → node_count → nodes,
-/// 노드는 dc_id → parent → order → title → status) 맞춰 쓴다.
-/// exported_at 은 "20260825103000" 처럼 숫자로만 이뤄져 있어 문자열로 넣어야
-/// YAML 이 정수로 읽지 않는다(로더가 문자열을 기대한다).
-pub fn write_taxonomy_yaml(snapshot: &Value, out_path: &std::path::Path) -> Result<(), String> {
-    let root = snapshot.get("taxonomy").cloned().unwrap_or(json!({}));
-    let ystr = |v: &str| serde_yaml::Value::String(v.to_string());
-
-    let mut nodes = vec![];
-    for n in root.get("nodes").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
-        nodes.push(ymap(vec![
-            ("dc_id", ystr(n.get("dc_id").and_then(|v| v.as_str()).unwrap_or(""))),
-            ("parent", match n.get("parent").and_then(|v| v.as_str()) {
-                Some(p) => ystr(p),
-                None => serde_yaml::Value::Null,
-            }),
-            ("order", serde_yaml::Value::Number(
-                n.get("order").and_then(|v| v.as_i64()).unwrap_or(0).into())),
-            ("title", ystr(n.get("title").and_then(|v| v.as_str()).unwrap_or(""))),
-            ("status", serde_yaml::Value::Number(
-                n.get("status").and_then(|v| v.as_i64()).unwrap_or(1).into())),
-        ]));
-    }
-    let doc = ymap(vec![("taxonomy", ymap(vec![
-        ("source", ystr(root.get("source").and_then(|v| v.as_str()).unwrap_or(""))),
-        ("exported_at", ystr(root.get("exported_at").and_then(|v| v.as_str()).unwrap_or(""))),
-        ("node_count", serde_yaml::Value::Number((nodes.len() as i64).into())),
-        ("nodes", serde_yaml::Value::Sequence(nodes)),
-    ]))]);
-
-    write_yaml_file(&doc, out_path)
-}
-
-/// YAML 값 하나를 파일로 쓴다(상위 폴더가 없으면 만든다). 내보내기 두 곳이 공유.
-pub(crate) fn write_yaml_file(doc: &serde_yaml::Value, out_path: &std::path::Path)
-    -> Result<(), String>
-{
-    if let Some(dir) = out_path.parent() {
-        if !dir.as_os_str().is_empty() {
-            std::fs::create_dir_all(dir)
-                .map_err(|e| format!("폴더를 만들 수 없습니다({}): {}", dir.display(), e))?;
-        }
-    }
-    let text = serde_yaml::to_string(doc)
-        .map_err(|e| format!("YAML 직렬화 실패: {}", e))?;
-    std::fs::write(out_path, text)
-        .map_err(|e| format!("쓰기 실패({}): {}", out_path.display(), e))
-}
-
-/// MPOWER JSON → doc_taxonomy.yaml 내보내기(핵심 진입점).
-///
-///  1) JSON 을 읽는다(BOM 허용 — 윈도우 내보내기가 BOM 을 붙이는 일이 흔하다)
-///  2) convert_mpower_json 으로 변환
-///  3) write_taxonomy_yaml 로 저장
-///  4) load_taxonomy 로 다시 읽어 검증(T0·T7·T8) — 방금 쓴 파일이 실제로 읽히는지
-///     여기서 확인하지 않으면 문제를 다음 실행(실제 분류) 때에야 알게 된다
-pub fn export_from_mpower_json(input_path: &std::path::Path, output_path: &std::path::Path)
-    -> Result<(Taxonomy, Vec<String>), String>
-{
-    let bytes = std::fs::read(input_path)
-        .map_err(|e| format!("원본 JSON 을 읽을 수 없습니다({}): {}", input_path.display(), e))?;
-    // UTF-8 BOM 이 있으면 떼고 파싱한다(있는 채로 넘기면 serde_json 이 실패한다).
-    let text = String::from_utf8_lossy(&bytes);
-    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-    let raw: Value = serde_json::from_str(text)
-        .map_err(|e| format!("원본 JSON 파싱 실패({}): {}", input_path.display(), e))?;
-
-    let (snapshot, warnings) = convert_mpower_json(&raw)?;
-    write_taxonomy_yaml(&snapshot, output_path)?;
-    let taxonomy = load_taxonomy(output_path).map_err(|e| match e {
-        TaxonomyError::Read(m) => m,
-        TaxonomyError::Invalid(m) => format!("변환 결과가 검증을 통과하지 못했습니다:\n{}", m),
-    })?;
-    Ok((taxonomy, warnings))
-}
-
 #[cfg(test)]
 mod export_tests {
     use super::*;
@@ -679,7 +560,7 @@ mod tests {
             node("B", None, 2, "루트B", 1),
             node("A", None, 1, "루트A", 1),
         ]);
-        let roots: Vec<&str> = t.roots().iter().map(|n| n.dc_id.as_str()).collect();
+        let roots: Vec<&str> = t.children_of(None).iter().map(|n| n.dc_id.as_str()).collect();
         assert_eq!(roots, vec!["A", "B"]);
     }
 

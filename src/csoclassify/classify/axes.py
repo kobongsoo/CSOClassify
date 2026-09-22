@@ -1,30 +1,16 @@
 #------------------------------------------------------------------
 # 업무 분류(doctype) 축 — 분류체계 스냅샷 로드·경로 계산
-#=> MpowerV11 DOC_CLASSIFICATION 을 내보낸 doc_taxonomy.yaml 스냅샷을 읽어,
-#   dc_id 색인과 전체경로(예: "기술/개발 > 설계문서 > 요구사항정의서")를 만든다.
-#   security(C/S/O) 축과 달리 이 축은 트리(kind: taxonomy)이고 서열이 없다.
-#   MpowerClassify 는 오프라인 CLI 이므로 DB 를 직접 보지 않고, 이 스냅샷 파일 하나만
-#   본다. 스냅샷을 만드는 쪽(MPOWER JSON → doc_taxonomy.yaml 변환)도 이 파일에
-#   함께 둔다 — MpowerClassify.exe(--export-taxonomy)와 scripts/export_taxonomy.py
-#   (개발용 스크립트) 가 이 로직을 그대로 공유해야, exe 로 얼려도(소스 트리의
-#   scripts/ 는 PyInstaller 번들에 안 들어간다) 같은 동작을 낼 수 있다.
-#   (설계: 문서분류체계 연동 설계서 §3·4, 로드맵 D1)
+#=> 회사 분류체계를 트리로 담고, dc_id 색인과 전체경로(예: "기술/개발 > 설계문서 >
+#   요구사항정의서")를 만든다. security(C/S/O) 축과 달리 이 축은 트리(kind: taxonomy)이고
+#   서열이 없다. 트리는 두 곳에서 지어진다:
+#    · 엠파워가 내보낸 체계 JSON(convert_mpower_json → taxonomy_from_snapshot) — 규칙 자동 생성
+#    · 자동 생성 규칙의 path·path_ids(taxonomy_from_rules) — 분류할 때
+#   2026-09-22 부터 따로 떨어진 스냅샷 파일(doc_taxonomy.yaml)은 읽지도 쓰지도 않는다.
+#   (설계: 문서분류체계 연동 설계서 §3·4, 업무분류-규칙파일-자동생성 설계 7단계)
 #------------------------------------------------------------------
 
 import datetime
-import json
-import os
-import sys
 from dataclasses import dataclass
-
-import yaml
-
-from ..resources import resource_path, exe_dir
-
-# doc_taxonomy.yaml 은 고정 파일명이다 — 내보낼 때마다 같은 경로를 덮어쓴다.
-# 타임스탬프를 파일명에 넣지 않는 이유는 설계서 4-2-1 참조(실행기가 "어디를
-# 읽어야 할지"를 항상 명확하게 하기 위함 — cso_rule.yaml 과 같은 규약).
-TAXONOMY_FILENAME = "doc_taxonomy.yaml"
 
 
 #------------------------------------------------------------------
@@ -467,64 +453,6 @@ class TaxonomyValidationError(Exception):
 
 
 #------------------------------------------------------------------
-# 분류체계 스냅샷 기본 경로
-#=> cso_rule.yaml 의 default_rules_path() 와 완전히 같은 규약을 따른다 —
-#   "규칙셋과 같은 취급"(설계서 4-1)이라는 결정 그대로다.
-#    1) 환경변수 CSOCLASSIFY_POLICY_DIR 이 있으면 그 폴더
-#    2) exe(PyInstaller) 로 얼린 실행이면 'exe 옆'
-#    3) 소스(개발) 실행이면 저장소 트리의 resources/policy/
-#
-# -in: 없음
-#
-# -out: path = doc_taxonomy.yaml 기본 경로
-# -out: error = 없음
-#------------------------------------------------------------------
-def default_taxonomy_path():
-    env = os.environ.get("CSOCLASSIFY_POLICY_DIR")
-    if env:
-        return os.path.join(env, TAXONOMY_FILENAME)
-    if getattr(sys, "frozen", False):
-        return os.path.join(exe_dir(), TAXONOMY_FILENAME)
-    return resource_path("policy", TAXONOMY_FILENAME)
-
-
-#------------------------------------------------------------------
-# 분류체계 스냅샷 로드(YAML → Taxonomy)
-#=> doc_taxonomy.yaml 을 읽어 Taxonomy 를 만든다. 경로를 안 주면
-#   default_taxonomy_path().
-#    1) 파일이 없으면 안내 메시지와 함께 FileNotFoundError
-#       (이 축이 "있으면 켜지고 없으면 꺼지는 외장 자산"이라는 정책 자체는
-#       cli.py 쪽 몫이다 — 여기서는 항상 필수로 취급하고, 없어도 계속 진행할지는
-#       호출자가 이 예외를 잡아 결정한다)
-#    2) YAML 파싱 → T0·T7·T8 검증(validate=True 일 때). 하나라도 위반이면
-#       Taxonomy 를 만들지 않고 실패한다 — 절반쯤 잘못된 트리로 경로를 계산하면
-#       조용히 틀린 분류가 나갈 수 있어서다
-#    3) TaxonomyNode 목록을 만들고 Taxonomy 로 감싸 반환
-#
-# -in: path     = 스냅샷 파일 경로(없으면 기본 경로)
-# -in: validate = False 면 검증을 건너뛴다. 검증기 자체를 시험하거나 잘못된
-#                 스냅샷을 일부러 읽어야 하는 도구용 탈출구다(기본 True)
-#
-# -out: Taxonomy
-# -out: error = 파일 없음 시 FileNotFoundError(어디에 두면 되는지 안내 포함)
-# -out: error = 구조·트리 검증 실패 시 TaxonomyValidationError(위반 전체 목록 포함)
-#------------------------------------------------------------------
-def load_taxonomy(path=None, validate=True):
-    path = path or default_taxonomy_path()
-    if not os.path.isfile(path):
-        raise FileNotFoundError(
-            f"분류체계 스냅샷({TAXONOMY_FILENAME})을 찾을 수 없습니다: {path}\n"
-            f"  · exe 와 같은 폴더에 {TAXONOMY_FILENAME} 을 두거나,\n"
-            f"  · --taxonomy <파일경로> 로 지정하거나,\n"
-            f"  · 환경변수 CSOCLASSIFY_POLICY_DIR 로 폴더를 지정하거나,\n"
-            f"  · scripts/export_taxonomy.py 로 새로 내보내세요."
-        )
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    return taxonomy_from_snapshot(data, path, validate)
-
-
-#------------------------------------------------------------------
 # 스냅샷 dict → Taxonomy
 #=> 파일을 읽은 뒤의 일(검증 → 노드 만들기)만 떼어 낸 것이다. 규칙 자동 생성
 #   (docbuild)은 체계 JSON 을 바로 변환한 dict 를 파일로 쓰지 않고 여기로 넘긴다
@@ -611,22 +539,6 @@ def taxonomy_from_rules(raw_rules, exported_at=""):
 
 
 #------------------------------------------------------------------
-# MPOWER JSON 내보내기 원본 기본 경로
-#=> MpowerV11 관리 화면/배치가 그대로 뽑은 파일(사람이 손대지 않음). cso_rule.yaml
-#   과 같은 "policy" 폴더에 두되, 이건 '원본'이라 doc_taxonomy.yaml(파생 스냅샷)
-#   과는 성격이 다르다 — exe 옆에 있을 수도, 없을 수도 있는 입력 자료다.
-#
-# -in: 없음
-#
-# -out: path = resources/policy/doc_classification_export.json (개발 실행 기준.
-#              exe 배포에서는 보통 --taxonomy-input 으로 실제 위치를 지정한다)
-# -out: error = 없음
-#------------------------------------------------------------------
-def default_taxonomy_export_input_path():
-    return resource_path("policy", "doc_classification_export.json")
-
-
-#------------------------------------------------------------------
 # MPOWER JSON 노드 1건 → 스냅샷 노드 dict
 #=> MPOWER JSON 필드명(parent_dc_id·order_num)을 doc_taxonomy.yaml 규약
 #   (parent·order)으로 바꾼다. path_ids·path_titles·path 는 원본에 있어도
@@ -695,51 +607,3 @@ def convert_mpower_json(raw_data):
         }
     }
     return snapshot, warnings
-
-
-#------------------------------------------------------------------
-# 스냅샷 dict → doc_taxonomy.yaml 파일 기록
-#=> 한글이 깨지지 않도록 allow_unicode, 원본 순서를 보존하도록 sort_keys=False
-#   로 저장한다. 편집기가 아니라 기계가 매번 새로 만드는 파일이므로(설계서
-#   4-2-1) round-trip 주석 보존(ruamel)은 쓰지 않는다 — 사람이 손대는 파일이 아니다.
-#
-# -in: snapshot = convert_mpower_json() 이 만든 dict
-# -in: out_path = 저장할 doc_taxonomy.yaml 경로
-#
-# -out: 없음(파일 기록)
-# -out: error = 디렉터리가 없으면 만들고 재시도. 그래도 쓰기 실패하면 OSError 전파
-#------------------------------------------------------------------
-def write_taxonomy_yaml(snapshot, out_path):
-    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(snapshot, f, allow_unicode=True, sort_keys=False,
-                       default_flow_style=False)
-
-
-#------------------------------------------------------------------
-# MPOWER JSON → doc_taxonomy.yaml 내보내기(핵심 진입점)
-#=> 입력 JSON 경로 하나로 변환·저장·round-trip 검증까지 끝낸다. MpowerClassify.exe
-#   (--export-taxonomy)와 scripts/export_taxonomy.py 가 이 함수 하나를 공유해
-#   "exe 로 얼려도 스크립트와 똑같이 동작"을 보장한다.
-#    1) JSON 을 읽는다(BOM 허용)
-#    2) convert_mpower_json 으로 변환(구조 오류면 ValueError)
-#    3) write_taxonomy_yaml 로 저장
-#    4) load_taxonomy 로 다시 읽어 검증(T0·T7·T8) — 방금 쓴 파일이 실제로
-#       문제없이 로드되는지 여기서 확인하지 않으면, 문제를 다음 실행(실제
-#       분류) 때에야 알게 된다
-#
-# -in: input_path  = 원본 JSON 경로
-# -in: output_path = doc_taxonomy.yaml 저장 경로
-#
-# -out: (Taxonomy, list[str]) = (round-trip 검증까지 끝난 Taxonomy, 변환 경고 목록)
-# -out: error = 입력 파일 없으면 FileNotFoundError, JSON 파싱 실패면
-#                json.JSONDecodeError(ValueError 의 하위클래스), 구조 오류면
-#                ValueError, 저장 결과가 깨졌으면 TaxonomyValidationError
-#------------------------------------------------------------------
-def export_from_mpower_json(input_path, output_path):
-    with open(input_path, encoding="utf-8-sig") as f:
-        raw_data = json.load(f)
-    snapshot, warnings = convert_mpower_json(raw_data)
-    write_taxonomy_yaml(snapshot, output_path)
-    taxonomy = load_taxonomy(output_path)
-    return taxonomy, warnings

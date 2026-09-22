@@ -73,8 +73,10 @@ def mk_taxonomy():
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_배포_규칙셋은_검증을_통과하고_taxonomy와_맞물린다():
-    taxonomy = A.load_taxonomy()
-    drs = D.load_doc_rules(taxonomy=taxonomy)
+    # 분류체계는 자동 생성 규칙 안에 있다(2026-09-22 — doc_taxonomy.yaml 없앰).
+    drs = D.load_doc_rules()
+    taxonomy = drs.taxonomy
+    assert taxonomy is not None, "배포 규칙이 자동 생성본이 아닙니다 — --build-doc-rule 로 만드세요"
 
     assert drs.rules, "배포 규칙셋이 비어 있습니다"
     # 모든 규칙이 살아 있어야 한다 — 미사용(status=0) 노드를 가리키면 T6 로 죽는다.

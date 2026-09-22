@@ -22,7 +22,6 @@ KEYS = (
     "seed",          # 기준 문서(seed)
     "seed_audit",    # 기준 문서 변경 기록
     "rules",         # 보안등급 기준 파일(cso_rule.yaml)
-    "taxonomy",      # 회사 분류 체계(doc_taxonomy.yaml)
     "export_input",  # 회사 분류 체계 원본(MpowerV11 에서 내보낸 JSON)
     "doc_rules",     # 업무분류 기준 파일(doc_rule.yaml)
     "text_dir",      # 추출 본문 폴더(--textsave). 단어 제안이 본문을 읽는 자리

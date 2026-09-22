@@ -125,23 +125,17 @@ pub struct DocRuleSet {
     /// 핵어 자리를 보기 전에 걷어낼 잡음 꼬리 말(core 사전의 noise_tails).
     pub head_noise: Vec<String>,
     /// 자동 생성 규칙 파일이면 규칙 줄의 path·path_ids 로 다시 지은 분류체계.
-    /// 옛 규칙 파일이면 None — 그때는 doc_taxonomy.yaml 을 따로 읽는다.
+    /// 옛 규칙 파일이면 None — CLI 는 설계 7단계부터 옛 규칙 파일을 읽기 전에 막는다
+    /// (옛 파서는 교차검증 시험을 위해 남겨 두었다).
     pub taxonomy: Option<Taxonomy>,
 }
 
 impl DocRuleSet {
-    /// 규칙 없는 빈 규칙셋 — "seed 전파 전용" 모드용.
-    ///
-    /// doc_rule.yaml 이 없을 때 쓴다. 이걸 쓰면 doctype 축이 꺼지지 않고 켜진 채
-    /// 돌되, 규칙이 하나도 없어 1차 스캔은 아무것도 못 맞힌다. 그 상태로
-    /// class_seed.jsonl 과의 임베딩 전파가 라벨을 채운다(seed 도 없으면 미분류로
-    /// 남고, 사람이 나중에 분류한다).
-    ///
-    /// 축을 아예 끄면(None) 레코드에 labels.doctype 키가 안 생기고, 그러면 전파
-    /// 단계가 "이 배포는 축을 안 쓴다"고 보고 건너뛴다 — 그래서 '빈 규칙셋으로
-    /// 켜 두기'와 '끄기'는 다른 뜻이다. version 을 "none" 으로 박아 두면 결과만
-    /// 보고도 "규칙 없이 전파로만 돌았다"를 구분할 수 있다.
-    pub fn seed_only() -> Self {
+    /// 규칙 0건 규칙셋(시험 전용). 예전에는 doc_rule.yaml 이 없을 때 'seed 전파 전용'
+    /// 모드로 축을 켜는 데 썼지만, 설계 7단계에서 그 모드를 없앴다(규칙 파일이 없으면
+    /// 축을 끈다). 지금은 '규칙이 하나도 없을 때 스캔·전파가 어떻게 도나'를 시험할 때만 쓴다.
+    #[cfg(test)]
+    pub fn empty() -> Self {
         DocRuleSet {
             conflict: ConflictSpec::default(),
             defaults: Defaults::default(),
@@ -603,10 +597,6 @@ pub fn default_doc_rule_filename() -> &'static str {
 /// 새 doc_rule.yaml 의 머리 부분을 가져올 본보기 파일 이름(화면·CLI 공용 규약).
 pub const TEMPLATE_NAME: &str = "doc_rule_template.yaml";
 
-/// 본보기에는 있지만 만들어진 doc_rule.yaml 에는 넣지 않는 섹션 —
-/// 규칙을 "만들 때" 쓰는 값이라 결과물에 남길 이유가 없다.
-pub const UI_ONLY_KEYS: [&str; 1] = ["new_rule"];
-
 /// 본보기(doc_rule_template.yaml)를 읽는다. 찾는 순서는 '가까운 곳부터'다.
 ///   1) 만들려는 doc_rule.yaml 과 같은 폴더
 ///   2) exe 옆
@@ -636,120 +626,6 @@ pub fn load_scaffold_template(near: Option<&std::path::Path>) -> serde_yaml::Map
         }
     }
     serde_yaml::Mapping::new()
-}
-
-/// 분류체계로부터 doc_rule.yaml '골격'을 만든다(Python build_scaffold 포팅).
-///
-/// 사용 중인 노드마다 규칙 한 건씩을 만들되, 본문 키워드(terms)는 **비워 둔다** —
-/// "무엇을 계약서로 볼 것인가"는 업무를 아는 사람이 채워야 정확하기 때문이다.
-/// 파일명 신호(filename)만 노드 제목으로 채워 두어, 채우기 전에도 파일 이름이
-/// 분류명과 같은 문서는 잡히게 한다.
-/// 노드 순서는 트리를 위에서 아래로(부모 → 자식) 훑은 순서라 사람이 읽기 좋다.
-pub fn build_scaffold(taxonomy: &Taxonomy) -> Value {
-    let mut rules: Vec<Value> = vec![];
-
-    // 재귀 대신 명시적 스택을 쓴다 — 분류체계가 깊어져도 스택이 터지지 않는다.
-    // children_of 가 (order, dc_id) 순으로 주므로, 역순으로 넣어야 꺼낼 때 정순이 된다.
-    fn walk(taxonomy: &Taxonomy, parent: Option<&str>, out: &mut Vec<Value>) {
-        for child in taxonomy.children_of(parent) {
-            if child.active() {
-                out.push(serde_json::json!({
-                    "id": format!("dt_{}", child.dc_id.to_lowercase()),
-                    "node": child.dc_id,
-                    // 제목·앞부분 신호는 분류 이름을 최초 제안값으로 깔아 둔다
-                    // (파이썬 build_scaffold 와 같은 필드·같은 값).
-                    "title_terms": vec![child.title.clone()],
-                    "head_terms": vec![child.title.clone()],
-                    "terms": Vec::<String>::new(),
-                    "filename": vec![child.title.clone()],
-                }));
-            }
-            // 비활성 노드라도 그 밑의 자식은 살아 있을 수 있으므로 계속 내려간다.
-            walk(taxonomy, Some(&child.dc_id), out);
-        }
-    }
-    walk(taxonomy, None, &mut rules);
-
-    serde_json::json!({ "conflict": "all", "doctype_rules": rules })
-}
-
-/// doc_rule.yaml 골격을 파일로 저장(이미 있으면 건너뜀).
-///
-/// 사람이 이미 채워 둔 규칙을 실수로 빈 골격으로 덮어쓰지 않도록, 기본은 파일이
-/// 있으면 아무것도 하지 않는다(force=true 로만 덮어쓴다).
-///
-/// -out: Ok(Some(규칙수)) = 실제로 씀 / Ok(None) = 이미 있어 건너뜀 / Err = 쓰기 실패
-pub fn write_scaffold(taxonomy: &Taxonomy, out_path: &std::path::Path, force: bool)
-    -> Result<Option<usize>, String>
-{
-    if out_path.is_file() && !force {
-        return Ok(None);
-    }
-    let scaffold = build_scaffold(taxonomy);
-    let rules = scaffold.get("doctype_rules").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let n = rules.len();
-
-    // 머리 부분(scoring·문턱·embed 등)과 새 규칙에 얹을 값(weight)은 본보기에서
-    // 가져온다. 코드에 박아 두면 회사마다 다른 기본값을 주려 할 때 프로그램을
-    // 고쳐야 하고, 본보기가 없던 시절처럼 conflict 한 줄만 있는 파일이 만들어지면
-    // 엔진이 조용히 기본값(legacy 채점)으로 돌아 화면과 판정이 달라진다.
-    let tpl = load_scaffold_template(Some(out_path));
-    let new_rule: Vec<(String, serde_yaml::Value)> = tpl.get("new_rule")
-        .and_then(|v| v.as_mapping())
-        .map(|m| m.iter()
-            .filter_map(|(k, v)| k.as_str().map(|k| (k.to_string(), v.clone())))
-            .collect())
-        .unwrap_or_else(|| vec![("weight".to_string(),
-                                 serde_yaml::Value::String("medium".into()))]);
-
-    // 사람이 열어 terms 를 채워 넣는 파일이라 키 순서를 읽기 좋게 못박는다
-    // (id → node → weight → 말 목록). 알파벳순으로 섞이면 "어디를 채워야 하나"가
-    // 한눈에 안 들어온다.
-    let ystr = |v: &str| serde_yaml::Value::String(v.to_string());
-    let mut items = vec![];
-    for r in &rules {
-        let strs = |key: &str| serde_yaml::Value::Sequence(
-            r.get(key).and_then(|v| v.as_array()).cloned().unwrap_or_default()
-                .iter().filter_map(|v| v.as_str()).map(ystr).collect());
-        let mut m = serde_yaml::Mapping::new();
-        m.insert(ystr("id"), ystr(r.get("id").and_then(|v| v.as_str()).unwrap_or("")));
-        m.insert(ystr("node"), ystr(r.get("node").and_then(|v| v.as_str()).unwrap_or("")));
-        for (k, v) in &new_rule {
-            m.insert(ystr(k), v.clone());
-        }
-        for key in ["title_terms", "head_terms", "terms", "filename"] {
-            m.insert(ystr(key), strs(key));
-        }
-        items.push(serde_yaml::Value::Mapping(m));
-    }
-
-    // 본보기의 머리 부분을 적힌 순서 그대로 옮긴다(UI 전용 섹션은 뺀다).
-    let mut doc = serde_yaml::Mapping::new();
-    for (k, v) in tpl.iter() {
-        let key = match k.as_str() { Some(x) => x, None => continue };
-        if UI_ONLY_KEYS.contains(&key) || key == "doctype_rules" { continue; }
-        doc.insert(ystr(key), v.clone());
-    }
-    if !doc.contains_key(ystr("conflict")) {
-        doc.insert(ystr("conflict"), ystr("all"));
-    }
-    doc.insert(ystr("doctype_rules"), serde_yaml::Value::Sequence(items));
-
-    // 이 파일은 화면이 저장할 때마다 통째로 다시 쓰여 주석이 남지 않는다.
-    // 값의 뜻은 본보기에 적어 두고, 여기서는 어디를 볼지만 가리킨다
-    // (ui/docruleedit.py · classify/doc_rules.py 와 같은 문구).
-    let header = "# 업무분류 판단 기준 — 화면(설정 ③ 판단 기준)이 저장할 때마다 다시 쓰는 파일이라\n# 주석이 남지 않는다. 각 값의 뜻과 그 값을 고른 이유는 doc_rule_template.yaml 에 있다.\n";
-    if let Some(dir) = out_path.parent() {
-        if !dir.as_os_str().is_empty() {
-            std::fs::create_dir_all(dir)
-                .map_err(|e| format!("폴더를 만들 수 없습니다({}): {}", dir.display(), e))?;
-        }
-    }
-    let body = serde_yaml::to_string(&serde_yaml::Value::Mapping(doc))
-        .map_err(|e| format!("YAML 직렬화 실패: {}", e))?;
-    std::fs::write(out_path, format!("{}{}", header, body))
-        .map_err(|e| format!("쓰기 실패({}): {}", out_path.display(), e))?;
-    Ok(Some(n))
 }
 
 /// doc_rule.yaml 을 읽어 DocRuleSet 으로. taxonomy 를 주면 T5·T6·T12 교차검증까지
@@ -981,51 +857,6 @@ mod tests {
         std::env::temp_dir().join(format!("{}_{}_{}.yaml", prefix, std::process::id(), n))
     }
 
-    // 골격은 '사용 중' 노드마다 한 건씩, terms 는 비우고 filename 만 제목으로 채운다.
-    #[test]
-    fn 골격은_활성노드마다_한건씩_terms는_빈다() {
-        let t = build_test_taxonomy(vec![
-            TaxonomyNode { dc_id: "A".into(), parent: None, order: 1, title: "법무".into(), status: 1 },
-            TaxonomyNode { dc_id: "A_1".into(), parent: Some("A".into()), order: 1,
-                           title: "계약서".into(), status: 1 },
-            TaxonomyNode { dc_id: "B".into(), parent: None, order: 2, title: "폐기".into(), status: 0 },
-        ]);
-        let sc = build_scaffold(&t);
-        let rules = sc["doctype_rules"].as_array().unwrap();
-        // status=0(미사용)인 B 는 골격에 넣지 않는다 — 넣어도 T6 로 비활성될 뿐이다.
-        assert_eq!(rules.len(), 2);
-        assert_eq!(sc["conflict"], "all");
-        // 부모 → 자식 순서(트리를 위에서 아래로)라 사람이 읽기 좋다.
-        assert_eq!(rules[0]["node"], "A");
-        assert_eq!(rules[1]["node"], "A_1");
-        assert_eq!(rules[1]["id"], "dt_a_1");
-        assert_eq!(rules[1]["filename"][0], "계약서");
-        assert!(rules[1]["terms"].as_array().unwrap().is_empty());
-    }
-
-    // 사람이 채워 둔 규칙을 빈 골격으로 덮어쓰면 안 된다(force 로만 덮어쓴다).
-    #[test]
-    fn 골격은_이미_있으면_덮어쓰지_않는다() {
-        let t = build_test_taxonomy(vec![
-            TaxonomyNode { dc_id: "A".into(), parent: None, order: 1, title: "법무".into(), status: 1 },
-        ]);
-        let tmp = unique_tmp("cso_test_scaffold");
-        std::fs::write(&tmp, "conflict: all\ndoctype_rules: []\n# 사람이 채운 것\n").unwrap();
-
-        assert_eq!(doc_rules_write(&t, &tmp, false), None);          // 건너뜀
-        let kept = std::fs::read_to_string(&tmp).unwrap();
-        assert!(kept.contains("사람이 채운 것"), "덮어썼다: {}", kept);
-
-        assert_eq!(doc_rules_write(&t, &tmp, true), Some(1));        // force 면 덮어씀
-        let over = std::fs::read_to_string(&tmp).unwrap();
-        assert!(!over.contains("사람이 채운 것"));
-        let _ = std::fs::remove_file(&tmp);
-    }
-
-    fn doc_rules_write(t: &Taxonomy, p: &std::path::Path, force: bool) -> Option<usize> {
-        write_scaffold(t, p, force).unwrap()
-    }
-
     fn mk_data(rules: Value, conflict: Option<Value>) -> Value {
         let mut m = serde_json::Map::new();
         m.insert("doctype_rules".into(), rules);
@@ -1043,20 +874,14 @@ mod tests {
 
     // Taxonomy::build 는 private 이라 테스트 전용 소형 헬퍼로 대체 생성.
     fn build_test_taxonomy(nodes: Vec<TaxonomyNode>) -> Taxonomy {
-        // axes.rs 에 테스트 목적의 public 생성자가 없으므로, 실제 로더를 거쳐
-        // 만드는 대신 아주 작은 YAML 문자열을 통해 load_taxonomy 로 구성한다.
-        let mut yaml = String::from("taxonomy:\n  source: t\n  exported_at: '20260824000000'\n  node_count: 3\n  nodes:\n");
-        for n in &nodes {
-            let parent = match &n.parent { Some(p) => format!("{:?}", p), None => "null".into() };
-            yaml.push_str(&format!(
-                "  - {{dc_id: {:?}, parent: {}, order: {}, title: {:?}, status: {}}}\n",
-                n.dc_id, parent, n.order, n.title, n.status));
-        }
-        let tmp = unique_tmp("cso_test_taxonomy");
-        std::fs::write(&tmp, yaml).unwrap();
-        let t = crate::axes::load_taxonomy(&tmp).unwrap();
-        let _ = std::fs::remove_file(&tmp);
-        t
+        // axes.rs 에 테스트 목적의 public 생성자가 없으므로, 스냅샷 값(JSON)을 만들어
+        // taxonomy_from_value 로 짓는다 — 규칙 자동 생성이 쓰는 것과 같은 길이다.
+        let arr: Vec<Value> = nodes.iter().map(|n| serde_json::json!({
+            "dc_id": n.dc_id, "parent": n.parent, "order": n.order,
+            "title": n.title, "status": n.status })).collect();
+        let data = serde_json::json!({"taxonomy": {
+            "source": "t", "exported_at": "20260824000000", "node_count": arr.len(), "nodes": arr }});
+        crate::axes::taxonomy_from_value(&data, "test").unwrap()
     }
 
     #[test]
