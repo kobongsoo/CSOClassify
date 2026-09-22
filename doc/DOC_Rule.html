@@ -457,8 +457,6 @@ defaults:
   <h3>defaults</h3>
   <div class="scroll"><table>
     <tr><th>키</th><th>뜻</th><th>기본</th><th>쓰이나</th></tr>
-    <tr><td class="f">scoring</td><td><code>staged</code> = 위에서 설명한 방식(신호별 점수 + noisy-OR). <code>legacy</code> 는 옛 방식(본문 1건이면 히트, 최댓값 결합)으로 비교 측정용.
-      <b>이 칸이 빠지면 엔진은 <code>legacy</code> 로 돕니다</b> — 자동 생성 파일에는 본보기에서 <code>staged</code> 가 들어갑니다</td><td>본보기 <code>staged</code><br><span class="def">(빠지면 legacy)</span></td><td class="ok">씀</td></tr>
     <tr><td class="f">head_chars</td><td>앞부분 신호가 보는 글자 수</td><td class="num">400</td><td class="ok">씀</td></tr>
     <tr><td class="f">min_distinct</td><td>본문 신호: 서로 다른 말 최소 종류</td><td class="num">1</td><td class="ok">씀</td></tr>
     <tr><td class="f">min_count</td><td>본문 신호: 합친 최소 횟수</td><td class="num">1</td><td class="ok">씀</td></tr>
@@ -466,6 +464,7 @@ defaults:
     <tr><td class="f">t_seed</td><td>자동 씨앗 선별: 이 점수 이상이어야 기준 문서 후보</td><td class="num">0.85</td><td class="ok">씨앗 만들 때</td></tr>
     <tr><td class="f">embed_cap</td><td>비슷한 문서만 보고 붙은 라벨의 점수 상한</td><td class="num">0.65</td><td class="ok">씀</td></tr>
   </table></div>
+  <p class="muted"><span class="def">2026-09-22</span> 채점 방식 스위치 <code>scoring</code>(<code>legacy</code>/<code>staged</code>)는 없앴습니다 — 채점은 5장의 방식(신호별 점수 + noisy-OR) 하나뿐입니다. 옛 파일에 남아 있어도 효과 없이 넘어갑니다.</p>
   <div class="warn"><b>순서를 지켜야 합니다</b> — <code>t_low ≤ t_seed</code>. 어기면 규칙 파일이 통째로 안 읽힙니다(T20). <span class="def">2026-09-22 — 판정에 쓰이지 않던 <code>t_high</code>(확정 후보선)는 없앴습니다. 옛 파일에 남아 있어도 효과 없이 넘어갑니다.</span></div>
 </section>
 

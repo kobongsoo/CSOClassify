@@ -46,7 +46,7 @@ def mk_doctype_fixtures():
     drs = D.DocRuleSet(
         conflict=D.ConflictSpec(strategy="all"), version="doc-test-1",
         rules=(D.DoctypeRule(id="dt_contract", node="CONTRACT", weight="high",
-                             terms=("계약서",)),),
+                             terms=("계약서",), head_terms=("계약서",)),),
     )
     return taxonomy, drs
 

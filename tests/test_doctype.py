@@ -59,6 +59,23 @@ def mk_ruleset(conflict=None):
     return D.DocRuleSet(conflict=conflict or D.ConflictSpec(strategy="all"), rules=rules)
 
 
+#------------------------------------------------------------------
+# mk_ruleset 과 같되 본문 말을 앞부분 칸에도 넣은 규칙셋
+#=> 본문 말만으로는 후보가 되지 않는다(재설계 8-4 — 2026-09-22 부터 채점은 이것
+#   하나뿐). 조상 흡수·충돌·top_n 처럼 '후보가 둘 이상 서야' 보이는 동작을 볼 때 쓴다.
+#
+# -in: conflict = ConflictSpec(None 이면 all)
+#
+# -out: D.DocRuleSet
+# -out: error = 없음
+#------------------------------------------------------------------
+def mk_ruleset_head(conflict=None):
+    import dataclasses
+    rs = mk_ruleset(conflict)
+    rules = tuple(dataclasses.replace(r, head_terms=r.terms) for r in rs.rules)
+    return dataclasses.replace(rs, rules=rules)
+
+
 # ── 설계서 D4 완료 판정 — 실제 taxonomy 회귀 ────────────────────────
 
 #------------------------------------------------------------------
@@ -99,6 +116,7 @@ def test_계약서_샘플은_법무규정_계약서로_분류된다():
 
     rules = (D.DoctypeRule(id="dt_contract", node="DC_006_001", weight="high",
                           terms=("계약서", "용역계약", "도급계약", "갑과 을"),
+                          head_terms=("계약서", "용역계약"),
                           exclude=("계약서 양식",)),)
     drs = D.DocRuleSet(conflict=D.ConflictSpec(strategy="all"), rules=rules)
 
@@ -125,9 +143,9 @@ def test_계약_제안_혼합_문서는_둘_다_나온다():
     taxonomy = _deployed_taxonomy()
     rules = (
         D.DoctypeRule(id="dt_contract", node="DC_006_001", weight="high",
-                     terms=("계약서", "용역계약")),
+                     terms=("계약서", "용역계약"), head_terms=("계약서", "용역계약")),
         D.DoctypeRule(id="dt_proposal", node="DC_003_001", weight="high",
-                     terms=("제안서", "제안 내용")),
+                     terms=("제안서", "제안 내용"), head_terms=("제안서", "제안 내용")),
     )
     drs = D.DocRuleSet(conflict=D.ConflictSpec(strategy="all"), rules=rules)
 
@@ -211,7 +229,7 @@ def test_terms와_filename이_함께_걸리면_from_합쳐진다():
 #------------------------------------------------------------------
 def test_조상_자손_동시매칭시_자손만_남는다():
     taxonomy = mk_taxonomy()
-    drs = mk_ruleset()
+    drs = mk_ruleset_head()
     text = "이 문서는 설계문서 중 요구사항정의서에 해당한다."
     sig = DT.scan_doctype(text, "D:/x/문서.hwp", drs, taxonomy)
     dc_ids = {v["dc_id"] for v in sig.values}
@@ -227,7 +245,7 @@ def test_조상_자손_동시매칭시_자손만_남는다():
 #------------------------------------------------------------------
 def test_서로_다른_가지는_둘_다_남는다():
     taxonomy = mk_taxonomy()
-    drs = mk_ruleset()
+    drs = mk_ruleset_head()
     text = "이 계약서에는 제안 내용이 별첨돼 있다."
     sig = DT.scan_doctype(text, "D:/x/문서.hwp", drs, taxonomy)
     dc_ids = {v["dc_id"] for v in sig.values}
@@ -245,7 +263,7 @@ def test_서로_다른_가지는_둘_다_남는다():
 #------------------------------------------------------------------
 def test_top_n_전략은_잘라내고_truncated_보고():
     taxonomy = mk_taxonomy()
-    drs = mk_ruleset(conflict=D.ConflictSpec(strategy="top_n", n=1))
+    drs = mk_ruleset_head(conflict=D.ConflictSpec(strategy="top_n", n=1))
     text = "이 계약서에는 제안 내용이 별첨돼 있다."
     sig = DT.scan_doctype(text, "D:/x/문서.hwp", drs, taxonomy)
     assert len(sig.values) == 1

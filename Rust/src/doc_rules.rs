@@ -41,8 +41,6 @@ pub struct Defaults {
     pub t_low: f64,
     pub t_seed: f64,
     pub embed_cap: f64,
-    /// "legacy"(기본) | "staged". Python doc_rules.SCORING_MODES 와 같은 값.
-    pub scoring: String,
 }
 
 impl Default for Defaults {
@@ -50,12 +48,12 @@ impl Default for Defaults {
         Defaults {
             head_chars: 400, min_distinct: 1, min_count: 1,
             t_low: 0.30, t_seed: 0.85, embed_cap: 0.65,
-            scoring: "legacy".into(),
         }
     }
 }
 
-pub const SCORING_MODES: [&str; 2] = ["legacy", "staged"];
+// [2026-09-22 제거] scoring(legacy/staged 스위치) — 채점은 noisy-OR(staged) 하나뿐.
+// 옛 파일에 scoring 이 남아 있어도 모르는 칸이라 넘어간다(파이썬 판과 같다).
 
 /// 임베딩 전파 설정 블록(doc_rule.yaml 의 embed:).
 #[derive(Clone, Debug, PartialEq)]
@@ -283,15 +281,6 @@ pub(crate) fn parse_defaults(raw: &Value) -> (Defaults, Vec<DVio>) {
     if let Some(v) = num(raw, "t_low", false, 0.0, 1.0, &mut out) { d.t_low = v; }
     if let Some(v) = num(raw, "t_seed", false, 0.0, 1.0, &mut out) { d.t_seed = v; }
     if let Some(v) = num(raw, "embed_cap", false, 0.0, 1.0, &mut out) { d.embed_cap = v; }
-
-    if let Some(v) = raw.get("scoring") {
-        match v.as_str() {
-            Some(m) if SCORING_MODES.contains(&m) => d.scoring = m.to_string(),
-            _ => out.push(DVio { code: "T20", rule_id: None, field: "defaults.scoring",
-                value: v.to_string(),
-                detail: format!("{} 중 하나여야 합니다", SCORING_MODES.join(" | ")) }),
-        }
-    }
 
     // 값 하나하나가 정상이어도 조합이 뒤집히면 "후보도 못 되는 점수로 기준 문서를
     // 뽑는다" 같은 모순이 생긴다.

@@ -2,7 +2,7 @@
 # 재설계 1단계(구조 개선) 테스트
 #=> 표제부/첫줄 제한 · 서식 필드어 · 구조 신호 · 본문 격하 · noisy-OR 가산점수 ·
 #   단독 채택 금지 · 정렬 재현성 · 근거 블록을 검증한다.
-#   legacy 모드가 종전과 완전히 같게 도는지(하위호환)도 함께 확인한다.
+#   [2026-09-22] 예전 채점(legacy) 모드는 없앴다 — 채점은 이 방식 하나뿐이다.
 #------------------------------------------------------------------
 
 import pytest
@@ -40,7 +40,7 @@ def mk_taxonomy():
 #=> 테스트마다 defaults 만 바꿔 가며 같은 규칙을 재사용하기 위한 것.
 #
 # -in: rules    = DoctypeRule 튜플
-# -in: defaults = D.Defaults (없으면 staged 모드 기본값)
+# -in: defaults = D.Defaults (없으면 코드 기본값)
 #
 # -out: D.DocRuleSet
 # -out: error = 없음
@@ -49,11 +49,11 @@ def mk_set(rules, defaults=None):
     return D.DocRuleSet(
         conflict=D.ConflictSpec(strategy="all"),
         rules=tuple(rules),
-        defaults=defaults or D.Defaults(scoring="staged"),
+        defaults=defaults or D.Defaults(),
     )
 
 
-STAGED = D.Defaults(scoring="staged")
+STAGED = D.Defaults()
 
 
 # ── 표제부(head) · 첫줄(title) 제한 ────────────────────────────────
@@ -157,7 +157,7 @@ def test_min_distinct와_min_count가_본문_신호를_조인다():
 # 규칙별 값이 전역 defaults 를 이긴다
 #------------------------------------------------------------------
 def test_규칙별_임계값이_전역_defaults를_이긴다():
-    defaults = D.Defaults(scoring="staged", min_count=5)
+    defaults = D.Defaults(min_count=5)
     rule = D.DoctypeRule(id="r", node="MINUTES", terms=("회의",),
                          filename=("회의록",), min_count=1)
     sig = DT.scan_doctype("회의", "D:/x/회의록.hwp", mk_set([rule], defaults), mk_taxonomy())
@@ -208,9 +208,9 @@ def test_t_low_미만은_후보에서_빠진다():
     tax = mk_taxonomy()
     rule = D.DoctypeRule(id="r", node="MINUTES", terms=("회의",), filename=("회의록",))
     # body(0.15)+name(0.30) → 0.405. 임계를 그 위로 올리면 탈락해야 한다.
-    high = D.Defaults(scoring="staged", t_low=0.5)
+    high = D.Defaults(t_low=0.5)
     assert DT.scan_doctype("회의", "D:/x/회의록.hwp", mk_set([rule], high), tax).values == ()
-    low = D.Defaults(scoring="staged", t_low=0.30)
+    low = D.Defaults(t_low=0.30)
     assert DT.scan_doctype("회의", "D:/x/회의록.hwp", mk_set([rule], low), tax).values != ()
 
 
@@ -297,39 +297,18 @@ def test_같은_가지는_모순이_아니다():
     assert sig.conflicts == ()
 
 
-# ── 하위호환: legacy 모드 (14-1) ─────────────────────────────────
+# ── 기본값 ───────────────────────────────────────────────────────
 
 #------------------------------------------------------------------
-# legacy 는 종전과 같다 — 본문 1건이면 히트, 신뢰도도 종전 값
-#=> 기존 doc_rule.yaml 을 한 글자도 안 고쳐도 그대로 돌아야 한다.
+# defaults 기본값 — min_distinct/min_count 는 1, 채점 스위치는 없다
+#=> 본문 조건을 조이는 것은 정책 파일에서 켜는 옵트인이다. 예전 채점(legacy)
+#   스위치는 2026-09-22 에 없앴다 — 옛 파일에 scoring 이 있어도 넘어간다.
 #------------------------------------------------------------------
-def test_legacy는_본문_1건으로_히트하고_종전_신뢰도를_쓴다():
-    rule = D.DoctypeRule(id="r", node="MINUTES", weight="medium", terms=("회의",))
-    rs = D.DocRuleSet(conflict=D.ConflictSpec(strategy="all"), rules=(rule,))
-    sig = DT.scan_doctype("회의 한 번", "D:/x/문서.hwp", rs, mk_taxonomy())
-    assert len(sig.values) == 1
-    assert sig.values[0]["confidence"] == pytest.approx(0.70)
-
-
-#------------------------------------------------------------------
-# legacy 의 신호 결합은 max 다
-#------------------------------------------------------------------
-def test_legacy의_결합은_max다():
-    rule = D.DoctypeRule(id="r", node="MINUTES", weight="medium",
-                         terms=("회의",), filename=("회의록",))
-    rs = D.DocRuleSet(conflict=D.ConflictSpec(strategy="all"), rules=(rule,))
-    sig = DT.scan_doctype("회의", "D:/x/회의록.hwp", rs, mk_taxonomy())
-    # body(0.70) 와 name(0.60) 중 큰 값. 가산이면 0.70 을 넘었을 것이다.
-    assert sig.values[0]["confidence"] == pytest.approx(0.70)
-
-
-#------------------------------------------------------------------
-# defaults 기본값은 legacy 이며 min_distinct/min_count 는 1이다
-#=> "신규 기능은 전부 옵트인"이라는 하위호환 원칙의 실체.
-#------------------------------------------------------------------
-def test_defaults_기본값은_하위호환이다():
+def test_defaults_기본값():
     d = D.Defaults()
-    assert d.scoring == "legacy"
+    assert not hasattr(d, "scoring")
+    d2, vio = D._parse_defaults({"scoring": "legacy"})
+    assert vio == [] and d2 == D.Defaults()
     assert d.min_distinct == 1 and d.min_count == 1
     assert d.head_chars == 400
 

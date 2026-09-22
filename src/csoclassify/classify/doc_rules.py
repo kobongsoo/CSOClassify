@@ -62,16 +62,9 @@ class ConflictSpec:
 #                        모순된다. 실측 쪽에 맞춰 0.30 으로 확정한다.
 # -필드: t_seed       = seed 승격 후보 임계(기본 0.85)
 # -필드: embed_cap    = 벡터 단독 후보의 신뢰도 상한(기본 0.65)
-# -필드: scoring      = 점수 결합 방식(기본 "legacy")
-#                        "legacy" — 종전과 동일(신호 중 max, body 1건이면 히트).
-#                                   재설계 14-2 의 0단계 baseline 측정용으로 남긴다
-#                        "staged" — 재설계 방식(noisy-OR + 본문 격하 + 단독 채택 금지)
-#                        [왜 스위치인가] 재설계 14-1 은 점수 재조정이 옵트인이
-#                        될 수 없다고 못박았지만, 같은 14-2 는 "병행 실행 기간에
-#                        차이를 측정한 뒤 전환"을 요구한다. 두 방식을 같은
-#                        빌드에서 번갈아 돌릴 수 있어야 그 측정이 성립한다.
+#   [2026-09-22 제거] scoring(legacy/staged 스위치) — 비교 측정이 끝나 채점은 noisy-OR
+#   (staged) 하나만 남겼다. 옛 파일에 scoring 이 남아 있어도 모르는 칸이라 넘어간다.
 #------------------------------------------------------------------
-SCORING_MODES = ("legacy", "staged")
 
 
 @dataclass(frozen=True)
@@ -82,7 +75,6 @@ class Defaults:
     t_low: float = 0.30
     t_seed: float = 0.85
     embed_cap: float = 0.65
-    scoring: str = "legacy"
 
 
 #------------------------------------------------------------------
@@ -359,14 +351,6 @@ def _parse_defaults(raw):
             violations.append(_dv("T20", None, f"defaults.{name}", v, f"{rng}여야 합니다"))
             continue
         vals[name] = typ(v)
-
-    if "scoring" in raw:
-        mode = raw["scoring"]
-        if mode not in SCORING_MODES:
-            violations.append(_dv("T20", None, "defaults.scoring", mode,
-                                  f"{' | '.join(SCORING_MODES)} 중 하나여야 합니다"))
-        else:
-            vals["scoring"] = mode
 
     d = Defaults(**{**d.__dict__, **vals})
     # 임계값의 대소 관계가 뒤집히면 "후보도 못 되는 점수로 기준 문서를 뽑는다"
