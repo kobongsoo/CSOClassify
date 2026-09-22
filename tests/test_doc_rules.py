@@ -383,3 +383,21 @@ def test_validate_False면_conflict_오류도_로드된다(tmp_path):
     p.write_text(_yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     drs = D.load_doc_rules(str(p), validate=False)
     assert drs.conflict.strategy == "max"
+
+
+#------------------------------------------------------------------
+# defaults 순서 검사는 t_low ≤ t_seed 만 본다 (2026-09-22 t_high 제거)
+#=> t_high 는 판정에 쓰이지 않아 없앴다. 옛 파일에 남아 있어도 막지 않고,
+#   t_low 를 옛 t_high(0.7) 위로 올려도 t_seed 아래면 통과해야 한다(Rust 판과 같다).
+#
+# -in: 없음
+# -out: 없음(단언)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_defaults_순서는_t_low_와_t_seed_만_본다():
+    d, vio = D._parse_defaults({"t_low": 0.75, "t_high": 0.7, "t_seed": 0.85})
+    assert vio == [] and d.t_low == 0.75
+    assert not hasattr(d, "t_high")
+    _, vio = D._parse_defaults({"t_low": 0.9, "t_seed": 0.85})
+    assert [v["code"] for v in vio] == ["T20"]
+    assert vio[0]["field"] == "defaults.t_seed"

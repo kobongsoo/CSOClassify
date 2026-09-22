@@ -15,9 +15,8 @@
 //! 사람이 매번 되짚어야 해서 걷어냈다(파이썬 판과 함께).
 //! 결합은 noisy-OR(1 - Π(1-c))라 근거가 쌓일수록 점수가 오른다.
 //!
-//! [scoring 모드] defaults.scoring 이
-//!   · "legacy"(기본) — 종전과 동일. body 1건이면 히트, 신호 결합은 max
-//!   · "staged"       — 위 재설계 방식
+//! [2026-09-22 제거] 예전 채점(scoring: legacy — 최댓값 결합, 본문 1건이면 히트)은
+//! 운영 규칙이 모두 자동 생성(staged)이라 걷어냈다. 채점은 위 방식 하나뿐이다.
 //! Python 구현과 값·판정이 같아야 한다(설계서 14-3 교차 검증).
 
 use std::collections::{HashMap, HashSet};
@@ -31,15 +30,7 @@ use crate::conflict::resolve_doctype;
 use crate::doc_rules::{ConflictSpec, Defaults, DocRuleSet, DoctypeRule};
 use crate::rules::{count_outside, exclude_spans};
 
-// ── legacy 모드 신뢰도(종전 값 그대로) ───────────────────────────────
-// security 축의 같은 이름 상수와 값을 맞춘다. 두 축이 "같은 확신 수준은 같은
-// 숫자"를 쓰게 해, 결과를 함께 볼 때 신뢰도가 다른 잣대로 보이지 않게 한다.
-fn pick_keyword(weight: &str) -> f64 {
-    match weight { "high" => 0.85, "low" => 0.50, _ => 0.70 }
-}
-const DT_NAME_CONF: f64 = 0.60;
-
-// ── staged 모드 신호별 신뢰도(재설계 8-2, 실측 전 잠정치) ─────────────
+// ── 신호별 신뢰도(재설계 8-2, 실측 전 잠정치) ──────────────────────────
 // 상대 순서(title ≳ head > name > body)가 핵심이며,
 // 절대값은 검증셋 측정 후 재보정 대상이다. Python _SIG_CONF 와 같은 값.
 fn sig_conf(signal: &str, weight: &str) -> f64 {
@@ -277,12 +268,10 @@ fn terms_json(hits: &[(String, u32)]) -> Value {
 }
 
 /// 규칙 1개 스캔 — 신호원 수집 + 점수화(핵심).
-/// scoring 모드에 따라 결합 방식이 달라진다. 근거(evidence)는 두 모드 모두
-/// 남긴다 — 근거 미보존 해소는 계측의 전제조건이라 모드와 무관하게 필요하다.
+/// noisy-OR 로 합치고, 근거(evidence)를 남긴다 — 근거 미보존 해소는 계측의 전제조건이다.
 fn scan_rule(text: &str, file: &str, rule: &DoctypeRule,
              defaults: &Defaults, allow_title: bool,
              tbl: Option<&SignalTable>) -> Option<ScanHit> {
-    let staged = defaults.scoring == "staged";
     let mut evidence = Map::new();
     let mut parts: Vec<(String, f64)> = vec![];
 
@@ -315,7 +304,7 @@ fn scan_rule(text: &str, file: &str, rule: &DoctypeRule,
         let need_d = thr_min_distinct(rule, defaults);
         let need_c = thr_min_count(rule, defaults);
         if !hits.is_empty() && distinct >= need_d && total >= need_c {
-            let conf = if staged { sig_conf_of(tbl, "body", &rule.weight) } else { pick_keyword(&rule.weight) };
+            let conf = sig_conf_of(tbl, "body", &rule.weight);
             evidence.insert("body".into(), json!({
                 "terms": terms_json(&hits), "distinct": distinct, "total": total,
                 "min_distinct": need_d, "min_count": need_c,
@@ -327,7 +316,7 @@ fn scan_rule(text: &str, file: &str, rule: &DoctypeRule,
     // name: 파일명
     let nm = match_filename(file, rule);
     if !nm.is_empty() {
-        let conf = if staged { sig_conf_of(tbl, "name", &rule.weight) } else { DT_NAME_CONF };
+        let conf = sig_conf_of(tbl, "name", &rule.weight);
         let words: Vec<String> = nm.iter().map(|(t, _c)| t.clone()).collect();
         evidence.insert("name".into(), json!({ "terms": words }));
         parts.push(("name".into(), conf));
@@ -339,13 +328,7 @@ fn scan_rule(text: &str, file: &str, rule: &DoctypeRule,
     }
     let sources: Vec<String> = parts.iter().map(|(s, _c)| s.clone()).collect();
 
-    if !staged {
-        // legacy: 종전과 완전히 같은 계산 — 걸린 신호 중 가장 높은 값 하나.
-        let score = parts.iter().map(|(_s, c)| *c).fold(0.0_f64, f64::max);
-        return Some(ScanHit { score, sources, evidence, parts });
-    }
-
-    // staged: 보조 신호만으로는 후보를 만들지 않는다(8-4).
+    // 보조 신호만으로는 후보를 만들지 않는다(8-4).
     if sources.iter().all(|s| WEAK_ONLY.contains(&s.as_str())) {
         return None;
     }
@@ -822,8 +805,21 @@ mod tests {
         }
     }
 
+    // 채점은 noisy-OR 하나뿐이라(2026-09-22 legacy 제거) 코드 기본값과 같다.
+    // 이름은 재설계 시험들이 읽기 쉽게 남겨 둔다.
     fn staged() -> Defaults {
-        Defaults { scoring: "staged".into(), ..Defaults::default() }
+        Defaults::default()
+    }
+
+    // mk_ruleset 과 같되 본문 말을 앞부분 칸에도 넣는다. 본문만으로는 후보가 되지
+    // 않으므로(8-4), 조상 흡수·충돌·top_n 처럼 '후보가 둘 이상 서야' 보이는 동작을
+    // 시험할 때 쓴다.
+    fn mk_ruleset_head() -> DocRuleSet {
+        let mut rs = mk_ruleset();
+        for r in rs.rules.iter_mut() {
+            r.head_terms = r.terms.clone();
+        }
+        rs
     }
 
     fn mk_ruleset() -> DocRuleSet {
@@ -836,7 +832,7 @@ mod tests {
         ], Defaults::default())
     }
 
-    // ── legacy(하위호환) — 종전 동작이 그대로여야 한다 ────────────────
+    // ── 기본 매칭 ─────────────────────────────────────────────────
 
     #[test]
     fn 매칭없으면_빈결과() {
@@ -868,28 +864,9 @@ mod tests {
     }
 
     #[test]
-    fn legacy는_본문_1건으로_히트하고_종전_신뢰도를_쓴다() {
-        let rs = mk_set(vec![rule("r", "CONTRACT", "medium", &["계약서"], &[], &[])],
-                        Defaults::default());
-        let sig = scan_doctype("계약서 한 번 언급", "D:/x/문서.hwp", &rs, &mk_taxonomy());
-        assert_eq!(sig.values.len(), 1);
-        assert!((sig.values[0].confidence - 0.70).abs() < 1e-9);
-    }
-
-    #[test]
-    fn legacy의_결합은_max다() {
-        let rs = mk_set(vec![rule("r", "CONTRACT", "medium", &["계약서"], &[], &["계약서"])],
-                        Defaults::default());
-        let sig = scan_doctype("계약서", "D:/x/계약서.hwp", &rs, &mk_taxonomy());
-        // body(0.70) 와 name(0.60) 중 큰 값. 가산이면 0.70 을 넘었을 것이다.
-        assert!((sig.values[0].confidence - 0.70).abs() < 1e-9);
-    }
-
-    #[test]
-        #[test]
     fn 조상_자손_동시매칭시_자손만_남는다() {
         let sig = scan_doctype("이 문서는 설계문서 중 요구사항정의서에 해당한다.", "D:/x/문서.hwp",
-                               &mk_ruleset(), &mk_taxonomy());
+                               &mk_ruleset_head(), &mk_taxonomy());
         let ids: Vec<&str> = sig.values.iter().map(|v| v.dc_id.as_str()).collect();
         assert_eq!(ids, vec!["REQSPEC"]);
     }
@@ -897,7 +874,7 @@ mod tests {
     #[test]
     fn 서로_다른_가지는_둘_다_남는다() {
         let sig = scan_doctype("이 계약서에는 제안 내용이 별첨돼 있다.", "D:/x/문서.hwp",
-                               &mk_ruleset(), &mk_taxonomy());
+                               &mk_ruleset_head(), &mk_taxonomy());
         let mut ids: Vec<&str> = sig.values.iter().map(|v| v.dc_id.as_str()).collect();
         ids.sort();
         assert_eq!(ids, vec!["CONTRACT", "PROPOSAL"]);
@@ -907,7 +884,7 @@ mod tests {
 
     #[test]
     fn top_n_전략은_잘라내고_truncated_보고() {
-        let mut rs = mk_ruleset();
+        let mut rs = mk_ruleset_head();
         rs.conflict = ConflictSpec { strategy: "top_n".into(), n: Some(1), min_confidence: None };
         let sig = scan_doctype("이 계약서에는 제안 내용이 별첨돼 있다.", "D:/x/문서.hwp", &rs, &mk_taxonomy());
         assert_eq!(sig.values.len(), 1);
@@ -925,7 +902,6 @@ mod tests {
     }
 
     #[test]
-        #[test]
     fn 표제부_밖의_언급은_head신호가_아니다() {
         let mut r = blank("r", "CONTRACT", "medium");
         r.head_terms = sv(&["계약서"]);
@@ -979,7 +955,6 @@ mod tests {
     }
 
     #[test]
-        #[test]
     fn 근거가_쌓이면_점수가_오른다() {
         let t = mk_taxonomy();
         let mut one = blank("r", "CONTRACT", "medium");

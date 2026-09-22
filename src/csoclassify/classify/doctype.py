@@ -20,10 +20,9 @@
 #   있으면 읽는 사람이 매번 "이건 도는 건가"를 되짚어야 해서 걷어냈다.
 #   다시 필요해지면 _backup/before-remove-form-path-structure-20260907.tgz.
 #
-#   [scoring 모드] defaults.scoring 이
-#     · "legacy"(기본) — 종전과 동일. body 1건이면 히트, 신호 결합은 max.
-#                        재설계 14-2 의 0단계 baseline 측정을 위해 남겨 둔다
-#     · "staged"       — 위 재설계 방식
+#   [2026-09-22 제거] 예전 채점(scoring: legacy — 신호 중 최댓값, 본문 1건이면 히트)은
+#   재설계 비교 측정용으로 남겨 두었으나, 운영 규칙이 모두 자동 생성(staged)이라
+#   걷어냈다. 채점은 위 방식 하나뿐이다.
 #   (설계: 문서분류체계 연동 설계서 §5·6, 업무분류-내용기반-2단계-재설계 §6~8)
 #------------------------------------------------------------------
 
@@ -35,13 +34,7 @@ from . import rules as R
 from . import taxhead
 from .conflict import resolve_doctype
 
-# ── legacy 모드 신뢰도 (종전 값 그대로) ─────────────────────────────
-# security 축의 같은 이름 상수와 값을 맞춘다. 두 축이 "같은 확신 수준은 같은
-# 숫자"를 쓰게 해, 결과를 함께 볼 때 신뢰도가 서로 다른 잣대로 보이지 않게 한다.
-_DT_KEYWORD_CONF = {"high": 0.85, "medium": 0.70, "low": 0.50}
-_DT_NAME_CONF = 0.60
-
-# ── staged 모드 신호별 신뢰도 (재설계 8-2, 실측 전 잠정치) ───────────
+# ── 신호별 신뢰도 (재설계 8-2, 실측 전 잠정치) ─────────────────────
 # 상대 순서(title ≳ head > name > body)가 핵심이며,
 # 절대값은 16장 검증셋 측정 후 재보정 대상이다.
 #
@@ -297,12 +290,9 @@ def _match_filename(file, rule):
 #------------------------------------------------------------------
 # 규칙 1개 스캔 — 신호원 수집 + 점수화 (핵심)
 #=> 한 규칙(=노드)에 대해 모든 신호원을 확인하고, 점수·근거·구성요소를 만든다.
-#   scoring 모드에 따라 결합 방식이 달라진다.
 #    1) 신호원별 매칭 — title/head/body/name
-#    2) legacy: 종전과 동일하게 max 결합, body 1건이면 히트
-#       staged: noisy-OR 결합 + 단독 채택 금지(8-4) + t_low 미만 탈락(8-3)
-#    3) 근거(evidence)는 두 모드 모두 남긴다 — P6(근거 미보존) 해소는
-#       계측의 전제조건이라 모드와 무관하게 필요하다
+#    2) noisy-OR 결합 + 단독 채택 금지(8-4) + t_low 미만 탈락(8-3)
+#    3) 근거(evidence)를 남긴다 — P6(근거 미보존) 해소는 계측의 전제조건이다
 #
 # -in: text      = 정제된 문서 텍스트
 # -in: file      = 파일 경로
@@ -317,7 +307,6 @@ def _match_filename(file, rule):
 def _scan_rule(text, file, rule, defaults, allow_title=True, sig=None):
     # 정책 파일의 signals: 블록이 있으면 그 표를, 없으면 코드 기본값을 쓴다.
     sig = sig or _SIG_CONF
-    staged = getattr(defaults, "scoring", "legacy") == "staged"
     evidence = {}
     parts = []
 
@@ -348,9 +337,7 @@ def _scan_rule(text, file, rule, defaults, allow_title=True, sig=None):
         need_d = _thr(rule, defaults, "min_distinct")
         need_c = _thr(rule, defaults, "min_count")
         if hits and distinct >= need_d and total >= need_c:
-            conf = (sig["body"].get(rule.weight, 0.15) if staged
-                    else _DT_KEYWORD_CONF.get(rule.weight, 0.6))
-            add("body", conf,
+            add("body", sig["body"].get(rule.weight, 0.15),
                 {"terms": [{"term": t, "count": c} for t, c in hits],
                  "distinct": distinct, "total": total,
                  "min_distinct": need_d, "min_count": need_c})
@@ -358,20 +345,15 @@ def _scan_rule(text, file, rule, defaults, allow_title=True, sig=None):
     # ── name: 파일명 ───────────────────────────────────────────
     nm = _match_filename(file, rule)
     if nm:
-        conf = sig["name"]["medium"] if staged else _DT_NAME_CONF
-        add("name", conf, {"terms": [t for t, _c in nm]})
+        # 파일 이름 신호는 규칙의 weight 를 보지 않고 medium 칸만 쓴다.
+        add("name", sig["name"]["medium"], {"terms": [t for t, _c in nm]})
 
     if not parts:
         return None
 
     sources = tuple(p["signal"] for p in parts)
 
-    if not staged:
-        # legacy: 종전과 완전히 같은 계산 — 걸린 신호 중 가장 높은 값 하나.
-        return {"score": max(p["c"] for p in parts), "sources": sources,
-                "evidence": evidence, "parts": parts}
-
-    # staged: 보조 신호만으로는 후보를 만들지 않는다(8-4).
+    # 보조 신호만으로는 후보를 만들지 않는다(8-4).
     if set(sources) <= _WEAK_ONLY:
         return None
 

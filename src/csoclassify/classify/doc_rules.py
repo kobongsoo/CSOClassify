@@ -54,7 +54,6 @@ class ConflictSpec:
 # -필드: head_chars   = 표제부로 볼 앞부분 글자 수(기본 400)
 # -필드: min_distinct = 본문 terms 중 '서로 다른 단어' 최소 종수(기본 1)
 # -필드: min_count    = 본문 terms 총 등장 건수 하한(기본 1)
-# -필드: t_high       = 확정 후보 임계(기본 0.70)
 # -필드: t_low        = 약한 후보 임계(기본 0.30). 이 미만은 후보에서 탈락
 #                        [0.35 가 아닌 이유] 재설계 8-3 초안은 0.35 였으나,
 #                        같은 문서 3-B-8 의 실측은 "파일명만으로 37건(44%)이
@@ -63,16 +62,9 @@ class ConflictSpec:
 #                        모순된다. 실측 쪽에 맞춰 0.30 으로 확정한다.
 # -필드: t_seed       = seed 승격 후보 임계(기본 0.85)
 # -필드: embed_cap    = 벡터 단독 후보의 신뢰도 상한(기본 0.65)
-# -필드: scoring      = 점수 결합 방식(기본 "legacy")
-#                        "legacy" — 종전과 동일(신호 중 max, body 1건이면 히트).
-#                                   재설계 14-2 의 0단계 baseline 측정용으로 남긴다
-#                        "staged" — 재설계 방식(noisy-OR + 본문 격하 + 단독 채택 금지)
-#                        [왜 스위치인가] 재설계 14-1 은 점수 재조정이 옵트인이
-#                        될 수 없다고 못박았지만, 같은 14-2 는 "병행 실행 기간에
-#                        차이를 측정한 뒤 전환"을 요구한다. 두 방식을 같은
-#                        빌드에서 번갈아 돌릴 수 있어야 그 측정이 성립한다.
+#   [2026-09-22 제거] scoring(legacy/staged 스위치) — 비교 측정이 끝나 채점은 noisy-OR
+#   (staged) 하나만 남겼다. 옛 파일에 scoring 이 남아 있어도 모르는 칸이라 넘어간다.
 #------------------------------------------------------------------
-SCORING_MODES = ("legacy", "staged")
 
 
 @dataclass(frozen=True)
@@ -80,11 +72,9 @@ class Defaults:
     head_chars: int = 400
     min_distinct: int = 1
     min_count: int = 1
-    t_high: float = 0.70
     t_low: float = 0.30
     t_seed: float = 0.85
     embed_cap: float = 0.65
-    scoring: str = "legacy"
 
 
 #------------------------------------------------------------------
@@ -341,7 +331,6 @@ def _parse_defaults(raw):
         ("head_chars", int, 1, None),
         ("min_distinct", int, 1, None),
         ("min_count", int, 1, None),
-        ("t_high", float, 0.0, 1.0),
         ("t_low", float, 0.0, 1.0),
         ("t_seed", float, 0.0, 1.0),
         ("embed_cap", float, 0.0, 1.0),
@@ -363,23 +352,14 @@ def _parse_defaults(raw):
             continue
         vals[name] = typ(v)
 
-    if "scoring" in raw:
-        mode = raw["scoring"]
-        if mode not in SCORING_MODES:
-            violations.append(_dv("T20", None, "defaults.scoring", mode,
-                                  f"{' | '.join(SCORING_MODES)} 중 하나여야 합니다"))
-        else:
-            vals["scoring"] = mode
-
     d = Defaults(**{**d.__dict__, **vals})
-    # 임계값의 대소 관계가 뒤집히면 "약한 후보가 확정 후보보다 세다" 같은
-    # 모순이 생긴다. 값 하나하나가 정상이어도 조합이 틀리면 막는다.
-    if d.t_low > d.t_high:
-        violations.append(_dv("T20", None, "defaults.t_low", d.t_low,
-                              f"t_low 는 t_high({d.t_high}) 이하여야 합니다"))
-    if d.t_high > d.t_seed:
+    # 임계값의 대소 관계가 뒤집히면 "후보도 못 되는 점수로 기준 문서를 뽑는다"
+    # 같은 모순이 생긴다. 값 하나하나가 정상이어도 조합이 틀리면 막는다.
+    # [2026-09-22] 판정에 쓰이지 않던 t_high(확정 후보선)를 없애 t_low ≤ t_seed 만 본다.
+    # 옛 파일에 t_high 가 남아 있어도 모르는 칸이라 읽고 넘어간다(효과 없음).
+    if d.t_low > d.t_seed:
         violations.append(_dv("T20", None, "defaults.t_seed", d.t_seed,
-                              f"t_seed 는 t_high({d.t_high}) 이상이어야 합니다"))
+                              f"t_seed 는 t_low({d.t_low}) 이상이어야 합니다"))
     return d, violations
 
 

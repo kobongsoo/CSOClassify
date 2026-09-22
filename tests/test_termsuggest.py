@@ -622,7 +622,7 @@ def test_넣은_뒤에도_규칙파일이_유효하다(tmp_path):
     path.write_text(
         "version: doctype-test.1\n"
         "conflict: all\n"
-        "defaults: {scoring: staged, head_chars: 400, t_low: 0.35, t_high: 0.7,\n"
+        "defaults: {scoring: staged, head_chars: 400, t_low: 0.35,\n"
         "  t_seed: 0.85, embed_cap: 0.65}\n"
         "doctype_rules:\n"
         "- id: dt_a\n  node: DC_001_003\n  weight: medium\n"
