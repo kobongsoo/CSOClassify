@@ -3957,6 +3957,7 @@ def run_suggest_terms(args):
 #    3) doc_taxonomy.yaml·doc_rule.yaml 이 있으면 그것도 같은 자리에서 검사한다
 #       (security 만 검사하고 doctype 은 실제 배치 때에야 오류를 만나면, "확인했는데
 #       왜 또 실패하지" 하는 상황이 생긴다 — 있는 파일은 전부 미리 본다)
+#       자동 생성 규칙이면 분류체계가 그 안에 있으므로 doc_taxonomy.yaml 은 보지 않는다
 #
 # -in: args = 파싱된 인자(사용 필드: rules·taxonomy·doc_rules)
 #
@@ -3990,6 +3991,25 @@ def run_check_rules(args):
     # "지금 상태가 괜찮은지" 미리 보는 자리라, 있는 건 다 보여주는 편이 낫다.)
     from .classify import axes as AX
     from .classify import doc_rules as DR
+
+    # 자동 생성 규칙이면 분류체계가 규칙 줄 안에 있다 — doc_taxonomy.yaml 을 보지 않는다.
+    # (실제 분류의 _load_doctype_axis 와 같은 갈래로 가야 '검사는 됐는데 실행은 다름'이 없다)
+    doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
+    if _is_generated_rules(doc_rules_path):
+        try:
+            drs = DR.load_doc_rules(doc_rules_path)
+        except DR.DocRuleValidationError as e:
+            log.error("업무분류 규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
+            return fail_err("doc_rules_invalid", f"[MpowerClassify] {e}", e.path)
+        # 손으로 고침·입력 바뀜 같은 경고도 여기서 미리 보여 준다.
+        for w in drs.warnings:
+            print(f"[MpowerClassify] {w}")
+        tax = drs.taxonomy
+        print(f"[MpowerClassify] 업무분류 규칙셋 정상(자동 생성 — 분류체계 내장): {doc_rules_path}")
+        print(f"  version={drs.version}  conflict={drs.conflict.strategy}  "
+              f"규칙={len(drs.rules)}건(활성 {len(drs.active_rules)}건)  "
+              f"노드={len(tax)}개  최상위={len(tax.roots)}개")
+        return config.EXIT_OK
 
     taxonomy_path = args.taxonomy or AX.default_taxonomy_path()
     if not os.path.isfile(taxonomy_path):

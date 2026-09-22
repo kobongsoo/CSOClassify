@@ -447,7 +447,7 @@ doctype_rules:
 <tr><td>3</td><td>엔진이 새 규칙 파일 하나만 읽기(체계·핵어 내장) + 옛 모양 호환 <span class="pill ok">2026-09-22 끝</span></td><td>기존 시험 전부 통과(Python 959 · Rust 259) · 평가셋 500건 옛 방식과 판정·근거 모두 같음(두 엔진)</td></tr>
 <tr><td>4</td><td>차이 뽑기 도구 → 이 고객 local · <b>고객 폴더 전환</b> <span class="pill ok">2026-09-22 끝</span></td><td><code>scripts/migrate_doc_rule_local.py</code>. 이 고객의 차이는 DC_007 <code>clear: [head_terms, terms]</code>(P2) 한 건뿐 — <code>ui/policy/doc_rule.local.yaml</code> 로 옮기고 다시 만들어 사본 6곳 반영(판 <code>doctype-gen-b29e4fa53046</code>, 전환 전 파일 <code>_backup/doc-rule-switch-20260922/</code>). 평가셋 500건 판정 변화 0건. 배포본 4곳 새로 빌드(리눅스 Rust 묶음에 체계 JSON·본보기·회사 조정 추가)</td></tr>
 <tr><td>5</td><td>화면 — 규칙 편집이 local 을 고치게 · [규칙 다시 만들기] <span class="pill ok">2026-09-22 끝</span></td><td>화면에서 고친 조정이 다시 만들어도 남음. 옛 방식 화면에 [새 방식으로 바꾸기] — 조정을 뽑아 재현을 확인한 뒤에만 바꾼다(시험 사본에서 전환·재생성 확인)</td></tr>
-<tr><td>6</td><td>연동 문서·실행 가이드·DOC_Rule.html 고치기 · 배포</td><td>엠파워 준비 절차 한 단계</td></tr>
+<tr><td>6</td><td>연동 문서·실행 가이드·DOC_Rule.html 고치기 · 배포 <span class="pill ok">2026-09-22 끝</span></td><td>엠파워 준비 절차 한 단계(CLI 4개 → 3개). 실행 가이드·DOC_Rule.html(13장 회사 조정 신설)·README 갱신. Python <code>--check-rules</code> 가 자동 생성 규칙이면 스냅샷을 찾지 않게 고침</td></tr>
 <tr><td>7</td><td>다음 판에서 옛 CLI·<code>doc_taxonomy.yaml</code> 읽기 제거</td><td>—</td></tr>
 </table></div>
 </section>

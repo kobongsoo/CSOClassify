@@ -30,28 +30,32 @@ MPOWER 의 `DOC_CLASSIFICATION` 테이블을 내려받은 JSON 과 **똑같은 �
 - **자식 없는 최상위** (`commerce` 의 `정산자료`) — 대분류 자체가 잎인 경우.
 - **폐지된 분류 `status: 0`** (`itsec` 의 `구버전매뉴얼`)
   새 분류로 제안되지 않지만 이름은 남는다 — 예전에 그 분류로 확정된 문서를 나중에도
-  화면에 띄울 수 있어야 하기 때문이다. 골격 생성 시 규칙이 만들어지지 않는 것도 확인용이다
-  (`itsec` 은 31노드지만 규칙 골격은 30건).
+  화면에 띄울 수 있어야 하기 때문이다. 규칙을 만들 때 이 분류의 규칙이 빠지는 것도 확인용이다.
 - **부모째 폐지된 갈래** (`public` 의 `종이민원`)
   부모가 `status: 0` 인데 자식은 `1` 인, 현장에서 실제로 나오는 어긋난 상태다.
 - **`/` 가 들어간 제목** (`영업/제안` `기술/개발`) — 경로 구분자 `>` 와 헷갈리지 않는지.
 
 ## 쓰는 법
 
+예시 JSON 을 정책 폴더에 `doc_classification_export.json` 으로 두고 규칙을 만든다
+(유의어 사전·본보기·`doc_rule.local.yaml` 은 규칙 파일과 같은 폴더에서 찾는다).
+
+```bash
+MpowerClassify-rs --build-doc-rule \
+  --export-input resources/policy/samples/doc_classification_export.itsec.json \
+  --doc-rules    <정책 폴더>/doc_rule.yaml
+```
+
+규칙 파일은 분류체계를 품고 있어 `doc_taxonomy.yaml` 이 따로 필요 없다. 회사별로 칸을 비우거나
+말을 빼고 더하려면 화면(설정 › ② 판단 기준 › 업무분류)에서 고친다 — 그 결정은 `doc_rule.local.yaml` 에 남는다.
+
+옛 방식(다음 판에서 없앰)은 스냅샷과 규칙 골격을 따로 만들었다:
+
 ```bash
 python scripts/export_taxonomy.py \
   --input  resources/policy/samples/doc_classification_export.itsec.json \
   --output resources/policy/doc_taxonomy.yaml \
   --scaffold-doc-rule resources/policy/doc_rule.yaml
-```
-
-`--scaffold-doc-rule` 을 붙이면 분류마다 `terms` 가 빈 규칙 골격까지 함께 나온다.
-**골격만으로는 아무것도 분류되지 않는다** — 화면(설정 ③ 판단 기준)에서 키워드를 채워야 한다.
-
-배포된 exe 에서는 같은 일을 이렇게 한다.
-
-```bash
-csoclassify --export-taxonomy --export-input <json> --scaffold-doc-rule
 ```
 
 ## 칸 설명

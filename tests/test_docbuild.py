@@ -245,3 +245,28 @@ def test_industry_comes_from_local(tmp_path):
     assert doc["generated"]["industry"] == ["finance"]
     assert "synonyms/doc_synonyms.finance.yaml" in files
     assert "synonyms/doc_synonyms.medical.yaml" not in files
+
+
+#------------------------------------------------------------------
+# --check-rules 는 자동 생성 규칙이면 doc_taxonomy.yaml 없이 통과한다
+#=> 실제 분류(_load_doctype_axis)와 같은 갈래로 가야 한다 — 스냅샷이 없다고
+#   "doctype 축 미사용"으로 끝내면, 검사는 통과했는데 실행은 다르게 돈다.
+#
+# -in: tmp_path = pytest 임시 폴더
+# -in: capsys   = 표준출력 잡기
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_check_rules_generated_needs_no_snapshot(tmp_path, capsys):
+    from types import SimpleNamespace
+    from csoclassify import cli, config
+    pol, exp = _policy(tmp_path)
+    rules = os.path.join(pol, "doc_rule.yaml")
+    doc, _ = DB.build_doc_rule(exp, pol)
+    DB.write_doc_rule(rules, doc)
+    args = SimpleNamespace(rules=None, taxonomy=os.path.join(pol, "없음.yaml"),
+                           doc_rules=rules, seeds=None)
+    assert cli.run_check_rules(args) == config.EXIT_OK
+    out = capsys.readouterr().out
+    assert "자동 생성 — 분류체계 내장" in out
+    assert "스냅샷 없음" not in out
