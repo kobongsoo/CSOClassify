@@ -62,8 +62,27 @@ def mk_ruleset(conflict=None):
 # ── 설계서 D4 완료 판정 — 실제 taxonomy 회귀 ────────────────────────
 
 #------------------------------------------------------------------
+# 배포 규칙에서 지은 실제 분류체계
+#=> 분류체계는 자동 생성 doc_rule.yaml 안에 있다(2026-09-22 — doc_taxonomy.yaml 없앰).
+#   고객 체계라 저장소에 없을 수 있으니, 없으면 시험을 건너뛴다.
+#
+# -in: 없음
+#
+# -out: axes.Taxonomy
+# -out: error = 규칙이 없거나 자동 생성본이 아니면 pytest.skip
+#------------------------------------------------------------------
+def _deployed_taxonomy():
+    import os
+    if not os.path.isfile(D.default_doc_rules_path()):
+        pytest.skip("배포 규칙(doc_rule.yaml)이 없습니다")
+    tax = D.load_doc_rules().taxonomy
+    if tax is None:
+        pytest.skip("배포 규칙이 자동 생성본이 아닙니다 — --build-doc-rule 로 만드세요")
+    return tax
+
+#------------------------------------------------------------------
 # 계약서 샘플은 "법무/규정 > 계약서" 로 분류된다(실제 배포 taxonomy 사용)
-#=> 저장소의 doc_taxonomy.yaml(D1) 은 실제 dc_id(DC_006_001 등)를 쓰므로,
+#=> 배포 규칙의 분류체계는 실제 dc_id(DC_006_001 등)를 쓰므로,
 #   합성 taxonomy 가 아니라 이걸로 확인해야 로드맵 D4 완료 판정이 실제
 #   운영 값으로 성립함을 보여준다. doc_rule.yaml 배포본은 아직 스캐폴드
 #   (terms 비어 있음)라 여기서는 계약서/제안서 노드에 대해서만 손으로 채운
@@ -74,7 +93,7 @@ def mk_ruleset(conflict=None):
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_계약서_샘플은_법무규정_계약서로_분류된다():
-    taxonomy = A.load_taxonomy()
+    taxonomy = _deployed_taxonomy()
     contract_node = taxonomy.get("DC_006_001")
     assert contract_node is not None and contract_node.title == "계약서"
 
@@ -103,7 +122,7 @@ def test_계약서_샘플은_법무규정_계약서로_분류된다():
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_계약_제안_혼합_문서는_둘_다_나온다():
-    taxonomy = A.load_taxonomy()
+    taxonomy = _deployed_taxonomy()
     rules = (
         D.DoctypeRule(id="dt_contract", node="DC_006_001", weight="high",
                      terms=("계약서", "용역계약")),

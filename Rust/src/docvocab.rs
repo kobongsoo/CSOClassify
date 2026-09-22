@@ -33,11 +33,6 @@ pub const DOC_SUFFIXES: [&str; 44] = [
 /// 범용어(filename_only)가 개수 제한에서 따로 갖는 자리 수.
 pub const GENERIC_SLOTS: usize = 6;
 
-/// 규칙을 '어느 제목에서 구웠는지' 적어 두는 칸(2026-09-21, 설계서 7장 ③).
-/// 분류 제목이 바뀌어도 구워 넣은 말은 지우지 않되, 바뀐 사실은 화면이 알려야 한다.
-/// 판정 엔진은 이 칸을 읽지 않는다. Python classify/docvocab.py 의 FILLED_FROM 과 같다.
-pub const FILLED_FROM: &str = "filled_from_title";
-
 // ── 핵어 판정용 내장 목록 (2026-09-21, 설계서 7장 ⓐ·13장 D1) ──────────
 // 분류체계 제목을 '핵어'로 써도 되는지 가릴 때 쓴다. 원본은 core 사전의
 // broad_words·container_tails·common_endings·noise_tails 칸이고, 아래는 그 칸이
@@ -489,7 +484,7 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
 
     // doc_rule.yaml 의 industry 값(문자열 하나 또는 목록).
     // [2026-09-15 수정] 파일이 아직 없거나(처음 만들 때) industry 칸이 아예 없으면
-    // 본보기(doc_rule_template.yaml)의 값을 쓴다. 저장할 때 sync_doc_rule 이 빠진 칸을
+    // 본보기(doc_rule_template.yaml)의 값을 쓴다. 규칙 파일을 만들 때 빠진 칸을
     // 본보기로 채우므로, 파일에는 industry 가 적히는데 규칙을 만드는 순간에는 업종
     // 사전이 빠지던 어긋남을 막는다. 칸이 있으면(빈 목록이라도) 본보기를 보지 않는다.
     let mut industries: Vec<String> = vec![];
@@ -837,175 +832,4 @@ mod golden {
         }
         assert_eq!(bad, 0, "Python 판과 다른 칸이 {}곳 있다", bad);
     }
-}
-
-//------------------------------------------------------------------
-// 규칙 파일 채우기(--sync-doc-rule) — 화면 [분류 불러오기] 와 같은 일
-//=> 분류 체계를 훑어 doc_rule.yaml 에 규칙을 채운다. 이미 있는 파일에도 덧붙이는
-//   것이 --scaffold-doc-rule 과 다른 점이다(그쪽은 파일이 있으면 건너뛴다).
-//    1) 규칙을 만들 분류를 고른다 — 꺼 둔 분류와 대분류(뿌리)는 뺀다.
-//       차례는 전체경로 가나다순으로, 화면과 같은 줄 차례가 되게 맞춘다
-//    2) 유의어 사전을 규칙 파일 옆 synonyms/ 에서 찾아 얹는다
-//    3) 빠진 분류는 새로 만들고, 옵션에 따라 빈 규칙을 채우거나 유의어를 덧붙인다
-//    4) 사람이 적어 둔 말은 절대 지우지 않는다 — 뒤에 덧붙이기만 한다
-//
-// -in: taxonomy   = 회사 분류 체계
-// -in: out_path   = doc_rule.yaml 경로(있으면 읽어서 덧붙인다)
-// -in: fill_blank = 단어가 하나도 없는 기존 규칙도 시작값으로 채울지
-// -in: enrich     = 이미 말이 있는 규칙에도 빠진 유의어를 더할지
-//
-// -out: Ok((added, filled, enriched, 사전층)) · Err(사람이 읽을 실패 이유)
-//------------------------------------------------------------------
-pub fn sync_doc_rule(taxonomy: &crate::axes::Taxonomy, out_path: &Path,
-                     fill_blank: bool, enrich: bool)
-    -> Result<(usize, usize, usize, Vec<String>), String>
-{
-    use serde_yaml::Value as Y;
-    let ystr = |v: &str| Y::String(v.to_string());
-    let yseq = |v: &[String]| Y::Sequence(v.iter().map(|s| ystr(s)).collect());
-
-    let syn = load_synonyms(out_path);
-    let tpl = crate::doc_rules::load_scaffold_template(Some(out_path));
-
-    // 기존 파일을 읽는다(없으면 본보기 머리로 시작).
-    let mut doc: serde_yaml::Mapping = if out_path.is_file() {
-        let txt = std::fs::read_to_string(out_path)
-            .map_err(|e| format!("규칙 파일을 읽지 못했습니다({}): {}", out_path.display(), e))?;
-        match serde_yaml::from_str::<Y>(&txt) {
-            Ok(Y::Mapping(m)) => m,
-            Ok(_) => serde_yaml::Mapping::new(),
-            Err(e) => return Err(format!("규칙 파일이 YAML 로 읽히지 않습니다({}): {}",
-                                         out_path.display(), e)),
-        }
-    } else {
-        serde_yaml::Mapping::new()
-    };
-    // 본보기의 머리 값은 '빠진 것만' 채운다 — 이미 적힌 값은 건드리지 않는다.
-    for (k, v) in tpl.iter() {
-        let key = match k.as_str() { Some(x) => x, None => continue };
-        if crate::doc_rules::UI_ONLY_KEYS.contains(&key) || key == "doctype_rules" { continue; }
-        match (doc.get(&ystr(key)), v) {
-            (Some(Y::Mapping(_)), Y::Mapping(tv)) => {
-                // defaults·embed 처럼 묶음인 값은 한 겹 안까지 본다.
-                if let Some(Y::Mapping(cur)) = doc.get_mut(&ystr(key)) {
-                    for (k2, v2) in tv.iter() {
-                        if !cur.contains_key(k2) { cur.insert(k2.clone(), v2.clone()); }
-                    }
-                }
-            }
-            (None, _) => { doc.insert(ystr(key), v.clone()); }
-            _ => {}
-        }
-    }
-    if !doc.contains_key(&ystr("conflict")) { doc.insert(ystr("conflict"), ystr("all")); }
-
-    let new_rule: Vec<(String, Y)> = tpl.get("new_rule").and_then(|v| v.as_mapping())
-        .map(|m| m.iter().filter_map(|(k, v)| k.as_str().map(|k| (k.to_string(), v.clone()))).collect())
-        .unwrap_or_else(|| vec![("weight".to_string(), ystr("medium"))]);
-
-    let mut rules: Vec<Y> = doc.get(&ystr("doctype_rules"))
-        .and_then(|v| v.as_sequence()).cloned().unwrap_or_default();
-
-    // 분류 목록 — 화면(syncable_nodes)과 같은 기준·같은 차례.
-    let kids: std::collections::HashSet<&str> = taxonomy.nodes.iter()
-        .filter(|n| n.active())
-        .filter_map(|n| n.parent.as_deref()).collect();
-    let mut nodes: Vec<(String, String, String)> = vec![];   // (path, dc_id, title)
-    for n in taxonomy.nodes.iter() {
-        if !n.active() || is_drawer(n.parent.is_some(), kids.contains(n.dc_id.as_str())) {
-            continue;
-        }
-        // 전체경로가 없으면(꼬인 데이터) dc_id 로 줄을 세운다 — 화면도 같은 규칙이다.
-        let path = taxonomy.path(&n.dc_id).unwrap_or_else(|_| n.dc_id.clone());
-        nodes.push((path, n.dc_id.clone(), n.title.clone()));
-    }
-    nodes.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let (mut added, mut filled, mut enriched) = (0usize, 0usize, 0usize);
-    for (_, dc_id, title) in &nodes {
-        let v = rule_vocab(title, &syn, 10);
-        let pos = rules.iter().position(|r| r.get("node").and_then(|x| x.as_str())
-                                             == Some(dc_id.as_str()));
-        match pos {
-            None => {
-                let mut m = serde_yaml::Mapping::new();
-                m.insert(ystr("id"), ystr(&format!("dt_{}", dc_id.to_lowercase())));
-                m.insert(ystr("node"), ystr(dc_id));
-                for (k, val) in &new_rule { m.insert(ystr(k), val.clone()); }
-                // 어느 제목에서 구운 말인지 적어 둔다(설계서 7장 ③) — 나중에 제목이
-                // 바뀌면 화면이 그 사실을 정확히 알릴 수 있다. 판정은 읽지 않는다.
-                m.insert(ystr(FILLED_FROM), ystr(title));
-                m.insert(ystr("title_terms"), yseq(&v.title_terms));
-                m.insert(ystr("head_terms"), yseq(&v.head_terms));
-                m.insert(ystr("terms"), yseq(&v.terms));
-                m.insert(ystr("filename"), yseq(&v.filename));
-                if !v.exclude.is_empty() { m.insert(ystr("exclude"), yseq(&v.exclude)); }
-                rules.push(Y::Mapping(m));
-                added += 1;
-            }
-            Some(i) => {
-                let has_any = ["title_terms", "head_terms", "terms", "filename"].iter()
-                    .any(|k| rules[i].get(*k).and_then(|x| x.as_sequence())
-                                     .map(|s| !s.is_empty()).unwrap_or(false));
-                let m = match rules[i].as_mapping_mut() { Some(m) => m, None => continue };
-                if !has_any {
-                    if fill_blank {
-                        m.insert(ystr("title_terms"), yseq(&v.title_terms));
-                        m.insert(ystr("head_terms"), yseq(&v.head_terms));
-                        m.insert(ystr("terms"), yseq(&v.terms));
-                        m.insert(ystr("filename"), yseq(&v.filename));
-                        if !v.exclude.is_empty() { m.insert(ystr("exclude"), yseq(&v.exclude)); }
-                        m.insert(ystr(FILLED_FROM), ystr(title));
-                        filled += 1;
-                    }
-                } else if enrich {
-                    // 사람이 적은 말은 앞에 그대로 두고, 빠진 말만 뒤에 잇는다.
-                    let mut grew = false;
-                    for (key, want) in [("title_terms", &v.title_terms),
-                                        ("head_terms", &v.head_terms),
-                                        ("terms", &v.terms), ("filename", &v.filename),
-                                        ("exclude", &v.exclude)] {
-                        let have: Vec<String> = m.get(&ystr(key)).and_then(|x| x.as_sequence())
-                            .map(|s| s.iter().filter_map(|x| x.as_str())
-                                      .map(|s| s.to_string()).collect()).unwrap_or_default();
-                        let more: Vec<String> = want.iter()
-                            .filter(|w| !have.contains(w)).cloned().collect();
-                        if !more.is_empty() {
-                            let mut all = have; all.extend(more);
-                            m.insert(ystr(key), yseq(&all));
-                            grew = true;
-                        }
-                    }
-                    if grew {
-                        // 지금 제목에서 나온 말을 덧붙였으니 기준 제목도 옮긴다.
-                        // 안 옮기면 방금 맞춘 규칙이 계속 "제목이 바뀌었습니다"로 뜬다.
-                        m.insert(ystr(FILLED_FROM), ystr(title));
-                        enriched += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    if added == 0 && filled == 0 && enriched == 0 {
-        return Ok((0, 0, 0, syn.layers));
-    }
-
-    doc.insert(ystr("doctype_rules"), Y::Sequence(rules));
-    // 화면과 같은 자리에 백업을 남긴다(.bak) — 되돌릴 여지를 준다.
-    if out_path.is_file() {
-        let _ = std::fs::copy(out_path, out_path.with_extension("yaml.bak"));
-    }
-    let header = "# 업무분류 판단 기준 — 화면(설정 ③ 판단 기준)이 저장할 때마다 다시 쓰는 파일이라\n# 주석이 남지 않는다. 각 값의 뜻과 그 값을 고른 이유는 doc_rule_template.yaml 에 있다.\n";
-    let body = serde_yaml::to_string(&Y::Mapping(doc))
-        .map_err(|e| format!("YAML 직렬화 실패: {}", e))?;
-    if let Some(dir) = out_path.parent() {
-        if !dir.as_os_str().is_empty() {
-            std::fs::create_dir_all(dir)
-                .map_err(|e| format!("폴더를 만들 수 없습니다({}): {}", dir.display(), e))?;
-        }
-    }
-    std::fs::write(out_path, format!("{}{}", header, body))
-        .map_err(|e| format!("쓰기 실패({}): {}", out_path.display(), e))?;
-    Ok((added, filled, enriched, syn.layers))
 }

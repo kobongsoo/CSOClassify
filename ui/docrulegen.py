@@ -60,27 +60,27 @@ def local_path_of(rules_path):
 
 
 #------------------------------------------------------------------
-# 새 방식(자동 생성)인가
-#=> 조정 파일이 있거나, 규칙 파일이 자동 생성본이면 새 방식이다. 둘 다 아니면 옛 방식
-#   화면(규칙 파일 직접 편집)을 그대로 쓴다 — 한 판 동안의 호환(설계서 11장).
+# 옛 모양 규칙 파일인가
+#=> 규칙 파일이 있는데 자동 생성본이 아니고 조정 파일도 없으면 옛 모양이다(사람이 규칙
+#   파일을 직접 고치고 분류체계를 doc_taxonomy.yaml 로 따로 읽던 방식). 2026-09-22 부터
+#   엔진이 읽지 않으므로 화면은 [새 방식으로 바꾸기]만 보여 준다.
+#   규칙 파일이 아직 없으면 옛 모양이 아니다 — 새로 만들면 된다.
 #
 # -in: rules_path = doc_rule.yaml 경로
 #
 # -out: bool
-# -out: error = 없음(못 읽으면 옛 방식으로 본다)
+# -out: error = 없음(못 읽는 파일도 옛 모양으로 본다 — 엔진도 그 파일을 읽지 않는다)
 #------------------------------------------------------------------
-def is_generated_mode(rules_path):
-    if not rules_path:
+def is_legacy_rules(rules_path):
+    if not rules_path or not os.path.isfile(rules_path):
         return False
     if os.path.isfile(local_path_of(rules_path)):
-        return True
-    if not os.path.isfile(rules_path):
         return False
     try:
         with open(rules_path, encoding="utf-8") as f:
-            return docbuild.is_generated(yaml.safe_load(f))
+            return not docbuild.is_generated(yaml.safe_load(f))
     except (OSError, yaml.YAMLError):
-        return False
+        return True
 
 
 #------------------------------------------------------------------

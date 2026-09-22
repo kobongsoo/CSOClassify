@@ -12,7 +12,6 @@ import os
 import pytest
 
 from csoclassify.classify import axes as A
-from csoclassify.classify import doc_rules as DR
 
 _SAMPLES = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "..", "resources", "policy", "samples")
@@ -49,21 +48,34 @@ def test_예시_분류체계가_여러_개_있다():
 
 
 #------------------------------------------------------------------
+# 예시 JSON 을 분류체계로 읽기
+#=> 규칙 자동 생성(docbuild)이 체계 JSON 을 읽는 길과 똑같이 태운다 —
+#   convert_mpower_json → taxonomy_from_snapshot(검증 포함).
+#
+# -in: path = 예시 JSON 경로
+#
+# -out: axes.Taxonomy
+# -out: error = 변환/검증 실패 시 예외 전파(그것이 곧 실패다)
+#------------------------------------------------------------------
+def _load_sample(path):
+    with open(path, encoding="utf-8-sig") as f:
+        snapshot, _warns = A.convert_mpower_json(json.load(f))
+    return A.taxonomy_from_snapshot(snapshot, path)
+
+
+#------------------------------------------------------------------
 # 모든 예시는 변환·검증·로드를 통과한다
-#=> 실제 파이프라인(JSON → doc_taxonomy.yaml → load_taxonomy)을 그대로 태운다.
+#=> 실제 파이프라인(체계 JSON → 스냅샷 dict → 검증된 트리)을 그대로 태운다.
 #   json.load 만 해 보고 통과시키면, 정작 제품이 못 읽는 파일을 예시로 두게 된다.
 #
 # -in: name/path = sample_files() 가 준 이름표와 경로(파라미터라이즈 주입)
-# -in: tmp_path  = pytest 임시 폴더(자동 주입)
 #
 # -out: 없음(단언)
 # -out: error = 변환/검증 실패 시 예외 그대로 전파(그것이 곧 실패다)
 #------------------------------------------------------------------
 @pytest.mark.parametrize("name,path", sample_files())
-def test_예시는_변환과_로드를_통과한다(name, path, tmp_path):
-    out = tmp_path / f"{name}.yaml"
-    A.export_from_mpower_json(path, str(out))
-    tax = A.load_taxonomy(str(out))
+def test_예시는_변환과_로드를_통과한다(name, path):
+    tax = _load_sample(path)
     assert len(tax) >= 10
 
     raw = json.load(open(path, encoding="utf-8"))
@@ -81,9 +93,9 @@ def test_예시는_변환과_로드를_통과한다(name, path, tmp_path):
 
 
 #------------------------------------------------------------------
-# 예시로 규칙 골격을 만들 수 있다
+# 예시로 규칙을 만들 수 있다(--build-doc-rule 과 같은 함수)
 #=> 예시를 주는 이유의 절반은 "이걸로 doc_rule.yaml 을 만들어 보라"는 것이다.
-#   골격 생성까지 되어야 예시 노릇을 한다. 폐지된 분류(status 0)는 새로 제안될
+#   규칙 생성까지 되어야 예시 노릇을 한다. 폐지된 분류(status 0)는 새로 제안될
 #   일이 없으므로 규칙이 생기지 않는 것도 함께 확인한다.
 #
 # -in: tmp_path = pytest 임시 폴더(자동 주입)
@@ -91,19 +103,24 @@ def test_예시는_변환과_로드를_통과한다(name, path, tmp_path):
 # -out: 없음(단언)
 # -out: error = 실패 시 AssertionError
 #------------------------------------------------------------------
-def test_예시로_규칙_골격을_만들_수_있다(tmp_path):
+def test_예시로_규칙을_만들_수_있다(tmp_path):
+    import shutil
+    from csoclassify.classify import docbuild as DB
     path = os.path.join(_SAMPLES, "doc_classification_export.itsec.json")
-    out = tmp_path / "itsec.yaml"
-    A.export_from_mpower_json(path, str(out))
-    tax = A.load_taxonomy(str(out))
+    policy = os.path.join(_SAMPLES, "..")
+    pol = tmp_path / "policy"
+    shutil.copytree(os.path.join(policy, "synonyms"), pol / "synonyms")
+    lp = pol / "synonyms" / "doc_synonyms.local.yaml"
+    if lp.exists():
+        lp.unlink()
+    shutil.copy(os.path.join(policy, "doc_rule_template.yaml"), pol / "doc_rule_template.yaml")
+    doc, _ = DB.build_doc_rule(path, str(pol))
 
-    scaffold = DR.build_scaffold(tax)
-    live = [n.dc_id for n in tax if n.status == 1]
+    tax = _load_sample(path)
     dead = [n.dc_id for n in tax if n.status == 0]
     assert dead, "itsec 예시에는 폐지된 분류(status 0)가 하나 들어 있어야 합니다."
-
-    nodes = {r["node"] for r in scaffold["doctype_rules"]}
-    assert nodes == set(live)
-    assert not (nodes & set(dead))
-    # 골격은 말 그대로 골격이다 — terms 가 비어 있어야 "채워야 동작한다"가 성립한다.
-    assert all(not (r.get("terms") or []) for r in scaffold["doctype_rules"])
+    nodes = {r["node"] for r in doc["doctype_rules"]}
+    assert nodes and not (nodes & set(dead))
+    # 규칙이 가리키는 분류는 모두 예시 체계에 있고, 경로도 체계와 같다.
+    for r in doc["doctype_rules"]:
+        assert tax.path(r["node"]) == r["path"]

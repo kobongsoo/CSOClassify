@@ -306,7 +306,10 @@ def test_두_엔진의_표가_같다():
     ([], 1002),                                             # 대상을 아예 안 줌
     (["--dir", "D:/없는폴더_zzz"], 1001),                   # 줬는데 0건
     (["--propagate", "D:/없는입력_zzz.jsonl"], 1008),       # 전파 입력 없음
-    (["--export-taxonomy", "--export-input", "D:/없는원본_zzz.json"], 2007),
+    (["--build-doc-rule", "--export-input", "D:/없는원본_zzz.json"], 2007),
+    # 2026-09-22 에 없앤 옵션 — 조용히 무시하지 않고 두 엔진이 같은 번호로 막는다.
+    (["--export-taxonomy"], 1012),
+    (["--taxonomy", "x.yaml", "--check-rules"], 1012),
     # Rust 판은 --failsafe 값을 통째로 무시해(늘 S) 이 오류가 아예 안 났다.
     # 2026-09-01 에 고쳤고, 이 줄이 두 엔진이 같이 막는지를 지킨다.
     (["--failsafe", "X"], 1005),

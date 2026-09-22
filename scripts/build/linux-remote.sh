@@ -138,7 +138,7 @@ build_rust() {
     chmod -R u+rwX,go+rX "$D/models"
     # 규칙셋·분류체계·seed·유의어·README — 빠뜨리면 배포본이 조용히 반쪽이 된다.
     # 체계 JSON·본보기는 자동 생성 규칙의 입력이다 — 곁에 없으면 돌 때마다 경고가 난다.
-    for f in cso_rule.yaml doc_taxonomy.yaml doc_rule.yaml doc_classification_export.json \
+    for f in cso_rule.yaml doc_rule.yaml doc_classification_export.json \
              doc_rule_template.yaml class_seed.jsonl README.txt; do
         [ -f "$RS_BUILD/assets/$f" ] || die "assets/$f 가 없습니다 (윈도우 쪽에서 올리세요)"
         cp "$RS_BUILD/assets/$f" "$D/"

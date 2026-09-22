@@ -87,7 +87,6 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 | `--seeds <경로>` | 전파 비교 기준 seed(`class_seed.jsonl`) | 내부 seed |
 | `--doctype-vector-only` | **업무분류**를 규칙 없이 기준 문서 비교로만 분류(보안등급 축은 그대로) | 규칙 + 전파 |
 | `--build-doc-rule` | 체계 JSON(`--export-input`)·유의어 사전·본보기·`doc_rule.local.yaml`(회사 조정)로 `doc_rule.yaml` 을 **통째로 새로 만든다**(분류체계 내장, 두 판 글자까지 같음). 자세히는 `doc/DOC_Rule.html` | — |
-| `--sync-doc-rule` | (옛 방식 — 다음 판에서 없앰) 분류 체계를 훑어 `doc_rule.yaml` 에 규칙을 채운다. `--no-fill-blank`·`--sync-enrich` 로 범위 조절 | — |
 | `--with-text` | 결과에 추출 텍스트(`text`) 포함 | off(프라이버시) |
 | `--with-pii` | **[주의]** 검출 원문 PII 값을 `pii` 필드로 저장 | off |
 | `--hash` | 각 문서의 **해시(SHA-256)** 를 `hash` 필드로 포함 | off |

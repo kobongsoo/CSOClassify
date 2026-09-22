@@ -19,9 +19,6 @@ import shutil
 import yaml
 
 
-# 새 규칙에 기본으로 얹는 값(본보기의 new_rule 이 없을 때).
-NEW_RULE_FALLBACK = {"weight": "medium"}
-
 # 본보기 파일 이름 — 규칙 파일 옆에 두는 것이 규약이다.
 TEMPLATE_NAME = "doc_rule_template.yaml"
 
@@ -867,65 +864,6 @@ def is_drawer(has_parent, has_children):
     return (not has_parent) and has_children
 
 
-# 규칙을 '어느 제목에서 구웠는지' 적어 두는 칸(2026-09-21, 설계서 7장 ③).
-#=> 분류 제목은 고객 시스템에서 바뀐다. 그때 구워 넣은 말은 지우지 않지만(사람이
-#   적었을 수도 있고 그렇게 불리는 문서가 아직 있을 수도 있다), 바뀐 사실은
-#   알려야 한다. 이 칸이 없으면 "이 말이 옛 제목에서 온 것인지"를 추측할 수밖에
-#   없다. 판정 엔진은 이 칸을 읽지 않는다 — 화면이 안내할 때만 쓴다.
-FILLED_FROM = "filled_from_title"
-
-
-#------------------------------------------------------------------
-# 규칙 한 줄이 '옛 제목'에서 온 것인가
-#=> 규칙 화면이 "제목이 바뀌었습니다"를 알릴 수 있게, 규칙과 지금 제목을 견준다.
-#   두 가지 길이 있고 위쪽이 확실하다.
-#    1) filled_from_title 이 적혀 있고 지금 제목과 다르면 — 확실하다("changed")
-#    2) 그 칸이 없는 옛 규칙이면 — 추측한다("guess"). 지금 제목에서 만들어질
-#       말 목록에 없으면서 '문서종류 명사 꼴'인 말만 고른다. 관리자가 직접 적은
-#       주제어(갑·을·제품명)까지 집으면 안내가 소음이 되기 때문이다
-#   어느 쪽도 "지워라"가 아니다 — 사람이 판단할 재료만 준다.
-#
-# -in: rule  = 규칙 dict(doctype_rules 의 한 항목)
-# -in: title = 지금 분류 제목
-# -in: syn   = load_synonyms() 결과
-#
-# -out: dict|None = {"kind":"changed","was":옛 제목} 또는
-#                   {"kind":"guess","words":[의심되는 말…]} · 알릴 것이 없으면 None
-# -out: error = 없음
-#------------------------------------------------------------------
-def stale_title_hint(rule, title, syn=None):
-    rule = rule or {}
-    tight = str(title or "").replace(" ", "").strip()
-    was = str(rule.get(FILLED_FROM) or "").replace(" ", "").strip()
-    if was:
-        # 적어 둔 값이 있으면 추측하지 않는다 — 같으면 알릴 것도 없다.
-        return None if was == tight else {"kind": "changed", "was": rule[FILLED_FROM]}
-    if not tight:
-        return None
-
-    # 지금 제목에서 '만들어질' 말 — 불러오기가 쓰는 바로 그 함수를 그대로 쓴다.
-    fresh = set()
-    for key, words in (rule_vocab(title, syn=syn) or {}).items():
-        if key != "exclude":
-            fresh.update(words)
-
-    endings = set((syn or {}).get(SYN_SUFFIXES) or DOC_SUFFIXES)
-    endings |= set((syn or {}).get("tails") or {})
-    suspect = []
-    # 제목에서 왔을 만한 칸만 본다. 본문 칸(terms)은 사람이 주제어를 넣는 자리라
-    # 여기서 보면 헛경고가 쏟아진다.
-    for key in ("title_terms", "filename"):
-        for w in (rule.get(key) or []):
-            w = str(w).strip()
-            wt = w.replace(" ", "")
-            if not wt or wt in fresh or w in suspect:
-                continue
-            # 문서종류 명사 꼴(끝말로 끝나는 말)만 의심한다.
-            if any(wt.endswith(e) and len(wt) >= len(e) for e in endings):
-                suspect.append(w)
-    return {"kind": "guess", "words": suspect} if suspect else None
-
-
 #------------------------------------------------------------------
 # 자동으로 가져올 분류 고르기
 #=> 분류 체계에 있는 것을 전부 규칙으로 만들지는 않는다. 두 가지를 뺀다.
@@ -934,7 +872,7 @@ def stale_title_hint(rule, title, syn=None):
 #       말이 아니라 서랍 이름이다. 그런 말을 규칙에 넣으면 아무 문서나 걸린다
 #   화면에서 위에서 아래로 읽기 좋도록 전체경로 순으로 정렬해 돌려준다.
 #
-# -in: tax = taxonomy.load_taxonomy() 결과(None 이면 빈 목록)
+# -in: tax = taxonomy.load_from_export() 결과(화면) 또는 Taxonomy(None 이면 빈 목록)
 #
 # -out: list = 분류 노드 dict 리스트(전체경로 가나다순)
 # -out: error = 없음
@@ -952,115 +890,6 @@ def syncable_nodes(tax):
              and not is_drawer(bool(n.get("parent")), n.get("dc_id") in kids)]
     nodes.sort(key=lambda n: n.get("path") or n.get("dc_id") or "")
     return nodes
-
-
-#------------------------------------------------------------------
-# 회사 분류 체계에서 규칙 자동으로 불러오기(동기화)
-#=> 관리자가 분류를 하나씩 고르고 단어를 손으로 채우던 일을 없앤다.
-#   doc_taxonomy.yaml 에 있는 사용 중인 분류를 전부 훑어, 규칙이 없는 분류에는
-#   규칙을 만들어 주고, 그 분류의 최하위 명칭에서 뽑은 비슷한 말들을
-#   '이 말이 나오면'·'파일 이름에' 칸의 시작값으로 넣어 준다.
-#    1) 이미 있는 규칙은 순서·내용을 그대로 둔다 (사람이 채운 값이 진실이다)
-#    2) 규칙은 있는데 두 칸이 다 비어 있으면 시작값만 채운다(fill_existing=True 일 때)
-#       — 시작값에는 유의어 사전(doc_synonyms.core.yaml 등)의 '같은 뜻 다른 말'도 들어간다
-#    3) 이미 단어가 있는 규칙에는, 원하면 '빠진 유의어만' 뒤에 덧붙인다
-#       (enrich_existing=True). 사람이 적어 둔 말은 순서까지 그대로 둔다 —
-#       사전을 나중에 늘렸을 때 기존 규칙도 따라올 수 있게 하는 유일한 통로다
-#    4) 분류 체계에는 없는데 규칙만 남은 줄은 건드리지 않는다 —
-#       지난 판정이 참조하던 분류일 수 있어서, 지우는 것은 사람이 결정할 일이다
-#
-# -in: doc = load_doc() 결과(이 dict 를 제자리에서 고친다)
-# -in: tax = taxonomy.load_taxonomy() 결과(None 이면 아무 것도 하지 않는다)
-# -in: fill_existing = True 면 '단어가 하나도 없는 기존 규칙'의 시작값도 채운다(기본 True)
-# -in: enrich_existing = True 면 '이미 단어가 있는 규칙'에도 빠진 말만 덧붙인다(기본 False).
-#                        지우는 일은 절대 없다
-# -in: syn = load_synonyms() 결과(None 이면 유의어 없이 띄어쓰기 표기만 넣는다)
-# -in: new_rule = 새로 만드는 규칙에 얹을 값(본보기의 new_rule 섹션 — weight 등).
-#                 None 이면 NEW_RULE_FALLBACK(weight: medium)
-#
-# -out: (added, filled, enriched) = 새로 만든 규칙 수, 시작값을 채운 규칙 수,
-#                                   유의어를 덧붙인 규칙 수
-# -out: error = 없음
-#------------------------------------------------------------------
-def sync_from_taxonomy(doc, tax, fill_existing=True, enrich_existing=False, syn=None,
-                       new_rule=None):
-    if not tax:
-        return (0, 0, 0)
-    return sync_nodes(doc, syncable_nodes(tax), fill_existing=fill_existing,
-                      enrich_existing=enrich_existing, syn=syn, new_rule=new_rule)
-
-
-#------------------------------------------------------------------
-# 분류 목록으로 규칙 채우기(동기화의 알맹이)
-#=> sync_from_taxonomy 는 '화면이 읽은 분류 체계(dict)'를, 이 함수는 '분류 목록'을
-#   받는다. 엔진은 Taxonomy 객체를 쓰므로 모양이 달라, 목록으로 한 번 좁혀 두면
-#   화면과 엔진이 같은 코드를 지날 수 있다 — 두 결과가 갈라질 여지를 없앤다.
-#
-# -in: doc   = load_doc() 결과(이 dict 를 제자리에서 고친다)
-# -in: nodes = [{"dc_id","title"}] 규칙을 만들 분류 목록(차례가 곧 파일의 줄 차례)
-# -in: 나머지 = sync_from_taxonomy 와 동일
-#
-# -out: (added, filled, enriched)
-# -out: error = 없음
-#------------------------------------------------------------------
-def sync_nodes(doc, nodes, fill_existing=True, enrich_existing=False, syn=None,
-               new_rule=None):
-    rules = doc.setdefault("doctype_rules", [])
-    by_node = {r.get("node"): r for r in rules if r.get("node")}
-
-    added = filled = enriched = 0
-    for n in nodes:
-        dc_id = n.get("dc_id")
-        title = n.get("title") or ""
-        if not dc_id:
-            continue
-        # 네 칸(제목·표제부·본문·파일명)의 시작값을 한 번에 만든다.
-        vocab = rule_vocab(title, syn=syn)
-        cur = by_node.get(dc_id)
-        if cur is None:
-            # id·node 다음에 본보기 값(weight 등)이 오고, 그다음이 말 목록이다.
-            # 사람이 규칙을 읽을 때 "어느 분류의, 얼마나 센 규칙인가"를 먼저 보고
-            # 단어를 보게 되는 순서다.
-            rule = {"id": f"dt_{dc_id.lower()}", "node": dc_id}
-            rule.update(NEW_RULE_FALLBACK if new_rule is None else new_rule)
-            rule.update({
-                # 어느 제목에서 구운 말인지 적어 둔다(7장 ③) — 나중에 제목이
-                # 바뀌면 화면이 그 사실을 정확히 알릴 수 있다.
-                FILLED_FROM: title,
-                "title_terms": vocab["title_terms"],
-                "head_terms": vocab["head_terms"],
-                "terms": vocab["terms"],
-                "filename": vocab["filename"],
-                **({"exclude": vocab["exclude"]} if vocab["exclude"] else {}),
-            })
-            rules.append(rule)
-            added += 1
-        elif not (cur.get("title_terms") or cur.get("head_terms")
-                  or cur.get("terms") or cur.get("filename")):
-            # 빈 규칙 — 시작값을 그대로 넣는다.
-            if fill_existing:
-                for key in ("title_terms", "head_terms", "terms", "filename"):
-                    cur[key] = vocab[key]
-                if vocab["exclude"]:
-                    cur["exclude"] = vocab["exclude"]
-                cur[FILLED_FROM] = title
-                filled += 1
-        elif enrich_existing:
-            # 이미 말이 들어 있는 규칙. 사람이 적은 것은 앞에 그대로 두고,
-            # 사전이 아는 말 중 빠진 것만 뒤에 잇는다(빼는 일은 하지 않는다).
-            grew = False
-            for key in ("title_terms", "head_terms", "terms", "filename", "exclude"):
-                have = list(cur.get(key) or [])
-                more = [w for w in vocab[key] if w not in have]
-                if more:
-                    cur[key] = have + more
-                    grew = True
-            if grew:
-                # 지금 제목에서 나온 말을 덧붙였으니 기준 제목도 지금 것으로 옮긴다.
-                # 안 옮기면 방금 맞춘 규칙이 계속 "제목이 바뀌었습니다"로 뜬다.
-                cur[FILLED_FROM] = title
-                enriched += 1
-    return (added, filled, enriched)
 
 
 #------------------------------------------------------------------

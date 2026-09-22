@@ -290,42 +290,6 @@ def _run(args, pythonpath, timeout, marker):
 
 
 #------------------------------------------------------------------
-# 회사 분류 체계 가져오기 실행 (doc_taxonomy.yaml 생성)
-#=> MpowerV11 에서 내보낸 JSON 을 읽어 화면이 쓰는 doc_taxonomy.yaml 을 만든다.
-#   실제로 도는 명령은 아래 한 줄이고, 화면은 이 함수만 부른다.
-#     csoclassify --export-taxonomy --export-input <원본.json> --taxonomy <만들 .yaml>
-#   [왜 화면에서 실행하나] 예전에는 이 명령을 글로만 알려 주고 관리자가 직접
-#   명령창에서 치게 했다. 분류 체계를 연결하지 않으면 업무분류 축이 통째로 꺼지는데,
-#   그 첫 관문을 명령창에 맡기면 대부분 거기서 멈춘다.
-#
-# -in: base_cmd     = 실행 인자 리스트(parse_base_cmd 결과)
-# -in: export_input = MpowerV11 이 내보낸 원본 JSON 경로
-# -in: taxonomy_out = 만들어 낼 doc_taxonomy.yaml 경로
-# -in: pythonpath   = 모듈 실행 시 PYTHONPATH
-# -in: timeout      = 최대 대기(초). 파일 한 개 변환이라 짧아도 된다
-#
-# -out: SimpleNamespace(returncode, stderr, summary, args)
-#        args = 실제로 실행한 명령(실패했을 때 화면에 그대로 보여 주려고 담는다)
-# -out: error = timeout 시 예외 전파
-#------------------------------------------------------------------
-def run_export_taxonomy(base_cmd, export_input, taxonomy_out, pythonpath=None,
-                        timeout=180):
-    args = list(base_cmd) + ["--export-taxonomy",
-                             "--export-input", export_input,
-                             "--taxonomy", taxonomy_out]
-    r = _run(args, pythonpath, timeout, "[MpowerClassify]")
-    r.args = args
-    return r
-
-
-# [2026-09-02] run_csoclassify_dir() 를 지웠다. 화면은 진행바가 필요해 모두
-#   run_csoclassify_dir_stream() 을 쓰고 있었고, 이 함수는 부르는 곳이 한 곳도 없었다.
-#   게다가 with_vector=True 가 기본이라 '전량 벡터'(--with-vector)로 도는 함수였다 —
-#   지금 화면 경로는 --embed-needed(못 정한 문서만)로 도므로, 실수로 이 함수를 쓰면
-#   조용히 몇 배 느려진다. 남겨 두는 것이 위험한 코드라 삭제한다.
-
-
-#------------------------------------------------------------------
 # 폴더 분류 실행(스트리밍) — 진행바/경과시간용
 #=> 폴더를 통째로 분류하되, subprocess.run(블로킹) 대신 Popen 으로
 #   자식의 stderr 를 "한 줄씩" 읽는다. csoclassify 가 --progress 로 흘리는
@@ -345,7 +309,7 @@ def run_export_taxonomy(base_cmd, export_input, taxonomy_out, pythonpath=None,
 # -in: pythonpath  = 모듈 실행 시 PYTHONPATH
 # -in: timeout     = 최대 대기(초)
 # -in: on_progress = 콜백 fn(done:int, total:int, path:str). None 이면 진행보고 생략
-# -in: extra_args  = 그대로 덧붙일 인자 리스트(예: ["--taxonomy", "…", "--doc-rules", "…"]).
+# -in: extra_args  = 그대로 덧붙일 인자 리스트(예: ["--doc-rules", "…", "--axis", "security"]).
 #                    업무분류 축을 켤 때 화면이 넘긴다. None 이면 아무것도 안 붙는다
 #
 # -out: SimpleNamespace(returncode, stderr, summary)
@@ -362,7 +326,7 @@ def run_export_taxonomy(base_cmd, export_input, taxonomy_out, pythonpath=None,
 # -in: out_path   = 결과 jsonl 경로
 # -in: glob       = 파일 패턴
 # -in: embed_mode = "needed"(보류·seed 후보만) · "all"(전량) · 그 밖(임베딩 없음)
-# -in: extra_args = 화면이 덧붙이는 인자(--taxonomy/--doc-rules/--axis/--hash 등)
+# -in: extra_args = 화면이 덧붙이는 인자(--doc-rules/--axis/--hash 등)
 #
 # -out: list = 실행 인자 전체
 # -out: error = 없음
@@ -380,7 +344,7 @@ def build_classify_args(base_cmd, folder, out_path, glob="*", embed_mode="needed
     # -r 은 넘기지 않는다. 두 엔진 모두 --dir 이면 **언제나 하위 폴더까지** 훑는다
     # (Python cli.py 의 -r 은 help 에 '(무시됨)' 이라 적혀 있고, Rust 는 walkdir 로
     # 항상 재귀한다). Rust 판은 모르는 인자라며 경고까지 찍어 로그만 지저분해졌다.
-    # 업무분류(doctype) 축 관련 인자(--taxonomy/--doc-rules/--axis)를 화면에서 그대로
+    # 업무분류(doctype) 축 관련 인자(--doc-rules/--axis)를 화면에서 그대로
     # 넘길 수 있게 열어 둔다.
     if extra_args:
         args += list(extra_args)
@@ -444,40 +408,6 @@ def run_csoclassify_dir_stream(base_cmd, folder, out_path, glob="*", recursive=T
                            error=parse_error_json(out))
 
 
-
-
-#------------------------------------------------------------------
-# 업무분류 규칙 채우기 실행 (--sync-doc-rule)
-#=> 화면의 [분류 불러오기] 버튼이 부르는 명령. 분류 체계를 훑어 doc_rule.yaml 에
-#   규칙을 채운다(유의어 사전까지 적용).
-#   [왜 화면에서 직접 안 하나] 예전에는 화면이 파일을 직접 고쳤다. 그러면 같은
-#   일을 화면과 CLI 가 따로 구현하게 되고, 실제로 두 결과가 갈라져 있었다.
-#   이제 어휘를 만드는 층은 엔진(classify/docvocab.py · Rust docvocab.rs)이
-#   한 벌만 갖고, 화면은 그 명령을 부른다.
-#
-# -in: base_cmd   = 실행 인자 리스트(parse_base_cmd 결과)
-# -in: taxonomy   = doc_taxonomy.yaml 경로
-# -in: doc_rules  = 채울 doc_rule.yaml 경로
-# -in: fill_blank = 단어가 하나도 없는 기존 규칙도 채울지(기본 True)
-# -in: enrich     = 이미 말이 있는 규칙에도 빠진 유의어를 더할지(기본 False)
-# -in: pythonpath = 모듈 실행 시 PYTHONPATH
-# -in: timeout    = 최대 대기(초). 파일 몇 개만 읽고 쓰는 일이라 짧아도 된다
-#
-# -out: SimpleNamespace(returncode, stderr, summary, args)
-#        args = 실제로 실행한 명령(실패 시 화면에 그대로 보여 주려고 담는다)
-# -out: error = timeout 시 예외 전파
-#------------------------------------------------------------------
-def run_sync_doc_rule(base_cmd, taxonomy, doc_rules, fill_blank=True, enrich=False,
-                      pythonpath=None, timeout=180):
-    args = list(base_cmd) + ["--sync-doc-rule",
-                             "--taxonomy", taxonomy, "--doc-rules", doc_rules]
-    if not fill_blank:
-        args.append("--no-fill-blank")
-    if enrich:
-        args.append("--sync-enrich")
-    r = _run(args, pythonpath, timeout, "갱신")
-    r.args = args
-    return r
 
 
 #------------------------------------------------------------------

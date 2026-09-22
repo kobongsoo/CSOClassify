@@ -64,14 +64,13 @@ struct Opts {
     no_doc_id: bool,            // 결과에 doc_id/key 를 넣지 않는다(기본은 넣는다)
     report_missing_id: Option<String>, // sfile_id 를 못 얻은 문서 목록을 쓸 경로
     rules_path: Option<String>,
-    taxonomy: Option<String>,   // doc_taxonomy.yaml(업무분류 어휘)
-    doc_rules: Option<String>,  // doc_rule.yaml(업무분류 규칙)
+    // [설계 7단계] --taxonomy(doc_taxonomy.yaml 을 따로 읽던 길)는 없앴다 — 분류체계는
+    // --build-doc-rule 로 만든 doc_rule.yaml 안에 들어 있다.
+    doc_rules: Option<String>,  // doc_rule.yaml(업무분류 규칙 + 분류체계)
     axis: Option<String>,       // "security" | "doctype" — 이번 실행에서 쓸 축을 하나로 좁힘
     conflict: Option<String>,   // 실행 시 축 전략 덮어쓰기(예: doctype=top_n:3)
     glob: Option<String>,       // --dir 에서 고를 파일 패턴(콤마·중괄호로 여러 개)
-    export_taxonomy: bool,      // 분류체계 스냅샷 생성 전용 모드(문서를 읽지 않음)
-    export_input: Option<String>,   // 위 모드의 원본 JSON(MpowerV11 내보내기)
-    scaffold_doc_rule: bool,    // 위 모드에서 doc_rule.yaml 골격도 함께 생성
+    export_input: Option<String>,   // --build-doc-rule 의 원본 체계 JSON(MpowerV11 내보내기)
     out: Option<String>,
     fmt: String,        // "json" | "jsonl"
     fmt_explicit: bool, // --format 을 직접 줬는가(안 줬으면 --out 확장자로 판단)
@@ -88,10 +87,7 @@ struct Opts {
     progress: bool,              // 파일마다 '[progress] 처리수/총수 경로' 를 stderr 로(화면 진행바용)
     embed_needed: bool,          // 임베딩을 '아직 못 정한 문서'에만(Python --embed-needed 와 같은 뜻)
     no_timing: bool,             // 처리 시간 출력 끄기(요약줄의 총시간)
-    sync_doc_rule: bool,         // 분류 체계를 훑어 doc_rule.yaml 을 채운다
     build_doc_rule: bool,        // 체계 JSON·사전·local 조정으로 doc_rule.yaml 을 통째로 만든다
-    sync_fill_blank: bool,       // 빈 규칙도 시작값으로 채울지(기본 켬)
-    sync_enrich: bool,           // 이미 말이 있는 규칙에도 빠진 유의어를 더할지
     with_vector: bool,      // 모든 문서를 임베딩해 결과 레코드에 vector 필드로 실어 보냄
     propagate: Option<String>,  // 1차 결과(jsonl/json)를 읽어 전파만 다시 도는 2차 패스
     auto_propagate: bool,
@@ -167,8 +163,8 @@ fn usage() {
     eprintln!("");
     eprintln!("─── ② 무엇으로 판단하나 (정책 파일 · 축) ───────────────────────");
     eprintln!("  --rules <cso_rule.yaml>        보안등급 규칙셋(미지정 시 exe 옆/CSOCLASSIFY_POLICY_DIR)");
-    eprintln!("  --taxonomy <doc_taxonomy.yaml>  업무분류 체계 스냅샷(없으면 업무분류 축을 끔)");
-    eprintln!("  --doc-rules <doc_rule.yaml>     업무분류 규칙셋(없으면 업무분류 축을 끔)");
+    eprintln!("  --doc-rules <doc_rule.yaml>     업무분류 규칙셋 — 분류체계도 이 안에 있다(--build-doc-rule 로 만든 것).");
+    eprintln!("                                  없으면 업무분류 축을 끔");
     eprintln!("  --seeds <class_seed.jsonl>      전파 비교 기준 seed(미지정 시 exe 옆 class_seed.jsonl)");
     eprintln!("  --axis security|doctype   이번 실행에 쓸 축만 지정(doctype 이면 보안등급 계산 생략)");
     eprintln!("  --conflict <축>=<전략>    업무분류 축 전략 덮어쓰기(예: doctype=top_n:3 · doctype=all)");
@@ -242,13 +238,8 @@ fn usage() {
     eprintln!("                            ※ 분할 볼륨은 어느 포맷도 잇지 않는다(사유를 결과에 남긴다)");
     eprintln!("");
     eprintln!("─── ⑧ 문서분류체계 rule 생성 (문서를 읽지 않는 모드) ─────────────────────");
-    eprintln!("  --export-taxonomy         DOC_CLASSIFICATION JSON → --taxonomy 경로에 스냅샷 생성 후 종료");
-    eprintln!("  --export-input <파일>     그 원본 JSON(미지정 시 exe 옆 doc_classification_export.json)");
-    eprintln!("  --scaffold-doc-rule       위와 함께 쓰면 --doc-rules 경로에 규칙 골격도 생성(있으면 건너뜀)");
     eprintln!("  --build-doc-rule          체계 JSON(--export-input)·사전·doc_rule.local.yaml 로 --doc-rules 파일을 통째로 새로 만든다");
-    eprintln!("  --sync-doc-rule           분류 체계를 훑어 --doc-rules 파일에 규칙을 채운다(유의어 사전 적용)");
-    eprintln!("    --no-fill-blank         └ 단어가 하나도 없는 기존 규칙은 채우지 않는다(기본은 채움)");
-    eprintln!("    --sync-enrich           └ 이미 말이 있는 규칙에도 빠진 유의어만 더한다(기본 끔)");
+    eprintln!("  --export-input <파일>     그 원본 체계 JSON(미지정 시 규칙 파일 옆 doc_classification_export.json)");
     eprintln!("");
     eprintln!("─── ⑨ 기준 문서 등록 (--seed-add) ─────────────────────────────");
     eprintln!("  화면 없이 class_seed.jsonl 에 기준 문서를 등록합니다. 파이썬 판과 같습니다.");
@@ -388,18 +379,43 @@ fn apply_size_limits(o: &Opts) {
     limits::set_overrides(ov);
 }
 
+//------------------------------------------------------------------
+// 없어진 옵션 → 안내 문구
+//=> 설계 7단계에서 옛 방식(분류체계 doc_taxonomy.yaml 을 따로 만들고 읽던 길)의 옵션을
+//   없앴다. 그 옵션을 주면 무엇으로 바꿔야 하는지 한 줄로 알려 준다. 파이썬 판과
+//   같은 문구·같은 코드(unsupported_option, 종료 3)로 나가야 두 판이 같아진다.
+//    1) --taxonomy 는 '분류체계가 doc_rule.yaml 안에 있다'고 알린다
+//    2) 나머지(규칙·체계를 만들던 옵션)는 '--build-doc-rule 로 만든다'고 알린다
+//
+// -in: flag = 사용자가 준 인자 그대로(예: "--sync-doc-rule")
+//
+// -out: Some(문구) = 없어진 옵션이다 / None = 없어진 옵션이 아니다
+// -out: error = 예외 없음
+//------------------------------------------------------------------
+fn removed_option_message(flag: &str) -> Option<String> {
+    match flag {
+        "--taxonomy" => Some("[MpowerClassify-rs] --taxonomy 는 없어졌습니다 — \
+분류체계는 doc_rule.yaml(--build-doc-rule 로 만든 것) 안에 있습니다.".to_string()),
+        "--export-taxonomy" | "--scaffold-doc-rule" | "--sync-doc-rule"
+        | "--no-fill-blank" | "--sync-enrich" => Some(format!(
+            "[MpowerClassify-rs] {} 는 없어졌습니다 — 업무분류 규칙은 --build-doc-rule 로 \
+만듭니다(분류체계가 규칙 안에 들어갑니다).", flag)),
+        _ => None,
+    }
+}
+
 fn parse_args() -> Result<Opts, String> {
     let mut o = Opts {
         log: None, verbose: false,
         file: None, dir: None, files_from: None, rules_path: None,
-        taxonomy: None, doc_rules: None, axis: None, conflict: None,
-        export_taxonomy: false, export_input: None, scaffold_doc_rule: false,
+        doc_rules: None, axis: None, conflict: None,
+        export_input: None,
         glob: None, out: None, json_errors: false, simple_why: false,
         fmt: "json".into(), fmt_explicit: false, simple: false, summary_only: false,
         no_summary: false, hash: false, with_pii: false, with_text: false,
         rule_only: false, vector_only: false, doctype_vector_only: false,
         progress: false, embed_needed: false, no_timing: false,
-        sync_doc_rule: false, sync_fill_blank: true, sync_enrich: false, build_doc_rule: false,
+        build_doc_rule: false,
         with_vector: false, propagate: None,
         auto_propagate: false, seeds: None,
         seed: seedcli::SeedArgs::default(),
@@ -444,14 +460,20 @@ fn parse_args() -> Result<Opts, String> {
             "--dir" | "-dir" => o.dir = Some(take(false).unwrap()),
             "--files-from" => o.files_from = Some(take(false).unwrap()),
             "--rules" => o.rules_path = Some(take(false).unwrap()),
-            "--taxonomy" => o.taxonomy = Some(take(false).unwrap()),
+            // [설계 7단계] 옛 방식(doc_taxonomy.yaml 을 따로 두던 길)의 옵션들은 없앴다.
+            // '모르는 인자'(bad_args)로 흘리지 않고 '없어진 옵션'이라고 사실대로 답한다 —
+            // 옛 명령줄을 쓰던 사람이 무엇으로 바꿔야 하는지 그 자리에서 알게 하려는 것이다.
+            // --taxonomy 는 값을 받던 옵션이지만 값을 집지 않고 바로 끝낸다(값이 빠져도 죽지 않게).
+            "--taxonomy" | "--export-taxonomy" | "--scaffold-doc-rule" | "--sync-doc-rule"
+            | "--no-fill-blank" | "--sync-enrich" => {
+                let msg = removed_option_message(a).unwrap_or_default();
+                errcodes::fail("unsupported_option", &msg, None);
+            }
             "--doc-rules" => o.doc_rules = Some(take(false).unwrap()),
             "--axis" => o.axis = Some(take(false).unwrap()),
             "--conflict" => o.conflict = Some(take(false).unwrap()),
             "--glob" => o.glob = Some(take(false).unwrap()),
-            "--export-taxonomy" => o.export_taxonomy = true,
             "--export-input" => o.export_input = Some(take(false).unwrap()),
-            "--scaffold-doc-rule" => o.scaffold_doc_rule = true,
             "--out" => o.out = Some(take(false).unwrap()),
             "--format" => { o.fmt = take(false).unwrap(); o.fmt_explicit = true; }
             "--simple" => o.simple = true,
@@ -470,10 +492,7 @@ fn parse_args() -> Result<Opts, String> {
             "--progress" => o.progress = true,
             "--embed-needed" => o.embed_needed = true,
             "--no-timing" => o.no_timing = true,
-            "--sync-doc-rule" => o.sync_doc_rule = true,
             "--build-doc-rule" => o.build_doc_rule = true,
-            "--no-fill-blank" => o.sync_fill_blank = false,
-            "--sync-enrich" => o.sync_enrich = true,
             "--with-vector" => o.with_vector = true,
             "--propagate" => o.propagate = Some(take(false).unwrap()),
             "--auto-propagate" => o.auto_propagate = true,
@@ -995,122 +1014,95 @@ fn resolve_rules(opts: &Opts) -> Option<PathBuf> {
     None
 }
 
-/// 그레고리력 날짜 → 1970-01-01 기준 일수(Howard Hinnant days_from_civil).
-/// 스냅샷 노후 판정(T13)에 90일 비교만 하면 되므로 날짜 라이브러리를 새로
-/// 들이지 않는다 — 시간대 한 칸 차이는 이 판정에 영향이 없다.
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146097 + doe - 719468
+/// 규칙 파일이 어떤 모양인가 — 업무분류 축을 켤지·막을지를 가르는 기준.
+#[derive(Debug, PartialEq)]
+enum RuleFileKind {
+    /// --build-doc-rule 로 만든 파일(generated 칸이 있음). 분류체계가 규칙 줄 안에 있다.
+    Generated,
+    /// 옛 모양(분류체계 doc_taxonomy.yaml 을 따로 읽던 방식). 이 판부터는 읽지 않는다.
+    Legacy,
+    /// 못 읽거나 YAML 이 깨졌다 — 모양을 판단할 수 없으니 로더가 그 까닭을 알린다.
+    Unreadable,
 }
 
-/// 분류체계 스냅샷 노후 경고(T13). exported_at 은 "YYYYMMDDHHMMSS" 형식이며,
-/// 형식이 다르면 판단하지 않는다(오탐보다 조용히 넘기는 편이 안전).
-fn check_stale_taxonomy(taxonomy: &Taxonomy, max_age_days: i64) -> Option<String> {
-    let s = &taxonomy.exported_at;
-    if s.len() < 8 || !s.is_char_boundary(8) {
-        return None;
+//------------------------------------------------------------------
+// 규칙 파일 모양 가리기 (자동 생성본 / 옛 모양 / 못 읽음)
+//=> 설계 7단계부터는 --build-doc-rule 로 만든 규칙만 읽는다. 옛 모양 파일은 분류체계를
+//   따로(doc_taxonomy.yaml) 읽어야 하는데 그 길을 없앴으므로, 읽기 전에 모양부터 본다.
+//    1) 파일을 못 읽거나 YAML 이 깨졌으면 Unreadable — '옛 모양'이라고 잘못 알리지 않게
+//    2) generated 칸이 있으면 Generated, 없으면 Legacy
+//
+// -in: path = doc_rule.yaml 경로
+//
+// -out: RuleFileKind = 모양
+// -out: error = 예외 없음(읽기 실패도 Unreadable 로 돌려준다)
+//------------------------------------------------------------------
+fn rule_file_kind(path: &Path) -> RuleFileKind {
+    let text = match std::fs::read_to_string(path) { Ok(t) => t, Err(_) => return RuleFileKind::Unreadable };
+    let yv = match serde_yaml::from_str::<serde_yaml::Value>(&text) {
+        Ok(v) => v,
+        Err(_) => return RuleFileKind::Unreadable,
+    };
+    match serde_json::to_value(&yv) {
+        Ok(j) if docbuild::is_generated(&j) => RuleFileKind::Generated,
+        Ok(_) => RuleFileKind::Legacy,
+        Err(_) => RuleFileKind::Unreadable,
     }
-    let y: i64 = s[0..4].parse().ok()?;
-    let m: i64 = s[4..6].parse().ok()?;
-    let d: i64 = s[6..8].parse().ok()?;
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
-        return None;
-    }
-    let now_days = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64 / 86_400;
-    let age_days = now_days - days_from_civil(y, m, d);
-    if age_days <= max_age_days {
-        return None;
-    }
-    Some(format!(
-        "[MpowerClassify-rs] 분류체계 스냅샷(doc_taxonomy.yaml)이 {}일 전 것입니다(exported_at={}) — \
-         DB 와 어긋났을 수 있습니다. export_taxonomy 로 다시 내보내는 것을 권장합니다.",
-        age_days, s))
 }
 
-/// 업무분류(doctype) 축 로드 — 있으면 켜고 없으면 끄는 외장 자산(설계서 4-6·T13·T14·T16).
-///  1) --axis security 면 시도조차 하지 않는다(이번 실행이 안 쓰는 축이라 검증할 이유가 없다)
-///  2) 파일이 없으면: --axis doctype 명시 시 종료(4), 아니면 경고 후 축을 끈다
-///  3) 파일은 있는데 내용이 깨졌으면 항상 치명적(4) — "안 쓴다"가 아니라 "고쳐야 한다"는 뜻
-///  4) 스냅샷이 오래됐으면 경고만(T13), T6·T12 경고도 그대로 보여 준다
-///
-/// -out: Ok(None) = 축을 끄고 security 만 / Ok(Some(..)) = 축 켜짐 / Err(code) = 즉시 종료
+//------------------------------------------------------------------
+// 업무분류(doctype) 축 로드 — 있으면 켜고 없으면 끄는 외장 자산
+//=> 분류체계는 --build-doc-rule 로 만든 doc_rule.yaml 안에 들어 있다(설계 7단계 —
+//   doc_taxonomy.yaml 을 따로 읽던 옛 길과 'seed 전파 전용' 모드는 없앴다).
+//    1) --axis security 면 시도조차 하지 않는다(이번 실행이 안 쓰는 축이라 검증할 이유가 없다)
+//    2) 규칙 파일이 없으면: --axis doctype 명시 시 종료(taxonomy_missing, 3),
+//       아니면 알리고 축을 끈다(보안등급만)
+//    3) 옛 모양 규칙 파일이면 항상 종료(doc_rules_invalid, 4) — 조용히 축을 끄면
+//       "업무분류가 왜 비었지"를 아무도 모른다. 새 방식으로 다시 만들라고 알린다
+//    4) 자동 생성본이면 읽는다. 내용이 깨졌으면 종료(4), 경고(입력이 바뀜 등)는 보여 준다
+//
+// -in: opts = 실행 옵션(axis · doc_rules 를 본다)
+//
+// -out: Ok(None) = 축을 끄고 security 만 / Ok(Some(..)) = 축 켜짐
+// -out: error = 규칙 파일 없음(--axis doctype)·옛 모양·내용 오류면 errcodes::fail 로 종료
+//               (Err(code) 는 지금은 쓰지 않지만 부르는 쪽 계약으로 남겨 둔다)
+//------------------------------------------------------------------
 fn load_doctype_axis(opts: &Opts) -> Result<Option<(Taxonomy, DocRuleSet)>, i32> {
     if opts.axis.as_deref() == Some("security") {
         return Ok(None);
     }
     let explicit = opts.axis.as_deref() == Some("doctype");
 
-    // 자동 생성 규칙 파일이면 분류체계가 규칙 줄 안에 있다 — doc_taxonomy.yaml 을 찾지 않는다.
-    if let Some(rp) = resolve_policy_file(&opts.doc_rules, doc_rules::default_doc_rule_filename()) {
-        if rp.is_file() && is_generated_rules(&rp) {
-            let mut drs = match doc_rules::load_doc_rules(&rp, None) {
-                Ok(d) => d,
-                Err(e) => errcodes::fail("doc_rules_invalid",
-                    &format!("[MpowerClassify-rs] {}", e), rp.to_str()),
-            };
-            for w in &drs.warnings {
-                note!("[MpowerClassify-rs] {}", w);
-            }
-            let tax = drs.taxonomy.take().expect("생성 규칙은 분류체계를 싣는다");
-            return Ok(Some((tax, drs)));
-        }
-    }
-
-    // ── 분류체계 스냅샷(어휘)
-    let tpath = match resolve_policy_file(&opts.taxonomy, axes::default_taxonomy_filename()) {
-        Some(p) if p.is_file() => p,
-        other => {
-            let shown = other.map(|p| p.display().to_string())
-                .unwrap_or_else(|| axes::default_taxonomy_filename().into());
-            if explicit {
-                // '파일 없음'은 내용 오류(4)가 아니라 부른 쪽이 고칠 문제(3)다.
-                errcodes::fail("taxonomy_missing",
-                    &format!("[MpowerClassify-rs] 분류체계 스냅샷을 찾을 수 없습니다: {}", shown),
-                    Some(&shown));
-            }
-            note!("[MpowerClassify-rs] doc_taxonomy.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다.");
-            note!("                 보안등급(security)만 판정합니다.");
-            return Ok(None);
-        }
-    };
-    let taxonomy = match axes::load_taxonomy(&tpath) {
-        Ok(t) => t,
-        Err(e) => errcodes::fail("taxonomy_invalid",
-            &format!("[MpowerClassify-rs] {}", e), tpath.to_str()),
-    };
-    if let Some(msg) = check_stale_taxonomy(&taxonomy, 90) {
-        note!("{}", msg);
-    }
-
-    // ── 업무분류 규칙셋(규칙). taxonomy 를 넘겨 T5·T6·T12 교차검증까지 함께.
-    // 규칙 파일이 없다고 축을 끄지는 않는다 — 규칙이 없을 뿐 분류할 방법이 하나 더
-    // 남아 있다(class_seed.jsonl 과의 임베딩 전파). 빈 규칙셋으로 축을 켜 두면 1차
-    // 스캔은 빈손이지만 전파가 라벨을 채울 수 있고, seed 마저 없으면 미분류로 남아
-    // 사람이 나중에 분류한다. --axis doctype 이어도 마찬가지로 멈추지 않는다(축을
-    // 못 쓰는 게 아니라 규칙만 없는 것이므로).
     let rpath = match resolve_policy_file(&opts.doc_rules, doc_rules::default_doc_rule_filename()) {
         Some(p) if p.is_file() => p,
         other => {
-            // 경로가 잡혔으면(=명시했는데 파일이 없음) 그 경로를, 아무 데도 없으면
-            // 어디를 뒤졌는지를 알려 준다 — 없는 경로를 지어내 보여주지 않는다.
-            let where_ = match other {
-                Some(p) => format!("찾은 경로: {} (파일 없음)", p.display()),
-                None => format!("찾아본 곳: exe 옆 · CSOCLASSIFY_POLICY_DIR ({})",
-                                doc_rules::default_doc_rule_filename()),
-            };
-            note!("[MpowerClassify-rs] doc_rule.yaml 이 없어 업무분류(doctype)를 'seed 전파 전용'으로 돌립니다.");
-            note!("                 규칙 대신 class_seed.jsonl 과의 임베딩 유사도로만 분류합니다(seed 도 없으면 전부 미분류).");
-            note!("                 {}", where_);
-            return Ok(Some((taxonomy, DocRuleSet::seed_only())));
+            // 경로가 잡혔으면(=명시했는데 파일이 없음) 그 경로를, 아무 데도 없으면 파일
+            // 이름을 보여 준다 — 없는 경로를 지어내 보여주지 않는다.
+            let shown = other.map(|p| p.display().to_string())
+                .unwrap_or_else(|| doc_rules::default_doc_rule_filename().into());
+            if explicit {
+                // '파일 없음'은 내용 오류(4)가 아니라 부른 쪽이 고칠 문제(3)다.
+                errcodes::fail("taxonomy_missing",
+                    &format!("[MpowerClassify-rs] 업무분류 규칙 파일(doc_rule.yaml)이 없습니다 — \
+분류체계가 그 안에 있습니다. --build-doc-rule 로 만드세요. 찾은 경로: {}", shown),
+                    Some(&shown));
+            }
+            note!("[MpowerClassify-rs] doc_rule.yaml 이 없어 업무분류(doctype) 축을 건너뜁니다. \
+규칙은 --build-doc-rule 로 만드세요.");
+            return Ok(None);
         }
     };
-    let drs = match doc_rules::load_doc_rules(&rpath, Some(&taxonomy)) {
+
+    // 옛 모양 파일은 읽기 전에 막는다. 깨진 파일(Unreadable)은 아래 로더가 까닭을 알린다.
+    if rule_file_kind(&rpath) == RuleFileKind::Legacy {
+        errcodes::fail("doc_rules_invalid",
+            &format!("[MpowerClassify-rs] [G0] 옛 모양 규칙 파일입니다(분류체계 doc_taxonomy.yaml 을 \
+따로 읽던 방식): {}\n  이 판부터는 --build-doc-rule 로 만든 규칙만 읽습니다. \
+화면의 [새 방식으로 바꾸기] 또는 --build-doc-rule 로 다시 만드세요.", rpath.display()),
+            rpath.to_str());
+    }
+
+    let mut drs = match doc_rules::load_doc_rules(&rpath, None) {
         Ok(d) => d,
         Err(e) => errcodes::fail("doc_rules_invalid",
             &format!("[MpowerClassify-rs] {}", e), rpath.to_str()),
@@ -1118,25 +1110,14 @@ fn load_doctype_axis(opts: &Opts) -> Result<Option<(Taxonomy, DocRuleSet)>, i32>
     for w in &drs.warnings {
         note!("[MpowerClassify-rs] {}", w);
     }
-    Ok(Some((taxonomy, drs)))
-}
-
-/// 분류체계 스냅샷 내보내기 전용 모드(--export-taxonomy).
-///
-/// MpowerV11 이 내보낸 DOC_CLASSIFICATION JSON 을 이 도구가 읽는 doc_taxonomy.yaml
-/// 로 바꾼다. 문서는 한 건도 읽지 않으므로 --file/--dir 이 필요 없다.
-///  1) 원본 JSON → doc_taxonomy.yaml 변환 + round-trip 검증(방금 쓴 파일이 실제로
-///     읽히는지 여기서 확인 — 안 그러면 다음 실행 때에야 문제를 만난다)
-///  2) --scaffold-doc-rule 이면 doc_rule.yaml 골격도 --doc-rules 경로에 생성
-///
-/// -out: 종료코드(0 성공 / 3 원본을 못 찾거나 못 읽음 / 4 변환 결과가 검증 실패)
-/// 규칙 파일이 자동 생성본인가(generated 칸이 있나). 못 읽으면 false — 옛 길의 검증이 알린다.
-fn is_generated_rules(path: &Path) -> bool {
-    let text = match std::fs::read_to_string(path) { Ok(t) => t, Err(_) => return false };
-    match serde_yaml::from_str::<serde_yaml::Value>(&text) {
-        Ok(v) => serde_json::to_value(&v).map(|j| docbuild::is_generated(&j)).unwrap_or(false),
-        Err(_) => false,
-    }
+    // 자동 생성본은 로더가 규칙 줄에서 분류체계를 지어 싣는다. 없으면 모양이 어긋난 것이다.
+    let tax = match drs.taxonomy.take() {
+        Some(t) => t,
+        None => errcodes::fail("doc_rules_invalid",
+            &format!("[MpowerClassify-rs] 규칙 파일에서 분류체계를 짓지 못했습니다: {}", rpath.display()),
+            rpath.to_str()),
+    };
+    Ok(Some((tax, drs)))
 }
 
 /// 업무분류 규칙 자동 생성(--build-doc-rule) — Python run_build_doc_rule 과 같은 일.
@@ -1186,146 +1167,6 @@ fn run_build_doc_rule(opts: &Opts) -> i32 {
     eprintln!("[MpowerClassify-rs] {} 생성 — 규칙 {}개(회사 조정 {}개) · 판 {} · 입력 {}개",
           out_path.display(), rules, local, doc["version"].as_str().unwrap_or(""), inputs);
     0
-}
-
-/// 업무분류 규칙 채우기(--sync-doc-rule) — 화면 [분류 불러오기] 와 같은 일.
-/// 분류 체계를 훑어 doc_rule.yaml 에 규칙을 채운다. 어휘를 만드는 층(docvocab)은
-/// Python 판과 골든 테스트로 묶여 있어, 화면과 같은 결과가 나온다.
-fn run_sync_doc_rule(opts: &Opts) -> i32 {
-    // 경로 규약은 다른 모드와 같다 — --taxonomy 우선, 없으면 정책 폴더/exe 옆.
-    let tax_path = match resolve_policy_file(&opts.taxonomy, axes::default_taxonomy_filename()) {
-        Some(p) => p,
-        None => {
-            errcodes::fail("taxonomy_missing",
-                "[MpowerClassify-rs] 회사 분류 체계를 찾을 수 없습니다 — --taxonomy <파일경로> 로 지정하세요.",
-                None);
-        }
-    };
-    if !tax_path.is_file() {
-        errcodes::fail("taxonomy_missing",
-            &format!("[MpowerClassify-rs] 회사 분류 체계를 찾을 수 없습니다: {}\n\
-                      --taxonomy 로 지정하거나 --export-taxonomy 로 먼저 만드세요.",
-                     tax_path.display()),
-            tax_path.to_str());
-    }
-    let taxonomy = match axes::load_taxonomy(&tax_path) {
-        Ok(t) => t,
-        // 파일은 있는데 못 읽는다 = 내용 문제다(없음과 구분해 4 로 나간다).
-        Err(e) => errcodes::fail("taxonomy_invalid",
-            &format!("[MpowerClassify-rs] 분류 체계를 읽지 못했습니다: {}", e), tax_path.to_str()),
-    };
-    let out_path = match resolve_policy_file(&opts.doc_rules,
-                                             doc_rules::default_doc_rule_filename()) {
-        Some(p) => p,
-        None => {
-            errcodes::fail("doc_rules_write_failed",
-                "[MpowerClassify-rs] 규칙 파일 경로를 정할 수 없습니다 — --doc-rules <파일경로> 로 지정하세요.",
-                None);
-        }
-    };
-
-    match docvocab::sync_doc_rule(&taxonomy, &out_path, opts.sync_fill_blank, opts.sync_enrich) {
-        Err(e) => errcodes::fail("doc_rules_write_failed",
-            &format!("[MpowerClassify-rs] {}", e), out_path.to_str()),
-        Ok((0, 0, 0, _)) => {
-            note!("[MpowerClassify-rs] 바뀐 것이 없습니다 — 규칙 파일은 그대로 둡니다: {}",
-                      out_path.display());
-            0
-        }
-        Ok((added, filled, enriched, layers)) => {
-            let names: Vec<String> = layers.iter()
-                .map(|p| std::path::Path::new(p).file_name()
-                         .map(|s| s.to_string_lossy().into_owned()).unwrap_or_default())
-                .collect();
-            note!("[MpowerClassify-rs] {} 갱신 — 새 분류 {}개 · 빈 규칙 채움 {}개 · 유의어 더함 {}개{}",
-                      out_path.display(), added, filled, enriched,
-                      if names.is_empty() { " (유의어 사전 없음)".to_string() }
-                      else { format!(" (유의어 사전: {})", names.join(" → ")) });
-            0
-        }
-    }
-}
-
-fn run_export_taxonomy(opts: &Opts) -> i32 {
-    // 두 경로 모두 다른 정책 파일과 같은 규약으로 찾는다(인자 → 환경변수 → exe 옆).
-    // 단 출력 경로는 '아직 없는 파일'을 만드는 자리라 is_file() 로 거르면 안 된다.
-    let input = match resolve_policy_file(&opts.export_input, axes::default_export_input_filename()) {
-        Some(p) if p.is_file() => p,
-        other => {
-            let shown = other.map(|p| p.display().to_string())
-                .unwrap_or_else(|| axes::default_export_input_filename().into());
-            if !errcodes::quiet() {
-                note!("  · --export-input <파일경로> 로 지정하거나,");
-                note!("  · exe 옆(또는 CSOCLASSIFY_POLICY_DIR)에 {} 를 두세요.",
-                          axes::default_export_input_filename());
-            }
-            errcodes::fail("export_input_missing",
-                &format!("[MpowerClassify-rs] 원본 JSON을 찾을 수 없습니다: {}", shown),
-                Some(&shown));
-        }
-    };
-    let output = match &opts.taxonomy {
-        Some(p) => PathBuf::from(p),
-        // 미지정이면 exe 옆에 만든다 — 분류할 때 찾는 자리와 같아야 바로 쓰인다.
-        None => policy_dir_for_new_file().join(axes::default_taxonomy_filename()),
-    };
-
-    let (taxonomy, warnings) = match axes::export_from_mpower_json(&input, &output) {
-        Ok(v) => v,
-        // 여기까지 왔다는 것은 원본 파일이 있다는 뜻이다(없으면 위에서 끝난다).
-        // 그러니 남은 실패는 전부 '내용이 틀림'(2008) 이다 — 파일 없음(2007)과
-        // 갈라 두면 부르는 쪽이 "경로를 다시 묻는다 / 원본 데이터를 고친다"를
-        // 구분할 수 있다.
-        Err(msg) => errcodes::fail("export_input_invalid",
-            &format!("[MpowerClassify-rs] {}", msg), input.to_str()),
-    };
-
-    for w in &warnings {
-        note!("[MpowerClassify-rs] 경고: {}", w);
-    }
-    println!("[MpowerClassify-rs] {} 생성 완료 — 노드 {}개, 최상위 {}개, exported_at={}",
-             output.display(), taxonomy.len(), taxonomy.roots().len(), taxonomy.exported_at);
-    // 어떤 분류가 들어왔는지 눈으로 확인할 수 있게 앞쪽 몇 개만 예로 보여 준다.
-    for root in taxonomy.roots().iter().take(3) {
-        if let Some(leaf) = taxonomy.children_of(Some(&root.dc_id)).first() {
-            if let Ok(p) = taxonomy.path(&leaf.dc_id) {
-                println!("  예: {}", p);
-            }
-        }
-    }
-
-    if opts.scaffold_doc_rule {
-        let rpath = match &opts.doc_rules {
-            Some(p) => PathBuf::from(p),
-            None => policy_dir_for_new_file().join(doc_rules::default_doc_rule_filename()),
-        };
-        match doc_rules::write_scaffold(&taxonomy, &rpath, false) {
-            Ok(Some(n)) => println!("[MpowerClassify-rs] {} 골격 생성 완료 — 규칙 {}건\
-(terms 는 비어 있음, 채워야 동작).", rpath.display(), n),
-            Ok(None) => note!("[MpowerClassify-rs] {} 이 이미 있어 골격 생성을 건너뜁니다\
-(사람이 채운 내용을 덮어쓰지 않기 위함).", rpath.display()),
-            Err(msg) => {
-                errcodes::fail("doc_rules_write_failed",
-                    &format!("[MpowerClassify-rs] 골격 생성 실패: {}", msg), rpath.to_str());
-            }
-        }
-    }
-    0
-}
-
-/// '새로 만들 정책 파일'을 둘 폴더.
-///
-/// resolve_policy_file 은 이미 있는 파일을 찾는 함수라, 아직 없는 파일을 만들 때는
-/// 쓸 수 없다(찾지 못하고 None 을 준다). 만들 때의 우선순위는 환경변수 → exe 옆이다.
-fn policy_dir_for_new_file() -> PathBuf {
-    if let Ok(d) = std::env::var("CSOCLASSIFY_POLICY_DIR") {
-        if !d.is_empty() {
-            return PathBuf::from(d);
-        }
-    }
-    std::env::current_exe().ok()
-        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// --conflict "doctype=top_n:3" → (축 id, ConflictSpec). 값 검증은 doc_rule.yaml
@@ -1941,22 +1782,11 @@ fn main() {
     handle_daemon_args(&opts);
     handle_extractor_args(&opts);
 
-    // 분류체계 내보내기 전용 모드 — 문서도 규칙셋도 필요 없다. 규칙셋을 먼저 읽는
-    // 아래 흐름을 타면 "cso_rule.yaml 이 없다"고 엉뚱한 곳에서 멈추고, 만들려던
-    // doc_taxonomy.yaml 이 아직 없다는 이유로 축 로드에서 또 걸린다 — 그래서 여기서 끝낸다.
-    if opts.export_taxonomy {
-        std::process::exit(errcodes::finish(run_export_taxonomy(&opts), None));
-    }
-
-    // 업무분류 규칙 자동 생성 모드 — 체계 JSON 과 정책 폴더만 있으면 된다.
+    // 업무분류 규칙 자동 생성 모드 — 체계 JSON 과 정책 폴더만 있으면 된다. 규칙셋을
+    // 먼저 읽는 아래 흐름을 타면 "cso_rule.yaml 이 없다"고 엉뚱한 곳에서 멈추고,
+    // 만들려던 doc_rule.yaml 이 아직 옛 모양이라는 이유로 축 로드에서 또 걸린다.
     if opts.build_doc_rule {
         std::process::exit(errcodes::finish(run_build_doc_rule(&opts), None));
-    }
-
-    // 업무분류 규칙 채우기 전용 모드 — 분류 체계와 규칙 파일만 있으면 된다.
-    // 화면의 [분류 불러오기] 버튼이 부르는 것이 이 길이다(문서도 모델도 안 읽는다).
-    if opts.sync_doc_rule {
-        std::process::exit(errcodes::finish(run_sync_doc_rule(&opts), None));
     }
 
     // 전파 전용 모드 — 입력이 1차 '레코드 파일'이라 문서도 규칙셋도 모델도 필요 없다.
@@ -2057,25 +1887,10 @@ fn main() {
                 println!("[MpowerClassify-rs] 업무분류(doctype) 축 정상");
                 println!("  분류체계 노드={} (사용중={}) · exported_at={}",
                          taxonomy.len(), taxonomy.active_nodes().len(), taxonomy.exported_at);
-                if drs.version == "none" {
-                    // 규칙 없이 seed 전파로만 도는 배포 — 규칙 건수 대신 "무엇으로
-                    // 분류하게 되는지"를 알려 준다(seed 가 있어야 실제로 분류된다).
-                    let sp: Option<String> = opts.seeds.clone().or_else(default_seed_path);
-                    let n_seed = match &sp {
-                        Some(p) => propagate::DoctypeSeedIndex::from_seed_file(p).size(),
-                        None => 0,
-                    };
-                    let shown = sp.clone().unwrap_or_else(|| "(경로 없음)".into());
-                    println!("  규칙셋 없음 → 'seed 전파 전용' 모드");
-                    if n_seed > 0 {
-                        println!("  업무분류 seed {}건 사용 가능: {}", n_seed, shown);
-                    } else {
-                        println!("  쓸 수 있는 업무분류 seed 가 없습니다({}) — 업무분류는 전부 미분류로 남습니다", shown);
-                    }
-                } else {
-                    println!("  doctype_rules={} (활성={}) · version={} · conflict={}",
-                             drs.rules.len(), drs.active_rules().len(), drs.version, drs.conflict.strategy);
-                }
+                // 'seed 전파 전용'(규칙 파일 없이 축을 켜던 모드)은 없앴다 — 규칙 파일이
+                // 없으면 축이 꺼지므로 여기 오는 것은 언제나 자동 생성 규칙이다.
+                println!("  doctype_rules={} (활성={}) · version={} · conflict={}",
+                         drs.rules.len(), drs.active_rules().len(), drs.version, drs.conflict.strategy);
             }
             None => println!("[MpowerClassify-rs] 업무분류(doctype) 축은 이번 실행에서 꺼져 있습니다."),
         }
@@ -2215,30 +2030,6 @@ fn main() {
     // 통째로 생략해, 가장 비싼 단계를 건너뛴 대량 업무분류 스캔이 크게 빨라진다.
     if opts.axis.as_deref() == Some("doctype") {
         rules_enabled = false;
-    }
-
-    // 'seed 전파 전용'(doc_rule.yaml 없음)인데 전파까지 못 하는 상황이면 미리 알린다.
-    // 조용히 빈 결과를 내면 "분류할 게 없었다"로 오해되는데, 실제로는 "분류할 수단이
-    // 없었다"라서 대응이 완전히 다르다(규칙을 쓰거나 seed 를 채워야 한다).
-    // seed 유무를 먼저 본다 — seed 가 없으면 embed_mode 도 덩달아 none 이 되므로,
-    // 순서를 반대로 하면 진짜 원인인 'seed 없음'을 '--rule-only 탓'으로 잘못 짚는다.
-    if dt_axis.as_ref().map_or(false, |(_, drs)| drs.version == "none") {
-        let n_dt_seed = match &seeds_path {
-            Some(p) => propagate::DoctypeSeedIndex::from_seed_file(p).size(),
-            None => 0,
-        };
-        let why = if n_dt_seed == 0 {
-            let shown = seeds_path.clone().unwrap_or_else(|| "class_seed.jsonl".into());
-            Some(format!("쓸 수 있는 seed(labels.doctype)가 없어({})", shown))
-        } else if embed_mode == "none" {
-            Some("임베딩을 하지 않아(--rule-only 등)".to_string())
-        } else {
-            None
-        };
-        if let Some(why) = why {
-            note!("[MpowerClassify-rs] 업무분류: 규칙(doc_rule.yaml)도 없고 {} 전파도 못 합니다 \
-— 전부 미분류로 두니 관리자가 분류한 뒤 seed 로 승격하세요.", why);
-        }
     }
 
     // 모델·런타임 배포 점검(값싼 확인) — 세션은 만들지 않고 파일 존재만 본다.
@@ -2738,8 +2529,8 @@ fn main() {
     //
     //   · security — 보류(grade=None) 이거나 seed 승격 후보(seed_eligible)
     //   · doctype  — 축은 켜졌는데 라벨이 하나도 안 붙음(values 가 빔)
-    // doctype 조건이 꼭 필요한 이유: doc_rule.yaml 이 없어 'seed 전파 전용'으로 도는
-    // 배포는 1차 스캔이 언제나 빈손인데 security 등급은 멀쩡히 나올 수 있다. security
+    // doctype 조건이 꼭 필요한 이유: 규칙이 못 맞힌 문서(또는 --doctype-vector-only 로
+    // 규칙을 비운 배치)는 1차 스캔이 빈손인데 security 등급은 멀쩡히 나올 수 있다. security
     // 기준만 보면 벡터를 안 만들고 → 전파도 못 하고 → 업무분류가 영영 미분류로 남는다.
     //
     // 파이썬 cli.py 의 need_vec 과 항이 하나씩 대응한다(둘이 갈리면 두 판이 갈린다).
@@ -3706,16 +3497,50 @@ mod tests {
         Candidate::bare(dc_id.into(), path.into(), vec![], 0.7, vec![])
     }
 
-    // doc_rule.yaml 이 없을 때 쓰는 빈 규칙셋 — 축을 끄는 것과는 다른 상태다.
+    //------------------------------------------------------------------
+    // 없어진 옵션은 무엇으로 바꿔야 하는지 알린다 (설계 7단계)
+    //=> 파이썬 판과 같은 문구여야 두 판을 같은 명령으로 부르는 쪽이 같은 답을 받는다.
+    //   없어지지 않은 옵션(--export-input·--build-doc-rule)은 여기 걸리면 안 된다.
+    //------------------------------------------------------------------
     #[test]
-    fn seed전용_규칙셋은_규칙0건이지만_켜진_축이다() {
-        let drs = DocRuleSet::seed_only();
-        assert!(drs.rules.is_empty() && drs.active_rules().is_empty());
-        // version "none" 이 "규칙 없이 전파로만 돌았다"의 표식이다(결과에도 각인된다).
-        assert_eq!(drs.version, "none");
-        // 전략은 기본값 all — 전파가 붙인 라벨을 임의로 잘라내지 않는다.
-        assert_eq!(drs.conflict.strategy, "all");
-        assert!(drs.conflict.n.is_none());
+    fn 없어진_옵션은_바꿀_길을_알린다() {
+        for f in ["--export-taxonomy", "--scaffold-doc-rule", "--sync-doc-rule",
+                  "--no-fill-blank", "--sync-enrich"] {
+            let m = removed_option_message(f).unwrap_or_else(|| panic!("{} 가 안 걸렸다", f));
+            assert_eq!(m, format!("[MpowerClassify-rs] {} 는 없어졌습니다 — 업무분류 규칙은 \
+--build-doc-rule 로 만듭니다(분류체계가 규칙 안에 들어갑니다).", f));
+        }
+        assert_eq!(removed_option_message("--taxonomy").unwrap(),
+                   "[MpowerClassify-rs] --taxonomy 는 없어졌습니다 — 분류체계는 \
+doc_rule.yaml(--build-doc-rule 로 만든 것) 안에 있습니다.");
+        for keep in ["--export-input", "--build-doc-rule", "--doc-rules", "--check-rules"] {
+            assert!(removed_option_message(keep).is_none(), "{} 는 살아 있는 옵션이다", keep);
+        }
+        // 코드 이름이 계약표에 있어야 종료 3 으로 나간다(없으면 errcodes 가 다른 값을 준다).
+        assert_eq!(errcodes::code_of("unsupported_option"), 1012);
+        assert_eq!(errcodes::exit_of("unsupported_option"), 3);
+    }
+
+    //------------------------------------------------------------------
+    // 규칙 파일 모양 가리기 — 옛 모양은 Legacy, 자동 생성본은 Generated
+    //=> 옛 모양을 조용히 읽거나 축을 끄면 업무분류가 소리 없이 비는데, 깨진 YAML 을
+    //   '옛 모양'이라고 알리면 엉뚱한 처방(다시 만들기)을 준다. 셋을 갈라 둔다.
+    //------------------------------------------------------------------
+    #[test]
+    fn 규칙_파일_모양을_가린다() {
+        let dir = std::env::temp_dir().join(format!("csors_kind_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let legacy = dir.join("legacy.yaml");
+        std::fs::write(&legacy, "conflict: all\ndoctype_rules:\n- id: dt_a\n  node: A\n  terms: [x]\n").unwrap();
+        assert_eq!(rule_file_kind(&legacy), RuleFileKind::Legacy);
+        let broken = dir.join("broken.yaml");
+        std::fs::write(&broken, "doctype_rules: [\n  - 닫히지 않음").unwrap();
+        assert_eq!(rule_file_kind(&broken), RuleFileKind::Unreadable);
+        assert_eq!(rule_file_kind(&dir.join("없음.yaml")), RuleFileKind::Unreadable);
+        // 저장소에 들어 있는 배포용 규칙은 --build-doc-rule 로 만든 것이다.
+        let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/policy/doc_rule.yaml");
+        assert_eq!(rule_file_kind(&shipped), RuleFileKind::Generated);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
 
@@ -3749,13 +3574,6 @@ mod tests {
         assert!(parse_conflict_override("doctype=max").is_err());   // T2
         assert!(parse_conflict_override("doctype=top_n").is_err()); // T10(n 없음)
         assert!(parse_conflict_override("doctype=top_n:x").is_err());
-    }
-
-    #[test]
-    fn 그레고리력_일수_변환() {
-        assert_eq!(days_from_civil(1970, 1, 1), 0);
-        assert_eq!(days_from_civil(1970, 1, 2), 1);
-        assert_eq!(days_from_civil(2000, 3, 1), 11017);
     }
 
     // ---- --propagate 입력 파서 ----

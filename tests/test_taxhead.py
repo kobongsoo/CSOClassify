@@ -14,6 +14,7 @@ import os
 import sys
 
 import pytest
+import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -39,18 +40,16 @@ taxonomy:
 
 #------------------------------------------------------------------
 # 시험용 분류체계
-#=> 임시 파일에 써서 엔진의 로더로 읽는다 — 고객 파일을 시험에 쓰지 않는다.
+#=> 시험용 스냅샷 dict 를 엔진의 트리 생성기로 읽는다 — 고객 파일을 시험에 쓰지 않는다.
 #
-# -in: tmp_path = pytest 임시 폴더
+# -in: 없음
 #
 # -out: axes.Taxonomy
 # -out: error = 없음
 #------------------------------------------------------------------
 @pytest.fixture
-def tax(tmp_path):
-    p = tmp_path / "doc_taxonomy.yaml"
-    p.write_text(TAXONOMY_YAML, encoding="utf-8")
-    return axes.load_taxonomy(str(p))
+def tax():
+    return axes.taxonomy_from_snapshot(yaml.safe_load(TAXONOMY_YAML), "(시험)")
 
 
 #------------------------------------------------------------------

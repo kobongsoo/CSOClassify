@@ -128,7 +128,6 @@ csoclassify-rs --file a.docx    --rules cso_rule.yaml
 - `--seeds <class_seed.jsonl>` : 전파 기준 seed(미지정 시 exe 옆 class_seed.jsonl).
 - `--build-doc-rule` : 체계 JSON(`--export-input`)·유의어 사전·본보기·`doc_rule.local.yaml` 로 `--doc-rules` 파일을 통째로 새로 만든다.
   화면 [규칙 다시 만들기]가 부르는 명령이며, 같은 입력이면 Python 판과 결과 파일이 글자까지 같다(`src/docbuild.rs`).
-- `--sync-doc-rule` : (옛 방식 — 다음 판에서 없앰) 분류 체계를 훑어 `--doc-rules` 파일에 규칙을 채운다(유의어 사전 `synonyms/` 적용, 이미 있는 파일에도 덧붙임).
   어휘 생성은 Python 판과 골든 테스트(`tests/docvocab_golden.json`)로 묶여 있다.
 - `--doctype-vector-only` : 업무분류(doctype) 1차 규칙 스캔을 건너뛰고 기준 문서 비교로만 분류. 규칙 파일의 `embed`·`conflict`·`defaults` 는 그대로 쓴다. security 축은 영향 없음.
 - `--check-rules` : 규칙셋의 등급 값만 검사하고 종료(문서를 읽지 않음). 정상 0, 검증 실패 4.

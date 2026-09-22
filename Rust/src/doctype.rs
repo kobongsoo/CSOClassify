@@ -763,18 +763,7 @@ pub fn merge_embed_candidates(existing: &[Candidate], embed_values: &[(String, f
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::axes::load_taxonomy;
     use crate::doc_rules::Defaults;
-
-    // cargo test 는 기본적으로 테스트를 여러 스레드에서 병렬 실행한다. 임시파일
-    // 이름이 겹치면 한 스레드의 remove_file 이 다른 스레드의 read 보다 먼저
-    // 끝나 "파일을 찾을 수 없음"으로 흔들린다 — 프로세스 id 만으로는 유일하지
-    // 않으므로 호출마다 증가하는 카운터를 더한다.
-    static TMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    fn unique_tmp(prefix: &str) -> std::path::PathBuf {
-        let n = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        std::env::temp_dir().join(format!("{}_{}_{}.yaml", prefix, std::process::id(), n))
-    }
 
     fn mk_taxonomy() -> Taxonomy {
         let yaml = "taxonomy:\n  source: t\n  exported_at: '20260824000000'\n  node_count: 7\n  nodes:\n\
@@ -785,11 +774,9 @@ mod tests {
             \x20 - {dc_id: TECH, parent: null, order: 3, title: 기술/개발, status: 1}\n\
             \x20 - {dc_id: DESIGN, parent: TECH, order: 1, title: 설계문서, status: 1}\n\
             \x20 - {dc_id: REQSPEC, parent: DESIGN, order: 1, title: 요구사항정의서, status: 1}\n";
-        let tmp = unique_tmp("cso_test_doctype_taxonomy");
-        std::fs::write(&tmp, yaml).unwrap();
-        let t = load_taxonomy(&tmp).unwrap();
-        let _ = std::fs::remove_file(&tmp);
-        t
+        // 파일을 거치지 않고 스냅샷 값에서 바로 짓는다(doc_taxonomy.yaml 을 읽는 길은 없앴다).
+        let yv: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        crate::axes::taxonomy_from_value(&serde_json::to_value(&yv).unwrap(), "test").unwrap()
     }
 
     /// 빈 규칙 하나. 필요한 칸만 뒤에서 채워 쓴다.
@@ -1151,7 +1138,7 @@ mod tests {
         assert!(sig.values.is_empty());
     }
 
-    // doc_rule.yaml 이 없는 배포(seed 전파 전용)에서는 1차 스캔이 반드시 빈손이어야
+    // 규칙이 0건이면(--doctype-vector-only 로 비운 배치) 1차 스캔이 반드시 빈손이어야
     // 한다 — 그래야 "규칙으로는 못 정했다"가 되고 전파가 유일한 분류 수단이 된다.
     //--------------------------------------------------------------
     // 핵어 층(13장 D1) — 파일명 끝자리 핵어는 '다른 후보가 없을 때만' 돈다
@@ -1195,7 +1182,7 @@ mod tests {
 
     #[test]
     fn 규칙0건_스캔은_아무것도_못맞힌다() {
-        let drs = crate::doc_rules::DocRuleSet::seed_only();
+        let drs = crate::doc_rules::DocRuleSet::empty();
         let sig = scan_doctype("계약서 내용입니다", "계약서.txt", &drs, &mk_taxonomy());
         assert!(sig.values.is_empty());
         assert_eq!(sig.truncated, 0);
@@ -1204,7 +1191,7 @@ mod tests {
     #[test]
     fn 규칙0건이어도_embed후보는_라벨이_된다() {
         let t = mk_taxonomy();
-        let drs = crate::doc_rules::DocRuleSet::seed_only();
+        let drs = crate::doc_rules::DocRuleSet::empty();
         let sig = merge_embed_candidates(&[], &[("REQSPEC".to_string(), 0.8)], &t, &drs.conflict, None,
                                        ("knn_vote", 0.82));
         assert_eq!(sig.values.len(), 1);

@@ -9,7 +9,7 @@
 #   파일마다 '원본'이 다르다 — 누가 고치는 파일이냐에 따라 나눈다.
 #    · 제품 파일(저장소가 원본, resources/policy): cso_rule.yaml · 유의어 core/업종 사전 · 본보기
 #    · 고객 파일(화면이 원본, ui/policy): doc_rule.yaml · doc_rule.local.yaml(회사 조정) ·
-#      doc_taxonomy.yaml(옛 형식 동안만) · class_seed.jsonl · 체계 JSON · 회사 겹 유의어(local)
+#      class_seed.jsonl · 체계 JSON · 회사 겹 유의어(local)
 #
 #   사용:  python scripts/sync_policy.py            → 검사만(기본). 어긋나면 종료코드 1
 #          python scripts/sync_policy.py --apply    → 원본을 사본으로 복사(덮기 전 백업)
@@ -71,7 +71,7 @@ MANIFEST = (
         ["Rust/resources/policy", CUSTOMER_SRC] + DIST_DIRS)
        for k in ["core"] + _INDUSTRIES]
     + [("customer", f, CUSTOMER_SRC, [PRODUCT_SRC, "Rust/resources/policy"] + DIST_DIRS)
-       for f in ["doc_rule.yaml", "doc_rule.local.yaml", "doc_taxonomy.yaml",
+       for f in ["doc_rule.yaml", "doc_rule.local.yaml",
                  "class_seed.jsonl", "doc_classification_export.json"]]
     + [("customer", "synonyms/doc_synonyms.local.yaml", CUSTOMER_SRC, list(DIST_DIRS))]
 )

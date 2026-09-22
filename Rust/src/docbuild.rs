@@ -388,7 +388,7 @@ pub fn build_doc_rule(export_path: &Path, policy_dir: &Path) -> Result<(Value, V
     let adjust = local.get("rules").filter(|v| v.is_object()).unwrap_or(&empty);
     let head_cfg = local.get("head").filter(|v| v.is_object()).unwrap_or(&empty);
 
-    // 규칙을 만들 분류 — sync_doc_rule 과 같은 기준·같은 차례(전체경로 순).
+    // 규칙을 만들 분류 — 꺼 둔 분류·서랍은 빼고, 전체경로 순(Python 판과 같은 기준·같은 차례).
     let kids: std::collections::HashSet<&str> = taxonomy.nodes.iter()
         .filter(|n| n.active()).filter_map(|n| n.parent.as_deref()).collect();
     let mut nodes: Vec<(String, String, String)> = vec![];

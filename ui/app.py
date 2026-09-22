@@ -1830,7 +1830,7 @@ def render_term_suggest(rec, confirmed, paths, tax, reviewer="", scope="doctype"
                 added, skipped, missing = termsuggest.apply_terms(rule_doc, dc_id, picks)
                 if missing:
                     st.error(f"'{name}' 규칙이 아직 없습니다 — 설정 화면의 "
-                             "[분류 불러오기]로 규칙을 먼저 만드세요.")
+                             "[규칙 다시 만들기]로 규칙을 먼저 만드세요(꺼 둔 분류면 먼저 켜세요).")
                 else:
                     try:
                         save_suggested(doc_rules_path, rule_doc, dc_id, gen_ctx, paths)
@@ -2299,7 +2299,7 @@ def pick_folder(initial=""):
 # 설정 ④ 분류 실행 렌더 (설계서 10장)
 #=> 고른 폴더를 실제로 분류한다. 예전에는 실행 명령·PYTHONPATH 같은 개발용 입력칸이
 #   화면에 있었는데, 실무 관리자가 정할 값이 아니라서 전부 감추고 **체크박스 3개**만
-#   남겼다. 체크박스가 곧 CLI 옵션(--axis / --taxonomy·--doc-rules / 전파)이 된다.
+#   남겼다. 체크박스가 곧 CLI 옵션(--axis / --doc-rules / 전파)이 된다.
 #    1) 무엇을 판정할지 고른다(보안등급 · 업무분류 · 비슷한 문서 참고)
 #    2) csoclassify 를 한 번만 실행한다 — 엔진이 분류하면서 보류 문서 전파까지
 #       그 자리에서 끝내므로, 결과 파일을 다시 읽는 2차 패스는 두지 않는다
@@ -2401,9 +2401,6 @@ def render_run_panel(grades_path, paths=None, tax=None, records=None):
     # 유일한 근거다 — 어차피 전 문서를 여는 김에 함께 구하므로 값이 싸다.
     extra += ["--hash"]
     if do_doc and tax:
-        # 새 방식(규칙 자동 생성)은 분류 체계가 규칙 파일 안에 있어 --taxonomy 를 주지 않는다.
-        if not docrulegen.is_generated_mode(paths.get("doc_rules") or ""):
-            extra += ["--taxonomy", tax.get("path") or ""]
         extra += ["--doc-rules", paths.get("doc_rules") or ""]
     if do_sec and not do_doc:
         extra += ["--axis", "security"]
@@ -2475,7 +2472,7 @@ def render_run_panel(grades_path, paths=None, tax=None, records=None):
             _base or ["MpowerClassify"], folder, grades_path, glob=_pat,
             extra_args=extra)), language="text")
         st.caption("↳ 위 체크 상자들이 그대로 인자가 됩니다 — `--axis`(한 축만 켤 때) · "
-                   "`--taxonomy`·`--doc-rules`(업무분류) · `--doctype-vector-only` · "
+                   "`--doc-rules`(업무분류) · `--doctype-vector-only` · "
                    "`--rule-only`(비슷한 문서 참고 끔) · `--seeds`(기준 문서). "
                    "`--embed-needed` 는 판단 못 한 문서만 임베딩해 빠르게 도는 기본값입니다.")
         if want_simple:
@@ -2837,7 +2834,6 @@ def default_paths():
         "seed": os.path.join(here, "class_seed.jsonl"),
         "seed_audit": os.path.join(here, "class_seed_audit.jsonl"),
         "rules": os.path.join(policy, "cso_rule.yaml"),
-        "taxonomy": _pick("doc_taxonomy.yaml"),
         # 분류 체계를 '다시 가져올' 때 읽는 원본 JSON(MpowerV11 내보내기 결과).
         "export_input": _pick("doc_classification_export.json"),
         "doc_rules": _pick("doc_rule.yaml"),
@@ -2851,267 +2847,27 @@ def default_paths():
 
 
 #------------------------------------------------------------------
-# [분류 불러오기] — CLI 를 불러 규칙을 채운다
-#=> 예전에는 화면이 doc_rule.yaml 을 직접 고쳤다. 그러면 같은 일을 화면과 CLI 가
-#   따로 구현하게 되고, 실제로 두 결과가 갈라져 있었다(화면은 유의어까지 채우고
-#   CLI 는 빈 칸만 만들었다). 이제 어휘를 만드는 층은 엔진이 한 벌만 갖고
-#   (classify/docvocab.py · Rust docvocab.rs, 골든 테스트로 묶임), 화면은 그
-#   명령을 부른다 — 화면에 보이는 명령과 실제로 도는 것이 같아진다.
-#
-# -in: path       = doc_rule.yaml 경로
-# -in: tax        = 회사 분류 체계(경로만 쓴다)
-# -in: fill_blank = 단어가 없는 기존 규칙도 채울지
-# -in: enrich     = 이미 말이 있는 규칙에도 빠진 유의어를 더할지
-#
-# -out: 없음(성공하면 화면을 새로 그린다)
-# -out: error = 없음(실패는 실행한 명령과 함께 화면에 표시)
-#------------------------------------------------------------------
-def run_sync_doc_rule(path, tax, fill_blank, enrich):
-    paths = st.session_state.get("paths", {})
-    base = gerunner.parse_base_cmd(paths.get("cmd"))
-    if not base:
-        st.error("분류 실행 명령이 비어 있습니다 — 설정/분류 ▸ 고급 ▸ 실행 명령을 "
-                 "먼저 채워 주세요.")
-        return
-    tax_path = (tax or {}).get("path") or paths.get("taxonomy") or ""
-    if not os.path.isfile(tax_path):
-        st.error(f"회사 분류 체계를 찾을 수 없습니다: {tax_path or '(경로 미설정)'} — "
-                 "②에서 먼저 연결하세요.")
-        return
-    try:
-        with st.spinner("분류 체계에서 규칙을 불러오는 중…"):
-            r = gerunner.run_sync_doc_rule(base, tax_path, path,
-                                           fill_blank=fill_blank, enrich=enrich,
-                                           pythonpath=paths.get("pythonpath") or None)
-    except Exception as e:
-        uierrlog.show_error(f"분류 불러오기 실패: {e}", exc=e, where="업무분류 규칙 채우기")
-        return
-
-    if r.returncode != 0:
-        # 엔진이 계약대로 낸 오류(kind·code)를 그대로 보여 준다 — 문구가 아니라
-        # 번호가 남아야 나중에 같은 사고를 찾아낼 수 있다.
-        why = gerunner.error_line(getattr(r, "error", None))
-        st.error(f"규칙을 불러오지 못했습니다.{(' ' + why) if why else ''}")
-        st.caption("실행한 명령 — 명령창에서 그대로 쳐 보면 자세한 원인을 볼 수 있습니다")
-        st.code(" ".join(r.args), language="text")
-        if r.stderr.strip():
-            st.caption(f"실행 로그: {r.stderr.strip()[-400:]}")
-        uierrlog.log_error("업무분류 규칙 채우기 실패\n"
-                           f"오류: {why or '(계약 오류 없음)'}\n"
-                           f"명령: {' '.join(r.args)}\nstderr:\n{r.stderr}",
-                           where="업무분류 규칙 채우기")
-        return
-
-    # 엔진이 남긴 요약 한 줄을 그대로 보여 준다 — 화면이 따로 세지 않는다(어긋날 여지를 없앤다).
-    msg = (r.summary or "").split("] ", 1)[-1] if r.summary else ""
-    st.session_state["docrule_flash"] = (
-        (msg or "규칙을 불러왔습니다.")
-        + " · 표에서 필요 없는 말은 지우고, 회사에서 쓰는 다른 표현을 더해 주세요.")
-    st.cache_data.clear()
-    st.rerun()
-
-
-#------------------------------------------------------------------
-# 업무분류 판단 기준 편집 렌더 (설계서 10-1)
-#=> doc_rule.yaml 을 "이 말이 나오면 → 이 분류로" 표로 고친다. YAML 을 화면에
-#   보여주지 않는 것이 핵심이다. 분류(node)는 사람이 치는 곳이 없고 회사 분류
-#   체계에서만 들어온다 — 오타가 잘못된 DC_ID 로 저장되는 길을 막는다(상위 설계 T5).
-#    1) 지금 규칙을 표로 펼친다(분류는 전체경로로 표시)
-#    2) 빠진 분류는 아래 '분류 불러오기' 로 doc_taxonomy.yaml 에서 한 번에 가져오고,
-#       그때 분류 최하위 명칭과 비슷한 말이 시작값으로 채워진다
-#    3) 저장하면 .bak 을 남기고 덮어쓴다
+# 업무분류 판단 기준 편집 렌더 (설계서 10-1 · 규칙 자동 생성 12장)
+#=> 규칙 파일은 --build-doc-rule 로 만들고, 사람의 결정은 doc_rule.local.yaml 에만 둔다.
+#   2026-09-22 부터 엔진은 옛 모양 규칙(규칙 파일을 사람이 직접 고치고 분류체계를
+#   doc_taxonomy.yaml 로 따로 읽던 방식)을 읽지 않는다. 그래서:
+#    1) 옛 모양 규칙 파일이 남아 있으면 — 분류가 멈춘다는 것을 알리고 [새 방식으로 바꾸기]만 보여 준다
+#    2) 그 밖에는(새 방식이거나 아직 규칙이 없음) 새 방식 편집 화면을 그린다
 #
 # -in: path = doc_rule.yaml 경로
-# -in: tax  = 회사 분류 체계(None 이면 편집을 막고 안내만 한다)
+# -in: tax  = 회사 분류 체계(체계 JSON 에서 읽은 것)
 #
 # -out: 없음(Streamlit 출력)
-# -out: error = 로드/저장 실패는 화면에 표시
+# -out: error = 없음(실패는 화면에 표시)
 #------------------------------------------------------------------
 def render_doc_rules_editor(path, tax):
-    if docrulegen.is_generated_mode(path):
-        render_doc_rules_editor_gen(path, tax)
+    if docrulegen.is_legacy_rules(path):
+        st.error("지금 업무분류 기준 파일은 **옛 모양**입니다. 이 판의 엔진은 옛 모양을 읽지 않아 "
+                 "업무분류가 멈춥니다 — 아래에서 **새 방식으로 바꾸세요**. 지금 규칙에서 회사 "
+                 "조정만 뽑아 옮기므로 그동안 고친 것은 그대로 남습니다.")
+        render_migrate_box(path, expanded=True)
         return
-    if tax is None:
-        st.info("회사 분류 체계를 먼저 연결하면 업무분류 기준을 만들 수 있습니다.")
-        return
-    render_migrate_box(path)
-    try:
-        doc = docruleedit.load_doc(path)
-    except Exception as e:
-        uierrlog.show_error(f"업무분류 기준을 읽지 못했습니다: {e}", exc=e, where="업무분류 규칙 읽기")
-        return
-
-    # 유의어 사전은 규칙 파일 옆에 둔다(없으면 띄어쓰기 표기만 만든다).
-    syn = docruleedit.load_synonyms(path)
-    # 새 규칙에 얹을 값(weight 등)도 본보기에서 가져온다 — 코드에 박아 두면
-    # 회사마다 다른 값을 주려 할 때 프로그램을 고쳐야 한다.
-    new_rule = docruleedit.load_template(path).get("new_rule")
-    rows = docruleedit.to_rows(doc, tax, syn)
-    edited = pd.DataFrame(rows)
-    if rows:
-        edited = st.data_editor(
-            edited, hide_index=True, width="stretch",
-            key="docrule_editor", num_rows="fixed",
-            column_config={
-                "분류": st.column_config.TextColumn("이 분류로", disabled=True, width="medium"),
-                # 분류 제목이 바뀌었을 때만 글자가 찬다(7장 ③). 고칠 수 없는 칸이다 —
-                # 알림이지 값이 아니다.
-                "제목 확인": st.column_config.TextColumn("제목 확인", disabled=True,
-                                                      width="small"),
-                # 판정력이 센 칸부터 놓는다. 같은 말이라도 어느 칸에 넣느냐로
-                # 결과가 갈린다 — "규정"은 제목 칸이면 정확하고 앞부분 칸이면 오탐이다.
-                "제목에": st.column_config.TextColumn("제목(첫 줄)에 이 말이 있으면",
-                                                    width="large"),
-                "앞부분에": st.column_config.TextColumn("앞부분(400자)에 이 말이 있으면",
-                                                     width="large"),
-                "이 말이 나오면": st.column_config.TextColumn("본문 어디든 이 말이 나오면(보조)",
-                                                        width="large"),
-                "파일 이름에": st.column_config.TextColumn("파일 이름에 이 말이 있으면"),
-                "이 폴더 안이면": st.column_config.TextColumn("이 폴더 안이면"),
-                "제외할 말": st.column_config.TextColumn("단, 이 말이 있으면 제외"),
-                "_id": None, "_node": None,      # 화면에 감춘다(저장에만 쓰는 값)
-            })
-    else:
-        st.caption("아직 업무분류 기준이 없습니다. 아래 **분류 불러오기** 를 누르면 "
-                   "회사 분류 체계를 그대로 가져와 시작값까지 채워 줍니다.")
-
-    # ── 분류 체계에서 자동으로 불러오기 ──
-    # 예전에는 여기서 분류를 하나 고르고 '추가' 를 눌러 빈 줄을 만들었다. 22개
-    # 분류를 22번 반복해야 했고, 그러고도 단어는 전부 사람이 쳐야 했다.
-    # 지금은 doc_taxonomy.yaml 을 통째로 읽어 빠진 분류를 한 번에 만들고,
-    # 분류 최하위 명칭에서 뽑은 비슷한 말을 시작값으로 넣어 준다.
-    exist = {r["_node"] for r in rows}
-    n_missing = sum(1 for n in docruleedit.syncable_nodes(tax)
-                    if n.get("dc_id") not in exist)
-    n_blank = sum(1 for r in rows if not (r["이 말이 나오면"] or r["파일 이름에"]))
-
-    # 불러오기 결과는 rerun 을 지나 살아남아야 한다(다시 그려야 표가 갱신되므로).
-    _flash = st.session_state.pop("docrule_flash", None)
-    if _flash:
-        st.success(_flash)
-
-    with st.container(border=True):
-        st.markdown("**분류 체계에서 규칙 불러오기**")
-        st.caption("회사 분류 체계에 있는 분류를 한 번에 가져와 규칙 줄을 만듭니다. "
-                   "'이 말이 나오면'·'파일 이름에' 칸에는 그 분류의 **가장 아래 이름**과 "
-                   "띄어쓰기만 다른 말, 그리고 유의어 사전에 적어 둔 **같은 뜻 다른 말**이 "
-                   "자동으로 채워집니다 (예: 기술/개발 > 설계문서 > **요구사항정의서** → "
-                   "`요구사항정의서, 요구사항 정의서, 요구사항명세서, 요구정의서, SRS`).")
-        if syn:
-            # 사전은 여러 겹이라 어느 파일이 얹혔는지 보여 줘야 관리자가 자기가
-            # 고친 파일이 실제로 쓰이고 있는지 확인할 수 있다.
-            겹 = " → ".join(os.path.basename(p) for p in syn.get("layers") or [])
-            st.caption(f"유의어 사전 `{겹}` 적용 중(뒤가 우선) · "
-                       f"별칭 {len(syn.get('aliases') or {})}개 · "
-                       f"꼬리말 {len(syn.get('tails') or {})}개 — 회사에서 쓰는 말은 "
-                       "`doc_synonyms.local.yaml` 에 더하면 다음 불러오기부터 반영됩니다.")
-        else:
-            st.caption("유의어 사전(doc_synonyms.core.yaml 등)이 없어 "
-                       "띄어쓰기 표기만 만듭니다.")
-        b1, b2 = st.columns([3, 1])
-        fill_blank = b1.checkbox(
-            f"단어가 하나도 없는 기존 규칙({n_blank}개)도 시작값으로 채우기",
-            value=True, key="docrule_fill_blank", disabled=not n_blank)
-        # 사전을 나중에 늘렸을 때 '이미 채운 규칙'이 영영 옛날 말만 갖게 되는 것을
-        # 막는 통로. 기본은 꺼 둔다 — 누르지 않은 사람의 규칙이 조용히 길어지면 안 된다.
-        n_done = len(rows) - n_blank
-        enrich = b1.checkbox(
-            f"이미 채워 둔 규칙({n_done}개)에도 **빠진 유의어만 더하기** "
-            "(적어 둔 말은 지우지 않습니다)",
-            value=False, key="docrule_enrich", disabled=not n_done)
-        b1.caption(f"가져올 분류 **{n_missing}개** · 대분류(경영/관리 같은 서랍 이름)와 "
-                   "꺼 둔 분류는 가져오지 않습니다.")
-        if b2.button("🔄 분류 불러오기", key="docrule_sync", type="primary",
-                     disabled=not (n_missing or (n_blank and fill_blank)
-                                   or (n_done and enrich))):
-            run_sync_doc_rule(path, tax, bool(fill_blank), bool(enrich))
-
-        # ②(회사 분류 체계)와 같은 규약 — 버튼이 실제로 실행하는 명령을 그대로 밝힌다.
-        # 예전에는 화면이 파일을 직접 고쳐서 여기에 적을 명령이 없었고, 비슷한 일을
-        # 하는 CLI(--scaffold-doc-rule)는 유의어를 못 채워 결과가 달랐다. 지금은
-        # 어휘를 만드는 층이 엔진에 한 벌만 있어(골든 테스트로 묶임) 화면이 부르든
-        # 명령창에서 치든 같은 파일이 나온다.
-        _paths = st.session_state.get("paths", {})
-        _base = gerunner.parse_base_cmd(_paths.get("cmd"))
-        _opt = ("" if fill_blank else " --no-fill-blank") + (" --sync-enrich" if enrich else "")
-        st.caption("이 버튼이 실행하는 명령 — 명령창에서 그대로 쳐도 결과는 같습니다")
-        st.code(" ".join(_base or ["MpowerClassify"]) + " --sync-doc-rule"
-                + f" --taxonomy {(tax or {}).get('path') or 'doc_taxonomy.yaml'}"
-                + f" --doc-rules {path}{_opt}", language="text")
-        st.caption("↳ 위 체크 두 개가 그대로 인자가 됩니다(`--no-fill-blank` · "
-                   "`--sync-enrich`). 규칙 파일이 이미 있어도 **빠진 분류만 더합니다** — "
-                   "사람이 적어 둔 말은 지우지 않습니다.")
-
-        # 대분류처럼 자동으로 가져오지 않는 분류에도 규칙을 걸고 싶을 때가 있다.
-        # 흔한 일이 아니므로 접어 둔다 — 평소 화면은 버튼 하나로 끝나야 한다.
-        with st.expander("분류 하나만 직접 추가하기"):
-            opts = taxlib.selectable(tax)
-            label_by_id = dict(opts)
-            addable = [dc for dc, _ in opts if dc not in exist]
-            c1, c2 = st.columns([3, 1])
-            new_node = c1.selectbox("규칙을 추가할 분류", addable,
-                                    format_func=lambda dc: label_by_id.get(dc, dc),
-                                    index=None, placeholder="분류를 고르세요",
-                                    key="docrule_add_node", disabled=not addable)
-            if c2.button("＋ 규칙 추가", key="docrule_add", disabled=not new_node):
-                node = (tax.get("by_id") or {}).get(new_node) or {}
-                # 직접 추가할 때도 시작값은 넣어 준다 — 빈 줄을 주면 결국 사람이
-                # 같은 말을 손으로 치게 된다.
-                rule = {"id": f"dt_{new_node.lower()}", "node": new_node}
-                rule.update(new_rule or docruleedit.NEW_RULE_FALLBACK)
-                rule["terms"] = docruleedit.title_variants(node.get("title"), syn=syn)
-                rule["filename"] = docruleedit.title_variants(
-                    node.get("title"), for_filename=True, syn=syn)
-                doc.setdefault("doctype_rules", []).append(rule)
-                try:
-                    docruleedit.save_doc(path, doc)
-                    st.success(f"'{label_by_id.get(new_node)}' 규칙을 추가했습니다. "
-                               "표에서 단어를 다듬어 주세요.")
-                    st.rerun()
-                except Exception as e:
-                    uierrlog.show_error(f"저장 실패: {e}", exc=e, where="분류체계 저장")
-
-    if rows and st.button("💾 업무분류 기준 저장", type="primary", key="docrule_save"):
-        n = docruleedit.apply_rows(doc, edited.fillna("").to_dict("records"))
-        try:
-            docruleedit.save_doc(path, doc)
-            st.success(f"저장됨 · 규칙 {n}개 (백업: {os.path.basename(path)}.bak)")
-            st.rerun()
-        except Exception as e:
-            uierrlog.show_error(f"저장 실패: {e}", exc=e, where="분류체계 저장")
-
-    # 제목이 바뀐 규칙 안내(7장 ③) — 지우지 않고 사람이 판단하게 한다.
-    stale = []
-    by_id = (tax or {}).get("by_id") or {}
-    for r in doc.get("doctype_rules") or []:
-        h = docruleedit.stale_title_hint(r, (by_id.get(r.get("node")) or {}).get("title"), syn)
-        if h:
-            stale.append((taxlib.path_of(tax, r.get("node")), h))
-    if stale:
-        with st.container(border=True):
-            st.markdown(f"**분류 제목이 바뀐 것 같은 규칙 {len(stale)}개**")
-            for path_, h in stale[:8]:
-                if h["kind"] == "changed":
-                    st.caption(f"· **{path_}** — 이 줄은 분류 제목이 "
-                               f"**{h['was']}** 이던 때 만들어졌습니다")
-                else:
-                    말 = ", ".join(f"**{w}**" for w in h["words"][:5])
-                    st.caption(f"· **{path_}** — {말} 은(는) 지금 분류 제목에 없는 말입니다")
-            if len(stale) > 8:
-                st.caption(f"… 외 {len(stale) - 8}개")
-            st.caption("**지우지 않았습니다.** 그렇게 불리는 문서가 아직 있을 수 있고, "
-                       "관리자가 직접 적은 말일 수도 있습니다. 지금 제목에서 나온 말을 "
-                       "더하려면 아래 **분류 불러오기** 에서 “빠진 유의어만 더하기”를 켜세요 — "
-                       "적어 둔 말은 지우지 않습니다.")
-
-    missing = docruleedit.nodes_without_rules(doc, tax)
-    if missing:
-        st.caption(f"⚠ **{len(missing)}개 분류에는 기준이 없어** 자동으로 제안되지 않습니다 — "
-                   + ", ".join(missing[:6]) + (" …" if len(missing) > 6 else ""))
-
-    render_head_titles(path, doc, tax, syn)
-
-    render_term_suggest_bulk(path, tax)
+    render_doc_rules_editor_gen(path, tax)
 
 
 #------------------------------------------------------------------
@@ -3162,18 +2918,21 @@ def rebuild_doc_rules(paths):
 
 #------------------------------------------------------------------
 # 단어 제안이 고칠 '규칙 dict' 준비
-#=> 옛 방식은 규칙 파일 그대로, 새 방식은 '지금 규칙'(조정 반영) 사본을 준다.
-#   새 방식이면 저장할 때 자동값과 견줘 조정으로 되돌려야 하므로 그 재료도 함께 준다.
+#=> '지금 규칙'(조정 반영) 사본을 준다. 저장할 때 자동값과 견줘 조정으로 되돌려야
+#   하므로 그 재료도 함께 준다.
 #
 # -in: path  = doc_rule.yaml 경로
 # -in: paths = 화면 경로 묶음(export_input)
 #
-# -out: (rule_doc, ctx) = ctx 는 새 방식일 때 {"local","view","base"}, 옛 방식이면 None
-# -out: error = 조정 파일·체계 JSON 오류는 예외 전파(화면이 받아 보여 준다)
+# -out: (rule_doc, ctx) = ctx 는 {"local","view","base"}
+# -out: error = 옛 모양 규칙이면 ValueError · 조정 파일·체계 JSON 오류는 예외 전파
+#               (화면이 받아 보여 준다)
 #------------------------------------------------------------------
 def suggest_rule_doc(path, paths):
-    if not docrulegen.is_generated_mode(path):
-        return docvocab.load_doc(path), None
+    if docrulegen.is_legacy_rules(path):
+        # 옛 모양 파일에 바로 쓰면 엔진이 읽지 않는 파일만 고치게 된다.
+        raise ValueError("업무분류 기준 파일이 옛 모양입니다 — 설정 › ② 판단 기준 › 업무분류에서 "
+                         "먼저 새 방식으로 바꾸세요")
     import copy
     local = docrulegen.load_local(path)
     view, base, _real, _w = docrulegen.views(path, paths.get("export_input") or "", local)
@@ -3182,21 +2941,18 @@ def suggest_rule_doc(path, paths):
 
 #------------------------------------------------------------------
 # 단어 제안으로 고친 규칙 저장
-#=> 옛 방식은 규칙 파일에 그대로 쓰고, 새 방식은 조정 파일에 옮긴 뒤 규칙을 다시 만든다.
+#=> 고친 것을 조정 파일에 옮긴 뒤 규칙을 다시 만든다.
 #
 # -in: path     = doc_rule.yaml 경로
 # -in: rule_doc = apply_terms 로 고친 규칙 dict
 # -in: node     = 고친 분류 dc_id
-# -in: ctx      = suggest_rule_doc 의 ctx(None 이면 옛 방식)
+# -in: ctx      = suggest_rule_doc 의 ctx
 # -in: paths    = 화면 경로 묶음
 #
 # -out: 없음
 # -out: error = 쓰기 실패 시 OSError · 규칙 만들기 실패 시 OSError(메시지 포함)
 #------------------------------------------------------------------
 def save_suggested(path, rule_doc, node, ctx, paths):
-    if ctx is None:
-        docvocab.save_doc(path, rule_doc)
-        return
     docrulegen.apply_rule_edit(ctx["local"], ctx["base"], ctx["view"], rule_doc, node)
     docrulegen.save_local(path, ctx["local"])
     if not rebuild_doc_rules(paths):
@@ -3209,21 +2965,27 @@ def save_suggested(path, rule_doc, node, ctx, paths):
 #   뽑아 보여 주고, 확인하면 조정 파일을 쓰고 규칙을 다시 만든다(옛 규칙은 .bak 으로 남는다).
 #   초안으로 옛 규칙이 재현되지 않으면 바꾸지 않는다 — 조정을 잃으면 안 된다.
 #
-# -in: path = doc_rule.yaml 경로
+# -in: path     = doc_rule.yaml 경로
+# -in: expanded = 처음부터 펼쳐 둘지(옛 모양이라 분류가 멈춘 경우 True)
 #
 # -out: 없음(Streamlit 출력)
 # -out: error = 없음(실패는 화면에 표시)
 #------------------------------------------------------------------
-def render_migrate_box(path):
+def render_migrate_box(path, expanded=False):
     paths = st.session_state.get("paths", {})
     export = paths.get("export_input") or ""
-    if not os.path.isfile(path) or not os.path.isfile(export):
+    if not os.path.isfile(path):
         return
-    with st.expander("🆕 새 방식(규칙 자동 생성)으로 바꾸기"):
-        st.caption("지금은 이 화면이 규칙 파일(doc_rule.yaml)을 직접 고칩니다. 새 방식에서는 "
+    if not os.path.isfile(export):
+        # 조정을 뽑으려면 같은 체계로 '자동값'을 만들어 견줘야 한다 — 원본 JSON 이 꼭 있어야 한다.
+        st.warning(f"회사에서 내보낸 분류 체계 파일이 없어 바꿀 수 없습니다: "
+                   f"{export or '(경로 미설정)'} — ① 에서 연결하세요.")
+        return
+    with st.expander("🆕 새 방식(규칙 자동 생성)으로 바꾸기", expanded=expanded):
+        st.caption("옛 방식은 이 화면이 규칙 파일(doc_rule.yaml)을 직접 고쳤습니다. 새 방식에서는 "
                    "**회사 조정만 doc_rule.local.yaml 에 적고**, 규칙은 분류 체계·유의어 사전으로 "
                    "**매번 자동으로 만듭니다** — 자동 도구가 사람이 일부러 비운 칸을 되살리는 일이 "
-                   "없어집니다. 바꾼 뒤에는 doc_taxonomy.yaml 도 쓰지 않습니다.")
+                   "없어집니다.")
         # 뽑은 결과는 다시 그리기를 지나 살아남아야 한다 — [바꾸기]를 누르면 화면이 다시
         # 그려지는데, 그때 [뽑아 보기]는 눌리지 않은 상태라 여기서 끝내면 안 된다.
         if st.button("지금 규칙에서 회사 조정 뽑아 보기", key="docrule_migrate_preview"):
@@ -3404,9 +3166,7 @@ def render_doc_rules_editor_gen(path, tax):
 # -out: 없음(Streamlit 출력)
 # -out: error = 저장 실패는 화면에 표시
 #------------------------------------------------------------------
-def render_head_titles(path, doc, tax, syn, save=None):
-    # save 를 안 주면 옛 방식 — 규칙 파일에 그대로 쓴다.
-    save = save or (lambda d: docruleedit.save_doc(path, d))
+def render_head_titles(path, doc, tax, syn, save):
     rows, warns = docruleedit.head_rows(doc, tax, syn)
     if not rows:
         return
@@ -3587,7 +3347,7 @@ def render_term_suggest_bulk(path, tax):
             added, skipped, no_rule = termsuggest.apply_terms(rule_doc, node, picks)
             if no_rule:
                 st.error(f"'{name_of(node)}' 규칙이 아직 없습니다 — "
-                         "위 [분류 불러오기]로 규칙을 먼저 만드세요.")
+                         "위 [규칙 다시 만들기]로 규칙을 먼저 만드세요(꺼 둔 분류면 먼저 켜세요).")
             else:
                 try:
                     save_suggested(path, rule_doc, node, gen_ctx, paths)
@@ -3662,18 +3422,19 @@ def render_settings(paths, tax, records):
             c1.caption("연결하면 “이 문서가 무엇에 관한 것인지”도 함께 정리됩니다. "
                        "연결하지 않으면 보안등급만 사용합니다.")
         # 연결 전에는 '연결', 연결된 뒤에는 '다시 가져오기' — 하는 일은 같다.
-        gen_mode = docrulegen.is_generated_mode(paths.get("doc_rules") or "")
+        legacy = docrulegen.is_legacy_rules(paths.get("doc_rules") or "")
         if c2.button("🔗 연결" if not tax else "🔄 다시 가져오기",
                      type="primary" if not tax else "secondary",
-                     width="stretch", key="tax_import",
-                     help="회사에서 내보낸 파일을 읽어 분류 체계를 만듭니다"):
-            if gen_mode:
-                # 새 방식 — 체계 JSON 을 바로 읽어 업무분류 규칙을 통째로 다시 만든다.
-                if rebuild_doc_rules(paths):
-                    st.cache_data.clear()
-                    st.rerun()
-            else:
-                import_taxonomy(paths)
+                     width="stretch", key="tax_import", disabled=legacy,
+                     help="회사에서 내보낸 파일을 읽어 업무분류 규칙을 통째로 다시 만듭니다"):
+            # 체계 JSON 을 바로 읽어 업무분류 규칙을 통째로 다시 만든다(회사 조정은 다시 얹힌다).
+            if rebuild_doc_rules(paths):
+                st.cache_data.clear()
+                st.rerun()
+        if legacy:
+            # 옛 모양 규칙을 그대로 덮으면 그동안 고친 것이 사라진다 — 먼저 옮기게 한다.
+            c1.warning("업무분류 기준 파일이 옛 모양이라 다시 가져오기를 막았습니다 — "
+                       "② 판단 기준 › 업무분류에서 먼저 **새 방식으로 바꾸세요**.")
         c1.caption("분류 체계의 원본은 MpowerV11 입니다 — 이 화면에서 고치면 두 곳이 "
                    "어긋나므로 여기서는 읽기만 합니다.")
 
@@ -3684,20 +3445,13 @@ def render_settings(paths, tax, records):
         # 그대로 따라 해도 안 맞는다.
         _base = gerunner.parse_base_cmd(paths.get("cmd"))
         st.caption("이 버튼이 실행하는 명령 — 명령창에서 직접 돌려도 결과는 같습니다")
-        if gen_mode:
-            st.code(" ".join(_base or ["MpowerClassify"])
-                    + f" --build-doc-rule"
-                      f" --export-input {paths.get('export_input') or 'doc_classification_export.json'}"
-                      f" --doc-rules {paths.get('doc_rules') or 'doc_rule.yaml'}",
-                    language="text")
-            st.caption("↳ 새 방식에서는 분류 체계 파일(doc_taxonomy.yaml)을 따로 만들지 않고, "
-                       "원본 JSON 으로 **업무분류 규칙을 통째로 다시 만듭니다**.")
-        else:
-            st.code(" ".join(_base or ["MpowerClassify"])
-                    + f" --export-taxonomy"
-                      f" --export-input {paths.get('export_input') or 'doc_classification_export.json'}"
-                      f" --taxonomy {paths.get('taxonomy') or 'doc_taxonomy.yaml'}",
-                    language="text")
+        st.code(" ".join(_base or ["MpowerClassify"])
+                + f" --build-doc-rule"
+                  f" --export-input {paths.get('export_input') or 'doc_classification_export.json'}"
+                  f" --doc-rules {paths.get('doc_rules') or 'doc_rule.yaml'}",
+                language="text")
+        st.caption("↳ 분류 체계를 따로 파일로 만들지 않고, 원본 JSON 으로 "
+                   "**업무분류 규칙을 통째로 다시 만듭니다**(분류 체계가 규칙 안에 들어갑니다).")
 
     # ── ② 판단 기준 ──
     with st.container(border=True):
@@ -3729,8 +3483,6 @@ def render_settings(paths, tax, records):
         paths["seed_audit"] = g2.text_input("기준 문서 변경 기록",
                                             value=paths["seed_audit"], key="p_audit")
         paths["rules"] = g1.text_input("보안등급 기준 파일", value=paths["rules"], key="p_rules")
-        paths["taxonomy"] = g2.text_input("회사 분류 체계 파일",
-                                          value=paths["taxonomy"], key="p_tax")
         paths["doc_rules"] = g1.text_input("업무분류 기준 파일",
                                            value=paths["doc_rules"], key="p_drules")
         paths["text_dir"] = g2.text_input(
@@ -3741,7 +3493,7 @@ def render_settings(paths, tax, records):
         paths["export_input"] = g2.text_input(
             "회사 분류 체계 원본(내보낸 JSON)", value=paths.get("export_input", ""),
             key="p_expin",
-            help="②의 ‘다시 가져오기’ 안내에 쓰이는 MpowerV11 내보내기 파일입니다.")
+            help="① 의 ‘다시 가져오기’가 업무분류 규칙을 만들 때 읽는 MpowerV11 내보내기 파일입니다.")
         paths["cmd"] = g1.text_input("분류 실행 명령", value=paths["cmd"], key="p_cmd")
         # cmd 와 짝인 값이라 함께 둔다 — 소스로 실행할 때만 필요하고, exe 로 바꾸면
         # 비워도 된다. 저장되는 값이므로 고칠 수 있어야 한다.
@@ -4151,68 +3903,6 @@ def render_seed_edit(seeds, tax, seed_path, audit_path, reviewer):
 
 
 #------------------------------------------------------------------
-# 회사 분류 체계 연결(가져오기) 실행
-#=> [연결] / [다시 가져오기] 가 부르는 함수. 회사에서 내보낸 JSON 을 읽어
-#   doc_taxonomy.yaml 을 만든다.
-#    1) 원본 파일과 실행 명령이 있는지 먼저 확인한다 — 없으면 어디를 고쳐야
-#       하는지까지 말해 준다(그냥 "실패"라고만 하면 손쓸 방법이 없다)
-#    2) csoclassify --export-taxonomy 를 돌린다
-#    3) 파일이 정말 만들어졌는지 확인하고, 실패하면 실행한 명령을 그대로 보여
-#       준다 — 관리자가 명령창에서 같은 명령을 쳐 볼 수 있게
-#
-# -in: paths = 화면 경로 묶음(export_input · taxonomy · cmd · pythonpath 를 쓴다)
-#
-# -out: 없음(성공하면 화면을 새로 그린다)
-# -out: error = 없음(실패는 화면에 이유와 함께 표시)
-#------------------------------------------------------------------
-def import_taxonomy(paths):
-    src = paths.get("export_input") or ""
-    out = paths.get("taxonomy") or ""
-    if not os.path.isfile(src):
-        st.error(f"회사에서 내보낸 파일을 찾을 수 없습니다: {src or '(경로 미설정)'}\n\n"
-                 "MpowerV11 관리 화면에서 문서 분류 체계를 내보낸 뒤, "
-                 "‘고급 · 파일 위치 ▸ 회사 분류 체계 원본’ 에 그 파일 경로를 넣어 주세요.")
-        return
-    if not out:
-        st.error("만들 파일 경로가 비어 있습니다 — ‘고급 · 파일 위치 ▸ 회사 분류 체계 파일’ "
-                 "을 채워 주세요.")
-        return
-    base = gerunner.parse_base_cmd(paths.get("cmd"))
-    if not base:
-        st.error("분류 실행 명령이 비어 있습니다 — ‘고급 · 실행 명령’ 을 먼저 채워 주세요.")
-        return
-
-    try:
-        with st.spinner("회사 분류 체계를 가져오는 중…"):
-            os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-            r = gerunner.run_export_taxonomy(base, src, out,
-                                             pythonpath=paths.get("pythonpath") or None)
-    except Exception as e:
-        uierrlog.show_error(f"분류 체계 가져오기 실패: {e}", exc=e, where="분류 체계 연결")
-        return
-
-    if r.returncode != 0 or not os.path.isfile(out):
-        why = gerunner.error_line(getattr(r, "error", None))
-        st.error(f"분류 체계를 만들지 못했습니다.{(' ' + why) if why else ''}")
-        st.caption("실행한 명령 — 명령창에서 그대로 쳐 보면 자세한 원인을 볼 수 있습니다")
-        st.code(" ".join(r.args), language="text")
-        if r.stderr.strip():
-            st.caption(f"실행 로그: {r.stderr.strip()[-400:]}")
-        uierrlog.log_error("분류 체계 가져오기 실패\n"
-                           f"오류: {why or '(계약 오류 없음)'}\n"
-                           f"명령: {' '.join(r.args)}\nstderr:\n{r.stderr}",
-                           where="분류 체계 연결")
-        return
-
-    # 새로 만든 파일을 곧바로 읽어 몇 개가 들어왔는지 알린다.
-    tax = taxlib.load_taxonomy(out)
-    n = tax.get("node_count") if tax else 0
-    st.session_state["tax_flash"] = (f"회사 분류 체계를 연결했습니다 — {n}개 분류 · {out}")
-    st.cache_data.clear()
-    st.rerun()
-
-
-#------------------------------------------------------------------
 # 초기화 확인 창
 #=> [초기화]를 누르면 열리는 대화상자. 되돌릴 수 없는 일이므로 세 가지를 지킨다.
 #    1) 지울 파일을 '이름과 크기까지' 그대로 먼저 보여준다 — 무엇이 사라지는지
@@ -4231,7 +3921,7 @@ def import_taxonomy(paths):
 def reset_dialog():
     ui_dir = os.path.dirname(os.path.abspath(__file__))
     drop_gen = st.checkbox(
-        "만들어진 분류 체계·업무분류 규칙(doc_taxonomy.yaml · doc_rule.yaml)도 지우기",
+        "만들어진 업무분류 규칙(doc_rule.yaml)도 지우기",
         value=True,
         help="회사 분류 체계 원본(doc_classification_export.json)과 "
              "doc_rule_template.yaml 로 다시 만들 수 있습니다")
@@ -4380,12 +4070,8 @@ def main():
     }
 
     # 회사 분류 체계는 '있으면 켜지고 없으면 꺼지는 외장 자산'이다(상위 설계 4-6).
-    # 새 방식(규칙 자동 생성)에서는 doc_taxonomy.yaml 을 만들지 않으므로 체계 JSON 을
-    # 바로 읽는다 — 옛 스냅샷이 남아 있어도 원본 쪽을 믿는다.
-    tax = None
-    if docrulegen.is_generated_mode(paths["doc_rules"]):
-        tax = taxlib.load_from_export(paths["export_input"])
-    tax = tax or taxlib.load_taxonomy(paths["taxonomy"])
+    # 원본 체계 JSON 을 바로 읽는다 — 따로 떨어진 스냅샷(doc_taxonomy.yaml)은 없다.
+    tax = taxlib.load_from_export(paths["export_input"])
     doctype_on = tax is not None
 
     grades_path = paths["result"]

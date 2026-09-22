@@ -75,7 +75,7 @@ tar -czf "$TMP/rustsrc.tgz" -C Rust \
     || die "Rust 소스를 묶지 못했습니다"
 # 규칙셋·분류체계·seed 는 '갱신되는 쪽'에서 가져온다(빌드가이드 4장 '정책 파일 정본').
 tar -czf "$TMP/assets.tgz" -C . \
-    resources/policy/cso_rule.yaml ui/policy/doc_taxonomy.yaml ui/policy/doc_rule.yaml \
+    resources/policy/cso_rule.yaml ui/policy/doc_rule.yaml \
     >/dev/null 2>&1 || true
 
 pscp -batch -q -pw "$PW" "$TMP/cso_src.tgz" "$USER_ID@$HOST:$PY_BUILD/"  || die "파이썬 소스 전송 실패"
@@ -89,7 +89,7 @@ pscp -batch -q -pw "$PW" scripts/build/_lib.sh scripts/build/linux-remote.sh \
 # 자동 생성 규칙(doc_rule.yaml)은 만들 때 쓴 입력(체계 JSON·본보기·회사 조정)이
 # 곁에 없으면 돌 때마다 "입력이 없어짐" 경고를 내고, 현장에서 다시 만들 수도 없다.
 pscp -batch -q -pw "$PW" \
-     resources/policy/cso_rule.yaml ui/policy/doc_taxonomy.yaml ui/policy/doc_rule.yaml \
+     resources/policy/cso_rule.yaml ui/policy/doc_rule.yaml \
      ui/policy/doc_classification_export.json resources/policy/doc_rule_template.yaml \
      Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
      "$USER_ID@$HOST:$RS_BUILD/assets/" || die "외장 자산 전송 실패"
