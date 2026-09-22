@@ -158,6 +158,17 @@ pub fn validate_rules_data(data: &Value) -> Vec<Violation> {
         }
     }
 
+    // PII 등급 상한(2026-09-21) — C/S/O 중 하나여야 한다. 오타를 '제한 없음'으로 읽으면
+    // 관리자는 막았다고 믿는데 PII 만으로 C 가 계속 나온다. Python V14 와 같은 항목.
+    if let Some(cap) = data.get("defaults").and_then(|d| d.get("pii_grade_cap")) {
+        let ok = cap.is_null() || cap.as_str().and_then(Grade::from_str_exact).is_some();
+        if !ok {
+            out.push(Violation { code: "V14", section: "defaults", rule_id: "pii_grade_cap".into(),
+                field: "-", value: show(cap),
+                detail: "C · S · O 중 하나여야 합니다(개인정보만으로 올릴 수 있는 최고 등급 — 제한하지 않으려면 칸을 지우세요)".into(), hint: None });
+        }
+    }
+
     for &(section, single_fields, bulk_pair) in SECTIONS.iter() {
         let node = match data.get(section) { Some(v) => v, None => continue };
         if node.is_null() { continue; }
@@ -317,6 +328,9 @@ pub struct RuleSet {
     pub keyword_rules: Vec<KeywordRule>,
     pub sensitive_rules: Vec<SensitiveRule>,
     pub stamp_rules: Vec<StampRule>,
+    /// PII(L1·COMBO) 근거만으로 올릴 수 있는 최고 등급. None = 제한 없음(종전).
+    /// 키워드·민감정보·스탬프·파일명이 낸 C 는 그대로다 — 막는 것은 'PII 하나로만' C.
+    pub pii_grade_cap: Option<Grade>,
 }
 
 const STAMP_HEAD_CHARS: usize = 400;
@@ -444,6 +458,8 @@ pub fn load_rules(path: &std::path::Path) -> Result<RuleSet, RulesError> {
         version: s(&data, "version", "unknown"),
         bulk_threshold: oi(&d, "bulk_threshold").unwrap_or(5),
         case_insensitive: b(&d, "case_insensitive", true),
+        // 칸이 없으면 None = 제한 없음 — 옛 규칙셋은 판정이 한 글자도 달라지지 않는다.
+        pii_grade_cap: d.get("pii_grade_cap").and_then(|v| v.as_str()).and_then(Grade::from_str_exact),
         conf, regex_rules, pii_combos, keyword_rules, sensitive_rules, stamp_rules,
     })
 }
@@ -490,6 +506,20 @@ fn escalate(base: &str, bulk: &Option<String>, bulk_thr: Option<i64>, count: u32
         Some(bg) => {
             let thr = bulk_thr.filter(|&t| t > 0).unwrap_or(default_thr);
             if count as i64 >= thr { bg.clone() } else { base.to_string() }
+        }
+    }
+}
+
+/// PII 히트 1건에 등급 상한을 씌운다(Python _cap_pii_hits 와 같은 규칙).
+/// 상한보다 높은 등급만 상한으로 낮추고, 원래 등급을 hit JSON 의 capped_from 에 남긴다.
+/// 상한보다 낮은 등급은 그대로 둔다 — 상한까지 끌어올리지 않는다.
+fn cap_pii_hit(hit: &mut (Option<Grade>, f64, bool, Value), cap: Option<Grade>) {
+    let (Some(c), Some(g)) = (cap, hit.0) else { return };
+    if g.rank() > c.rank() {
+        hit.0 = Some(c);
+        if let Some(obj) = hit.3.as_object_mut() {
+            obj.insert("grade".into(), json!(c.as_str()));
+            obj.insert("capped_from".into(), json!(g.as_str()));
         }
     }
 }
@@ -561,6 +591,8 @@ pub fn scan_text(text: &str, rs: &RuleSet) -> Sig {
             "count": matched.len(), "grade": rule.grade, "terms": terms
         })));
     }
+    // PII 근거(L1·COMBO)는 정책 상한까지만 — 이 시점의 hits 는 전부 PII 히트다.
+    for h in hits.iter_mut() { cap_pii_hit(h, rs.pii_grade_cap); }
     // L2: 키워드
     let hay = if rs.case_insensitive { text.to_lowercase() } else { text.to_string() };
     for rule in &rs.keyword_rules {
@@ -966,5 +998,92 @@ mod keyword_term_min_count_tests {
         // 같은 규칙의 다른 단어는 최소 횟수가 없어 1회로 인정
         assert_eq!(hr_terms("첨부: 2024년 급여대장. 위반 시 징계.", &rs),
                    Some(vec![("급여대장".to_string(), 1)]));
+    }
+}
+
+// PII 등급 상한(defaults.pii_grade_cap) — 파이썬 판 tests/test_rules.py::test_pii_cap_* 와 같은 사례.
+#[cfg(test)]
+mod pii_grade_cap_tests {
+    use super::*;
+
+    // 체크섬만 유효한 가짜 값(파이썬 시험과 같은 값) — 실제 개인정보가 아니다.
+    const RRN: &str = "900101-1234568";
+    const CARD: &str = "4539-5787-6362-1486";
+
+    fn rs(cap: Option<Grade>) -> RuleSet {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/policy/cso_rule.yaml");
+        let mut rs = load_rules(&p).unwrap_or_else(|e| panic!("cso_rule.yaml 로드 실패: {}", e));
+        rs.pii_grade_cap = cap;
+        rs
+    }
+
+    fn hit(sig: &Sig, id: &str) -> Value {
+        sig.dict["hits"].as_array().unwrap().iter().find(|h| h["id"] == id).cloned()
+            .unwrap_or_else(|| panic!("{} 히트 없음", id))
+    }
+
+    fn roster() -> String {
+        let mut t = String::from("명단
+");
+        for i in 0..5 { t.push_str(&format!("{}. {}
+", i, RRN)); }
+        t
+    }
+
+    #[test]
+    fn bulk_rrn_stops_at_s() {
+        let sig = scan_text(&roster(), &rs(Some(Grade::S)));
+        assert_eq!(sig.grade, Some(Grade::S));
+        let h = hit(&sig, "rrn");
+        assert_eq!(h["grade"], "S");
+        assert_eq!(h["capped_from"], "C");
+    }
+
+    #[test]
+    fn keyword_c_survives() {
+        let text = format!("본 문서는 대외비입니다.
+{}", roster());
+        let sig = scan_text(&text, &rs(Some(Grade::S)));
+        assert_eq!(sig.grade, Some(Grade::C));
+        assert_eq!(hit(&sig, "rrn")["grade"], "S");
+    }
+
+    #[test]
+    fn combo_is_capped() {
+        let text = format!("주민번호 {} 카드번호 {}", RRN, CARD);
+        let base = scan_text(&text, &rs(None));
+        assert_eq!(hit(&base, "identity_card")["grade"], "C");
+        assert!(hit(&base, "identity_card").get("capped_from").is_none());
+        let capped = scan_text(&text, &rs(Some(Grade::S)));
+        let h = hit(&capped, "identity_card");
+        assert_eq!((h["layer"].as_str(), h["grade"].as_str(), h["capped_from"].as_str()),
+                   (Some("COMBO"), Some("S"), Some("C")));
+        assert_eq!(capped.grade, Some(Grade::S));
+    }
+
+    #[test]
+    fn absent_cap_is_unchanged_and_never_raises() {
+        let r = rs(None);
+        assert!(r.pii_grade_cap.is_none());
+        let sig = scan_text(&roster(), &r);
+        assert_eq!(sig.grade, Some(Grade::C));
+        assert!(sig.dict["hits"].as_array().unwrap().iter().all(|h| h.get("capped_from").is_none()));
+        // 상한보다 낮은 등급은 끌어올리지 않는다.
+        let one = scan_text(&format!("주민번호 {}", RRN), &rs(Some(Grade::S)));
+        let h = hit(&one, "rrn");
+        assert_eq!(h["grade"], "S");
+        assert!(h.get("capped_from").is_none());
+    }
+
+    #[test]
+    fn bad_cap_is_v14() {
+        for bad in ["s", "X"] {
+            let data = json!({"defaults": {"pii_grade_cap": bad}});
+            assert!(validate_rules_data(&data).iter().any(|v| v.code == "V14"), "{}", bad);
+        }
+        let num = json!({"defaults": {"pii_grade_cap": 1}});
+        assert!(validate_rules_data(&num).iter().any(|v| v.code == "V14"));
+        let ok = json!({"defaults": {"pii_grade_cap": "S"}});
+        assert!(!validate_rules_data(&ok).iter().any(|v| v.code == "V14"));
     }
 }

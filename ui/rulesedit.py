@@ -252,6 +252,10 @@ def validate_regex_rules(doc):
     return errors, warnings
 
 
+# apply_all 의 '이 칸은 건드리지 않음' 표시. None 은 '제한 없음'이라는 값이라 따로 둔다.
+KEEP = object()
+
+
 #------------------------------------------------------------------
 # 편집 일괄 반영
 #=> 기본값(bulk_threshold)·키워드 편집을 doc 에 모두 반영한다(미리보기/저장 공용).
@@ -260,15 +264,25 @@ def validate_regex_rules(doc):
 # -in: bulk         = bulk 임계값(int)
 # -in: keyword_rows = 키워드 편집 행
 # -in: regex_rows   = 정규식 편집 행(없으면 정규식은 건드리지 않음)
+# -in: review       = 검토함 편입선(없으면 건드리지 않음)
+# -in: pii_cap      = PII 등급 상한 "S"/"O", 또는 None(=제한 없음 → 칸을 지운다).
+#                     생략(KEEP)하면 건드리지 않는다
 # -out: 없음(doc 변형)
 # -out: error = 없음
 #------------------------------------------------------------------
-def apply_all(doc, bulk, keyword_rows, regex_rows=None, review=None):
+def apply_all(doc, bulk, keyword_rows, regex_rows=None, review=None, pii_cap=KEEP):
     d = doc.setdefault("defaults", {})
     d["bulk_threshold"] = int(bulk)
     # 검토함 편입선(2026-09-21). None 이면 화면이 안 건드린 것이라 그대로 둔다.
     if review is not None:
         d["review_threshold"] = round(float(review), 2)
+    # PII 등급 상한(2026-09-21). None 은 '제한 없음'이라 칸 자체를 지운다 —
+    # 칸이 없는 것이 곧 종전 동작이므로, 옛 엔진이 읽어도 뜻이 같다.
+    if pii_cap is not KEEP:
+        if pii_cap:
+            d["pii_grade_cap"] = pii_cap
+        else:
+            d.pop("pii_grade_cap", None)
     apply_keyword_edits(doc, keyword_rows)
     if regex_rows is not None:
         apply_regex_edits(doc, regex_rows)

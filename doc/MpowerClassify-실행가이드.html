@@ -262,8 +262,11 @@ MpowerClassify.exe --dir "D:\docs" --embed-needed --format jsonl --out result.js
 ├─ MpowerClassify.exe        <span class="cmt">실행 파일(명령줄 도구)</span>
 ├─ _internal\             <span class="cmt">파이썬 런타임·의존 DLL(onedir). exe 와 한 세트 — 지우거나 옮기지 말 것</span>
 ├─ cso_rule.yaml         <span class="cmt">C/S/O 분류 규칙셋(외장) — exe 옆에 필수. 재빌드 없이 교체 가능</span>
-├─ doc_taxonomy.yaml      <span class="cmt">문서분류체계 스냅샷 — 업무분류 축의 <b>필수</b> 파일(없으면 축을 끄고 C/S/O 만)</span>
-├─ doc_rule.yaml          <span class="cmt">업무분류 규칙셋(선택) — 없으면 규칙 대신 seed 전파로 분류</span>
+├─ doc_rule.yaml          <span class="cmt">업무분류 규칙셋(자동 생성 — 분류체계 내장). 없으면 규칙 대신 seed 전파로 분류</span>
+├─ doc_rule.local.yaml    <span class="cmt">회사 조정(선택) — 규칙을 다시 만들 때 얹힘</span>
+├─ doc_classification_export.json  <span class="cmt">엠파워 분류체계 JSON — 규칙의 재료</span>
+├─ doc_rule_template.yaml <span class="cmt">규칙 설정 본보기 — 규칙의 재료</span>
+├─ synonyms\              <span class="cmt">유의어 사전(core·업종·local) — 규칙의 재료</span>
 ├─ class_seed.jsonl         <span class="cmt">전파용 seed 저장소(선택) — 있으면 보류 문서 구제/승격에 사용</span>
 ├─ models\
 │  └─ e5-small-ko\        <span class="cmt">임베딩 모델(model.onnx 등). 폴더째 exe 옆에 — 압축 해제 불필요</span>
@@ -276,8 +279,10 @@ MpowerClassify.exe --dir "D:\docs" --embed-needed --format jsonl --out result.js
   추출기는 <code>synap\windows\snf_exe.exe</code> 경로에 있어야 합니다(과거처럼 <code>synap\</code> 바로 아래
   평평하게 두는 방식이 아님). 규칙셋 <code>cso_rule.yaml</code>·모델 <code>models\e5-small-ko\</code>는 exe 와
   같은 폴더 기준으로 찾습니다. <b>규칙셋이 없으면</b> 분류 실행 시 "어디에 두라"는 안내를 내고 종료(코드 3)합니다.
-  <br><b>업무분류 축</b>은 <code>doc_taxonomy.yaml</code> 이 있어야 켜집니다. <code>doc_rule.yaml</code> 은
-  <b>없어도 됩니다</b> — 규칙 대신 <code>class_seed.jsonl</code> 과의 임베딩 전파로 분류합니다(seed 도 없으면
+  <br><b>업무분류 축</b>은 자동 생성된 <code>doc_rule.yaml</code> 이 있으면 켜집니다(분류체계가 그 안에 있음)
+  <span class="def">2026-09-22 변경 — 옛 방식 규칙 파일이면 지금처럼 <code>doc_taxonomy.yaml</code> 이 있어야 함</span>.
+  재료 파일(체계 JSON·본보기·사전·조정 파일)은 판정에 쓰지 않지만, <b>곁에 없으면 돌 때마다 “입력이 없어짐” 경고</b>가 나고 현장에서 규칙을 다시 만들 수 없으니 함께 둡니다.
+  규칙이 없으면 <code>class_seed.jsonl</code> 과의 임베딩 전파로 분류합니다(seed 도 없으면
   전부 미분류). 자세한 내용은 <a href="#doctype">4장</a>.
   <br><b>사이냅(<code>synap\</code>)은 기본 모드에서 필수</b>입니다 — 없으면 분류를 시작하자마자
   <code>snf_exe 를 찾을 수 없음</code> 으로 멈춥니다. <code>--hybridparse</code> 를 주면 자체 파서가 1차이고
@@ -287,8 +292,9 @@ MpowerClassify.exe --dir "D:\docs" --embed-needed --format jsonl --out result.js
 <div class="tree">linux/
 ├─ csoclassify-onedir-linux.tgz  <span class="cmt">실행본체(csoclassify + _internal). ※ 리눅스에서 풀어야 함(심볼릭링크·권한 보존)</span>
 ├─ cso_rule.yaml                <span class="cmt">C/S/O 분류 규칙셋(외장)</span>
-├─ doc_taxonomy.yaml             <span class="cmt">문서분류체계 스냅샷(업무분류 축의 필수 파일)</span>
-├─ doc_rule.yaml                 <span class="cmt">업무분류 규칙셋(선택 — 없으면 seed 전파로 분류)</span>
+├─ doc_rule.yaml                 <span class="cmt">업무분류 규칙셋(자동 생성 — 분류체계 내장)</span>
+├─ doc_rule.local.yaml           <span class="cmt">회사 조정(선택)</span>
+├─ doc_classification_export.json · doc_rule_template.yaml · synonyms/  <span class="cmt">규칙의 재료</span>
 ├─ class_seed.jsonl                <span class="cmt">전파용 seed 저장소(선택)</span>
 ├─ models/
 │  └─ e5-small-ko/               <span class="cmt">임베딩 모델(int8)</span>
@@ -307,7 +313,7 @@ chmod +x csoclassify synap/linux/snf_exe
   심볼릭링크가 깨집니다. 압축을 풀면 <code>csoclassify</code> 실행본체와 <code>_internal/</code>이 나오며,
   <code>cso_rule.yaml</code>·<code>synap/linux/snf_exe</code>·<code>models/e5-small-ko/</code>는
   <code>csoclassify</code>와 같은 폴더에 있어야 합니다. 업무분류 축을 쓸 때는
-  <code>doc_taxonomy.yaml</code>·<code>doc_rule.yaml</code>도 같은 폴더에 둡니다.</div>
+  <code>doc_rule.yaml</code> 과 그 재료 파일(체계 JSON·본보기·사전·조정 파일)도 같은 폴더에 둡니다.</div>
   <div class="note"><b>사이냅을 못 받았다면</b> — <code>--hybridparse</code> 를 붙이면
   <code>synap/</code> 폴더 없이도 돕니다. pdf·hwp·hwpx·현대 docx/xlsx/pptx 는 물론
   구형 <code>doc/xls/ppt/hwp</code> 까지 자체 파서가 처리합니다
@@ -327,8 +333,8 @@ chmod +x csoclassify synap/linux/snf_exe
   <div class="note"><b>두 축을 한 번에 분류합니다(2026-08-25).</b> 문서를 한 번 읽어
   <b>보안등급 축(security)</b> = C/S/O 와 <b>업무분류 축(doctype)</b> = 문서분류체계 노드를
   <b>동시에</b> 판정하고, 결과 레코드에 <code>security</code>·<code>doctype</code> 두 칸으로 나란히 담습니다.
-  업무분류 축은 <code>doc_taxonomy.yaml</code>(분류체계)이 있으면 켜지고, 없으면 지금까지처럼 C/S/O 만 나옵니다.
-  규칙 파일 <code>doc_rule.yaml</code> 은 <b>선택</b>입니다 — 없으면 <code>class_seed.jsonl</code> 과의
+  업무분류 축은 분류체계가 있으면 켜지고(자동 생성 <code>doc_rule.yaml</code> 안, 또는 옛 방식의 <code>doc_taxonomy.yaml</code>),
+  없으면 지금까지처럼 C/S/O 만 나옵니다. 규칙이 없으면 <code>class_seed.jsonl</code> 과의
   임베딩 전파가 대신 분류합니다. → <a href="#doctype">4장</a></div>
   <p>여러 <b>판정 신호</b>(내용·민감정보·보안분류 스탬프·파일명)로 등급을 판정합니다. <code>--file</code>/<code>--dir</code> 만 주면 <b>바로 분류</b>합니다(예전의 <code>--classify</code> 는 이제 붙일 필요가 없습니다). 출력은 기본 <code>json</code> — <code>--file</code> 단건은 <b>객체 하나</b>, <code>--dir</code> 배치는 <b>레코드들의 JSON 배열 <code>[ … ]</code></b>(그대로 뷰어로 열림)입니다. 줄단위로 스트리밍/처리하려면 <code>--format jsonl</code>(문서당 1줄).</p>
 
@@ -610,12 +616,13 @@ MpowerClassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(�
   <p class="muted">보안등급은 <b>낮게 나오는 실패가 사고</b>라서 안전측 고정이 유일하게 정당합니다. 반면 업무분류는
   "계약서이면서 동시에 법무 문서"가 <b>둘 다 맞는</b> 상황이라 하나로 줄일 이유가 없어, 전략을 고를 수 있게 열어 뒀습니다.</p>
 
-  <h3>축을 켜는 법 — 필수 1개 + 분류 수단 2가지</h3>
+  <h3>축을 켜는 법 — 규칙 파일 하나 + 기준 문서 <span class="pill">2026-09-22 변경</span></h3>
   <div class="scroll"><table>
     <tr><th>파일</th><th>무엇</th><th>필수?</th><th>어디서 오나</th></tr>
-    <tr><td><code>doc_taxonomy.yaml</code></td><td><b>분류체계 스냅샷</b> — 노드 ID·부모·제목·사용여부</td><td><b>필수</b> <span class="def">없으면 축 자체가 꺼짐</span></td><td>DB 내보내기 JSON → <code>--export-taxonomy</code> 로 변환</td></tr>
-    <tr><td><code>doc_rule.yaml</code></td><td><b>규칙으로 분류</b> — 어떤 단어/파일명/경로면 어느 노드인지</td><td>선택</td><td><code>--scaffold-doc-rule</code> 로 골격 생성 후 사람이 채움</td></tr>
+    <tr><td><code>doc_rule.yaml</code></td><td><b>규칙으로 분류</b> — 어떤 말이 어디에 나오면 어느 노드인지. <b>분류체계(제목·경로·조상)와 핵어가 규칙 안에</b> 들어 있음</td><td>사실상 필수 <span class="def">분류체계가 여기서 옴</span></td><td>엠파워 체계 JSON → <code>--build-doc-rule</code> 로 <b>자동 생성</b>(사람이 고치지 않음)</td></tr>
+    <tr><td><code>doc_rule.local.yaml</code></td><td><b>회사 조정</b> — 칸 비우기·말 빼기/더하기·분류 끄기·설정. 조정마다 이유</td><td>선택</td><td>화면(설정 › ② 판단 기준 › 업무분류)이 적음</td></tr>
     <tr><td><code>class_seed.jsonl</code></td><td><b>전파로 분류</b> — 이미 분류가 확정된 문서의 벡터+라벨</td><td>선택</td><td>사람이 확정한 문서를 seed 로 승격</td></tr>
+    <tr><td><code>doc_taxonomy.yaml</code></td><td>옛 방식의 분류체계 스냅샷</td><td>옛 방식 규칙 파일일 때만</td><td><code>--export-taxonomy</code> <span class="def">다음 판에서 없앰</span></td></tr>
   </table></div>
   <p>세 파일 모두 <code>--rules</code> 와 같은 규칙으로 찾습니다: <b>인자 우선 → <code>CSOCLASSIFY_POLICY_DIR</code> → exe 옆</b>
   <span class="def">(seed 는 <code>--seeds</code>)</span>.</p>
@@ -651,28 +658,36 @@ MpowerClassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(�
 [MpowerClassify] 업무분류: 규칙(doc_rule.yaml)도 없고 임베딩을 하지 않아(--rule-only 등)
               전파도 못 합니다 — 전부 미분류로 두니 관리자가 분류한 뒤 seed 로 승격하세요.</code></pre>
 
-<pre><code><span class="cmt">:: 1) DB 내보내기 JSON → 스냅샷 + 규칙 골격을 한 번에 만든다(문서는 읽지 않음)</span>
-MpowerClassify.exe --export-taxonomy --scaffold-doc-rule ^
-    --export-input doc_classification_export.json ^
-    --taxonomy doc_taxonomy.yaml --doc-rules doc_rule.yaml
+<pre><code><span class="cmt">:: 1) 엠파워 체계 JSON → 규칙 파일을 통째로 새로 만든다(문서는 읽지 않음. 최초 1회 / 체계 변경 시)</span>
+<span class="cmt">::    유의어 사전(core → 업종 → local)·본보기·doc_rule.local.yaml 을 규칙 파일과 같은 폴더에서 찾아 얹는다</span>
+MpowerClassify.exe --build-doc-rule ^
+    --export-input doc_classification_export.json --doc-rules doc_rule.yaml
 
-<span class="cmt">:: 2) doc_rule.yaml 의 terms 를 채운 뒤, 실제 스캔 전에 검사</span>
+<span class="cmt">:: 2) 실제 스캔 전에 검사(선택)</span>
 MpowerClassify.exe --check-rules
 
 <span class="cmt">:: 3) 평소처럼 분류하면 두 축이 함께 나온다(별도 플래그 불필요)</span>
-MpowerClassify.exe --dir "D:\collected" --format jsonl --out result.jsonl
-
-<span class="cmt">:: (규칙 없이 가려면 1~2 를 건너뛰고, doc_taxonomy.yaml + class_seed.jsonl 만 두고 3 을 실행)</span></code></pre>
-  <div class="note"><b>골격(scaffold)은 <code>filename</code> 만 채워집니다.</b> 노드 제목(예: "계약서")을 파일명 규칙으로
-  넣어 주고 <code>terms: []</code>(본문 키워드)는 비워 둡니다 — 본문 규칙은 업무를 아는 사람이 채워야 정확하기 때문입니다.
-  이미 <code>doc_rule.yaml</code> 이 있으면 <b>덮어쓰지 않고 건너뜁니다</b>(손으로 채운 규칙 보호).</div>
+MpowerClassify.exe --dir "D:\collected" --format jsonl --out result.jsonl</code></pre>
+  <div class="note"><b>규칙 파일은 손으로 고치지 않습니다.</b> 1) 은 매번 파일을 통째로 새로 쓰고(옛 파일은 <code>.bak</code>),
+  맨 위 <code>generated</code> 에 재료 파일의 지문을 남깁니다. 그래서
+  <ul style="margin:4px 0 0">
+    <li>규칙 파일을 손으로 고치면 “만들어진 뒤 손으로 고쳐졌습니다 — 다음에 다시 만들면 사라집니다” 경고가 납니다.</li>
+    <li>만든 뒤 재료(체계 JSON·사전·본보기·조정 파일)가 바뀌거나 없어지면 분류할 때마다 “규칙을 만든 뒤 입력이 바뀌었습니다: … — --build-doc-rule 로 다시 만드세요” 가 납니다.</li>
+    <li>회사마다 다른 결정은 <code>doc_rule.local.yaml</code>(분류별 조정)과 <code>synonyms/doc_synonyms.local.yaml</code>(회사 말)에 둡니다. 다시 만들어도 사라지지 않습니다.</li>
+    <li>같은 입력이면 두 판이 만든 파일이 <b>글자까지 같습니다</b>.</li>
+  </ul>
+  자세한 모양은 <code>doc/DOC_Rule.html</code> 2장·13장. 옛 방식(손으로 고쳐 온 규칙)에서 옮기려면 화면의 [새 방식으로 바꾸기]를 씁니다.
+  <br><span class="def">옛 명령 <code>--export-taxonomy</code>·<code>--scaffold-doc-rule</code>·<code>--sync-doc-rule</code> 은 한 판 동안 그대로 받고, 다음 판에서 없앱니다.</span></div>
 
   <h3>규칙 한 건의 모양 — <code>doc_rule.yaml</code></h3>
 <pre><code>conflict: all                  <span class="cmt"># 축 전체의 충돌 전략: all | top_n(+ n)</span>
-version: doc-2026.08.1
+version: doctype-gen-b29e4fa53046   <span class="cmt"># 자동 생성 판 — 내용에서 나온 지문</span>
 doctype_rules:
 - id: dt_dc_006_001            <span class="cmt"># 규칙 식별자(중복 불가)</span>
   node: DC_006_001             <span class="cmt"># 이 규칙이 가리키는 분류체계 노드 ID</span>
+  title: 계약서                 <span class="cmt"># 분류 제목·경로·조상 — 분류체계 역할</span>
+  path: 법무/규정 &gt; 계약서
+  path_ids: [DC_006, DC_006_001]
   weight: medium               <span class="cmt"># high | medium | low — 신뢰도로 환산</span>
   title_terms: ["계약서"]          <span class="cmt"># 첫 줄(제목)에 있으면 매칭 — 가장 강한 증거</span>
   head_terms: ["계약기간"]         <span class="cmt"># 앞 head_chars 자(표제부)에 있으면 매칭</span>
@@ -700,7 +715,9 @@ doctype_rules:
   <h4>신뢰도를 직접 조정하기 — <code>signals:</code> <span class="pill">2026-09-07 신규</span></h4>
   <p>위 표의 숫자는 <b>실측 전 잠정치</b>라 현장에서 다시 맞출 값입니다. 예전에는 소스에
   박혀 있어 값 하나 바꾸려면 두 판을 고치고 exe 4개를 다시 빌드해야 했지만, 이제
-  <code>doc_rule.yaml</code> 에 적어 <b>재빌드 없이</b> 바꿉니다.</p>
+  규칙 파일에 적어 <b>재빌드 없이</b> 바꿉니다. 규칙 파일이 자동 생성이므로, 값은
+  <code>doc_rule.local.yaml</code> 의 <code>settings.signals</code> 에 적고 규칙을 다시 만듭니다
+  <span class="def">2026-09-22 — 옛 방식은 doc_rule.yaml 에 직접</span>.</p>
 <pre><code>signals:
   title: {high: 0.80, medium: 0.65, low: 0.50}
   head:  {high: 0.70, medium: 0.55, low: 0.40}
@@ -722,9 +739,9 @@ doctype_rules:
             <code>high</code> 를 다르게 적어도 효과가 없어서, 아예 막고 그 사유를 알려 줍니다</td></tr>
     <tr><td><b><code>scoring: staged</code> 에서만</b></td>
         <td><code>legacy</code> 채점은 종전 상수를 그대로 씁니다(본보기 기본값은 <code>staged</code>)</td></tr>
-    <tr><td><b>버전도 함께 올리세요</b></td>
-        <td>값을 바꾸면 판정이 바뀝니다. <code>version</code> 을 안 올리면 나중에 결과만 보고
-            "어느 기준으로 매긴 값인지" 되짚을 수 없습니다</td></tr>
+    <tr><td><b>버전은 저절로 바뀝니다</b></td>
+        <td>값을 바꾸면 판정이 바뀝니다. 자동 생성 규칙의 <code>version</code> 은 내용 지문이라 값이 바뀌면 판도 바뀌어,
+            결과만 보고도 "어느 기준으로 매긴 값인지" 되짚을 수 있습니다(옛 방식은 손으로 올려야 함)</td></tr>
   </table></div>
   <p class="muted">두 판이 같은 표를 읽어 <b>같은 점수</b>를 냅니다. 값과 설명은
   <code>doc_rule_template.yaml</code> 주석에도 함께 있습니다.</p>
@@ -787,7 +804,8 @@ MpowerClassify.exe --file "문서.hwp" --conflict security=all
     <tr><td><code>--axis security</code></td><td>C/S/O <b>만</b>. 업무분류 파일이 옆에 있어도 <b>읽지 않습니다</b>(깨져 있어도 무관)</td></tr>
     <tr><td><code>--axis doctype</code></td><td>업무분류 <b>만</b>. <b>PII 검출·민감정보·스탬프 스캔을 통째로 생략</b>해 훨씬 빠릅니다.<br>이때 <code>security.grade</code> 는 <code>null</code>, <code>security.signals</code> 는 <code>{}</code> 로 나옵니다</td></tr>
   </table></div>
-  <div class="warn"><code>--axis doctype</code> 은 <b><code>doc_taxonomy.yaml</code>(분류체계)이 반드시 있어야</b> 합니다.
+  <div class="warn"><code>--axis doctype</code> 은 <b>분류체계가 반드시 있어야</b> 합니다 — 자동 생성 <code>doc_rule.yaml</code> 이면 그 안에 있고,
+  옛 방식이면 <code>doc_taxonomy.yaml</code> 이 있어야 합니다.
   없으면 "축을 건너뜀"이 아니라 <b>종료코드 3</b>으로 멈춥니다 — 사용자가 그 축을 <b>명시적으로 요구</b>했는데
   조용히 빈 결과를 내면 "분류할 게 없었다"로 오해되기 때문입니다.
   <br><b>단 <code>doc_rule.yaml</code> 은 없어도 멈추지 않습니다</b> <span class="def">2026-08-25 변경</span> —
@@ -865,7 +883,7 @@ MpowerClassify.exe --embed --file "요구사항정의서_확정본.hwp" --out ve
 
 <span class="cmt">:: 3) 다음 실행부터 이 seed 와 닮은 문서가 자동으로 같은 분류를 받는다</span>
 MpowerClassify.exe --dir "D:\collected" --seeds "class_seed.jsonl" --format jsonl --out result.jsonl</code></pre>
-  <div class="note"><b>dc_id 는 <code>doc_taxonomy.yaml</code> 에서 확인합니다.</b> 스냅샷에 <b>없는 dc_id</b> 를 적으면
+  <div class="note"><b>dc_id 는 규칙 파일의 <code>node</code>·<code>path</code>(옛 방식은 <code>doc_taxonomy.yaml</code>)에서 확인합니다.</b> 스냅샷에 <b>없는 dc_id</b> 를 적으면
   그 후보는 <b>조용히 무시</b>됩니다(삭제된 노드를 가리키는 낡은 seed 가 결과를 오염시키지 않도록).
   <code>--check-rules</code> 로 노드 목록과 seed 건수를 함께 확인할 수 있습니다.</div>
 
@@ -884,12 +902,13 @@ MpowerClassify.exe --dir "D:\collected" --seeds "class_seed.jsonl" --format json
     "unclassified": 44,        <span class="cmt">// 어떤 노드에도 못 걸린 문서 수</span>
     "by_root": { "기술/개발": 54, "법무/규정": 22 },   <span class="cmt">// 최상위 분류별 집계</span>
     "doctype_rule_version": "doc-2026.08.1",          <span class="cmt">// "none" 이면 규칙 없이 전파로만 돌았다는 뜻</span>
-    "taxonomy_version": "20260824164027"              <span class="cmt">// 스냅샷 exported_at</span>
+    "taxonomy_version": "20260824164027"              <span class="cmt">// 옛 방식: 스냅샷 exported_at · 자동 생성: 규칙 판(doctype-gen-…)</span>
   }
 }</code></pre>
-  <div class="note"><b>스냅샷이 오래되면 경고합니다.</b> <code>doc_taxonomy.yaml</code> 의 <code>exported_at</code> 이
+  <div class="note"><b>옛 방식: 스냅샷이 오래되면 경고합니다.</b> <code>doc_taxonomy.yaml</code> 의 <code>exported_at</code> 이
   <b>90일</b> 이상 지났으면 "DB 와 어긋났을 수 있다"는 경고를 내고 <b>계속 진행</b>합니다(멈추지 않음).
-  분류체계가 바뀌었다면 <code>--export-taxonomy</code> 로 다시 내보내세요.</div>
+  자동 생성 규칙은 이 경고 대신, 체계 JSON 이 규칙을 만든 뒤 바뀌었으면 “입력이 바뀌었습니다”를 냅니다.
+  분류체계가 바뀌었다면 JSON 을 다시 받아 <code>--build-doc-rule</code> 로 다시 만드세요.</div>
 
   <h3>Rust 판(<code>MpowerClassify-rs</code>)과의 차이</h3>
   <p><code>--json-errors</code> 는 <b>두 판 모두</b> 있고, <b>같은 상황에서 같은 <code>code</code></b> 를 냅니다
@@ -897,10 +916,9 @@ MpowerClassify.exe --dir "D:\collected" --seeds "class_seed.jsonl" --format json
   (테스트로 묶여 있습니다) → <a href="#exit">6장</a></p>
   <p>Rust 판도 <code>--taxonomy</code>·<code>--doc-rules</code>·<code>--axis</code>·<code>--conflict</code> 를 <b>같은 의미·같은 종료코드</b>로
   지원하며, 같은 정책 파일에 대해 두 축(<code>security</code>·<code>doctype</code>) 출력이 파이썬 판과 <b>동일</b>합니다.
-  스냅샷 생성 모드(<code>--export-taxonomy</code>·<code>--export-input</code>·<code>--scaffold-doc-rule</code>)도
-  <b>두 판 모두</b> 있습니다 <span class="def">2026-08-25 Rust 추가</span> — 같은 원본 JSON 을 주면
-  만들어지는 <code>doc_taxonomy.yaml</code>·<code>doc_rule.yaml</code> 이 <b>글자 단위로 같습니다</b>
-  (생성 시각 <code>exported_at</code> 제외). 즉 어느 판으로 만들든 다른 판이 그대로 읽습니다.</p>
+  규칙 자동 생성(<code>--build-doc-rule</code>)도 <b>두 판 모두</b> 있습니다 <span class="def">2026-09-22</span> — 같은 입력을 주면
+  만들어지는 <code>doc_rule.yaml</code> 이 <b>글자 단위로 같습니다</b>(생성 시각을 적지 않아 판까지 같음).
+  즉 어느 판으로 만들든 다른 판이 그대로 읽습니다. 옛 스냅샷 생성 모드(<code>--export-taxonomy</code>·<code>--scaffold-doc-rule</code>)도 한 판 동안 두 판 모두 남아 있습니다.</p>
 
   <p><b>레코드 시각(<code>ts</code>)도 두 판이 같아졌습니다</b> <span class="def">2026-09-07</span> — 파이썬 판은 원래 채우고 있었고 Rust 판만 <code>null</code> 이라, 두 판의 결과를 나란히 놓고 견줄 때 이 칸만 어긋났습니다. 이제 <b>같은 모양</b>(초 단위 + 시간대 오프셋)으로 냅니다. 두 판을 대조할 때 <code>ts</code> 는 <b>값이 아니라 모양만</b> 견주세요 — 실행 시각이 다르면 값은 당연히 다릅니다.</p>
 
@@ -919,7 +937,7 @@ MpowerClassify.exe --dir "D:\collected" --seeds "class_seed.jsonl" --format json
     <tr><td>⑤</td><td>추출 본문을 파일로 남기기 — <code>--textsave</code></td><td class="ok">같음</td></tr>
     <tr><td>⑥</td><td>문서 크기 상한 — <code>--max-file-mb</code> 등</td><td class="ok">같음</td></tr>
     <tr><td>⑦</td><td>압축 확장 — <code>--max-archive-mb</code> 등</td><td class="ok">같음</td></tr>
-    <tr><td>⑧</td><td>문서분류체계 rule 생성(문서를 읽지 않는 모드) — <code>--export-taxonomy</code>·<code>--sync-doc-rule</code></td><td class="ok">같음</td></tr>
+    <tr><td>⑧</td><td>문서분류체계 rule 생성(문서를 읽지 않는 모드) — <code>--build-doc-rule</code> <span class="def">(옛: <code>--export-taxonomy</code>·<code>--sync-doc-rule</code>)</span></td><td class="ok">같음</td></tr>
     <tr><td><b>⑨</b></td><td><b>기준 문서 등록</b> — <code>--seed-add</code>·<code>--seed-add-from</code>·<code>--seed-grade</code>·
         <code>--seed-doctype</code>·<code>--seed-reviewer</code>·<code>--seed-note</code>·<code>--seed-audit</code>
         <span class="def">2026-09-08 신규 · 자세한 설명은 위 절</span></td><td class="ok">같음</td></tr>
@@ -1138,18 +1156,19 @@ csoclassify --dir "폴더" --hybridparse --rule-only --format jsonl
   <h3>업무분류 (doctype) <span class="def">2026-08-25 신규 · 자세한 설명은 <a href="#doctype">4장</a></span></h3>
   <div class="scroll"><table>
     <tr><th>인자</th><th>값</th><th>설명</th></tr>
-    <tr><td><code>--taxonomy</code></td><td>경로</td><td>분류체계 스냅샷 <span class="def">기본 exe 옆 doc_taxonomy.yaml</span>. <code>--export-taxonomy</code> 모드에서는 <b>저장 경로</b>로도 쓰임</td></tr>
+    <tr><td><code>--taxonomy</code></td><td>경로</td><td>옛 방식의 분류체계 스냅샷 <span class="def">기본 exe 옆 doc_taxonomy.yaml</span>. 자동 생성 규칙이면 <b>읽지 않음</b>. <code>--export-taxonomy</code> 모드에서는 <b>저장 경로</b>로도 쓰임</td></tr>
     <tr><td><code>--doc-rules</code></td><td>경로</td><td>업무분류 규칙셋 <span class="def">기본 exe 옆 doc_rule.yaml</span>. <b>없어도 축은 계속 돕니다</b> — 규칙 대신 <code>class_seed.jsonl</code> 전파로 분류(seed 도 없으면 전부 미분류) <span class="def">2026-08-25 변경</span></td></tr>
-    <tr><td><code>--axis</code></td><td>security | doctype <span class="def">기본 전부</span></td><td>처리할 축을 하나로 제한. <code>doctype</code> 은 <b>PII 검출을 생략</b>해 더 빠름 — 단 <code>doc_taxonomy.yaml</code> 이 없으면 <b>종료코드 3</b>(규칙 파일은 없어도 됨)</td></tr>
+    <tr><td><code>--axis</code></td><td>security | doctype <span class="def">기본 전부</span></td><td>처리할 축을 하나로 제한. <code>doctype</code> 은 <b>PII 검출을 생략</b>해 더 빠름 — 단 분류체계(자동 생성 규칙 또는 옛 <code>doc_taxonomy.yaml</code>)가 없으면 <b>종료코드 3</b></td></tr>
     <tr><td><code>--doctype-vector-only</code></td><td>—</td>
         <td>업무분류를 <b>규칙 없이</b> 기준 문서(<code>class_seed.jsonl</code>) 비교로만 분류.
             규칙 파일의 <code>embed</code>·<code>conflict</code>·<code>defaults</code> 설정은 그대로 쓴다.
             <b>보안등급 축은 그대로 돎</b> — 그것까지 끄려면 <code>--axis doctype</code> 을 함께.
             <b>seed 가 없으면 결과 0건</b> <span class="def">4장 참조</span></td></tr>
     <tr><td><code>--conflict</code></td><td><code>doctype=all</code><br><code>doctype=top_n:N</code></td><td>업무분류 축의 <b>충돌 전략을 실행 시 덮어쓰기</b>(규칙파일 수정 없이). <b><code>security</code> 축은 불가</b> — 주면 종료코드 4</td></tr>
-    <tr><td><code>--export-taxonomy</code></td><td>—</td><td>DB 내보내기 JSON → <code>--taxonomy</code> 경로에 <code>doc_taxonomy.yaml</code> 로 변환하고 종료(<b>문서를 읽지 않음</b>, <code>--file</code>/<code>--dir</code> 불필요). 원본을 못 읽으면 종료 <code>3</code>, 변환 결과가 트리 검증에 걸리면 <code>4</code></td></tr>
-    <tr><td><code>--export-input</code></td><td>경로</td><td><code>--export-taxonomy</code> 의 원본 JSON <span class="def">기본 resources/policy/doc_classification_export.json</span></td></tr>
-    <tr><td><code>--scaffold-doc-rule</code></td><td>—</td><td><code>--export-taxonomy</code> 와 함께 쓰면 <code>--doc-rules</code> 경로에 <b>규칙 골격</b>도 생성(<code>terms</code> 는 빈 채로, <code>filename</code> 만 노드 제목으로). <b>이미 있으면 건너뜀</b></td></tr>
+    <tr><td><code>--build-doc-rule</code> <span class="def">2026-09-22</span></td><td>—</td><td>체계 JSON(<code>--export-input</code>)·유의어 사전·본보기·<code>doc_rule.local.yaml</code> 로 <code>--doc-rules</code> 파일을 <b>통째로 새로 만들고</b> 종료(<b>문서를 읽지 않음</b>). 옛 파일은 <code>.bak</code>. 원본 JSON 을 못 찾으면 <code>3</code>, 원본·조정 파일·만든 규칙이 검증에 걸리면 <code>4</code></td></tr>
+    <tr><td><code>--export-taxonomy</code> <span class="def">옛 방식</span></td><td>—</td><td>DB 내보내기 JSON → <code>--taxonomy</code> 경로에 <code>doc_taxonomy.yaml</code> 로 변환하고 종료(<b>문서를 읽지 않음</b>, <code>--file</code>/<code>--dir</code> 불필요). 원본을 못 읽으면 종료 <code>3</code>, 변환 결과가 트리 검증에 걸리면 <code>4</code></td></tr>
+    <tr><td><code>--export-input</code></td><td>경로</td><td><code>--build-doc-rule</code>·<code>--export-taxonomy</code> 의 원본 JSON <span class="def">기본: 규칙 파일 옆 doc_classification_export.json</span></td></tr>
+    <tr><td><code>--scaffold-doc-rule</code> <span class="def">옛 방식</span></td><td>—</td><td><code>--export-taxonomy</code> 와 함께 쓰면 <code>--doc-rules</code> 경로에 <b>규칙 골격</b>도 생성(<code>terms</code> 는 빈 채로, <code>filename</code> 만 노드 제목으로). <b>이미 있으면 건너뜀</b></td></tr>
   </table></div>
 
   <h3>모델 · 임베딩</h3>
@@ -1615,11 +1634,11 @@ result.full.jsonl   <span class="cmt">← 감사용(전체 레코드 + 요약 + 
     <tr><td colspan="4" class="def"><b>2000 — 정책 파일</b> (규칙셋 · 분류체계)</td></tr>
     <tr><td><code>2001</code></td><td><code>rules_missing</code></td><td>3</td><td><code>cso_rule.yaml</code> 을 못 찾음</td></tr>
     <tr><td><code>2002</code></td><td><code>rules_invalid</code></td><td>4</td><td>규칙셋 내용 오류 — V0 · V5 · V6 · V12</td></tr>
-    <tr><td><code>2003</code></td><td><code>taxonomy_missing</code></td><td>3</td><td><code>--axis doctype</code> 인데 <code>doc_taxonomy.yaml</code> 이 없음</td></tr>
+    <tr><td><code>2003</code></td><td><code>taxonomy_missing</code></td><td>3</td><td><code>--axis doctype</code> 인데 분류체계가 없음(옛 방식 규칙인데 <code>doc_taxonomy.yaml</code> 이 없음)</td></tr>
     <tr><td><code>2004</code></td><td><code>taxonomy_invalid</code></td><td>4</td><td>분류체계 구조 오류 — T7(순환) · T8(고아)</td></tr>
     <tr><td><code>2005</code></td><td><code>doc_rules_invalid</code></td><td>4</td><td>업무분류 규칙셋 내용 오류 — T0 · T2 · T5 · T10</td></tr>
     <tr><td><code>2006</code></td><td><code>doc_rules_write_failed</code></td><td>4</td><td><code>--sync-doc-rule</code>·<code>--scaffold-doc-rule</code> 이 규칙 파일을 쓰지 못함</td></tr>
-    <tr><td><code>2007</code></td><td><code>export_input_missing</code></td><td>3</td><td><code>--export-taxonomy</code> 의 원본 JSON 을 못 찾음</td></tr>
+    <tr><td><code>2007</code></td><td><code>export_input_missing</code></td><td>3</td><td><code>--build-doc-rule</code>·<code>--export-taxonomy</code> 의 원본 JSON 을 못 찾음</td></tr>
     <tr><td><code>2008</code></td><td><code>export_input_invalid</code></td><td>4</td><td>원본 JSON 구조가 아니거나 왕복 검증 실패</td></tr>
     <tr><td colspan="4" class="def"><b>3000 — 처리</b> (추출 · 임베딩)</td></tr>
     <tr><td><code>3001</code></td><td><code>extract_failed</code></td><td>1</td><td>실행 전체가 텍스트를 하나도 못 뽑음</td></tr>
@@ -1697,7 +1716,7 @@ else:
   4000번대면 "디스크·권한". 나중에 새 오류가 늘어도 자동으로 옳은 갈래에 들어갑니다.</p>
 
   <h3>업무분류 축의 검증 <span class="def">2026-08-25</span></h3>
-  <p>업무분류 파일(<code>doc_taxonomy.yaml</code>·<code>doc_rule.yaml</code>)도 <b>스캔 전에</b> 검사합니다.
+  <p>업무분류 파일(<code>doc_rule.yaml</code>, 옛 방식이면 <code>doc_taxonomy.yaml</code> 도)을 <b>스캔 전에</b> 검사합니다.
   <b>멈추는 오류</b>와 <b>경고만 하고 계속</b>하는 것이 나뉩니다 — 잘못 분류될 수 있는 것은 막고,
   덜 분류될 뿐인 것은 알려만 줍니다.</p>
   <div class="scroll"><table>
@@ -1709,13 +1728,16 @@ else:
     <tr><td><code>T8</code></td><td>부모로 지정된 노드가 <b>존재하지 않음</b>(고아 노드)</td><td><b>종료 4</b></td></tr>
     <tr><td><code>T10</code></td><td><code>top_n</code> 인데 <code>n</code> 이 없거나 1 미만</td><td><b>종료 4</b></td></tr>
     <tr><td><code>T11</code></td><td><code>--conflict security=…</code> — <b>서열 축의 전략을 바꾸려 함</b></td><td><b>종료 4</b></td></tr>
-    <tr><td><code>T14</code></td><td><code>doc_taxonomy.yaml</code> 이 <b>없음</b></td><td>경고 후 <b>축을 끄고 계속</b><br>단 <code>--axis doctype</code> 이면 <b>종료 3</b>
+    <tr><td><code>T14</code></td><td>옛 방식 규칙인데 <code>doc_taxonomy.yaml</code> 이 <b>없음</b></td><td>경고 후 <b>축을 끄고 계속</b><br>단 <code>--axis doctype</code> 이면 <b>종료 3</b>
         <span class="def">2026-09-01 4→3</span></td></tr>
     <tr><td><code>T16</code></td><td><code>doc_rule.yaml</code> 이 <b>없음</b></td><td>경고 후 <b>'seed 전파 전용'으로 계속</b><br><code>--axis doctype</code> 이어도 <b>멈추지 않음</b> <span class="def">2026-08-25 변경</span></td></tr>
     <tr><td><code>T6</code></td><td>규칙이 <b>미사용(status=0) 노드</b>를 가리킴</td><td>경고 · <b>그 규칙만 비활성</b></td></tr>
     <tr><td><code>T12</code></td><td>사용중인 노드인데 <b>가리키는 규칙이 하나도 없음</b></td><td>경고 <span class="def">그 분류로는 아무 문서도 안 걸림</span></td></tr>
-    <tr><td><code>T13</code></td><td>스냅샷 <code>exported_at</code> 이 <b>90일 이상</b> 지남</td><td>경고 · 계속</td></tr>
+    <tr><td><code>T13</code></td><td>옛 방식: 스냅샷 <code>exported_at</code> 이 <b>90일 이상</b> 지남</td><td>경고 · 계속</td></tr>
+    <tr><td><code>G1</code></td><td>자동 생성 규칙의 <code>path</code>·<code>path_ids</code> 가 서로 맞지 않음(손으로 고친 흔적)</td><td><b>종료 4</b></td></tr>
+    <tr><td>—</td><td>자동 생성 규칙을 <b>손으로 고침</b> · 만든 뒤 <b>입력이 바뀌거나 없어짐</b></td><td>경고 · 계속 <span class="def">--build-doc-rule 로 다시 만들라고 알림</span></td></tr>
   </table></div>
+  <p class="muted">자동 생성 규칙에서는 T12(규칙 없는 노드)를 보지 않습니다 — 대분류(서랍)와 꺼 둔 분류는 일부러 규칙을 만들지 않기 때문입니다.</p>
   <div class="note"><b>파일이 "없는 것"과 "깨진 것"은 다르게 취급합니다.</b> 파일이 <b>없으면</b> 그 수단을
   안 쓰겠다는 뜻으로 보고 남은 수단으로 계속합니다(경고 1줄). 하지만 파일이 <b>있는데 내용이 틀렸으면</b>
   그건 실수이므로 <code>--axis</code> 를 줬든 안 줬든 <b>항상 종료 4</b> 입니다 — 고치라고 알려주지 않으면
@@ -1729,10 +1751,15 @@ else:
 <pre><code>[MpowerClassify] 규칙셋 정상: ...\cso_rule.yaml
   version=cso-2026.08.3  등급=O/S/C
   regex_pii=20 · pii_combos=5 · keywords=9 · sensitive=7 · stamps=3
+[MpowerClassify] 업무분류 규칙셋 정상(자동 생성 — 분류체계 내장): ...\doc_rule.yaml
+  version=doctype-gen-b29e4fa53046  conflict=all  규칙=22건(활성 22건)  노드=28개  최상위=7개
+
+<span class="cmt">:: 옛 방식(손으로 고쳐 온 규칙)이면 스냅샷과 규칙을 따로 보여 준다</span>
 [MpowerClassify] 분류체계 스냅샷 정상: ...\doc_taxonomy.yaml
   exported_at=20260824164027  노드=27개  최상위=6개
 [MpowerClassify] 업무분류 규칙셋 정상: ...\doc_rule.yaml
   version=doc-2026.08.1  conflict=all  규칙=27건(활성 27건)</code></pre>
+  <p class="muted">Rust 판은 같은 내용을 “업무분류(doctype) 축 정상” 한 덩어리로 보여 줍니다(줄 모양만 다르고 종료코드는 같음).</p>
   <p class="muted">규칙 파일이 없으면 "미사용"이 아니라 <b>무엇으로 분류하게 되는지</b>를 알려 줍니다
   — seed 가 실제로 쓸 만한지까지 함께 확인합니다(종료코드는 그대로 <code>0</code>):</p>
 <pre><code>[MpowerClassify] 업무분류 규칙셋 없음 → 'seed 전파 전용' 모드: ...\doc_rule.yaml
@@ -1772,7 +1799,7 @@ else:
   <h3>환경변수(선택)</h3>
   <div class="scroll"><table>
     <tr><th>변수</th><th>설명</th></tr>
-    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>정책 파일(<code>cso_rule.yaml</code> · <code>doc_taxonomy.yaml</code> · <code>doc_rule.yaml</code>)을 exe 옆이 아닌 지정 폴더에서 찾음. <span class="def">세 파일 모두 <b>"인자 → 이 변수 → exe 옆"</b> 순으로 찾습니다(<code>--rules</code>/<code>--taxonomy</code>/<code>--doc-rules</code> 가 우선).
+    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>정책 파일(<code>cso_rule.yaml</code> · <code>doc_rule.yaml</code> · 옛 방식의 <code>doc_taxonomy.yaml</code>)을 exe 옆이 아닌 지정 폴더에서 찾음. 규칙을 만들 때의 재료(체계 JSON·사전·본보기·조정 파일)는 규칙 파일과 같은 폴더에서 찾음. <span class="def">세 파일 모두 <b>"인자 → 이 변수 → exe 옆"</b> 순으로 찾습니다(<code>--rules</code>/<code>--taxonomy</code>/<code>--doc-rules</code> 가 우선).
       이 변수는 <b>관리자가 직접 내린 지시</b>이므로 exe 옆에 우연히 놓인 파일보다 먼저입니다.</span>
       <div class="warn" style="margin:8px 0 0"><b>2026-09-01 이전 Rust 판은 순서가 반대였습니다</b>
       (exe 옆 → 이 변수). 그래서 <b>두 조건이 함께 성립하면 두 판이 서로 다른 규칙셋을 읽었습니다</b> —
@@ -1893,12 +1920,11 @@ ren synap synap_off
 MpowerClassify.exe --dir "D:\sample" --hybridparse --rule-only --format jsonl
 ren synap_off synap
 
-<span class="cmt">:: 9) [업무분류] 분류체계 스냅샷 + 규칙 골격 만들기(문서 안 읽음. 최초 1회 / 체계 변경 시)</span>
-MpowerClassify.exe --export-taxonomy --scaffold-doc-rule ^
-    --export-input doc_classification_export.json ^
-    --taxonomy doc_taxonomy.yaml --doc-rules doc_rule.yaml
+<span class="cmt">:: 9) [업무분류] 규칙 파일 자동 생성(문서 안 읽음. 최초 1회 / 체계 변경 시)</span>
+MpowerClassify.exe --build-doc-rule ^
+    --export-input doc_classification_export.json --doc-rules doc_rule.yaml
 
-<span class="cmt">:: 10) [업무분류] 두 축 함께 분류 — 파일 2개가 exe 옆에 있으면 별도 플래그 없이 자동</span>
+<span class="cmt">:: 10) [업무분류] 두 축 함께 분류 — 규칙 파일이 exe 옆에 있으면 별도 플래그 없이 자동</span>
 MpowerClassify.exe --dir "D:\collected" --format jsonl --out result.jsonl --progress
 
 <span class="cmt">:: 11) [업무분류] 업무분류만 빠르게 — PII 검출을 통째로 생략(가장 빠른 doctype 스캔)</span>
@@ -1944,10 +1970,12 @@ MpowerClassify.exe --dir "D:\collected" --format jsonl --out result.jsonl
     <li><b>한글 파일명/출력</b>은 UTF-8로 고정되어 깨지지 않습니다.</li>
     <li><b>첫 실행이 느린 것</b>은 onedir 첫 기동과 모델을 메모리에 올리기 때문이며 정상입니다(이후 빠름).</li>
     <li><b>오프라인 동작</b> — 인터넷 없이 됩니다. 실행 오류 시 대상 PC에 <i>Microsoft Visual C++ Redistributable x64</i> 설치, 백신 예외 등록.</li>
-    <li><b>업무분류 축이 조용히 꺼질 수 있습니다</b> — <code>doc_taxonomy.yaml</code> 이 exe 옆에 없으면
+    <li><b>업무분류 축이 조용히 꺼질 수 있습니다</b> — 분류체계(자동 생성 <code>doc_rule.yaml</code>, 옛 방식이면 <code>doc_taxonomy.yaml</code>)가 exe 옆에 없으면
       <b>경고 한 줄만 내고 C/S/O 만</b> 처리하고 정상 종료합니다. 배포 후 결과에
       <code>labels.doctype</code> 이 <b>아예 없다면</b> 먼저 이 파일이 있는지 확인하세요.
       확실히 켜고 싶으면 <code>--axis doctype</code> 을 주면 없을 때 <b>오류로 멈춥니다</b>(코드 4).</li>
+    <li><b>“규칙을 만든 뒤 입력이 바뀌었습니다: …” 가 뜬다면</b> — 규칙을 만든 뒤 체계 JSON·사전·본보기·조정 파일 중 하나가 바뀌었거나
+      배포 폴더에 빠진 것입니다. 판정은 그대로 돌지만, 재료를 규칙 파일 곁에 두고 <code>--build-doc-rule</code> 로 다시 만드세요.</li>
     <li><b>업무분류가 전부 비어 있다면</b>(<code>labels.doctype.values</code> 가 <code>[]</code>) 축은 돌았지만
       분류 수단이 없었던 것입니다 — <code>doc_rule.yaml</code>(규칙)도 <code>class_seed.jsonl</code>(전파 기준)도
       없는 상태입니다. 요약의 <code>doctype_rule_version</code> 이 <code>"none"</code> 이면 규칙 없이 돌았다는 표시입니다.

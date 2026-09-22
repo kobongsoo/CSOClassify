@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>업무분류 규칙 자동 생성 설계</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+    --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+    --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  h2{font-size:20px;margin:34px 0 12px;padding-top:10px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13.5px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13.5px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .ok{color:var(--o);font-weight:700}
+  .bad{color:var(--c);font-weight:700}
+  .mid{color:var(--s);font-weight:700}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .danger{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:4px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .flow{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  @media (max-width:640px){ ul.toc{columns:1} header.hero{padding:20px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>업무분류 규칙 파일(<code>doc_rule.yaml</code>) 자동 생성 설계</h1>
+  <p>분류체계가 바뀔 때마다 <code>doc_rule.yaml</code> 을 <b>통째로 새로 만든다</b>. 사람은 규칙 파일을 고치지 않고,
+  회사마다 다른 조정은 <b>local 겹</b>에만 적는다. <code>doc_taxonomy.yaml</code> 은 없애고, 규칙마다 제 분류의 제목·경로만 적는다.
+  <span class="pill">2026-09-22 설계 · 구현 없음</span></p>
+  <div class="note" style="margin-top:14px"><b>2026-09-22 수정</b> — 새 규칙 파일에 <code>taxonomy:</code> 칸(출처·내보낸 시각·노드 목록)을 두지 않는다.
+  분류체계 정보는 <b>각 규칙 줄 안에</b> <code>title</code>·<code>path</code>·<code>path_ids</code> 로만 적는다(9장).
+  옛 분류체계 파일의 흔적을 규칙 파일에 남기지 않기 위해서다. 같은 날 3장 ①의 P2 되돌아감은 바로잡았다(15장 0번).</div>
+</header>
+
+<section class="card">
+<h3>목차</h3>
+<ul class="toc">
+  <li><a href="#s1">1. 한눈에</a></li>
+  <li><a href="#s2">2. 지금 구조</a></li>
+  <li><a href="#s3">3. 무엇이 문제인가 — 실례 셋</a></li>
+  <li><a href="#s4">4. 목표와 하지 않는 것</a></li>
+  <li><a href="#s5">5. 제안 구조</a></li>
+  <li><a href="#s6">6. 파일마다 누가 고치나</a></li>
+  <li><a href="#s7">7. local 겹 — 무엇을 더 적을 수 있어야 하나</a></li>
+  <li><a href="#s8">8. 만드는 순서(생성 규칙)</a></li>
+  <li><a href="#s9">9. 새 doc_rule.yaml 의 모양</a></li>
+  <li><a href="#s10">10. 이름이 바뀌면 — 매뉴얼 → 업무지침서</a></li>
+  <li><a href="#s11">11. 엔진·CLI 변경</a></li>
+  <li><a href="#s12">12. 화면 변경</a></li>
+  <li><a href="#s13">13. 옮겨 가기(마이그레이션)</a></li>
+  <li><a href="#s14">14. 위험과 대책</a></li>
+  <li><a href="#s15">15. 작업 순서</a></li>
+  <li><a href="#s16">16. 정해야 할 것</a></li>
+</ul>
+</section>
+
+<h2 id="s1"><span class="n">1</span>한눈에</h2>
+<section class="card">
+<div class="scroll"><table>
+<tr><th>항목</th><th>지금</th><th>바꾼 뒤</th></tr>
+<tr><td><code>doc_rule.yaml</code></td><td>한 번 만들고 사람이 계속 고치는 파일</td><td><b>만들어지는 결과물</b>. 사람은 고치지 않는다</td></tr>
+<tr><td><code>doc_taxonomy.yaml</code></td><td>따로 있는 분류체계 사본. 엔진이 규칙과 함께 읽는다</td><td><b>없앤다</b>. 규칙 파일에도 분류체계 칸을 두지 않는다. 판정에 필요한 것(제목·경로·조상)은 규칙 줄마다 적는다</td></tr>
+<tr><td>회사별 조정</td><td>규칙 파일 안에 자동값과 섞여 있다</td><td><b>local 겹에만</b> 적는다</td></tr>
+<tr><td>core·업종 사전</td><td>제품 원본. (실제로는 고객 사정으로 core 를 고친 적이 있다)</td><td>제품팀만 고친다. 고객 사정은 core 에 넣지 않는다</td></tr>
+<tr><td>핵어</td><td>판정할 때마다 분류체계와 사전으로 계산한다</td><td>규칙 파일을 만들 때 계산해 적는다</td></tr>
+<tr><td>엔진이 읽는 파일</td><td><code>doc_rule.yaml</code> + <code>doc_taxonomy.yaml</code> + 사전 여러 개</td><td><b><code>doc_rule.yaml</code> 하나</b></td></tr>
+</table></div>
+<div class="note">한 줄 요약 — <b>"입력(체계 JSON·사전·local)이 같으면 규칙 파일도 글자까지 같다"</b>가 되게 만든다.
+그러면 규칙 파일이 썩을 수 없고, 고객이 고친 것은 local 만 보면 전부 보인다.</div>
+</section>
+
+<h2 id="s2"><span class="n">2</span>지금 구조</h2>
+<section class="card">
+<div class="flow">엠파워 관리화면 ─ 내보내기 ─▶ doc_classification_export.json
+                                          │
+                     CLI ① --export-taxonomy
+                                          ▼
+                                   doc_taxonomy.yaml ──────────────┐
+                                          │                        │
+                     CLI ② --sync-doc-rule (+ 사전 3겹)            │  (판정할 때마다)
+                                          ▼                        │   핵어 계산
+                                   doc_rule.yaml  ◀── 사람이 화면에서 고침
+                                          │                        │
+                                          ▼                        ▼
+                               엔진(분류)  ◀── 사전 3겹 ◀──────────┘</div>
+<ul>
+  <li>CLI ② 는 <b>규칙이 없는 분류</b>에만 새 규칙을 만들고, 말이 들어 있는 규칙은 건드리지 않는다.
+    "빠진 유의어 더하기"(<code>--sync-enrich</code>)를 켜면 <b>빠진 말만 덧붙인다</b>. 지우는 일은 없다.</li>
+  <li>그래서 <code>doc_rule.yaml</code> 에는 <b>자동으로 들어간 말</b>과 <b>사람이 고친 것</b>이 한데 섞인다.
+    어느 것이 어느 쪽인지 파일만 보고는 모른다.</li>
+  <li>local 사전에는 이미 회사별 말을 적는 칸이 있다 —
+    <code>aliases</code>(같은 뜻 다른 말) · <code>filename_only</code>(파일 이름에서만) ·
+    <code>excludes</code>(제외어) · <code>extra_terms</code>(칸별 추가 단어). 이 설계는 그 방향을 끝까지 밀고 가는 것이다.</li>
+</ul>
+</section>
+
+<h2 id="s3"><span class="n">3</span>무엇이 문제인가 — 실례 셋</h2>
+<section class="card">
+<h3>① 사람이 비운 칸이 되살아났다 <span class="pill bad">2026-09-22 확인</span></h3>
+<p>2026-09-21 에 자사 제품 분류(DC_007) 규칙의 <b>앞부분(<code>head_terms</code>)·본문(<code>terms</code>) 칸을 비웠다</b>(P2 —
+제품 이름을 "언급만 한" 구입의뢰서·사업계획서에 붙던 오라벨을 걷어냄, 설계서 13-8). 그런데 지금 규칙 파일은 이렇다.</p>
+<div class="scroll"><table>
+<tr><th>사본</th><th>수정 시각</th><th>head_terms</th><th>terms</th></tr>
+<tr><td><code>Rust/resources/policy</code></td><td>09-21 09:55</td><td class="ok">0 (P2 그대로)</td><td class="ok">0</td></tr>
+<tr><td><code>ui/policy</code> (고객 원본)</td><td>09-21 14:09</td><td class="bad">10</td><td class="bad">10</td></tr>
+<tr><td>배포 폴더 4곳</td><td>09-21 14:09</td><td class="bad">10</td><td class="bad">10</td></tr>
+</table></div>
+<p>P2 판에 <b>[분류 불러오기] + "빠진 유의어 더하기"</b>를 다시 돌리면 두 칸이 정확히 10개씩 다시 채워진다(재현 확인).
+덧붙이기가 <b>일부러 비운 칸</b>을 "빠진 말"로 알아본 것이다. 지금 배포본은 13-8·13-10 에서 잰 성적과 다른 규칙으로 돌고 있다.</p>
+<div class="danger">규칙 파일 한 곳에 "자동값"과 "사람의 결정"을 섞어 두면, 자동 도구는 사람의 결정을 알아볼 수 없다.
+이 설계의 가장 큰 이유다.</div>
+
+<h3>② 사전을 고쳐도 규칙 파일은 따라오지 않는다</h3>
+<p>core 사전에서 '보도자료'를 보고서의 별칭에서 뺐지만(2026-09-18), 고객 규칙 파일에는 그대로 남아 있다.
+규칙 파일은 예전에 불러오기를 할 때 사전 말을 <b>적어 넣은</b> 것이라 사전과 연결이 끊겨 있다.</p>
+
+<h3>③ 분류 이름이 바뀌면 옛 말이 남는다</h3>
+<p>"매뉴얼"을 "업무지침서"로 바꿔도 규칙에는 매뉴얼 계열 말이 그대로 있다. 화면이 "제목이 바뀌었습니다"라고
+알리기는 하지만(7장 ③), 옛 말을 지우는 것은 사람이 하나씩 해야 한다.</p>
+</section>
+
+<h2 id="s4"><span class="n">4</span>목표와 하지 않는 것</h2>
+<section class="card">
+<h3>목표</h3>
+<ol>
+  <li><b>규칙 파일은 결과물</b> — 체계 JSON·사전·local 로 언제든 똑같이 다시 만들 수 있다. 두 엔진(Python·Rust)이 만든 결과가 글자까지 같다.</li>
+  <li><b>회사별 조정은 한 곳</b> — local 겹만 보면 "이 회사에서 제품 기본값과 다르게 한 것"이 전부 보인다.</li>
+  <li><b>엔진은 파일 하나만 읽는다</b> — <code>doc_rule.yaml</code>. 분류체계·사전은 만들 때만 쓴다.</li>
+  <li><b>옮긴 뒤 판정이 같다</b> — 평가셋 500건에서 옮기기 전과 판정이 한 건도 달라지지 않아야 넘어간다(P2 처럼 되돌아간 것은 먼저 바로잡는다 — 13장).</li>
+</ol>
+<h3>하지 않는 것</h3>
+<ul>
+  <li>판정 방식(점수 계산·문턱값·신호)은 바꾸지 않는다. 규칙이 <b>어디서 오느냐</b>만 바꾼다.</li>
+  <li>보안등급 규칙(<code>cso_rule.yaml</code>)은 이번 범위가 아니다.</li>
+  <li>엠파워 쪽 내보내기 형식(<code>doc_classification_export.json</code>)은 그대로 쓴다.</li>
+</ul>
+</section>
+
+<h2 id="s5"><span class="n">5</span>제안 구조</h2>
+<section class="card">
+<div class="flow">엠파워 관리화면 ─ 내보내기 ─▶ doc_classification_export.json ─┐
+                                                                   │
+제품(저장소)   synonyms/doc_synonyms.core.yaml ───────────────────┤
+               synonyms/doc_synonyms.&lt;업종&gt;.yaml ─────────────────┤
+               doc_rule_template.yaml (기본 설정값) ───────────────┤
+                                                                   │  CLI ② --build-doc-rule
+고객(local)    synonyms/doc_synonyms.local.yaml  (말)  ────────────┤  (분류체계가 바뀌거나
+               doc_rule.local.yaml               (조정·설정) ─────┤   입력 중 하나라도 바뀌면)
+                                                                   ▼
+                                                  doc_rule.yaml  (자동 생성 · 사람이 고치지 않음)
+                                                       │  · 규칙마다 제 분류의 제목·경로(path·path_ids)
+                                                       │  · 분류별 규칙 · 핵어 · 잡음 꼬리
+                                                       │  · 만들 때 쓴 입력의 지문
+                                                       ▼
+                                                  엔진(분류) — 이 파일 하나만 읽는다</div>
+<ul>
+  <li>CLI ① (<code>--export-taxonomy</code>)과 <code>doc_taxonomy.yaml</code> 은 없어진다. CLI ② 가 체계 JSON 을 바로 읽는다.</li>
+  <li>엠파워 연동의 "준비" 단계가 두 번 호출에서 <b>한 번</b>으로 준다.</li>
+</ul>
+</section>
+
+<h2 id="s6"><span class="n">6</span>파일마다 누가 고치나</h2>
+<section class="card">
+<div class="scroll"><table>
+<tr><th>파일</th><th>누가 고치나</th><th>저장소</th><th>배포 때</th><th>담는 것</th></tr>
+<tr><td><code>doc_classification_export.json</code></td><td>엠파워(내보내기)</td><td>아니오</td><td>고객 것 유지</td><td>분류 노드·제목·부모·사용 여부</td></tr>
+<tr><td><code>doc_synonyms.core.yaml</code></td><td><b>제품팀만</b></td><td>예</td><td>덮어씀</td><td>업종 무관 유의어·꼬리말·머리말·핵어 판정 목록</td></tr>
+<tr><td><code>doc_synonyms.&lt;업종&gt;.yaml</code></td><td>제품팀만</td><td>예</td><td>덮어씀</td><td>업종 고유 문서 이름</td></tr>
+<tr><td><code>doc_rule_template.yaml</code></td><td>제품팀만</td><td>예</td><td>덮어씀</td><td>설정 기본값(문턱값·신호 점수·2차 분류)과 설명</td></tr>
+<tr><td><code>doc_synonyms.local.yaml</code></td><td><b>고객 관리자</b></td><td>아니오</td><td>고객 것 유지</td><td>회사 말 — "이 말은 이 분류 이름과 같은 뜻"</td></tr>
+<tr><td><code>doc_rule.local.yaml</code> <span class="pill">새 파일</span></td><td><b>고객 관리자</b></td><td>아니오</td><td>고객 것 유지</td><td>분류별 조정(말 더하기·빼기·칸 비우기·가중치·끄기)과 전체 설정 덮어쓰기</td></tr>
+<tr><td><code>doc_rule.yaml</code></td><td><b>아무도 — 만들어짐</b></td><td>아니오</td><td>다시 만듦</td><td>엔진이 읽는 전부</td></tr>
+</table></div>
+
+<div class="warn"><b>core 는 고객 사정으로 고치지 않는다.</b> core 는 모든 고객이 함께 쓰는 한 벌이라 한 고객 때문에 고치면 다른 고객 판정도 바뀐다.
+또 다음 배포 때 덮어써진다. 2026-09-14 에 '고객·인증·휴가·계약' 단독어를 core 에서 뺀 것은 "어느 고객에게나 너무 넓은 말"이라서
+맞는 결정이었지만, 앞으로 한 고객에게만 맞는 조정은 <code>doc_rule.local.yaml</code> 의 빼기로 한다.</div>
+
+<h3>local 을 두 파일로 나누는 이유</h3>
+<p>사용자 제안은 "고객 조정을 local 사전에 모은다"였다. 말 목록은 그대로 사전에 두되, <b>말이 아닌 것</b>은 작은 파일 하나로 뗀다.</p>
+<ul>
+  <li>사전은 <b>분류 이름</b>을 열쇠로 쓴다("보고서"라는 이름에는 이런 말들이 같은 뜻). 이름이 바뀌면 따라서 바뀌는 게 맞다.</li>
+  <li>조정은 <b>그 분류(dc_id)</b>에 대한 결정이다("DC_007 은 본문을 보지 마라"). 이름이 바뀌어도 살아 있어야 한다 — 10장.</li>
+  <li>가중치·문턱값·2차 분류 설정은 말이 아니라 사전 모양(이름 → 말 목록)에 맞지 않는다.</li>
+</ul>
+<p class="muted">한 파일로 합치고 싶다면 local 사전에 <code>rules:</code>·<code>settings:</code> 칸을 두는 안도 된다(16장 결정 ①). 원칙 — "고객이 고치는 곳은 local" — 은 어느 쪽이든 같다.</p>
+</section>
+
+<h2 id="s7"><span class="n">7</span>local 겹 — 무엇을 더 적을 수 있어야 하나</h2>
+<section class="card">
+<p>지금까지 이 고객에게 실제로 한 조정을 기준으로, 새 구조에서 어디에 적는지 맞춰 봤다.</p>
+<div class="scroll"><table>
+<tr><th>실제 조정</th><th>지금 local 로</th><th>새 구조에서</th></tr>
+<tr><td>자사 제품 제품명 별칭(보안파일서버·Mpower …)</td><td class="ok">됨 — <code>aliases</code></td><td>local 사전 그대로</td></tr>
+<tr><td>'문서중앙화'·'이노테나'는 파일 이름에서만</td><td class="ok">됨 — <code>filename_only</code></td><td>local 사전 그대로</td></tr>
+<tr><td>매뉴얼 제목에 '도움말'</td><td class="ok">됨 — <code>extra_terms</code></td><td><code>doc_rule.local.yaml</code> 의 <code>add</code> (dc_id 로)</td></tr>
+<tr><td>보고서·교육자료 제목/앞부분 말(V2b)</td><td class="ok">됨 — <code>extra_terms</code></td><td>같음</td></tr>
+<tr><td>자사 제품 규칙의 앞부분·본문 칸 비우기(P2)</td><td class="bad">안 됨</td><td><code>clear: [head_terms, terms]</code></td></tr>
+<tr><td>한 분류에서 특정 말 빼기(예: 고객자료의 '고객')</td><td class="bad">안 됨 — core 를 고쳤다</td><td><code>remove</code></td></tr>
+<tr><td>분류 하나 끄기 / 가중치 바꾸기</td><td class="mid">규칙 파일을 직접 고쳐야 함</td><td><code>enabled</code> · <code>weight</code></td></tr>
+<tr><td>핵어에서 제목 빼기(7장 ⓑ·ⓒ)</td><td class="mid">규칙 파일의 <code>taxonomy_title_exclude</code>·<code>taxonomy_node_off</code></td><td><code>doc_rule.local.yaml</code> 의 <code>head:</code></td></tr>
+<tr><td>문턱값·신호 점수·2차 분류 설정·업종 선택</td><td class="mid">규칙 파일을 직접 고쳐야 함</td><td><code>settings:</code> (없으면 본보기 기본값)</td></tr>
+</table></div>
+
+<h3><code>doc_rule.local.yaml</code> 모양(안)</h3>
+<pre><code># 회사별 업무분류 조정 — 이 파일만 사람이 고친다. doc_rule.yaml 은 여기서 만들어진다.
+version: 2026.09.22
+industry: [finance]            # 얹을 업종 사전(없으면 core 만)
+
+settings:                      # 적은 것만 본보기 기본값을 덮는다
+  defaults: {t_low: 0.35}
+  embed: {enabled: true}
+
+rules:                         # 열쇠는 dc_id — 분류 이름이 바뀌어도 조정이 살아 있다
+  DC_007:                      # 자사 제품
+    title_at_decision: 엠파워제품    # 적을 당시 이름(바뀌면 만들 때 안내 — 10장)
+    clear: [head_terms, terms]       # P2 — 제품명 '언급'만으로 붙지 않게
+    why: "2026-09-21 P2 · 평가셋 오라벨 14건 제거(설계서 13-8)"
+  DC_002_002:                  # 매뉴얼
+    add:
+      title_terms: [도움말]
+    why: "제품 도움말 html 118건 — 사람 전수 판정 매뉴얼"
+  DC_001_003:                  # 보고서
+    add:
+      title_terms: [현황분석, 참관, 실태조사, 이슈페이퍼, 동향]
+      head_terms:  [현황분석, 참관, 실태조사, 이슈페이퍼]
+    remove:
+      title_terms: [보도시점]
+  DC_004_009:                  # (예시 — 설명용 dc_id)
+    enabled: false             # 이 회사는 쓰지 않는 분류
+    weight: low
+
+head:                          # 핵어(파일 이름 끝자리) 조정
+  title_exclude: [결과서]        # (예시)
+  node_off: []</code></pre>
+<ul>
+  <li><code>why</code> 칸을 둔다. 규칙 파일이 자동 생성이 되면, "왜 이렇게 했나"를 적을 자리는 여기뿐이다.
+    지금 규칙 파일은 화면이 저장할 때마다 주석이 날아간다.</li>
+  <li><code>add</code>·<code>remove</code>·<code>clear</code> 는 <b>자동값 위에</b> 적용된다. 그래서 사전이 좋아지면 그 덕은 그대로 받고, 사람의 결정만 덧씌운다.</li>
+  <li>지금 local 사전의 <code>extra_terms</code>(이름 열쇠)는 이 파일의 <code>add</code>(dc_id 열쇠)로 옮긴다 — 13장.</li>
+</ul>
+</section>
+
+<h2 id="s8"><span class="n">8</span>만드는 순서(생성 규칙)</h2>
+<section class="card">
+<ol>
+  <li><b>노드 읽기</b> — 체계 JSON 에서 dc_id·부모·제목·순서·사용 여부를 읽고 경로를 만든다. 서랍(자식이 있는 뿌리)과 꺼 둔 분류는 지금과 같은 기준(<code>syncable_nodes</code>)으로 규칙을 만들지 않는다.</li>
+  <li><b>사전 합치기</b> — core → 업종(<code>industry</code>) → local 사전 순으로 겹친다(지금 <code>load_synonyms</code> 그대로).</li>
+  <li><b>분류별 기본 말</b> — 잎마다 제목에서 네 칸(제목·앞부분·본문·파일 이름)과 제외어를 만든다(지금 <code>rule_vocab</code> 그대로).</li>
+  <li><b>조정 덧씌우기</b> — <code>doc_rule.local.yaml</code> 의 <code>rules.&lt;dc_id&gt;</code> 를 <code>clear</code> → <code>remove</code> → <code>add</code> 순으로 적용한다.
+    <code>clear</code> 한 칸에도 <code>add</code> 는 들어간다(비운 뒤 사람이 고른 말만 두는 경우).</li>
+  <li><b>핵어</b> — 지금 판정기(<code>taxhead.build_head_lexicon</code>)를 그대로 돌리고 <code>head.title_exclude</code>·<code>node_off</code> 를 적용해 분류별 핵어 목록을 적는다. 잡음 꼬리 목록도 함께 적는다.</li>
+  <li><b>설정</b> — 본보기 기본값 위에 <code>settings</code> 를 덮는다.</li>
+  <li><b>검사</b> — 만든 파일을 엔진 로더로 다시 읽어 검증한다(지금 T·V 검증 그대로). 아래를 경고로 알린다.
+    <ul>
+      <li>local 조정의 dc_id 가 체계에 없다(분류가 지워졌거나 잘못 적음)</li>
+      <li><code>title_at_decision</code> 과 지금 제목이 다르다(이름이 바뀜 — 10장)</li>
+      <li><code>remove</code> 하려는 말이 애초에 없다(사전이 바뀌어 이미 빠짐 — 지워도 되는 조정)</li>
+    </ul></li>
+  <li><b>쓰기</b> — 맨 위에 "자동 생성 — 고치지 마세요"와 입력 지문을 적고, 정해진 순서로 쓴다(dc_id 순·칸 순). 입력이 같으면 결과가 글자까지 같아야 한다.</li>
+</ol>
+<div class="note">3·5단계는 지금 있는 함수를 그대로 쓴다. 새로 만드는 것은 4단계(덧씌우기)·7단계 일부·8단계의 머리말과 지문뿐이다.</div>
+</section>
+
+<h2 id="s9"><span class="n">9</span>새 <code>doc_rule.yaml</code> 의 모양</h2>
+<section class="card">
+<pre><code># ──────────────────────────────────────────────────────────────
+# 자동 생성 파일 — 고치지 마세요. 고칠 것은 doc_rule.local.yaml · doc_synonyms.local.yaml 에.
+# 다시 만들기: MpowerClassify-rs.exe --build-doc-rule
+# ──────────────────────────────────────────────────────────────
+version: doctype-gen-20260922.1
+generated:
+  at: "2026-09-22 10:31:05"
+  by: MpowerClassify-rs 2026.09.22
+  inputs:                                  # 이 값과 지금 파일이 다르면 엔진이 경고
+    export:   {file: doc_classification_export.json, sha256: "3b1f…"}
+    core:     {version: 2026.09.21.1,       sha256: "9c0a…"}
+    industry: {finance: "a41e…"}
+    local:    {version: 2026.09.15,         sha256: "77d2…"}
+    rule_local: {version: 2026.09.22,       sha256: "e5c9…"}
+    template: {version: doctype-2026.08.ui.4, sha256: "12aa…"}
+conflict: all
+defaults: {scoring: staged, head_chars: 400, t_low: 0.35, t_high: 0.7, …}
+signals:  {title: {high: 0.8, medium: 0.65, low: 0.5}, …}
+embed:    {enabled: true, k: 5, …}
+
+noise_tails: [최종본, 최종, 수정본, …]     # 파일 이름 꼬리 걷기용(사전에서 옮겨 적음)
+
+doctype_rules:
+- id: dt_dc_002_002
+  node: DC_002_002
+  weight: medium
+  title: 매뉴얼                             # 지금 분류 제목(이 말들을 만든 제목)
+  path: "기술/개발 > 매뉴얼"                 # 결과 레코드의 path 로 그대로 나간다
+  path_ids: [DC_002, DC_002_002]            # 조상 관계 — 조상·자식 라벨 정리·대분류 묶기에 쓴다
+  title_terms: [매뉴얼, 사용설명서, …, 도움말]
+  head_terms:  [매뉴얼, 사용설명서, …]
+  terms:       [매뉴얼, 사용설명서, …]
+  filename:    [매뉴얼, 사용설명서, …]
+  exclude:     [가이드라인, 매뉴얼 참조, 매뉴얼을 참고]
+  heads:       [매뉴얼, 사용설명서, 사용자매뉴얼, …]   # 핵어(파일 이름 끝자리) — 없으면 핵어 안 씀
+  local: [add.title_terms]                  # 이 규칙에 local 조정이 들어갔음(추적용)</code></pre>
+<ul>
+  <li><b>엔진은 사전을 읽지 않는다.</b> 핵어·잡음 꼬리까지 이 파일에 있으므로, 판정 때 필요한 것은 전부 여기 있다.</li>
+  <li><code>local</code> 칸은 판정에 쓰지 않는다. 사람이 "이 규칙은 왜 기본값과 다른가"를 찾아가는 표지다.</li>
+  <li><b>분류체계 칸이 없다.</b> 출처·내보낸 시각은 <code>generated.inputs.export</code> 의 지문으로 충분하고,
+    엔진이 분류체계에서 쓰던 것(제목·경로·조상)은 규칙 줄의 <code>title</code>·<code>path</code>·<code>path_ids</code> 로 다 된다.
+    서랍(대분류)은 규칙이 없으므로 따로 적지 않는다 — 이름은 <code>path</code> 안에 들어 있다. 꺼 둔 분류는 규칙 자체를 만들지 않는다.</li>
+  <li><code>filled_from_title</code> 은 <code>title</code> 로 바뀐다. 항상 지금 제목이라 "제목이 바뀌었습니다" 안내는 규칙 파일에서는 필요 없어진다(local 조정 쪽으로 옮겨 감).</li>
+</ul>
+</section>
+
+<h2 id="s10"><span class="n">10</span>이름이 바뀌면 — 매뉴얼 → 업무지침서</h2>
+<section class="card">
+<p>엠파워에서 DC_002_002 의 이름을 "매뉴얼"에서 "업무지침서"로 바꾸고 다시 내보낸 뒤 규칙을 새로 만들면:</p>
+<div class="scroll"><table>
+<tr><th>무엇</th><th>결과</th></tr>
+<tr><td>결과에 나오는 분류</td><td>dc_id 가 같으므로 옛 문서·새 문서 모두 "업무지침서"로 나온다</td></tr>
+<tr><td>규칙의 자동 말</td><td>"업무지침서·업무지침·업무안내서·직무지침서"로 <b>바뀐다</b>. 매뉴얼 계열 말은 빠진다</td></tr>
+<tr><td>핵어</td><td>같이 바뀐다</td></tr>
+<tr><td>local 조정(<code>add: 도움말</code>)</td><td>dc_id 열쇠라 <b>그대로 적용</b>된다. 다만 <code>title_at_decision: 매뉴얼</code> 과 달라서 "이름이 바뀐 분류의 조정 — 계속 맞는지 확인하세요"를 알린다</td></tr>
+<tr><td>local 사전의 <code>매뉴얼:</code> 별칭</td><td>이름 열쇠라 더는 걸리지 않는다. "쓰이지 않는 사전 항목"으로 알린다</td></tr>
+</table></div>
+<div class="warn"><b>판정에 미치는 영향.</b> 결과 표시는 dc_id 라 문제없지만, 문서를 그 dc_id 로 <b>판정</b>할 때는 규칙의 말이 문서에 있어야 한다.
+옛 문서(첫 줄 "사용자 매뉴얼", 파일명 "…매뉴얼.pdf")에는 "업무지침서"가 없으므로 새 규칙으로는 걸리지 않는다.
+이름만 바꾼 것이고 옛 문서도 이 분류로 계속 잡아야 한다면, <code>doc_rule.local.yaml</code> 에
+<code>DC_002_002: {add: {title_terms: [매뉴얼, 사용설명서 …]}}</code> 를 적는다.
+만들 때 "이 분류에서 빠진 말"을 보여 주면 사람이 고르기 쉽다(12장).</div>
+</section>
+
+<h2 id="s11"><span class="n">11</span>엔진·CLI 변경</h2>
+<section class="card">
+<div class="scroll"><table>
+<tr><th>자리</th><th>바꿀 것</th><th>Python</th><th>Rust</th></tr>
+<tr><td>생성</td><td>새 CLI <code>--build-doc-rule</code> (입력: 체계 JSON · 정책 폴더, 출력: <code>doc_rule.yaml</code>). 두 엔진 결과가 글자까지 같아야 한다</td><td><code>docvocab.py</code> · <code>cli.py</code></td><td><code>docvocab.rs</code> · <code>main.rs</code></td></tr>
+<tr><td>로딩</td><td>분류 정보를 규칙 줄의 <code>title</code>·<code>path</code>·<code>path_ids</code> 에서 모아 <code>Taxonomy</code> 객체를 만든다(규칙이 있는 분류 + 그 조상). 판정 코드(조상 정리·경로·대분류 묶기)는 손대지 않는다</td><td><code>doc_rules.py</code> · <code>axes.py</code></td><td><code>doc_rules.rs</code> · <code>axes.rs</code></td></tr>
+<tr><td>핵어</td><td>판정 때 계산하던 것을 규칙 파일의 <code>heads</code>·<code>noise_tails</code> 에서 읽는다</td><td><code>doctype.py</code> · <code>taxhead.py</code></td><td><code>doctype.rs</code> · <code>taxhead.rs</code></td></tr>
+<tr><td>입력 확인</td><td>실행 때 <code>generated.inputs</code> 지문과 지금 파일을 견줘 다르면 경고(판정은 계속) — "사전을 고쳤는데 다시 만들지 않았다"를 잡는다</td><td>✔</td><td>✔</td></tr>
+<tr><td>옛 모양</td><td>규칙 줄에 <code>path_ids</code> 가 없는 옛 규칙 파일 + <code>doc_taxonomy.yaml</code> 은 한 판 동안 계속 읽는다(경고와 함께). 그다음 판에서 없앤다</td><td>✔</td><td>✔</td></tr>
+<tr><td>없어지는 것</td><td><code>--export-taxonomy</code>, <code>--sync-doc-rule</code>, <code>--sync-enrich</code>, <code>filled_from_title</code>·<code>stale_title_hint</code>(규칙 쪽)</td><td colspan="2">옛 모양을 끊는 판에서 함께</td></tr>
+</table></div>
+<p>결과 레코드(<code>labels.doctype</code> 의 dc_id·path·path_ids)와 기준 문서(<code>class_seed.jsonl</code>, dc_id 기준)는 <b>바뀌지 않는다</b>. 엠파워 적재 쪽은 영향이 없다.</p>
+<div class="warn"><b>확인할 점 — 규칙 없는 분류를 가리키는 기준 문서.</b> 지금은 분류체계 파일에 있는 dc_id 면 서랍(대분류)이나 꺼 둔 분류도
+"있는 분류"로 본다. 바뀐 뒤에는 규칙 줄에 나오는 분류(와 그 조상)만 안다. 기준 문서 라벨 가운데 꺼 둔 분류를 가리키는 것이 있으면
+2차 분류에서 건너뛰게 된다. 옮기기 전에 <code>class_seed.jsonl</code> 의 dc_id 를 한 번 세어 본다(13장 4단계).</div>
+</section>
+
+<h2 id="s12"><span class="n">12</span>화면 변경</h2>
+<section class="card">
+<ul>
+  <li><b>업무분류 규칙 화면</b> — 지금은 <code>doc_rule.yaml</code> 을 직접 고친다. 바뀐 뒤에는 표의 각 칸이 "자동 말 + local 조정"으로 보이고,
+    고치면 <code>doc_rule.local.yaml</code> 의 add/remove/clear 로 저장된다. 저장 뒤 규칙을 다시 만든다.</li>
+  <li><b>[분류 불러오기] → [규칙 다시 만들기]</b> — 누르면 새로 만들 규칙과 지금 규칙의 차이(분류별로 더해질 말·빠질 말)를 먼저 보여 주고, 확인하면 쓴다.</li>
+  <li><b>핵어 표</b>(설정 ③ › 업무분류) — 끄기 체크가 <code>doc_rule.local.yaml</code> 의 <code>head:</code> 에 저장된다.</li>
+  <li><b>규칙 단어 제안</b> — 채택한 말이 <code>doc_rule.local.yaml</code> 의 <code>add</code> 로 들어간다(지금은 local 사전의 <code>extra_terms</code>).</li>
+  <li><b>"제목 확인" 칸</b> — 규칙 쪽에서는 없어지고, local 조정의 <code>title_at_decision</code> 이 다를 때 안내하는 것으로 바뀐다.</li>
+</ul>
+</section>
+
+<h2 id="s13"><span class="n">13</span>옮겨 가기(마이그레이션)</h2>
+<section class="card">
+<p>지금 고객 규칙 파일에는 사람이 한 조정이 자동값 속에 섞여 있다. 그냥 새로 만들면 그 조정이 전부 사라진다. 아래 순서로 옮긴다.</p>
+<ol>
+  <li><b>기준 규칙부터 정한다</b> — P2 가 되돌아간 지금 판(<code>ui/policy</code>)과 P2 판(<code>Rust/resources/policy</code>) 중 무엇이 맞는지 먼저 정한다.
+    13-8·13-10 성적은 P2 판으로 잰 것이다.</li>
+  <li><b>차이 뽑기 도구</b> — "지금 입력으로 자동 생성한 규칙"과 "기준 규칙"을 분류·칸별로 견줘, 차이를 <code>doc_rule.local.yaml</code> 초안(add·remove·clear·weight)으로 뽑는다.
+    local 사전의 <code>extra_terms</code> 도 dc_id 열쇠로 바꿔 함께 옮긴다.</li>
+  <li><b>사람 확인</b> — 초안의 각 줄에 이유(<code>why</code>)를 적는다. 이유를 댈 수 없는 차이(예전에 사전에 있다가 빠진 말이 규칙에 남은 것 — '보도자료')는 옮기지 않는다.</li>
+  <li><b>다시 만들어 견주기</b> — 새 구조로 만든 규칙으로 평가셋 500건을 두 엔진에서 돌려, 기준 규칙과 판정을 견준다.
+    달라진 문서는 모두 설명할 수 있어야 한다(3단계에서 일부러 버린 말 때문인 것만 허용).</li>
+  <li><b>배포 사본 맞추기</b> — <code>scripts/sync_policy.py</code> 목록에서 <code>doc_taxonomy.yaml</code>(과 체계 JSON 사본)을 빼고 <code>doc_rule.local.yaml</code> 을 고객 파일로 더한다.</li>
+</ol>
+</section>
+
+<h2 id="s14"><span class="n">14</span>위험과 대책</h2>
+<section class="card">
+<div class="scroll"><table>
+<tr><th>위험</th><th>대책</th></tr>
+<tr><td>옮기면서 조정을 잃는다</td><td>13장 차이 뽑기 + 평가셋 두 엔진 비교를 넘어야 전환</td></tr>
+<tr><td>사전·local 을 고치고 다시 만들기를 잊는다</td><td>입력 지문 경고(11장). 화면은 저장할 때 자동으로 다시 만든다</td></tr>
+<tr><td>누군가 여전히 <code>doc_rule.yaml</code> 을 손으로 고친다</td><td>맨 위 경고문. 실행 때 "파일 지문 ≠ 생성 때 지문"이면 "손으로 고친 흔적 — 다음 생성 때 사라집니다" 경고</td></tr>
+<tr><td>두 엔진 생성 결과가 어긋난다</td><td>생성 시험에 "Python·Rust 결과 글자까지 같음"을 넣는다(지금 <code>--sync-doc-rule</code> 에서 이미 하는 방식)</td></tr>
+<tr><td>고객이 core 를 고치고 싶어 한다</td><td>local 의 remove/add 로 다 되게 한다. 여러 고객에게 맞는 조정이면 제품팀이 core 를 판올림한다</td></tr>
+<tr><td>로컬 조정이 고아가 된다(분류 삭제·이름 변경)</td><td>만들 때 경고로 알리고 지우지는 않는다 — 사람이 판단</td></tr>
+<tr><td>엠파워 연동 절차가 바뀐다</td><td>연동 설계검토 문서의 "준비" 단계(CLI ①② → CLI 하나)를 고친다. 한 판 동안은 옛 CLI 도 받는다</td></tr>
+</table></div>
+</section>
+
+<h2 id="s15"><span class="n">15</span>작업 순서</h2>
+<section class="card">
+<div class="scroll"><table>
+<tr><th>#</th><th>작업</th><th>끝나는 기준</th></tr>
+<tr><td>0</td><td><b>P2 되돌아감 바로잡기</b> (이 설계와 별개, 먼저) <span class="pill ok">2026-09-22 끝</span></td><td>고객 원본의 DC_007 앞부분·본문 칸을 비우고 사본 6곳 반영(백업 <code>_backup/p2-restore-20260922</code>·<code>_backup/policy-sync/</code>).
+  평가셋(사람 판정 256건) 정밀도 65.1% → 71.8%, 재현율 50.0% 그대로</td></tr>
+<tr><td>1</td><td><code>doc_rule.local.yaml</code> 모양 확정 · 로더·검증(두 엔진) <span class="pill ok">2026-09-22 끝</span></td><td>잘못된 칸은 로드에서 막힘(L0~L6)</td></tr>
+<tr><td>2</td><td><code>--build-doc-rule</code> (두 엔진) — 8장 순서 <span class="pill ok">2026-09-22 끝</span></td><td>같은 입력 → 두 엔진 결과 글자까지 같음 — 고객 정책 사본으로 확인(판 <code>doctype-gen-86c1c23a0ece</code>)</td></tr>
+<tr><td>3</td><td>엔진이 새 규칙 파일 하나만 읽기(체계·핵어 내장) + 옛 모양 호환 <span class="pill ok">2026-09-22 끝</span></td><td>기존 시험 전부 통과(Python 959 · Rust 259) · 평가셋 500건 옛 방식과 판정·근거 모두 같음(두 엔진)</td></tr>
+<tr><td>4</td><td>차이 뽑기 도구 → 이 고객 local · <b>고객 폴더 전환</b> <span class="pill ok">2026-09-22 끝</span></td><td><code>scripts/migrate_doc_rule_local.py</code>. 이 고객의 차이는 DC_007 <code>clear: [head_terms, terms]</code>(P2) 한 건뿐 — <code>ui/policy/doc_rule.local.yaml</code> 로 옮기고 다시 만들어 사본 6곳 반영(판 <code>doctype-gen-b29e4fa53046</code>, 전환 전 파일 <code>_backup/doc-rule-switch-20260922/</code>). 평가셋 500건 판정 변화 0건. 배포본 4곳 새로 빌드(리눅스 Rust 묶음에 체계 JSON·본보기·회사 조정 추가)</td></tr>
+<tr><td>5</td><td>화면 — 규칙 편집이 local 을 고치게 · [규칙 다시 만들기] <span class="pill ok">2026-09-22 끝</span></td><td>화면에서 고친 조정이 다시 만들어도 남음. 옛 방식 화면에 [새 방식으로 바꾸기] — 조정을 뽑아 재현을 확인한 뒤에만 바꾼다(시험 사본에서 전환·재생성 확인)</td></tr>
+<tr><td>6</td><td>연동 문서·실행 가이드·DOC_Rule.html 고치기 · 배포 <span class="pill ok">2026-09-22 끝</span></td><td>엠파워 준비 절차 한 단계(CLI 4개 → 3개). 실행 가이드·DOC_Rule.html(13장 회사 조정 신설)·README 갱신. Python <code>--check-rules</code> 가 자동 생성 규칙이면 스냅샷을 찾지 않게 고침</td></tr>
+<tr><td>7</td><td>다음 판에서 옛 CLI·<code>doc_taxonomy.yaml</code> 읽기 제거</td><td>—</td></tr>
+</table></div>
+</section>
+
+<h2 id="s16"><span class="n">16</span>정해야 할 것</h2>
+<section class="card">
+<ol>
+  <li><b>local 을 한 파일로? 두 파일로?</b> — 권고: 두 파일(말은 사전, 조정·설정은 <code>doc_rule.local.yaml</code>). 6장.</li>
+  <li><b>조정의 열쇠</b> — 권고: dc_id(+ <code>title_at_decision</code> 으로 이름 변경 안내). 10장.</li>
+  <li><b>이름이 바뀐 분류의 옛 말</b> — 기본은 "새 이름 말만"(자동). 옛 말을 계속 쓸지는 분류마다 사람이 local 에 적는다. 이 기본값으로 좋은가.</li>
+  <li><s><b>P2 기준</b></s> — 정함(2026-09-22): P2 판. 고객 원본·배포본에 반영했다.</li>
+  <li><b>옛 모양 호환 기간</b> — 권고: 한 판. 고객 배포가 이 한 곳뿐이면 바로 끊어도 된다.</li>
+  <li><b>업종 선택</b> — 지금 고객 규칙 파일에는 업종이 일곱 개 모두 적혀 있다. local 로 옮길 때 이 고객 업종만 남길지.</li>
+</ol>
+</section>
+
+<footer>MpowerClassify · 업무분류 규칙 파일 자동 생성 설계 · 2026-09-22 · 설계서(구현 없음)</footer>
+</div>
+</body>
+</html>

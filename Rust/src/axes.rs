@@ -301,10 +301,16 @@ pub fn load_taxonomy(path: &std::path::Path) -> Result<Taxonomy, TaxonomyError> 
     let data: Value = serde_json::to_value(&yv)
         .map_err(|e| TaxonomyError::Read(format!("변환 실패: {}", e)))?;
 
-    let violations = validate_taxonomy_data(&data);
+    taxonomy_from_value(&data, &path.display().to_string())
+}
+
+/// 스냅샷 값 → Taxonomy(Python taxonomy_from_snapshot). 파일을 읽은 뒤의 일(검증 →
+/// 노드 만들기)만 떼어 낸 것이다 — 규칙 자동 생성은 체계 JSON 을 변환한 값을
+/// doc_taxonomy.yaml 로 쓰지 않고 바로 여기로 넘긴다.
+pub fn taxonomy_from_value(data: &Value, where_: &str) -> Result<Taxonomy, TaxonomyError> {
+    let violations = validate_taxonomy_data(data);
     if !violations.is_empty() {
-        return Err(TaxonomyError::Invalid(
-            format_taxonomy_violations(&path.display().to_string(), &violations)));
+        return Err(TaxonomyError::Invalid(format_taxonomy_violations(where_, &violations)));
     }
 
     let root = data.get("taxonomy").cloned().unwrap_or(json!({}));
@@ -319,6 +325,43 @@ pub fn load_taxonomy(path: &std::path::Path) -> Result<Taxonomy, TaxonomyError> 
     let node_count = oi(&root, "node_count").unwrap_or(nodes.len() as i64);
 
     Ok(Taxonomy::build(s(&root, "source", ""), s(&root, "exported_at", ""), node_count, nodes))
+}
+
+/// 자동 생성 규칙 줄들 → Taxonomy(Python taxonomy_from_rules).
+///
+/// 자동 생성된 doc_rule.yaml 에는 분류체계 칸이 없다. 규칙마다 적힌 title·path
+/// (" > " 로 이은 제목)·path_ids 로 조상까지 노드를 다시 짓는다. 같은 dc_id 는 처음
+/// 나온 것을 쓰고, order 는 처음 나온 차례다. 경로와 id 가 한 칸씩 맞지 않으면 오류.
+pub fn taxonomy_from_rules(rules: &[Value], exported_at: &str) -> Result<Taxonomy, String> {
+    let mut nodes: Vec<TaxonomyNode> = vec![];
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for item in rules {
+        let node = s(item, "node", "");
+        let ids: Vec<String> = item.get("path_ids").and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str()).map(|x| x.to_string()).collect())
+            .unwrap_or_default();
+        let path = s(item, "path", "");
+        let titles: Vec<String> = if path.is_empty() { vec![] }
+            else { path.split(" > ").map(|x| x.to_string()).collect() };
+        if ids.is_empty() || ids.last().map(|x| x.as_str()) != Some(node.as_str())
+            || titles.len() != ids.len() {
+            return Err(format!(
+                "규칙 {:?} 의 path_ids({:?}) 와 path({:?}) 가 맞지 않습니다 — --build-doc-rule 로 규칙 파일을 다시 만드세요",
+                s(item, "id", ""), ids, path));
+        }
+        let own_title = s(item, "title", "");
+        let mut parent: Option<String> = None;
+        for (dc_id, title) in ids.iter().zip(titles.iter()) {
+            if seen.insert(dc_id.clone()) {
+                let t = if *dc_id == node && !own_title.is_empty() { own_title.clone() } else { title.clone() };
+                nodes.push(TaxonomyNode { dc_id: dc_id.clone(), parent: parent.clone(),
+                                          order: nodes.len() as i64, title: t, status: 1 });
+            }
+            parent = Some(dc_id.clone());
+        }
+    }
+    let n = nodes.len() as i64;
+    Ok(Taxonomy::build("doc_rule.yaml".to_string(), exported_at.to_string(), n, nodes))
 }
 
 /// doc_classification_export.json 고정 파일명(MpowerV11 내보내기 원본).

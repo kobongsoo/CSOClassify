@@ -818,6 +818,7 @@ mod tests {
 
     fn mk_set(rules: Vec<DoctypeRule>, defaults: Defaults) -> DocRuleSet {
         DocRuleSet {
+            taxonomy: None,
             conflict: ConflictSpec { strategy: "all".into(), n: None, min_confidence: None },
             defaults,
             embed: crate::doc_rules::EmbedSpec::default(),

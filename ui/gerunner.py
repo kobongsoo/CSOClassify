@@ -481,6 +481,29 @@ def run_sync_doc_rule(base_cmd, taxonomy, doc_rules, fill_blank=True, enrich=Fal
 
 
 #------------------------------------------------------------------
+# 업무분류 규칙 자동 생성 실행(--build-doc-rule)
+#=> 새 방식에서 화면의 [규칙 다시 만들기]·조정 저장·분류 체계 다시 가져오기가
+#   모두 이 한 줄을 부른다. 규칙 파일은 엔진만 쓴다 — 화면이 직접 쓰지 않는다.
+#     csoclassify --build-doc-rule --export-input <체계 JSON> --doc-rules <doc_rule.yaml>
+#
+# -in: base_cmd     = 실행 인자 리스트(parse_base_cmd 결과)
+# -in: export_input = 체계 JSON 경로
+# -in: doc_rules    = 만들 doc_rule.yaml 경로(같은 폴더의 사전·조정 파일을 쓴다)
+# -in: pythonpath   = 모듈 실행 시 PYTHONPATH
+# -in: timeout      = 최대 대기(초)
+#
+# -out: SimpleNamespace(returncode, stderr, summary, error, args)
+# -out: error = timeout 시 예외 전파
+#------------------------------------------------------------------
+def run_build_doc_rule(base_cmd, export_input, doc_rules, pythonpath=None, timeout=180):
+    args = list(base_cmd) + ["--build-doc-rule",
+                             "--export-input", export_input, "--doc-rules", doc_rules]
+    r = _run(args, pythonpath, timeout, "생성")
+    r.args = args
+    return r
+
+
+#------------------------------------------------------------------
 # 여러 문서를 '한 번의 실행'으로 임베딩
 #=> 기준 문서를 여러 건 등록할 때 쓴다. 예전에는 문서 하나에 프로세스 하나를 띄웠는데,
 #   그러면 임베딩 모델을 문서 수만큼 다시 읽는다. 실측(5건·Rust)에서 한 건씩은

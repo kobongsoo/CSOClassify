@@ -203,6 +203,23 @@ def industry_of(doc_rules_path):
     else:
         # 파일이 없거나 칸이 없다 — 저장될 때 채워질 본보기 값을 미리 쓴다.
         raw = load_template(doc_rules_path).get("industry")
+    return clean_industry(raw)
+
+
+#------------------------------------------------------------------
+# 업종 값 다듬기
+#=> 규칙 파일·local 조정 파일의 industry 값을 업종 이름 목록으로 바꾼다.
+#   한 개면 문자열, 여러 개면 목록으로 적으므로 둘 다 받는다.
+#    1) 빈 값이면 빈 목록
+#    2) 공백을 다듬고 중복을 뺀다
+#    3) 파일 이름에 그대로 들어가는 값이라 경로 문자(/ \ . :)가 든 이름은 버린다
+#
+# -in: raw = 문자열 · 목록 · None
+#
+# -out: list = 업종 이름 목록(적은 차례 그대로)
+# -out: error = 없음
+#------------------------------------------------------------------
+def clean_industry(raw):
     if not raw:
         return []
     # 한 개만 적었으면 문자열로 온다. 여러 개면 리스트다. 둘 다 받는다.
@@ -428,6 +445,9 @@ def _clean_extra_terms(raw):
 #   (없는 것이 정상 동작이지 오류가 아니다. 사전은 시작값을 넓혀 줄 뿐이다.)
 #
 # -in: doc_rules_path = doc_rule.yaml 경로(같은 폴더에서 사전들을 찾는다)
+# -in: industry       = 얹을 업종 목록. None(기본)이면 규칙 파일(없으면 본보기)의
+#                       industry 를 읽는다. 규칙 자동 생성(docbuild)은 업종을
+#                       doc_rule.local.yaml 에서 정하므로 이 인자로 넘긴다
 #
 # -out: dict = {"aliases","filename_only","excludes","tails","heads"} 와
 #              "suffixes"(띄어쓰기 끝말 목록 — core 기준 + 업종·local 추가, 긴 것부터) ·
@@ -436,16 +456,18 @@ def _clean_extra_terms(raw):
 #              한 겹도 못 읽었으면 빈 dict
 # -out: error = 파일 없음·파싱 실패 시 그 겹만 건너뛴다(예외를 올리지 않는다)
 #------------------------------------------------------------------
-def load_synonyms(doc_rules_path):
+def load_synonyms(doc_rules_path, industry=None):
     if not doc_rules_path:
         return {}
     base_dir = os.path.dirname(os.path.abspath(doc_rules_path))
+    # 업종을 받았으면 그대로 쓰고, 아니면 규칙 파일에서 읽는다(종전 동작).
+    industries = clean_industry(industry) if industry is not None else industry_of(doc_rules_path)
 
     # 약한 것부터 센 것 순. 업종은 여러 개일 수 있고, 앞에 적은 업종이 더 세다.
     # synomins(유의어)폴더에서 doc_synoymins_core.yaml 로딩.
     names = [SYN_CORE]
     names += [f"doc_synonyms.{ind}.yaml"
-              for ind in reversed(industry_of(doc_rules_path))]
+              for ind in reversed(industries)]
     names.append(SYN_LOCAL)
 
 

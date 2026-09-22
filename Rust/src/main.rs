@@ -9,6 +9,7 @@ mod detect;
 mod districts;
 mod doc_rules;
 mod doctype;
+mod docbuild;
 mod docvocab;
 mod embed;
 mod errcodes;
@@ -88,6 +89,7 @@ struct Opts {
     embed_needed: bool,          // 임베딩을 '아직 못 정한 문서'에만(Python --embed-needed 와 같은 뜻)
     no_timing: bool,             // 처리 시간 출력 끄기(요약줄의 총시간)
     sync_doc_rule: bool,         // 분류 체계를 훑어 doc_rule.yaml 을 채운다
+    build_doc_rule: bool,        // 체계 JSON·사전·local 조정으로 doc_rule.yaml 을 통째로 만든다
     sync_fill_blank: bool,       // 빈 규칙도 시작값으로 채울지(기본 켬)
     sync_enrich: bool,           // 이미 말이 있는 규칙에도 빠진 유의어를 더할지
     with_vector: bool,      // 모든 문서를 임베딩해 결과 레코드에 vector 필드로 실어 보냄
@@ -243,6 +245,7 @@ fn usage() {
     eprintln!("  --export-taxonomy         DOC_CLASSIFICATION JSON → --taxonomy 경로에 스냅샷 생성 후 종료");
     eprintln!("  --export-input <파일>     그 원본 JSON(미지정 시 exe 옆 doc_classification_export.json)");
     eprintln!("  --scaffold-doc-rule       위와 함께 쓰면 --doc-rules 경로에 규칙 골격도 생성(있으면 건너뜀)");
+    eprintln!("  --build-doc-rule          체계 JSON(--export-input)·사전·doc_rule.local.yaml 로 --doc-rules 파일을 통째로 새로 만든다");
     eprintln!("  --sync-doc-rule           분류 체계를 훑어 --doc-rules 파일에 규칙을 채운다(유의어 사전 적용)");
     eprintln!("    --no-fill-blank         └ 단어가 하나도 없는 기존 규칙은 채우지 않는다(기본은 채움)");
     eprintln!("    --sync-enrich           └ 이미 말이 있는 규칙에도 빠진 유의어만 더한다(기본 끔)");
@@ -396,7 +399,7 @@ fn parse_args() -> Result<Opts, String> {
         no_summary: false, hash: false, with_pii: false, with_text: false,
         rule_only: false, vector_only: false, doctype_vector_only: false,
         progress: false, embed_needed: false, no_timing: false,
-        sync_doc_rule: false, sync_fill_blank: true, sync_enrich: false,
+        sync_doc_rule: false, sync_fill_blank: true, sync_enrich: false, build_doc_rule: false,
         with_vector: false, propagate: None,
         auto_propagate: false, seeds: None,
         seed: seedcli::SeedArgs::default(),
@@ -468,6 +471,7 @@ fn parse_args() -> Result<Opts, String> {
             "--embed-needed" => o.embed_needed = true,
             "--no-timing" => o.no_timing = true,
             "--sync-doc-rule" => o.sync_doc_rule = true,
+            "--build-doc-rule" => o.build_doc_rule = true,
             "--no-fill-blank" => o.sync_fill_blank = false,
             "--sync-enrich" => o.sync_enrich = true,
             "--with-vector" => o.with_vector = true,
@@ -1042,6 +1046,22 @@ fn load_doctype_axis(opts: &Opts) -> Result<Option<(Taxonomy, DocRuleSet)>, i32>
     }
     let explicit = opts.axis.as_deref() == Some("doctype");
 
+    // 자동 생성 규칙 파일이면 분류체계가 규칙 줄 안에 있다 — doc_taxonomy.yaml 을 찾지 않는다.
+    if let Some(rp) = resolve_policy_file(&opts.doc_rules, doc_rules::default_doc_rule_filename()) {
+        if rp.is_file() && is_generated_rules(&rp) {
+            let mut drs = match doc_rules::load_doc_rules(&rp, None) {
+                Ok(d) => d,
+                Err(e) => errcodes::fail("doc_rules_invalid",
+                    &format!("[MpowerClassify-rs] {}", e), rp.to_str()),
+            };
+            for w in &drs.warnings {
+                note!("[MpowerClassify-rs] {}", w);
+            }
+            let tax = drs.taxonomy.take().expect("생성 규칙은 분류체계를 싣는다");
+            return Ok(Some((tax, drs)));
+        }
+    }
+
     // ── 분류체계 스냅샷(어휘)
     let tpath = match resolve_policy_file(&opts.taxonomy, axes::default_taxonomy_filename()) {
         Some(p) if p.is_file() => p,
@@ -1110,6 +1130,64 @@ fn load_doctype_axis(opts: &Opts) -> Result<Option<(Taxonomy, DocRuleSet)>, i32>
 ///  2) --scaffold-doc-rule 이면 doc_rule.yaml 골격도 --doc-rules 경로에 생성
 ///
 /// -out: 종료코드(0 성공 / 3 원본을 못 찾거나 못 읽음 / 4 변환 결과가 검증 실패)
+/// 규칙 파일이 자동 생성본인가(generated 칸이 있나). 못 읽으면 false — 옛 길의 검증이 알린다.
+fn is_generated_rules(path: &Path) -> bool {
+    let text = match std::fs::read_to_string(path) { Ok(t) => t, Err(_) => return false };
+    match serde_yaml::from_str::<serde_yaml::Value>(&text) {
+        Ok(v) => serde_json::to_value(&v).map(|j| docbuild::is_generated(&j)).unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+/// 업무분류 규칙 자동 생성(--build-doc-rule) — Python run_build_doc_rule 과 같은 일.
+/// 체계 JSON · 사전 · 본보기 · doc_rule.local.yaml 로 doc_rule.yaml 을 통째로 만들고,
+/// 방금 쓴 파일을 로더로 다시 읽어 검증한다.
+/// -out: 종료코드(0 정상 / 3 체계 JSON 없음 / 4 입력 오류·쓰기 실패)
+fn run_build_doc_rule(opts: &Opts) -> i32 {
+    // 출력은 '아직 없을 수 있는 파일'이라 is_file 로 거르지 않는다. 없으면 정책 폴더/exe 옆.
+    let out_path = match &opts.doc_rules {
+        Some(p) => PathBuf::from(p),
+        None => match std::env::var("CSOCLASSIFY_POLICY_DIR") {
+            Ok(d) => Path::new(&d).join(doc_rules::default_doc_rule_filename()),
+            Err(_) => std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf()))
+                .unwrap_or_else(|| PathBuf::from(".")).join(doc_rules::default_doc_rule_filename()),
+        },
+    };
+    let policy_dir = out_path.parent().filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    // 체계 JSON 기본 자리는 규칙 파일 옆 — 연동 때 엠파워가 그 자리에 둔다.
+    let export = opts.export_input.as_ref().map(PathBuf::from)
+        .unwrap_or_else(|| policy_dir.join(axes::default_export_input_filename()));
+    if !export.is_file() {
+        errcodes::fail("export_input_missing",
+            &format!("[MpowerClassify-rs] 체계 JSON 을 찾을 수 없습니다: {}\n  · --export-input <파일경로> 로 지정하거나,\n  · 규칙 파일 옆에 doc_classification_export.json 을 두세요.",
+                     export.display()), export.to_str());
+    }
+    let (doc, warns) = match docbuild::build_doc_rule(&export, &policy_dir) {
+        Ok(x) => x,
+        Err(docbuild::BuildError::Local(e)) => errcodes::fail("doc_rules_invalid",
+            &format!("[MpowerClassify-rs] {}", e), None),
+        Err(docbuild::BuildError::Export(e)) => errcodes::fail("export_input_invalid",
+            &format!("[MpowerClassify-rs] {}", e), export.to_str()),
+    };
+    if let Err(e) = docbuild::write_doc_rule(&out_path, &doc) {
+        errcodes::fail("doc_rules_write_failed", &format!("[MpowerClassify-rs] 규칙 파일을 쓰지 못했습니다: {}", e),
+                       out_path.to_str());
+    }
+    // 방금 쓴 파일을 엔진이 그대로 읽는지 확인한다 — 다음 분류 때 알게 되면 늦다.
+    if let Err(e) = doc_rules::load_doc_rules(&out_path, None) {
+        errcodes::fail("doc_rules_invalid", &format!("[MpowerClassify-rs] {}", e), out_path.to_str());
+    }
+    // 요약·경고는 오류가 아니다 — --json-errors(화면 호출)여도 stderr 로 낸다(화면이 요약 줄을 읽는다).
+    for w in &warns { eprintln!("[MpowerClassify-rs] {}", w); }
+    let rules = doc["doctype_rules"].as_array().map(|a| a.len()).unwrap_or(0);
+    let local = doc["doctype_rules"].as_array().map(|a| a.iter().filter(|r| r.get("local").is_some()).count()).unwrap_or(0);
+    let inputs = doc["generated"]["inputs"].as_array().map(|a| a.len()).unwrap_or(0);
+    eprintln!("[MpowerClassify-rs] {} 생성 — 규칙 {}개(회사 조정 {}개) · 판 {} · 입력 {}개",
+          out_path.display(), rules, local, doc["version"].as_str().unwrap_or(""), inputs);
+    0
+}
+
 /// 업무분류 규칙 채우기(--sync-doc-rule) — 화면 [분류 불러오기] 와 같은 일.
 /// 분류 체계를 훑어 doc_rule.yaml 에 규칙을 채운다. 어휘를 만드는 층(docvocab)은
 /// Python 판과 골든 테스트로 묶여 있어, 화면과 같은 결과가 나온다.
@@ -1868,6 +1946,11 @@ fn main() {
     // doc_taxonomy.yaml 이 아직 없다는 이유로 축 로드에서 또 걸린다 — 그래서 여기서 끝낸다.
     if opts.export_taxonomy {
         std::process::exit(errcodes::finish(run_export_taxonomy(&opts), None));
+    }
+
+    // 업무분류 규칙 자동 생성 모드 — 체계 JSON 과 정책 폴더만 있으면 된다.
+    if opts.build_doc_rule {
+        std::process::exit(errcodes::finish(run_build_doc_rule(&opts), None));
     }
 
     // 업무분류 규칙 채우기 전용 모드 — 분류 체계와 규칙 파일만 있으면 된다.

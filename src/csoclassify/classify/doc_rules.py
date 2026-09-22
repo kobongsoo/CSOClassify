@@ -203,6 +203,10 @@ class DocRuleSet:
     head_lexicon: dict = None
     # 핵어 자리를 보기 전에 걷어낼 잡음 꼬리 말(core 사전의 noise_tails).
     head_noise: tuple = ()
+    # 자동 생성 규칙 파일(generated 칸이 있는 것)이면 규칙 줄의 path·path_ids 로
+    # 다시 지은 분류체계(axes.Taxonomy). 옛 규칙 파일이면 None — 그때는
+    # doc_taxonomy.yaml 을 따로 읽는다.
+    taxonomy: object = None
 
     #------------------------------------------------------------------
     # 실제로 매칭에 쓸 규칙만
@@ -648,12 +652,13 @@ def format_doc_rule_violations(path, violations):
         "T20": "[T20] 임계값·수치 설정이 올바르지 않음",
         "T21": "[T21] form(서식 필드어) 형식 오류",
         "T22": "[T22] structure 정규식 오류",
+        "G1": "[G1] 자동 생성 규칙의 경로(path·path_ids)가 맞지 않음",
     }
     lines = [
         f"[규칙셋 오류] {path} — 검증 실패 {len(violations)}건. doctype 축을 로드하지 않았습니다.",
         "",
     ]
-    for code in ("T0", "T2", "T5", "T10", "T20", "T21", "T22"):
+    for code in ("G1", "T0", "T2", "T5", "T10", "T20", "T21", "T22"):
         group = [v for v in violations if v["code"] == code]
         if not group:
             continue
@@ -789,6 +794,19 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
 
     raw_rules = data.get("doctype_rules") or []
 
+    # 자동 생성 규칙 파일이면 분류체계를 규칙 줄에서 다시 짓는다 — doc_taxonomy.yaml
+    # 을 따로 읽지 않는다(설계서 9장). 받은 taxonomy 가 있어도 규칙 쪽을 믿는다:
+    # 규칙과 체계가 같은 입력에서 한 번에 만들어졌기 때문이다.
+    from . import docbuild
+    generated = docbuild.is_generated(data)
+    if generated:
+        from . import axes as AX
+        try:
+            taxonomy = AX.taxonomy_from_rules(
+                [r for r in raw_rules if isinstance(r, dict)], data.get("version", ""))
+        except ValueError as e:
+            raise DocRuleValidationError(path, [_dv("G1", None, "path_ids", "", str(e))])
+
     if validate:
         violations = validate_doc_rule_data(data)
         if not violations and taxonomy is not None:
@@ -837,7 +855,8 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
             active=active,
         ))
 
-    if taxonomy is not None:
+    # 생성 규칙은 규칙 줄에서 체계를 지었으므로 '규칙 없는 분류'(T12)가 있을 수 없다.
+    if taxonomy is not None and not generated:
         # '서랍'(최상위이면서 자식이 있는 노드)에는 규칙을 걸지 않는 것이 설계다.
         # 규칙을 만드는 쪽(docvocab.syncable_nodes)과 반드시 같은 기준을 써야 한다 —
         # 어긋나면 "규칙을 만들어 주지도 않으면서 경고만 하는" 상태가 된다.
@@ -859,7 +878,18 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
     # 핵어 사전은 로드할 때 한 번만 만든다(문서 수만큼 다시 만들면 비싸다).
     # 분류체계 파일이 없으면 이 신호만 끄고 계속한다(설계서 13-4 결정 5).
     head_lexicon, head_noise = {}, ()
-    if taxonomy is not None:
+    if generated:
+        # 핵어는 만들 때 계산해 규칙마다 적어 두었다 — 판정 때 사전을 읽지 않는다.
+        for item in raw_rules:
+            heads = list(item.get("heads") or [])
+            if heads:
+                head_lexicon[item["node"]] = {
+                    "title": str(item.get("title") or "").replace(" ", ""),
+                    "heads": heads}
+        head_noise = tuple(data.get("noise_tails") or ())
+        # 손으로 고친 흔적·입력이 바뀐 것을 알린다(판정은 막지 않는다).
+        warnings += docbuild.check_generated(data, path)
+    elif taxonomy is not None:
         from . import taxhead
         from .docvocab import load_synonyms
         syn = load_synonyms(path)
@@ -873,7 +903,8 @@ def load_doc_rules(path=None, taxonomy=None, validate=True):
     return DocRuleSet(conflict=conflict, version=str(data.get("version", "unknown")),
                       rules=tuple(rules), warnings=tuple(warnings),
                       defaults=defaults, embed=embed, signals=signals,
-                      head_lexicon=head_lexicon, head_noise=head_noise)
+                      head_lexicon=head_lexicon, head_noise=head_noise,
+                      taxonomy=taxonomy if generated else None)
 
 
 # 새 doc_rule.yaml 의 머리 부분을 가져올 본보기 파일 이름(화면·CLI 공용 규약).

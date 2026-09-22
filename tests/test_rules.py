@@ -1030,3 +1030,131 @@ def test_superlinear_coverage():
     # 초선형 라벨을 안 켰으면 이 상한은 이번 실행과 무관하다 — 길어도 capped 아님.
     capped, cov, tot = R.superlinear_coverage(long_, {"RRN", "EMAIL"})
     assert capped is False and cov == tot == len(long_)
+
+
+# ── PII 등급 상한(defaults.pii_grade_cap) — 2026-09-21 ──────────────────────
+
+#------------------------------------------------------------------
+# 상한을 건 규칙셋 만들기
+#=> 기본 규칙셋에서 defaults 만 바꾼 복사본을 돌려준다. 파일을 쓰지 않고
+#   dataclasses.replace 로 바꾸므로 다른 시험의 규칙셋 픽스처를 건드리지 않는다.
+#
+# -in: rs  = 기본 규칙셋
+# -in: cap = 상한 등급("C"/"S"/"O") 또는 None
+#
+# -out: RuleSet = 상한만 다른 규칙셋
+# -out: error = 없음
+#------------------------------------------------------------------
+def _with_cap(rs, cap):
+    from dataclasses import replace
+    return replace(rs, defaults=replace(rs.defaults, pii_grade_cap=cap))
+
+
+#------------------------------------------------------------------
+# 상한 S — 주민번호 대량은 S 에서 멈추고, 원래 등급이 근거에 남는다
+#=> 사용자 기준이 "사내 민감 규정만 C"인 고객은 명단 속 PII 만으로 C 가 되는 것을
+#   막고 싶어 한다. 상한 S 면 bulk C 가 S 로 깎이고 capped_from="C" 가 남아야 한다.
+#
+# -in: rs = 규칙셋
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_pii_cap_stops_bulk_rrn_at_S(rs):
+    text = "명단\n" + "\n".join(f"{i}. {VALID_RRN}" for i in range(5))
+    sig = R.scan_text(text, _with_cap(rs, "S"))
+    assert sig.grade == "S"
+    rrn = next(h for h in sig.hits if h.rule_id == "rrn")
+    assert rrn.grade == "S" and rrn.capped_from == "C"
+    # 결과 파일에도 원래 등급이 보인다 — "왜 C 가 아니냐"를 감사에서 답할 수 있게.
+    d = next(h for h in sig.as_dict()["hits"] if h["id"] == "rrn")
+    assert d["capped_from"] == "C"
+
+
+#------------------------------------------------------------------
+# 상한은 PII 만 — 키워드가 낸 C 는 그대로
+#=> 같은 문서에 '대외비' 같은 기밀 표식이 있으면 C 는 PII 가 아니라 키워드 근거다.
+#   상한이 그것까지 깎으면 "PII 단독 C 금지"가 아니라 "C 금지"가 된다.
+#
+# -in: rs = 규칙셋
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_pii_cap_keeps_keyword_C(rs):
+    text = "본 문서는 대외비입니다.\n" + "\n".join(f"{i}. {VALID_RRN}" for i in range(5))
+    sig = R.scan_text(text, _with_cap(rs, "S"))
+    assert sig.grade == "C"
+    assert next(h for h in sig.hits if h.rule_id == "rrn").grade == "S"
+    assert any(h.layer == "L2" and h.grade == "C" for h in sig.hits)
+
+
+#------------------------------------------------------------------
+# 상한은 결합 규칙(COMBO)에도 걸린다
+#=> 신원+카드 결합은 grade C 규칙이다. PII 끼리의 조합이라 상한 대상이다.
+#
+# -in: rs = 규칙셋
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_pii_cap_applies_to_combo(rs):
+    text = f"주민번호 {VALID_RRN} 카드번호 {VALID_CARD}"
+    base = R.scan_text(text, rs)
+    combo = next(h for h in base.hits if h.rule_id == "identity_card")
+    assert combo.grade == "C" and combo.capped_from is None
+    capped = R.scan_text(text, _with_cap(rs, "S"))
+    combo = next(h for h in capped.hits if h.rule_id == "identity_card")
+    assert combo.layer == "COMBO" and combo.grade == "S" and combo.capped_from == "C"
+    assert capped.grade == "S"
+
+
+#------------------------------------------------------------------
+# 상한이 없으면 종전과 같다 — 결과 dict 에 capped_from 칸도 없다
+#=> 옛 규칙셋·상한을 안 쓰는 배포는 판정도 결과 파일도 한 글자 달라지면 안 된다.
+#
+# -in: rs = 규칙셋
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_pii_cap_absent_is_unchanged(rs):
+    assert rs.defaults.pii_grade_cap is None
+    text = "명단\n" + "\n".join(f"{i}. {VALID_RRN}" for i in range(5))
+    sig = R.scan_text(text, rs)
+    assert sig.grade == "C"
+    assert all("capped_from" not in h for h in sig.as_dict()["hits"])
+
+
+#------------------------------------------------------------------
+# 상한보다 낮은 등급은 끌어올리지 않는다
+#=> 상한 S 에서 주민번호 1건(base S)은 그대로 S 이고 깎였다는 표시도 없다. 상한은 천장이지 바닥이 아니다.
+#
+# -in: rs = 규칙셋
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_pii_cap_never_raises(rs):
+    sig = R.scan_text(f"주민번호 {VALID_RRN}", _with_cap(rs, "S"))
+    rrn = next(h for h in sig.hits if h.rule_id == "rrn")
+    assert rrn.grade == "S" and rrn.capped_from is None
+
+
+#------------------------------------------------------------------
+# 규칙 파일의 상한 값 읽기·검증(V14)
+#=> 파일에 적은 값이 그대로 실리고, C/S/O 가 아닌 값은 로드에서 막혀야 한다.
+#   오타를 '제한 없음'으로 조용히 읽으면 관리자는 막았다고 믿는데 C 가 계속 나온다.
+#
+# -in: tmp_path = pytest 임시 폴더
+# -out: 없음(assert)
+# -out: error = 실패 시 AssertionError
+#------------------------------------------------------------------
+def test_pii_cap_loaded_and_validated(tmp_path):
+    import yaml
+    data = yaml.safe_load(open(R.default_rules_path(), encoding="utf-8"))
+    p = tmp_path / "cso_rule.yaml"
+    data["defaults"]["pii_grade_cap"] = "S"
+    p.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    assert R.load_rules(str(p)).defaults.pii_grade_cap == "S"
+    for bad in ("s", "X", 1, ["S"]):
+        data["defaults"]["pii_grade_cap"] = bad
+        p.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+        with pytest.raises(R.RuleSetValidationError) as ei:
+            R.load_rules(str(p))
+        assert any(v["code"] == "V14" for v in ei.value.violations)

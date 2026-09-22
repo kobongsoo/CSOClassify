@@ -137,10 +137,16 @@ build_rust() {
     cp -r "$MODEL_SRC" "$D/models/" || die "모델 복사 실패"
     chmod -R u+rwX,go+rX "$D/models"
     # 규칙셋·분류체계·seed·유의어·README — 빠뜨리면 배포본이 조용히 반쪽이 된다.
-    for f in cso_rule.yaml doc_taxonomy.yaml doc_rule.yaml class_seed.jsonl README.txt; do
+    # 체계 JSON·본보기는 자동 생성 규칙의 입력이다 — 곁에 없으면 돌 때마다 경고가 난다.
+    for f in cso_rule.yaml doc_taxonomy.yaml doc_rule.yaml doc_classification_export.json \
+             doc_rule_template.yaml class_seed.jsonl README.txt; do
         [ -f "$RS_BUILD/assets/$f" ] || die "assets/$f 가 없습니다 (윈도우 쪽에서 올리세요)"
         cp "$RS_BUILD/assets/$f" "$D/"
     done
+    # 회사 조정 파일은 없는 회사도 있다(없으면 건너뛴다 — set -e 에 걸리지 않게 if 로 쓴다).
+    if [ -f "$RS_BUILD/assets/doc_rule.local.yaml" ]; then
+        cp "$RS_BUILD/assets/doc_rule.local.yaml" "$D/"
+    fi
     [ -d "$RS_BUILD/assets/synonyms" ] && cp -r "$RS_BUILD/assets/synonyms" "$D/"
 
     step "리눅스 · Rust 묶기"
