@@ -124,6 +124,9 @@ pub struct DocRuleSet {
     pub head_lexicon: std::collections::HashMap<String, crate::taxhead::HeadEntry>,
     /// 핵어 자리를 보기 전에 걷어낼 잡음 꼬리 말(core 사전의 noise_tails).
     pub head_noise: Vec<String>,
+    /// 자동 생성 규칙 파일이면 규칙 줄의 path·path_ids 로 다시 지은 분류체계.
+    /// 옛 규칙 파일이면 None — 그때는 doc_taxonomy.yaml 을 따로 읽는다.
+    pub taxonomy: Option<Taxonomy>,
 }
 
 impl DocRuleSet {
@@ -148,6 +151,7 @@ impl DocRuleSet {
             rules: Vec::new(),
             warnings: Vec::new(),
             head_lexicon: std::collections::HashMap::new(),
+            taxonomy: None,
             head_noise: Vec::new(),
         }
     }
@@ -763,6 +767,20 @@ pub fn load_doc_rules(path: &std::path::Path, taxonomy: Option<&Taxonomy>) -> Re
 
     let raw_rules: Vec<Value> = data.get("doctype_rules").and_then(|v| v.as_array()).cloned().unwrap_or_default();
 
+    // 자동 생성 규칙 파일이면 분류체계를 규칙 줄에서 다시 짓는다 — doc_taxonomy.yaml 을
+    // 따로 읽지 않는다(설계서 9장). 받은 taxonomy 가 있어도 규칙 쪽을 믿는다.
+    let generated = crate::docbuild::is_generated(&data);
+    let gen_tax: Option<Taxonomy> = if generated {
+        let rules_obj: Vec<Value> = raw_rules.iter().filter(|r| r.is_object()).cloned().collect();
+        match crate::axes::taxonomy_from_rules(&rules_obj, &s(&data, "version", "")) {
+            Ok(t) => Some(t),
+            Err(e) => return Err(DocRulesError::Invalid(format!(
+                "[규칙셋 오류] {} — 검증 실패 1건. doctype 축을 로드하지 않았습니다.\n\n  [G1] 자동 생성 규칙의 경로(path·path_ids)가 맞지 않음\n    {}",
+                path.display(), e))),
+        }
+    } else { None };
+    let taxonomy: Option<&Taxonomy> = if generated { gen_tax.as_ref() } else { taxonomy };
+
     let mut violations = validate_doc_rule_data(&data);
     if violations.is_empty() {
         if let Some(t) = taxonomy {
@@ -813,7 +831,8 @@ pub fn load_doc_rules(path: &std::path::Path, taxonomy: Option<&Taxonomy>) -> Re
         });
     }
 
-    if let Some(t) = taxonomy {
+    // 생성 규칙은 규칙 줄에서 체계를 지었으므로 '규칙 없는 분류'(T12)가 있을 수 없다.
+    if let Some(t) = taxonomy.filter(|_| !generated) {
         for node in t.active_nodes() {
             if referenced.contains(&node.dc_id) { continue; }
             // '서랍'(최상위이면서 자식이 있는 노드)에는 규칙을 걸지 않는 것이 설계다.
@@ -834,7 +853,22 @@ pub fn load_doc_rules(path: &std::path::Path, taxonomy: Option<&Taxonomy>) -> Re
     // 분류체계 파일이 없으면 이 신호만 끄고 계속한다(설계서 13-4 결정 5).
     let mut head_lexicon = std::collections::HashMap::new();
     let mut head_noise: Vec<String> = vec![];
-    if let Some(t) = taxonomy {
+    if generated {
+        // 핵어는 만들 때 계산해 규칙마다 적어 두었다 — 판정 때 사전을 읽지 않는다.
+        for item in &raw_rules {
+            let heads: Vec<String> = item.get("heads").and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str()).map(|x| x.to_string()).collect())
+                .unwrap_or_default();
+            if heads.is_empty() { continue; }
+            head_lexicon.insert(s(item, "node", ""), crate::taxhead::HeadEntry {
+                title: s(item, "title", "").replace(' ', ""), heads });
+        }
+        head_noise = data.get("noise_tails").and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str()).map(|x| x.to_string()).collect())
+            .unwrap_or_default();
+        // 손으로 고친 흔적·입력이 바뀐 것을 알린다(판정은 막지 않는다).
+        warnings.extend(crate::docbuild::check_generated(&data, path));
+    } else if let Some(t) = taxonomy {
         let syn = crate::docvocab::load_synonyms(path);
         // ⓑ 말 단위 제외 · ⓒ 노드 단위 끄기 — 둘 다 doc_rule.yaml 에 적는다.
         let excludes: Vec<String> = data.get("taxonomy_title_exclude")
@@ -856,7 +890,7 @@ pub fn load_doc_rules(path: &std::path::Path, taxonomy: Option<&Taxonomy>) -> Re
 
     Ok(DocRuleSet { conflict, defaults, embed, signals,
                     version: s(&data, "version", "unknown"), rules, warnings,
-                    head_lexicon, head_noise })
+                    head_lexicon, head_noise, taxonomy: gen_tax })
 }
 
 #[cfg(test)]

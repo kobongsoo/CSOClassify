@@ -170,3 +170,31 @@ def test_검토함_편입선은_규칙셋이_정한다(tmp_path):
         p.write_text(yaml.safe_dump(base, allow_unicode=True), encoding="utf-8")
         with pytest.raises(R.RuleSetValidationError):
             R.load_rules(str(p))
+
+
+
+# ── PII 등급 상한 — 화면 저장 (2026-09-21) ────────────────────────────────
+
+#------------------------------------------------------------------
+# 화면의 상한 선택이 규칙 파일 칸으로 옮겨진다
+#=> 'S 까지'를 고르면 defaults.pii_grade_cap: S 가 적히고, '제한 없음'을 고르면
+#   칸이 지워져야 한다(칸이 없는 것이 곧 종전 동작). 상한 인자를 안 주면
+#   (다른 편집만 저장) 파일에 있던 값을 건드리지 않아야 한다.
+#
+# -in: 없음
+#
+# -out: 없음(단언)
+# -out: error = 어긋나면 AssertionError
+#------------------------------------------------------------------
+def test_PII_상한은_화면에서_저장된다():
+    import rulesedit
+
+    doc = {"defaults": {"bulk_threshold": 5}, "keywords": []}
+    rulesedit.apply_all(doc, 5, [], pii_cap="S")
+    assert doc["defaults"]["pii_grade_cap"] == "S"
+    # 상한을 주지 않은 저장은 기존 값을 그대로 둔다.
+    rulesedit.apply_all(doc, 7, [])
+    assert doc["defaults"]["pii_grade_cap"] == "S"
+    # '제한 없음'(None)은 칸을 지운다.
+    rulesedit.apply_all(doc, 5, [], pii_cap=None)
+    assert "pii_grade_cap" not in doc["defaults"]

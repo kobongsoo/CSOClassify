@@ -86,10 +86,21 @@ pscp -batch -q -pw "$PW" scripts/build/_lib.sh scripts/build/linux-remote.sh \
 
 # 외장 자산(규칙셋·분류체계·seed·유의어·README)도 함께 올린다 — 빠지면
 # 배포본이 오류 없이 반쪽이 된다.
+# 자동 생성 규칙(doc_rule.yaml)은 만들 때 쓴 입력(체계 JSON·본보기·회사 조정)이
+# 곁에 없으면 돌 때마다 "입력이 없어짐" 경고를 내고, 현장에서 다시 만들 수도 없다.
 pscp -batch -q -pw "$PW" \
      resources/policy/cso_rule.yaml ui/policy/doc_taxonomy.yaml ui/policy/doc_rule.yaml \
+     ui/policy/doc_classification_export.json resources/policy/doc_rule_template.yaml \
      Rust/dist-onedir/linux/class_seed.jsonl Rust/dist-onedir/linux/README.txt \
      "$USER_ID@$HOST:$RS_BUILD/assets/" || die "외장 자산 전송 실패"
+# 회사 조정 파일은 없는 회사도 있다 — 있을 때만 올리고, 없으면 서버의 옛것을 지운다.
+if [ -f ui/policy/doc_rule.local.yaml ]; then
+    pscp -batch -q -pw "$PW" ui/policy/doc_rule.local.yaml "$USER_ID@$HOST:$RS_BUILD/assets/" \
+        || die "회사 조정 파일 전송 실패"
+else
+    plink -batch -ssh -l "$USER_ID" -pw "$PW" "$HOST" "rm -f $RS_BUILD/assets/doc_rule.local.yaml" \
+        || die "서버의 옛 회사 조정 파일을 지우지 못했습니다"
+fi
 tar -czf "$TMP/synonyms.tgz" -C Rust/dist-onedir/linux synonyms 2>/dev/null \
     && pscp -batch -q -pw "$PW" "$TMP/synonyms.tgz" "$USER_ID@$HOST:/tmp/" \
     && plink -batch -ssh -l "$USER_ID" -pw "$PW" "$HOST" \

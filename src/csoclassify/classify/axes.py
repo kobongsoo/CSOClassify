@@ -521,7 +521,26 @@ def load_taxonomy(path=None, validate=True):
         )
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
+    return taxonomy_from_snapshot(data, path, validate)
 
+
+#------------------------------------------------------------------
+# 스냅샷 dict → Taxonomy
+#=> 파일을 읽은 뒤의 일(검증 → 노드 만들기)만 떼어 낸 것이다. 규칙 자동 생성
+#   (docbuild)은 체계 JSON 을 바로 변환한 dict 를 파일로 쓰지 않고 여기로 넘긴다
+#   — doc_taxonomy.yaml 을 거치지 않기 위해서다.
+#    1) 구조·트리 검증(T0·T7·T8) — 위반이 하나라도 있으면 실패
+#    2) TaxonomyNode 목록을 만들어 Taxonomy 로 감싼다
+#
+# -in: data     = {"taxonomy": {source, exported_at, node_count, nodes}} 모양 dict
+# -in: path     = 오류 보고문에 적을 출처(파일 경로 또는 설명 문자열)
+# -in: validate = False 면 검증을 건너뛴다(기본 True)
+#
+# -out: Taxonomy
+# -out: error = 검증 실패 시 TaxonomyValidationError(위반 전체 목록 포함)
+#------------------------------------------------------------------
+def taxonomy_from_snapshot(data, path="(snapshot)", validate=True):
+    data = data or {}
     # 구조·트리 검증을 '파싱 직후·객체 생성 전'에 한다. Taxonomy 를 만들고 나서
     # 검사하면 이미 절반쯤 틀린 트리로 경로 계산이 돌아갈 수 있다.
     if validate:
@@ -548,6 +567,47 @@ def load_taxonomy(path=None, validate=True):
         node_count=int(root.get("node_count", len(nodes)) or len(nodes)),
         nodes=nodes,
     )
+
+
+#------------------------------------------------------------------
+# 자동 생성 규칙 줄들 → Taxonomy
+#=> 자동 생성된 doc_rule.yaml 에는 분류체계 칸이 없다. 대신 규칙마다 제 분류의
+#   title·path(" > " 로 이은 제목들)·path_ids 가 적혀 있다. 판정 코드(조상 정리·
+#   경로·대분류 묶기)는 Taxonomy 객체를 그대로 쓰므로, 그 조각들로 객체를 다시 짓는다.
+#    1) 규칙마다 path_ids 와 path 조각을 짝지어 조상 노드까지 만든다
+#       (조상은 규칙이 없어도 경로 안에 이름이 있다 — 대분류 서랍 등)
+#    2) 같은 dc_id 가 두 번 나오면 먼저 나온 것을 쓴다(조상은 여러 규칙이 공유)
+#    3) 순서(order)는 처음 나온 차례 — 관리 화면의 order 는 판정에 쓰지 않는다
+#   규칙에 없는 분류(꺼 둔 분류)는 이 객체에도 없다. 그런 dc_id 는 '없는 분류'다.
+#
+# -in: raw_rules   = doctype_rules 목록(dict). 각 항목에 node·path·path_ids·title
+# -in: exported_at = 이 체계의 판 표시(결과 머리글의 taxonomy_version 으로 나간다)
+#
+# -out: Taxonomy
+# -out: error = path_ids 와 path 조각 수가 다르거나 마지막 id 가 node 가 아니면 ValueError
+#------------------------------------------------------------------
+def taxonomy_from_rules(raw_rules, exported_at=""):
+    by_id = {}
+    for item in raw_rules or []:
+        node = item.get("node")
+        ids = list(item.get("path_ids") or [])
+        titles = str(item.get("path") or "").split(" > ") if item.get("path") else []
+        # 경로와 id 가 한 칸씩 맞아야 조상 이름을 제대로 붙일 수 있다.
+        if not ids or ids[-1] != node or len(titles) != len(ids):
+            raise ValueError(
+                f"규칙 {item.get('id')!r} 의 path_ids({ids}) 와 path({item.get('path')!r}) 가 "
+                f"맞지 않습니다 — --build-doc-rule 로 규칙 파일을 다시 만드세요")
+        parent = None
+        for dc_id, title in zip(ids, titles):
+            if dc_id not in by_id:
+                # 규칙 줄의 title 이 곧 그 분류의 제목이다(경로 조각과 같아야 정상).
+                t = item.get("title") if dc_id == node and item.get("title") else title
+                by_id[dc_id] = TaxonomyNode(dc_id=dc_id, parent=parent,
+                                            order=len(by_id), title=t, status=1)
+            parent = dc_id
+    nodes = tuple(by_id.values())
+    return Taxonomy(source="doc_rule.yaml", exported_at=str(exported_at or ""),
+                    node_count=len(nodes), nodes=nodes)
 
 
 #------------------------------------------------------------------

@@ -191,7 +191,10 @@ def test_axis_security면_시도조차_안함(tmp_path, capsys):
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_기본축_스냅샷없으면_경고후_통과(tmp_path, capsys):
-    args = SimpleNamespace(axis=None, taxonomy=str(tmp_path / "없음.yaml"), doc_rules=None)
+    # 규칙 경로를 임시 폴더로 준다 — 기본 경로(resources/policy)가 자동 생성 규칙이면
+    # 체계가 규칙 안에 있어 스냅샷을 찾지 않으므로, 이 시험이 보려는 길로 가지 않는다.
+    args = SimpleNamespace(axis=None, taxonomy=str(tmp_path / "없음.yaml"),
+                           doc_rules=str(tmp_path / "doc_rule.yaml"))
     taxonomy, drs, code = cli._load_doctype_axis(args, _fake_log())
     assert (taxonomy, drs, code) == (None, None, None)
     assert "건너뜁니다" in capsys.readouterr().err
@@ -208,7 +211,9 @@ def test_기본축_스냅샷없으면_경고후_통과(tmp_path, capsys):
 # -out: error = 없음
 #------------------------------------------------------------------
 def test_axis_doctype인데_스냅샷없으면_종료3(tmp_path):
-    args = SimpleNamespace(axis="doctype", taxonomy=str(tmp_path / "없음.yaml"), doc_rules=None)
+    # 규칙 경로를 임시 폴더로 준다 — 기본 경로가 자동 생성 규칙이면 스냅샷을 찾지 않는다.
+    args = SimpleNamespace(axis="doctype", taxonomy=str(tmp_path / "없음.yaml"),
+                           doc_rules=str(tmp_path / "doc_rule.yaml"))
     taxonomy, drs, code = cli._load_doctype_axis(args, _fake_log())
     assert (taxonomy, drs) == (None, None)
     assert code == config.EXIT_ARG_ERROR
@@ -333,7 +338,9 @@ def test_스냅샷_검증실패는_항상_종료4(tmp_path):
         "source": "t", "exported_at": "20260824000000", "node_count": 1,
         "nodes": [{"dc_id": "A", "parent": "A", "order": 1, "title": "A", "status": 1}],
     }}, allow_unicode=True), encoding="utf-8")
-    args = SimpleNamespace(axis=None, taxonomy=str(tax_path), doc_rules=None)
+    # 규칙 경로를 임시 폴더로 준다 — 기본 경로가 자동 생성 규칙이면 스냅샷을 읽지 않는다.
+    args = SimpleNamespace(axis=None, taxonomy=str(tax_path),
+                           doc_rules=str(tmp_path / "doc_rule.yaml"))
     taxonomy, drs, code = cli._load_doctype_axis(args, _fake_log())
     assert (taxonomy, drs) == (None, None)
     assert code == config.EXIT_RULES_INVALID

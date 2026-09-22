@@ -509,19 +509,37 @@ pub fn load_synonyms(doc_rules_path: &Path) -> Syn {
         let tpl = crate::doc_rules::load_scaffold_template(Some(doc_rules_path));
         raw = tpl.get(serde_yaml::Value::String("industry".to_string())).cloned();
     }
+    industries.extend(clean_industry(raw.as_ref()));
+    load_synonyms_with(base_dir, &industries)
+}
+
+/// 업종 값 다듬기 — 문자열 하나 또는 목록을 업종 이름 목록으로(Python clean_industry).
+/// 공백을 다듬고 중복을 빼며, 파일 이름에 그대로 들어가는 값이라 경로 문자가 든 이름은 버린다.
+pub fn clean_industry(raw: Option<&serde_yaml::Value>) -> Vec<String> {
+    let mut items: Vec<String> = vec![];
     match raw {
-        Some(serde_yaml::Value::String(s)) => industries.push(s),
+        Some(serde_yaml::Value::String(s)) => items.push(s.clone()),
         Some(serde_yaml::Value::Sequence(seq)) => {
             for x in seq {
-                if let Some(s) = x.as_str() { industries.push(s.to_string()); }
+                if let Some(s) = x.as_str() { items.push(s.to_string()); }
             }
         }
         _ => {}
     }
-    // 경로로 새어 나갈 수 있는 글자가 든 업종 이름은 버린다.
-    industries.retain(|s| !s.is_empty()
-        && !s.contains('/') && !s.contains('\\') && !s.contains('.') && !s.contains(':'));
+    let mut out: Vec<String> = vec![];
+    for it in items {
+        let name = it.trim().to_string();
+        // 경로로 새어 나갈 수 있는 글자가 든 업종 이름은 버린다.
+        if name.is_empty() || name.contains('/') || name.contains('\\')
+            || name.contains('.') || name.contains(':') || out.contains(&name) { continue; }
+        out.push(name);
+    }
+    out
+}
 
+/// 사전 3겹 읽기 — 업종을 호출자가 정한다(규칙 자동 생성은 doc_rule.local.yaml 의 업종을 쓴다).
+/// base_dir 는 정책 폴더(synonyms/ 하위를 먼저 보고, 없으면 폴더 바로 아래도 본다).
+pub fn load_synonyms_with(base_dir: &Path, industries: &[String]) -> Syn {
     let mut names = vec![SYN_CORE.to_string()];
     for ind in industries.iter().rev() {
         names.push(format!("doc_synonyms.{}.yaml", ind));

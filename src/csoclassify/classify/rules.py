@@ -559,6 +559,8 @@ def max_grade(grades, where=None):
 #
 # -필드: bulk_threshold  = 이 건수 이상이면 bulk_grade 로 상향(명단/대장 정황)
 # -필드: case_insensitive = True 면 영문 키워드 대소문자 무시
+# -필드: review_threshold = 검토함 편입선(이보다 확신이 낮으면 사람이 본다, 기본 0.6)
+# -필드: pii_grade_cap    = PII(L1·COMBO) 근거만으로 올릴 수 있는 최고 등급(None=제한 없음)
 #------------------------------------------------------------------
 @dataclass(frozen=True)
 class Defaults:
@@ -569,6 +571,11 @@ class Defaults:
     # 예전에는 화면 코드에 박혀 있어(ui/app.py 의 LOW_CONF) 고치려면 배포가
     # 필요했다. 고객마다 검토량이 다를 수 있어 정책 파일로 옮겼다.
     review_threshold: float = 0.6
+    # 개인정보(PII)만으로 올릴 수 있는 최고 등급(2026-09-21). None 이면 제한 없음(종전).
+    # 예: "S" 면 주민번호 대량·신원+금융 결합 같은 PII 근거는 S 까지만 올린다.
+    # 키워드·민감정보·스탬프·파일명 근거가 C 를 내면 그 C 는 그대로다 —
+    # 막는 것은 'PII 하나로만' C 가 되는 경우다. 고객마다 기준이 달라 정책 칸으로 둔다.
+    pii_grade_cap: str = None
 
 
 #------------------------------------------------------------------
@@ -770,6 +777,8 @@ class RuleSet:
 # -필드: confidence      = 이 히트의 신뢰도(0~1)
 # -필드: terms           = 매칭된 (단어, 건수) 목록 — L2 키워드만 채운다.
 #                          L1 정규식은 매칭값이 곧 원문(PII)이라 항상 비워 둔다.
+# -필드: capped_from     = PII 상한(defaults.pii_grade_cap)으로 등급이 깎였을 때 원래 등급.
+#                          깎이지 않았으면 None(결과에 칸 자체가 없다).
 #------------------------------------------------------------------
 @dataclass(frozen=True)
 class RuleHit:
@@ -781,6 +790,7 @@ class RuleHit:
     seed_eligible: bool
     confidence: float
     terms: tuple = ()
+    capped_from: str = None
 
 
 #------------------------------------------------------------------
@@ -814,19 +824,64 @@ class GradeSignal:
             "grade": self.grade,
             "confidence": round(self.confidence, 3),
             "seed_eligible": self.seed_eligible,
-            "hits": [
-                {
-                    "id": h.rule_id,
-                    "name": h.name,
-                    "layer": h.layer,
-                    "count": h.count,
-                    "grade": h.grade,
-                    # 어떤 단어가 걸렸는지(키워드만). PII 정규식은 항상 빈 목록.
-                    "terms": [{"term": t, "count": c} for t, c in h.terms],
-                }
-                for h in self.hits
-            ],
+            "hits": [_hit_dict(h) for h in self.hits],
         }
+
+
+#------------------------------------------------------------------
+# 규칙 히트 1건 → 결과 dict
+#=> GradeSignal.as_dict 가 히트마다 부른다. PII 상한으로 등급이 깎인 히트에만
+#   capped_from 칸을 더한다 — 상한을 안 쓰는 배포의 결과 파일은 예전과 글자까지 같다.
+#
+# -in: h = RuleHit
+#
+# -out: dict = {id, name, layer, count, grade, terms[, capped_from]}
+# -out: error = 없음
+#------------------------------------------------------------------
+def _hit_dict(h):
+    d = {
+        "id": h.rule_id,
+        "name": h.name,
+        "layer": h.layer,
+        "count": h.count,
+        "grade": h.grade,
+        # 어떤 단어가 걸렸는지(키워드만). PII 정규식은 항상 빈 목록.
+        "terms": [{"term": t, "count": c} for t, c in h.terms],
+    }
+    # 깎인 경우에만 원래 등급을 남긴다 — "왜 C 가 아니라 S 인가"를 감사에서 보이게.
+    if h.capped_from:
+        d["capped_from"] = h.capped_from
+    return d
+
+
+#------------------------------------------------------------------
+# PII 근거 등급에 상한 씌우기
+#=> defaults.pii_grade_cap 이 있으면, PII 히트(L1)와 PII 결합 히트(COMBO)의 등급을
+#   그 상한 아래로 낮춘다. 키워드(L2) 히트는 건드리지 않는다.
+#   예: 상한 S 일 때 주민번호 12건(bulk C) → S, capped_from="C" 로 기록.
+#    1) 상한이 없으면 받은 목록을 그대로 돌려준다(종전 동작)
+#    2) 히트 등급이 상한보다 높으면 등급만 바꾼 새 RuleHit 를 만든다(원래 등급 기록)
+#
+# -in: hits = RuleHit 목록(L1·COMBO)
+# -in: cap  = 상한 등급("C"/"S"/"O") 또는 None
+#
+# -out: list[RuleHit] = 상한을 적용한 히트 목록(순서 그대로)
+# -out: error = 상한이 C/S/O 가 아니면 UnknownGradeError (보통은 로드 때 V14 로 먼저 막힌다)
+#------------------------------------------------------------------
+def _cap_pii_hits(hits, cap):
+    if not cap:
+        return list(hits)
+    # 검증을 끄고 읽은 규칙셋(validate=False)에서도 오타 상한을 조용히 넘기지 않는다.
+    if cap not in _GRADE_RANK:
+        raise UnknownGradeError(cap, "defaults.pii_grade_cap")
+    cap_rank = _GRADE_RANK[cap]
+    out = []
+    for h in hits:
+        # 상한보다 낮은 등급(예: 상한 S 에 O 히트)은 그대로 둔다 — 상한까지 끌어올리지 않는다.
+        if _GRADE_RANK.get(h.grade, -1) > cap_rank:
+            h = _replace(h, grade=cap, capped_from=h.grade)
+        out.append(h)
+    return out
 
 
 #------------------------------------------------------------------
@@ -1281,10 +1336,11 @@ def scan_text(text, ruleset):
 
     # L1: ko-pii 로 PII 유형을 한 번에 검출(유형별 RuleHit) + 건수 맵 회수.
     pii_hits, pii_counts = _scan_pii(text, ruleset.regex_rules, ruleset.defaults, conf.get("regex"))
-    hits.extend(pii_hits)
 
     # L1-combo: 개별 PII 는 낮아도 여러 유형이 한 문서에 모이면(결합용이성) 재식별↑ → 상향.
-    hits.extend(_combo_hits(pii_counts, getattr(ruleset, "pii_combos", ()), conf.get("regex")))
+    pii_hits += _combo_hits(pii_counts, getattr(ruleset, "pii_combos", ()), conf.get("regex"))
+    # PII 근거는 정책 상한(pii_grade_cap)까지만 올린다 — 없으면 종전 그대로.
+    hits.extend(_cap_pii_hits(pii_hits, getattr(ruleset.defaults, "pii_grade_cap", None)))
     for rule in ruleset.keyword_rules:
         h = _scan_keyword(text, rule, ruleset.defaults, conf.get("keyword"))
         if h:
@@ -1844,6 +1900,14 @@ def validate_rules_data(data):
                                          "0 보다 크고 1 이하인 수여야 합니다"
                                          "(검토함 편입선 — 이보다 확신이 낮으면 사람이 봅니다)"))
 
+    # PII 등급 상한 — C/S/O 중 하나(대문자 그대로)여야 한다. 오타를 조용히 '제한 없음'으로
+    # 읽으면 관리자는 막았다고 믿는데 PII 만으로 C 가 계속 나온다.
+    cap = (data.get("defaults") or {}).get("pii_grade_cap")
+    if cap is not None and (not isinstance(cap, str) or cap not in _GRADE_RANK):
+        violations.append(_violation("V14", "defaults", "pii_grade_cap", "-", cap,
+                                     "C · S · O 중 하나여야 합니다"
+                                     "(개인정보만으로 올릴 수 있는 최고 등급 — 제한하지 않으려면 칸을 지우세요)"))
+
     for section, single_fields, bulk_pair in _GRADE_SECTIONS:
         items = data.get(section) or []
         # 섹션이 리스트가 아니면(예: 들여쓰기 실수로 dict 가 됨) 순회 자체가 무의미하다.
@@ -1981,6 +2045,8 @@ def load_rules(path=None, validate=True):
         # 값이 없으면 종전과 같은 0.6 — 옛 규칙셋이 깔린 곳에서 검토량이
         # 조용히 달라지지 않게 한다.
         review_threshold=float(d.get("review_threshold", 0.6)),
+        # 칸이 없으면 None = 제한 없음 — 옛 규칙셋은 판정이 한 글자도 달라지지 않는다.
+        pii_grade_cap=d.get("pii_grade_cap"),
     )
 
     # 신뢰도 표: 기본값 위에 yaml 의 confidence 블록을 덮어쓴다(없으면 기본값 그대로).

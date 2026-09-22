@@ -80,6 +80,49 @@ def load_taxonomy(path):
 # -out: str = "법무/규정 > 계약서" · 스냅샷에 없으면 "DC0061 (삭제된 분류)"
 # -out: error = 없음
 #------------------------------------------------------------------
+#------------------------------------------------------------------
+# 체계 JSON 에서 바로 분류 체계 읽기(자동 생성 방식)
+#=> 새 방식에서는 doc_taxonomy.yaml 을 만들지 않는다. 화면이 쓰는 분류 체계는
+#   MpowerV11 이 내보낸 JSON(doc_classification_export.json)에서 바로 읽는다 —
+#   load_taxonomy 와 같은 모양의 dict 를 돌려주므로 나머지 화면 코드는 그대로 쓴다.
+#    1) nodes 의 dc_id·parent_dc_id·order_num·title·status 를 옮긴다
+#    2) 전체경로를 부모를 따라 올라가며 만든다(load_taxonomy 와 같은 방식)
+#    3) '가져온 날짜'는 JSON 에 없으므로 파일을 고친 시각으로 적는다
+#
+# -in: path = 체계 JSON 경로(없거나 깨졌으면 None)
+#
+# -out: dict|None = load_taxonomy 와 같은 모양
+# -out: error = 파일 없음·파싱 실패 시 None
+#------------------------------------------------------------------
+def load_from_export(path):
+    import json
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return None
+    by_id = {}
+    for n in (raw or {}).get("nodes") or []:
+        dc_id = n.get("dc_id")
+        if not dc_id:
+            continue
+        by_id[dc_id] = {"dc_id": dc_id, "parent": n.get("parent_dc_id"),
+                        "order": n.get("order_num") or 0, "title": n.get("title") or "",
+                        "status": n.get("status", 1)}
+    for dc_id, node in by_id.items():
+        titles, cur, seen = [], node, set()
+        while cur and cur.get("dc_id") not in seen:
+            seen.add(cur.get("dc_id"))
+            titles.append(cur.get("title") or cur.get("dc_id") or "?")
+            cur = by_id.get(cur.get("parent"))
+        node["path"] = " > ".join(reversed(titles))
+    stamp = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y%m%d%H%M%S")
+    return {"source": raw.get("source", ""), "exported_at": stamp,
+            "node_count": len(by_id), "by_id": by_id, "path": path}
+
+
 def path_of(tax, dc_id):
     if not tax:
         return dc_id or ""

@@ -288,6 +288,10 @@ def build_parser():
     p.add_argument("--scaffold-doc-rule", dest="scaffold_doc_rule", action="store_true",
                    help="--export-taxonomy 와 함께 쓰면 --doc-rules 경로에 doc_rule.yaml "
                         "골격(빈 terms, filename 만 title 로 채움)도 생성. 이미 있으면 건너뜀")
+    p.add_argument("--build-doc-rule", dest="build_doc_rule", action="store_true",
+                   help="체계 JSON(--export-input) · 유의어 사전 · 본보기 · doc_rule.local.yaml 로 "
+                        "--doc-rules 파일을 통째로 새로 만든다(자동 생성 — 사람이 고치지 않는 파일). "
+                        "doc_taxonomy.yaml 은 만들지도 읽지도 않는다. 기존 파일은 .bak 으로 남긴다")
     p.add_argument("--sync-doc-rule", dest="sync_doc_rule", action="store_true",
                    help="분류 체계(doc_taxonomy.yaml)를 훑어 --doc-rules 파일에 규칙을 "
                         "채운다. 빠진 분류는 새로 만들고, 이름·띄어쓰기 변형·유의어 "
@@ -1621,6 +1625,11 @@ def _load_doctype_axis(args, log):
     from .classify import axes as AX
     from .classify import doc_rules as DR
 
+    # 자동 생성 규칙 파일이면 분류체계가 규칙 줄 안에 있다 — doc_taxonomy.yaml 을 찾지 않는다.
+    doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
+    if _is_generated_rules(doc_rules_path):
+        return _load_generated_axis(args, log, doc_rules_path)
+
     taxonomy_path = args.taxonomy or AX.default_taxonomy_path()
     try:
         # doc_taxonomy.yaml 불러오기
@@ -1648,7 +1657,6 @@ def _load_doctype_axis(args, log):
         log.warning("분류체계 스냅샷 노후 :: exported_at=%s", taxonomy.exported_at)
 
     # doc_rules.yaml 불러오기
-    doc_rules_path = args.doc_rules or DR.default_doc_rules_path()
     try:
         doc_rules_set = DR.load_doc_rules(doc_rules_path, taxonomy=taxonomy)
     except FileNotFoundError:
@@ -3496,6 +3504,121 @@ def _loggable_record(rec):
 
 
 #------------------------------------------------------------------
+# 규칙 파일이 자동 생성본인가
+#=> 파일 맨 위를 읽어 generated 칸이 있는지 본다. 없거나 못 읽으면 False —
+#   그때는 옛 길(doc_taxonomy.yaml + doc_rule.yaml)로 간다.
+#
+# -in: path = doc_rule.yaml 경로
+#
+# -out: bool
+# -out: error = 없음
+#------------------------------------------------------------------
+def _is_generated_rules(path):
+    if not path or not os.path.isfile(path):
+        return False
+    import yaml
+    from .classify import docbuild
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception:          # noqa: BLE001 (깨진 파일은 옛 길의 검증이 알린다)
+        return False
+    return docbuild.is_generated(data)
+
+
+#------------------------------------------------------------------
+# 자동 생성 규칙 파일로 업무분류 축 켜기
+#=> 분류체계를 규칙 줄에서 다시 짓는다. 경고(입력이 바뀜·손으로 고친 흔적)는
+#   화면에 그대로 보여 주고 판정은 계속한다. --doctype-vector-only 도 옛 길과 같다.
+#
+# -in: args           = argparse 결과
+# -in: log            = 로거
+# -in: doc_rules_path = 규칙 파일 경로
+#
+# -out: (taxonomy, doc_rules_set, code) — _load_doctype_axis 와 같은 약속
+# -out: error = 없음(검증 실패는 code 로)
+#------------------------------------------------------------------
+def _load_generated_axis(args, log, doc_rules_path):
+    from .classify import doc_rules as DR
+    try:
+        doc_rules_set = DR.load_doc_rules(doc_rules_path)
+    except DR.DocRuleValidationError as e:
+        log.error("업무분류 규칙셋 검증 실패 count=%d path=%s", len(e.violations), e.path)
+        return None, None, fail_err("doc_rules_invalid", f"[MpowerClassify] {e}", e.path)
+    for w in doc_rules_set.warnings:
+        print(f"[MpowerClassify] {w}", file=sys.stderr)
+        log.warning("doctype 규칙 경고 :: %s", w)
+    if getattr(args, "doctype_vector_only", False):
+        doc_rules_set = dataclasses.replace(doc_rules_set, rules=())
+        print("[MpowerClassify] 업무분류: 규칙을 쓰지 않고 기준 문서(class_seed) 비교로만 "
+              "분류합니다(--doctype-vector-only).", file=sys.stderr)
+    return doc_rules_set.taxonomy, doc_rules_set, None
+
+
+#------------------------------------------------------------------
+# 업무분류 규칙 자동 생성(--build-doc-rule)
+#=> 체계 JSON · 사전 · 본보기 · doc_rule.local.yaml 로 doc_rule.yaml 을 통째로 만든다.
+#   화면의 [규칙 다시 만들기]·엠파워 연동의 '준비' 단계가 이 한 번의 호출이다.
+#    1) 체계 JSON 이 없으면 종료(3)
+#    2) 만들기(체계·조정 파일 검증 실패는 4)
+#    3) 쓰고, 엔진 로더로 다시 읽어 검증한다(round-trip)
+#    4) 경고(조정이 가리키는 분류가 없음·이름 바뀜·이미 없는 말 빼기 등)를 보여 준다
+#
+# -in: args = 파싱된 인자(export_input · doc_rules)
+#
+# -out: code = 0(정상) · 3(체계 JSON 없음) · 4(입력 오류·쓰기 실패)
+# -out: error = 없음(예외를 종료코드로 환원)
+#------------------------------------------------------------------
+def run_build_doc_rule(args):
+    from .classify import axes as AX
+    from .classify import doc_rules as DR
+    from .classify import docbuild
+
+    log = logsetup.get_logger("csoclassify.cli")
+    rules_path = args.doc_rules or DR.default_doc_rules_path()
+    policy_dir = os.path.dirname(os.path.abspath(rules_path))
+    # 체계 JSON 기본 자리는 규칙 파일 옆 — 연동 때 엠파워가 그 자리에 둔다.
+    export_path = args.export_input or os.path.join(policy_dir, "doc_classification_export.json")
+    if not os.path.isfile(export_path):
+        return fail_err("export_input_missing",
+                        f"[MpowerClassify] 체계 JSON 을 찾을 수 없습니다: {export_path}\n"
+                        f"  · --export-input <파일경로> 로 지정하거나,\n"
+                        f"  · 규칙 파일 옆에 doc_classification_export.json 을 두세요.",
+                        export_path)
+    try:
+        doc, warns = docbuild.build_doc_rule(export_path, policy_dir)
+    except docbuild.RuleLocalValidationError as e:
+        return fail_err("doc_rules_invalid", f"[MpowerClassify] {e}", e.path)
+    except AX.TaxonomyValidationError as e:
+        return fail_err("export_input_invalid", f"[MpowerClassify] {e}", export_path)
+    except (ValueError, OSError) as e:
+        return fail_err("export_input_invalid",
+                        f"[MpowerClassify] 체계 JSON 을 읽지 못했습니다: {e}", export_path)
+    try:
+        docbuild.write_doc_rule(rules_path, doc)
+    except OSError as e:
+        return fail_err("doc_rules_write_failed",
+                        f"[MpowerClassify] 규칙 파일을 쓰지 못했습니다: {rules_path}\n  {e}",
+                        rules_path)
+    # 방금 쓴 파일을 엔진이 그대로 읽는지 확인한다 — 다음 분류 때 알게 되면 늦다.
+    try:
+        DR.load_doc_rules(rules_path)
+    except DR.DocRuleValidationError as e:
+        return fail_err("doc_rules_invalid", f"[MpowerClassify] {e}", e.path)
+    for w in warns:
+        print(f"[MpowerClassify] {w}", file=sys.stderr)
+        log.warning("규칙 생성 경고 :: %s", w)
+    n_rules = len(doc.get("doctype_rules") or [])
+    n_local = sum(1 for r in doc["doctype_rules"] if r.get("local"))
+    print(f"[MpowerClassify] {rules_path} 생성 — 규칙 {n_rules}개(회사 조정 {n_local}개) · "
+          f"판 {doc['version']} · 입력 {len(doc['generated']['inputs'])}개",
+          file=sys.stderr)
+    log.info("업무분류 규칙 자동 생성 :: rules=%d local=%d version=%s path=%s",
+             n_rules, n_local, doc["version"], rules_path)
+    return 0
+
+
+#------------------------------------------------------------------
 # 업무분류 규칙 채우기(--sync-doc-rule)
 #=> 화면의 [분류 불러오기] 버튼과 **같은 코드**로 doc_rule.yaml 을 채운다.
 #   예전에는 이 일이 화면에만 있어서, CLI 의 --scaffold-doc-rule 은 분류 이름
@@ -4226,6 +4349,12 @@ def _main(argv=None):
     if getattr(args, "export_taxonomy", False):
         log.info("문서분류체계파일 doc_taxonomy.yaml 생성(--export_taxonomy)")
         return run_export_taxonomy(args)
+
+    # (1.355) 업무분류 규칙 자동 생성 모드: 체계 JSON 과 정책 폴더만 있으면 된다.
+    # => doc_rule.yaml 을 통째로 새로 만든다(설계: 업무분류-규칙파일-자동생성-설계).
+    if getattr(args, "build_doc_rule", False):
+        log.info("문서분류규칙파일 doc_rule.yaml 자동 생성(--build-doc-rule)")
+        return run_build_doc_rule(args)
 
     # (1.36) 업무분류 규칙 채우기 모드: 분류 체계와 규칙 파일만 있으면 된다.
     # => 화면의 [분류 불러오기] 버튼과 같은 일. 문서도 모델도 필요 없다.
