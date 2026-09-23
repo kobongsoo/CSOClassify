@@ -89,6 +89,15 @@ NEAR_MISS_MAX = 15
 # 그 문서의 지문이다(설계 4-1 과 같은 이유, 눈앞의 문서라 하한만 낮춘 것이다).
 NEAR_MISS_MIN_DOCS = 2
 
+# 문턱을 못 넘은 말을 '참고'로 보여 줄 최대 개수. 후보도 한 폴더 전용도 하나도
+# 없을 때만 내보낸다 — 화면이 조용해야 할 자리에 긴 목록을 쏟지 않기 위해서다.
+#
+# [왜 보여 주나] 확정 문서가 있는데도 "제안할 말이 없습니다" 한 줄만 나오면,
+# 관리자는 '뽑을 말이 없는 것'인지 '문턱에 걸린 것'인지 구분할 수 없다. 기계가
+# 자를 수 없는 판단(그 말이 진짜 문서 종류를 가리키는가)은 사람이 해야 하므로,
+# 무엇이 왜 떨어졌는지는 보여 준다. 기본 체크는 켜지 않는다.
+BELOW_MAX = 15
+
 # 사람이 "이 분류 아님"이라고 거절한 문서는 대조군에서 이만큼 무겁게 센다.
 # 그냥 다른 분류인 문서보다, 사람이 콕 집어 아니라고 한 문서가 더 강한 반례다.
 REJECT_WEIGHT = 2.0
@@ -833,7 +842,8 @@ def log_odds(df_pos, df_neg, n_pos, n_neg):
 # -in: min_docs  = 제안을 시작할 최소 확정 문서 수(기본 3)
 #
 # -out: dict = {"node","docs","clusters","no_text","reason",
-#               "candidates":[…], "cluster_only":[…]}
+#               "candidates":[…], "cluster_only":[…], "below":[…]}
+#        below: 문턱을 못 넘은 말(참고용). 후보도 한 폴더 전용도 비었을 때만 채운다
 #        후보 한 개: {"term","fields","extra","checked","where","group",
 #                     "df_pos","df_neg","score","docs","clusters","flags"}
 # -out: error = 없음(재료가 모자라면 candidates 가 비고 reason 에 까닭이 담긴다)
@@ -855,7 +865,8 @@ def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
 
     no_text = sum(1 for d in pos if not d["has_text"])
     out = {"node": node, "docs": len(pos), "clusters": pos_clusters,
-           "no_text": no_text, "reason": "", "candidates": [], "cluster_only": []}
+           "no_text": no_text, "reason": "", "candidates": [], "cluster_only": [],
+           "below": []}
 
     if len(pos) < min_docs:
         out["reason"] = (f"확정 문서 {len(pos)}건 — {min_docs}건부터 제안합니다")
@@ -926,8 +937,17 @@ def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
         if looks_proper_noun(term, pos, suffixes):   # ⑥ 고유명사 의심(막지 않는다)
             flags.append("고유명사 의심")
 
+        # 떨어진 말도 까닭을 달아 모아 둔다(참고 목록). 자르는 조건은 그대로다.
+        def _below(why):
+            out["below"].append({
+                "term": term, "where": where, "why": why,
+                "df_pos": round(df_pos, 4), "df_neg": round(df_neg, 4),
+                "score": round(score, 3), "docs": doc_hits[term],
+                "clusters": clusters, "flags": list(flags)})
+
         # 앞부분·본문에서 나온 두 글자 말은 넣지 않는다(위 TEXT_MIN_LEN 설명).
         if where in ("head", "body") and len(term) < TEXT_MIN_LEN:
+            _below("두 글자 — 앞부분·본문에서는 뺍니다")
             continue
 
         # 근거(문서·폴더 수)와 배타성(df_neg)이 문턱이다. 점수는 줄 세우기에만 쓴다.
@@ -947,6 +967,19 @@ def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
                                              suffixes, endings)
                         >= CLUSTER_ONLY_DF_POS)
         if not passed and not cluster_only:
+            # 왜 떨어졌는지 한 가지만 고른다 — 가장 먼저 걸린 까닭이 사람에게 쓸모 있다.
+            if clusters < MIN_TERM_CLUSTERS:
+                why = f"폴더 {clusters}곳 — {MIN_TERM_CLUSTERS}곳 이상이어야 합니다"
+            elif doc_hits[term] < MIN_TERM_DOCS:
+                why = f"근거 {doc_hits[term]}건 — {MIN_TERM_DOCS}건 이상이어야 합니다"
+            elif loose and df_pos < LOOSE_DF_POS_MIN:
+                why = (f"끝말 밖 — 이 분류를 {df_pos * 100:.0f}% 만 덮습니다"
+                       f"({LOOSE_DF_POS_MIN * 100:.0f}% 이상 필요)")
+            else:
+                cap = LOOSE_DF_NEG_MAX if loose else DF_NEG_MAX
+                why = (f"다른 분류에 {df_neg * 100:.1f}% 나옵니다"
+                       f"({cap * 100:.0f}% 이하여야 합니다)")
+            _below(why)
             continue
 
         # 기본 체크는 아주 보수적으로 켠다 — 제목·파일 이름에서 나왔고, 폴더가 둘 이상이고,
@@ -968,6 +1001,13 @@ def suggest(node, docs, rule_doc=None, stopwords=None, tax=None, suffixes=None,
     sort_key = lambda c: (-c["score"], -c["docs"], c["term"])
     out["candidates"].sort(key=sort_key)
     out["cluster_only"].sort(key=sort_key)
+    # 참고 목록은 '보여 줄 것이 하나도 없을 때'만 남긴다. 그 외에는 통째로 버린다 —
+    # 후보가 있는데 그 아래 긴 목록이 따라붙으면 정작 후보가 묻힌다.
+    if out["candidates"] or out["cluster_only"]:
+        out["below"] = []
+    else:
+        out["below"].sort(key=sort_key)
+        del out["below"][BELOW_MAX:]
     if len(pos) < SOLID_DOCS:
         out["reason"] = f"확정 문서 {len(pos)}건 — 근거가 얕습니다({SOLID_DOCS}건 이상 권장)"
     return out

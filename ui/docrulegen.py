@@ -28,14 +28,8 @@ if _SRC not in sys.path:
 
 from csoclassify.classify import docbuild   # noqa: E402
 
-# 조정 파일 맨 위 안내. 화면이 저장할 때마다 통째로 다시 쓰므로 주석은 남지 않는다 —
-# 조정마다 이유는 why 칸에 적는다.
-LOCAL_HEADER = (
-    "# 회사별 업무분류 조정 — 사람이 고치는 유일한 업무분류 파일.\n"
-    "# doc_rule.yaml 은 이 파일·체계 JSON·유의어 사전으로 자동으로 만들어진다(--build-doc-rule).\n"
-    "# 화면(설정 ② 판단 기준 › 업무분류)이 저장할 때마다 다시 쓰므로 주석은 남지 않는다.\n"
-    "# 조정마다 이유는 why 칸에 적는다.\n"
-)
+# 조정 파일 맨 위 안내 — 엔진 쪽(docbuild)에 두고 이관 도구와 함께 쓴다.
+LOCAL_HEADER = docbuild.LOCAL_HEADER
 
 # 표의 말 칸 — (조정 파일 칸 이름, 표 열 이름). 판정력이 센 칸부터.
 TABLE_CELLS = (
@@ -116,7 +110,10 @@ def save_local(rules_path, local):
         shutil.copyfile(path, path + ".bak")
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(LOCAL_HEADER)
-        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+        # 말 목록은 doc_rule.yaml 과 같은 한 줄 형식(["가", "나"])으로 쓴다 — 손으로 적은
+        # 형식이 화면 저장 뒤에도 그대로 보이게. 분류·칸 구조는 여러 줄 그대로다.
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False,
+                       default_flow_style=None)
     return path
 
 

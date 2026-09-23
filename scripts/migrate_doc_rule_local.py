@@ -62,8 +62,12 @@ def main(argv=None):
     out = args.out or os.path.join(args.policy, docbuild.RULE_LOCAL + ".draft")
     with open(out, "w", encoding="utf-8") as f:
         f.write("# doc_rule.local.yaml 초안 — migrate_doc_rule_local.py 가 옛 규칙과의 차이로 만들었다.\n"
-                "# why 칸을 채우고, 이유를 댈 수 없는 조정은 지운 뒤 doc_rule.local.yaml 로 이름을 바꾸세요.\n")
-        yaml.safe_dump(local, f, allow_unicode=True, sort_keys=False)
+                "# why 칸을 채우고, 이유를 댈 수 없는 조정은 지운 뒤 doc_rule.local.yaml 로 이름을 바꾸세요.\n"
+                "#\n")
+        f.write(docbuild.LOCAL_HEADER)
+        # 말 목록은 doc_rule.yaml·화면 저장과 같은 한 줄 형식으로 맞춘다.
+        yaml.safe_dump(local, f, allow_unicode=True, sort_keys=False,
+                       default_flow_style=None)
     for w in warns:
         print(f"[경고] {w}")
     n = len(local.get("rules") or {})
