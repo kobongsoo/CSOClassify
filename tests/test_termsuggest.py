@@ -1013,3 +1013,50 @@ def test_한글_따옴표도_자른다():
 ])
 def test_인용조사_라_떼기(word, want):
     assert ts.strip_particle(word) == want
+
+
+#------------------------------------------------------------------
+# 문턱을 못 넘은 말도 까닭을 달아 보여 준다 (참고 목록)
+#=> 확정 문서가 있는데 "제안할 말이 없습니다" 한 줄만 나오면, 관리자는 '뽑을 말이
+#   없는 것'인지 '문턱에 걸린 것'인지 구분할 수 없다. 그 말이 진짜 문서 종류를
+#   가리키는지는 사람이 판단해야 하므로, 무엇이 왜 떨어졌는지는 내보낸다.
+#------------------------------------------------------------------
+def test_문턱_미달_말도_까닭과_함께_보여_준다():
+    # 한 폴더에 넉 장 — 폴더 둘을 요구하는 문턱에 걸린다(한 폴더 전용도 다섯 장부터).
+    docs = [doc("a", f"{i}.hwp", labels=["DC_X"],
+                text="작업계획서\n작업구분 작업일 세부작업 내용") for i in range(4)]
+    res = ts.suggest("DC_X", docs)
+    assert res["candidates"] == [] and res["cluster_only"] == []
+    terms = [c["term"] for c in res["below"]]
+    assert "작업계획서" in terms, terms
+    why = {c["term"]: c["why"] for c in res["below"]}
+    assert "폴더 1곳" in why["작업계획서"], why
+    # 상한을 지킨다 — 문서 하나의 낱말이 통째로 올라오면 아무도 못 읽는다.
+    assert len(res["below"]) <= ts.BELOW_MAX
+
+
+#------------------------------------------------------------------
+# 두 글자라 빠진 말도 까닭을 남긴다
+#=> 앞부분·본문에서 나온 두 글자 말은 넣지 않는다(TEXT_MIN_LEN). 그 판단도
+#   사람이 되짚을 수 있게 참고 목록에는 남긴다.
+#------------------------------------------------------------------
+def test_두_글자_까닭도_남는다():
+    docs = [doc("a", f"{i}.hwp", labels=["DC_X"], text="안내\n현황 자료 정리")
+            for i in range(4)]
+    res = ts.suggest("DC_X", docs)
+    why = {c["term"]: c["why"] for c in res["below"]}
+    assert "두 글자" in why.get("현황", ""), why
+
+
+#------------------------------------------------------------------
+# 후보가 있으면 참고 목록은 내보내지 않는다
+#=> 후보 아래 긴 목록이 따라붙으면 정작 후보가 묻힌다.
+#------------------------------------------------------------------
+def test_후보가_있으면_참고_목록은_비운다():
+    docs = [doc(f"f{i}", f"{i}.hwp", labels=["DC_X"], text="품목보고서\n내용 정리")
+            for i in range(4)]
+    docs += [doc(f"g{i}", f"{i}.hwp", labels=["DC_Y"], text="회의록\n참석자 명단")
+             for i in range(3)]
+    res = ts.suggest("DC_X", docs)
+    assert res["candidates"], res
+    assert res["below"] == []

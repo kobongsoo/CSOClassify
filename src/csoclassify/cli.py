@@ -3572,6 +3572,26 @@ def _suggest_line(cand):
 
 
 #------------------------------------------------------------------
+# 문턱을 못 넘은 말 한 줄 (참고 목록)
+#=> 후보가 하나도 없을 때만 나온다. 기계가 자를 수 없는 판단(그 말이 진짜 문서
+#   종류를 가리키는가)은 사람이 해야 하므로, 무엇이 왜 떨어졌는지를 보여 준다.
+#
+# -in: cand = suggest() 결과의 below 항목 하나
+#
+# -out: str = 화면에 찍을 한 줄
+# -out: error = 없음
+#------------------------------------------------------------------
+def _below_line(cand):
+    where = {"name": "파일이름", "title": "제목", "head": "앞부분",
+             "body": "본문"}.get(cand["where"], cand["where"])
+    flags = " ".join(f"<{f}>" for f in cand["flags"])
+    return (f"  [-] {cand['term']:<14} {where:<8}"
+            f" 근거 {cand['docs']:>3}건/폴더{cand['clusters']:<2}"
+            f" 다른분류 {cand['df_neg'] * 100:>5.1f}%"
+            f" 덮는율 {cand['df_pos'] * 100:>5.1f}%  {cand['why']} {flags}")
+
+
+#------------------------------------------------------------------
 # 규칙 단어 제안 전용 모드 (--suggest-terms)
 #=> 문서도 모델도 읽지 않는다. 이미 확정된 라벨과 저장해 둔 본문만 보고,
 #   규칙에 넣을 만한 말의 후보를 보여 준다. 규칙 파일은 고치지 않는다.
@@ -3692,6 +3712,12 @@ def run_suggest_terms(args):
         if not res["candidates"] and not res["cluster_only"]:
             if not res["reason"]:
                 print("  제안할 말이 없습니다.")
+            if res["below"]:
+                # 문턱은 기계가 긋지만, 그 말이 쓸모 있는지는 사람이 안다.
+                print("  [문턱 미달 — 참고] 검출은 됐지만 기준에 못 미친 말입니다. "
+                      "쓸 만한지는 관리자가 판단하세요:")
+                for cand in res["below"]:
+                    print(_below_line(cand))
             continue
         for cand in res["candidates"]:
             print(_suggest_line(cand))

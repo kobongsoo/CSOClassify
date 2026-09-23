@@ -29,6 +29,7 @@ mod record;
 mod rules;
 mod seedcli;
 mod taxhead;
+mod termsuggest;
 mod seedstore;
 mod xls;
 mod xlsdate;
@@ -88,6 +89,14 @@ struct Opts {
     embed_needed: bool,          // 임베딩을 '아직 못 정한 문서'에만(Python --embed-needed 와 같은 뜻)
     no_timing: bool,             // 처리 시간 출력 끄기(요약줄의 총시간)
     build_doc_rule: bool,        // 체계 JSON·사전·local 조정으로 doc_rule.yaml 을 통째로 만든다
+    // 규칙 단어 제안(--suggest-terms) — 문서도 모델도 읽지 않는 단독 모드.
+    suggest_terms: Option<String>,   // 분류 하나의 dc_id 또는 "all"
+    overrides: Option<String>,       // 검토 화면 확정·거절 이력(cso_override.jsonl)
+    text_dir: Option<String>,        // --textsave 로 저장해 둔 추출 본문 폴더
+    stopwords: Option<String>,       // 제안하지 않을 말 목록(doc_rule_stopwords.yaml)
+    suggest_json: Option<String>,    // 결과를 json 으로도 남길 경로
+    suggest_min_docs: Option<usize>, // 제안을 시작할 최소 확정 문서 수
+    include_auto_seeds: bool,        // 사람이 승인하지 않은 seed 도 재료에 넣는다
     with_vector: bool,      // 모든 문서를 임베딩해 결과 레코드에 vector 필드로 실어 보냄
     propagate: Option<String>,  // 1차 결과(jsonl/json)를 읽어 전파만 다시 도는 2차 패스
     auto_propagate: bool,
@@ -240,6 +249,20 @@ fn usage() {
     eprintln!("─── ⑧ 문서분류체계 rule 생성 (문서를 읽지 않는 모드) ─────────────────────");
     eprintln!("  --build-doc-rule          체계 JSON(--export-input)·사전·doc_rule.local.yaml 로 --doc-rules 파일을 통째로 새로 만든다");
     eprintln!("  --export-input <파일>     그 원본 체계 JSON(미지정 시 규칙 파일 옆 doc_classification_export.json)");
+    eprintln!("");
+    eprintln!("─── ⑧-2 규칙 단어 제안 (--suggest-terms · 문서를 읽지 않는 모드) ───────");
+    eprintln!("  이미 확정된 라벨과 저장해 둔 본문만 보고, 규칙에 넣을 만한 말의 후보를 보여 줍니다.");
+    eprintln!("  규칙 파일은 고치지 않습니다(보여 주기만). 파이썬 판과 같은 후보·차례입니다.");
+    eprintln!("  --suggest-terms <dc_id|all>  분류 하나, 또는 all 이면 확정 문서가 있는 분류 모두");
+    eprintln!("  --seeds <파일>            재료 ① 기준 문서(미지정 시 exe 옆 class_seed.jsonl)");
+    eprintln!("  --overrides <파일>        재료 ② 검토 확정·거절 이력(기본은 정책 폴더 옆 cso_override.jsonl)");
+    eprintln!("  --text-dir <폴더>         재료 ③ --textsave 로 저장해 둔 추출 본문.");
+    eprintln!("                            없으면 제목·파일 이름만으로 후보를 만든다");
+    eprintln!("  --stopwords <파일>        제안하지 않을 말 목록(기본은 정책 폴더 옆 doc_rule_stopwords.yaml)");
+    eprintln!("  --suggest-json <경로>     결과를 json 으로도 남긴다");
+    eprintln!("  --suggest-min-docs <수>   제안을 시작할 최소 확정 문서 수(기본 3)");
+    eprintln!("  --include-auto-seeds      사람이 승인하지 않은 seed 도 재료에 넣는다(권하지 않음)");
+    eprintln!("  ※ 재료는 기준 문서·확정 이력 둘 중 하나는 있어야 합니다(없으면 종료코드 3).");
     eprintln!("");
     eprintln!("─── ⑨ 기준 문서 등록 (--seed-add) ─────────────────────────────");
     eprintln!("  화면 없이 class_seed.jsonl 에 기준 문서를 등록합니다. 파이썬 판과 같습니다.");
@@ -410,6 +433,9 @@ fn parse_args() -> Result<Opts, String> {
         file: None, dir: None, files_from: None, rules_path: None,
         doc_rules: None, axis: None, conflict: None,
         export_input: None,
+        suggest_terms: None, overrides: None, text_dir: None,
+        stopwords: None, suggest_json: None, suggest_min_docs: None,
+        include_auto_seeds: false,
         glob: None, out: None, json_errors: false, simple_why: false,
         fmt: "json".into(), fmt_explicit: false, simple: false, summary_only: false,
         no_summary: false, hash: false, with_pii: false, with_text: false,
@@ -493,6 +519,13 @@ fn parse_args() -> Result<Opts, String> {
             "--embed-needed" => o.embed_needed = true,
             "--no-timing" => o.no_timing = true,
             "--build-doc-rule" => o.build_doc_rule = true,
+            "--suggest-terms" => o.suggest_terms = Some(take(false).unwrap()),
+            "--overrides" => o.overrides = Some(take(false).unwrap()),
+            "--text-dir" => o.text_dir = Some(take(false).unwrap()),
+            "--stopwords" => o.stopwords = Some(take(false).unwrap()),
+            "--suggest-json" => o.suggest_json = Some(take(false).unwrap()),
+            "--suggest-min-docs" => o.suggest_min_docs = take(false).unwrap().parse().ok(),
+            "--include-auto-seeds" => o.include_auto_seeds = true,
             "--with-vector" => o.with_vector = true,
             "--propagate" => o.propagate = Some(take(false).unwrap()),
             "--auto-propagate" => o.auto_propagate = true,
@@ -1118,6 +1151,220 @@ fn load_doctype_axis(opts: &Opts) -> Result<Option<(Taxonomy, DocRuleSet)>, i32>
             rpath.to_str()),
     };
     Ok(Some((tax, drs)))
+}
+
+/// 후보 한 줄을 사람이 읽는 글로 — 파이썬 cli.py::_suggest_line 과 글자까지 같아야 한다.
+fn suggest_line(c: &termsuggest::Cand) -> String {
+    let mark = if c.checked { "[v]" } else { "[ ]" };
+    // 칸 이름은 화면 말로 바꾼다(개발 용어를 안 보여 준다).
+    fn name(f: &str) -> &str {
+        match f {
+            "title_terms" => "제목", "head_terms" => "앞부분",
+            "terms" => "본문", "filename" => "파일이름", other => other,
+        }
+    }
+    let mut wheres: String = c.fields.iter().map(|f| name(f))
+        .collect::<Vec<&str>>().join("·");
+    if let Some(n) = c.min_count { wheres.push_str(&format!("(같은 말 {}회 이상)", n)); }
+    let flags: String = c.flags.iter().map(|f| format!("<{}>", f))
+        .collect::<Vec<String>>().join(" ");
+    format!("  {} {:<14} {:<22} 근거 {:>3}건/폴더{:<2} 다른분류 {:>5.1}% 덮는율 {:>5.1}%  {}",
+            mark, c.term, wheres, c.docs, c.clusters,
+            c.df_neg * 100.0, c.df_pos * 100.0, flags)
+}
+
+/// 문턱을 못 넘은 말 한 줄 — 후보가 하나도 없을 때만 나온다.
+/// 파이썬 cli.py::_below_line 과 글자까지 같아야 한다.
+fn below_line(c: &termsuggest::Below) -> String {
+    let where_ = match c.where_ {
+        "name" => "파일이름", "title" => "제목", "head" => "앞부분",
+        "body" => "본문", other => other,
+    };
+    let flags: String = c.flags.iter().map(|f| format!("<{}>", f))
+        .collect::<Vec<String>>().join(" ");
+    format!("  [-] {:<14} {:<8} 근거 {:>3}건/폴더{:<2} 다른분류 {:>5.1}% 덮는율 {:>5.1}%  {} {}",
+            c.term, where_, c.docs, c.clusters, c.df_neg * 100.0, c.df_pos * 100.0,
+            c.why, flags)
+}
+
+/// 문턱을 못 넘은 말 한 개를 json 으로.
+fn below_json(c: &termsuggest::Below) -> Value {
+    json!({
+        "term": c.term, "where": c.where_, "why": c.why,
+        "df_pos": c.df_pos, "df_neg": c.df_neg, "score": c.score,
+        "docs": c.docs, "clusters": c.clusters, "flags": c.flags,
+    })
+}
+
+/// 후보 한 개를 json 으로 — 파이썬 판이 --suggest-json 으로 남기는 모양과 같다.
+fn suggest_cand_json(c: &termsuggest::Cand) -> Value {
+    let mut extra = serde_json::Map::new();
+    if let Some(n) = c.min_count { extra.insert("min_count".into(), json!(n)); }
+    json!({
+        "term": c.term, "fields": c.fields, "extra": Value::Object(extra),
+        "checked": c.checked, "where": c.where_, "group": c.group,
+        "df_pos": c.df_pos, "df_neg": c.df_neg, "score": c.score,
+        "docs": c.docs, "clusters": c.clusters, "flags": c.flags,
+    })
+}
+
+/// 규칙 단어 제안 전용 모드(--suggest-terms) — Python run_suggest_terms 와 같은 일.
+/// 문서도 모델도 읽지 않는다. 이미 확정된 라벨과 저장해 둔 본문만 보고, 규칙에 넣을
+/// 만한 말의 후보를 보여 준다. 규칙 파일은 고치지 않는다.
+/// -out: 종료코드(0 정상 / 3 재료 없음 / 4 결과 쓰기 실패)
+fn run_suggest_terms(opts: &Opts) -> i32 {
+    // 재료 경로. 검토 이력·금지 목록은 정책 파일 옆에 두는 것을 규약으로 삼는다.
+    let seeds_path = opts.seeds.clone().or_else(default_seed_path);
+    let policy_dir = seeds_path.as_ref()
+        .and_then(|p| Path::new(p).parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let ov_path = opts.overrides.clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| policy_dir.join("cso_override.jsonl"));
+    let stop_path = opts.stopwords.clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| policy_dir.join("doc_rule_stopwords.yaml"));
+
+    let seed_file = seeds_path.as_ref().map(PathBuf::from);
+    let have_seed = seed_file.as_ref().map(|p| p.is_file()).unwrap_or(false);
+    let have_ov = ov_path.is_file();
+    if !have_seed && !have_ov {
+        let shown = seed_file.as_ref().map(|p| p.display().to_string())
+            .unwrap_or_else(|| "class_seed.jsonl".into());
+        errcodes::fail("seeds_missing",
+            &format!("[MpowerClassify-rs] 제안할 재료가 없습니다.\n  · 기준 문서: {}\n  \
+· 검토 확정 이력: {}\n  둘 중 하나는 있어야 합니다(--seeds · --overrides 로 지정).",
+                     shown, ov_path.display()),
+            Some(&shown));
+    }
+
+    let text_dir = opts.text_dir.as_ref().map(PathBuf::from);
+    let docs = termsuggest::load_documents(
+        if have_seed { seed_file.as_deref() } else { None },
+        if have_ov { Some(ov_path.as_path()) } else { None },
+        text_dir.as_deref(), !opts.include_auto_seeds);
+    if opts.include_auto_seeds {
+        eprintln!("[MpowerClassify-rs] 사람이 승인하지 않은 seed 도 재료에 넣었습니다 — \
+규칙이 만든 라벨이 다시 규칙을 만드는 고리가 생길 수 있습니다.");
+    }
+
+    // 규칙·분류 체계는 '거르기'에만 쓴다. 없어도 제안은 돈다.
+    let rules_path = resolve_policy_file(&opts.doc_rules, doc_rules::default_doc_rule_filename());
+    let mut rule_doc: Option<Value> = None;
+    let mut suffixes: Vec<String> = vec![];
+    let mut endings: Vec<String> = vec![];
+    let mut titles: std::collections::HashMap<String, String> = Default::default();
+    match rules_path.as_ref().filter(|p| p.is_file()) {
+        Some(p) => {
+            match std::fs::read_to_string(p).ok()
+                .and_then(|t| serde_yaml::from_str::<Value>(&t).ok()) {
+                Some(doc) => {
+                    let rules: Vec<Value> = doc.get("doctype_rules").and_then(|v| v.as_array())
+                        .map(|a| a.to_vec()).unwrap_or_default();
+                    match axes::taxonomy_from_rules(&rules, "") {
+                        Ok(tax) => {
+                            for n in &tax.nodes { titles.insert(n.dc_id.clone(), n.title.clone()); }
+                        }
+                        Err(e) => eprintln!("[MpowerClassify-rs] 규칙에서 분류 체계를 짓지 \
+못해 '다른 분류 이름'을 거르지 못합니다: {}", e),
+                    }
+                    rule_doc = Some(doc);
+                }
+                None => eprintln!("[MpowerClassify-rs] 규칙 파일을 읽지 못해 '이미 있는 말'을 \
+거르지 못합니다: {}", p.display()),
+            }
+            // 끝말·활용형 꼬리는 규칙 파일 옆 유의어 사전에서 온다(core 가 기준).
+            let syn = docvocab::load_synonyms(p);
+            suffixes = syn.suffixes.clone();
+            endings = termsuggest::load_endings(&syn.layers);
+        }
+        None => eprintln!("[MpowerClassify-rs] 규칙 파일이 없어 '이미 있는 말'을 거르지 \
+못합니다: {}", doc_rules::default_doc_rule_filename()),
+    }
+    let sidx = termsuggest::suffix_index(&suffixes);
+    let stopwords = termsuggest::load_stopwords(Some(stop_path.as_path()));
+
+    // 훑을 분류를 정한다. all 이면 확정 문서가 한 건이라도 있는 분류 전부.
+    let want = opts.suggest_terms.clone().unwrap_or_default().trim().to_string();
+    let mut labelled: Vec<String> = docs.iter().flat_map(|d| d.labels.iter().cloned())
+        .collect::<std::collections::BTreeSet<String>>().into_iter().collect();
+    labelled.sort();
+    let nodes: Vec<String> = if want.to_lowercase() == "all" {
+        if labelled.is_empty() {
+            println!("[MpowerClassify-rs] 확정된 문서가 한 건도 없습니다 — \
+검토 화면에서 분류를 확정하면 재료가 쌓입니다.");
+            return 0;
+        }
+        labelled.clone()
+    } else {
+        if !labelled.contains(&want) {
+            eprintln!("[MpowerClassify-rs] '{}' 로 확정된 문서가 없습니다. 확정 문서가 있는 분류: {}",
+                      want, if labelled.is_empty() { "(없음)".to_string() } else { labelled.join(", ") });
+        }
+        vec![want]
+    };
+
+    let min_docs = opts.suggest_min_docs.unwrap_or(termsuggest::MIN_DOCS);
+    println!("[MpowerClassify-rs] 재료 {}건(기준문서 {} · 검토이력 {} · 본문 {})",
+             docs.len(),
+             if have_seed { "있음" } else { "없음" },
+             if have_ov { "있음" } else { "없음" },
+             if opts.text_dir.is_some() { "있음" } else { "없음" });
+
+    let mut out: Vec<Value> = vec![];
+    for node in &nodes {
+        let res = termsuggest::suggest(node, &docs, rule_doc.as_ref(), &stopwords,
+                                       &titles, &sidx, &endings, min_docs);
+        let name = titles.get(node).cloned().unwrap_or_default();
+        let head = if name.is_empty() { format!("\n■ {}", node) }
+                   else { format!("\n■ {}({})", name, node) };
+        let tail = if res.no_text > 0 { format!(" · 본문 없음 {}건", res.no_text) }
+                   else { String::new() };
+        println!("{} — 확정 {}건 / 폴더 {}곳{}", head, res.docs, res.clusters, tail);
+        if !res.reason.is_empty() { println!("  {}", res.reason); }
+        if res.candidates.is_empty() && res.cluster_only.is_empty() {
+            if res.reason.is_empty() { println!("  제안할 말이 없습니다."); }
+            if !res.below.is_empty() {
+                // 문턱은 기계가 긋지만, 그 말이 쓸모 있는지는 사람이 안다.
+                println!("  [문턱 미달 — 참고] 검출은 됐지만 기준에 못 미친 말입니다. \
+쓸 만한지는 관리자가 판단하세요:");
+                for c in &res.below { println!("{}", below_line(c)); }
+            }
+            out.push(suggestion_json(&res));
+            continue;
+        }
+        for c in &res.candidates { println!("{}", suggest_line(c)); }
+        if !res.cluster_only.is_empty() {
+            // 한 폴더에 몰린 어휘는 근거가 약해 자동 채택하지 않는다.
+            println!("  [한 폴더 전용] 그 폴더에서만 쓰는 말일 수 있습니다:");
+            for c in &res.cluster_only { println!("{}", suggest_line(c)); }
+        }
+        out.push(suggestion_json(&res));
+    }
+
+    if let Some(path) = &opts.suggest_json {
+        let text = serde_json::to_string_pretty(&Value::Array(out)).unwrap_or_default();
+        if let Err(e) = std::fs::write(path, text) {
+            errcodes::fail("output_write_failed",
+                &format!("[MpowerClassify-rs] 결과를 쓰지 못했습니다: {}", e), Some(path));
+        }
+        println!("\n[MpowerClassify-rs] 결과를 남겼습니다: {}", path);
+    }
+
+    println!("\n[MpowerClassify-rs] 규칙 파일은 고치지 않았습니다 — \
+넣을 말은 화면(설정 ③ 판단 기준)에서 고르세요.");
+    0
+}
+
+/// 제안 결과 하나를 json 으로(파이썬 판 --suggest-json 과 같은 칸).
+fn suggestion_json(res: &termsuggest::Suggestion) -> Value {
+    json!({
+        "node": res.node, "docs": res.docs, "clusters": res.clusters,
+        "no_text": res.no_text, "reason": res.reason,
+        "candidates": res.candidates.iter().map(suggest_cand_json).collect::<Vec<Value>>(),
+        "cluster_only": res.cluster_only.iter().map(suggest_cand_json).collect::<Vec<Value>>(),
+        "below": res.below.iter().map(below_json).collect::<Vec<Value>>(),
+    })
 }
 
 /// 업무분류 규칙 자동 생성(--build-doc-rule) — Python run_build_doc_rule 과 같은 일.
@@ -1787,6 +2034,12 @@ fn main() {
     // 만들려던 doc_rule.yaml 이 아직 옛 모양이라는 이유로 축 로드에서 또 걸린다.
     if opts.build_doc_rule {
         std::process::exit(errcodes::finish(run_build_doc_rule(&opts), None));
+    }
+
+    // 규칙 단어 제안 — 문서도 모델도 읽지 않는다. 규칙셋을 먼저 읽는 아래 흐름을
+    // 타면 cso_rule.yaml 이 없다는 이유로 엉뚱하게 멈춘다(위 --build-doc-rule 과 같은 자리).
+    if opts.suggest_terms.is_some() {
+        std::process::exit(errcodes::finish(run_suggest_terms(&opts), None));
     }
 
     // 전파 전용 모드 — 입력이 1차 '레코드 파일'이라 문서도 규칙셋도 모델도 필요 없다.

@@ -68,6 +68,7 @@ Thumbs.db
 # 파일을 하나 더 들고 있어서, 루트만 막으면 그쪽으로 그대로 새어 나간다.
 **/resources/policy/doc_taxonomy.yaml
 **/resources/policy/doc_classification_export.json
+**/resources/policy/doc_classification_export_*.json
 **/resources/policy/doc_rule.yaml
 **/resources/policy/_old-*/
 # 회사 겹 유의어 사전 — 고객 제품명·브랜드·회사명이 들어간다. 사람이 고치는 자리라
