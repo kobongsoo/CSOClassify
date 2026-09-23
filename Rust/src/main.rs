@@ -1310,6 +1310,9 @@ fn run_suggest_terms(opts: &Opts) -> i32 {
              if have_seed { "있음" } else { "없음" },
              if have_ov { "있음" } else { "없음" },
              if opts.text_dir.is_some() { "있음" } else { "없음" });
+    // 숫자 두 개의 뜻을 여기서 한 번만 밝힌다 — 줄마다 붙이면 목록이 못 읽게 길어진다.
+    println!("  덮는율 = 이 분류 문서 중 그 말이 나온 비율(참고) · 다른분류 = 다른 분류 문서 중 나온 비율(낮을수록 좋음 — 이 값으로 거릅니다)");
+    println!("  같은 폴더 문서는 합쳐서 1건으로 세어 비율을 냅니다. [v] 근거가 단단한 후보 · [ ] 후보 · [-] 문턱 미달(참고)");
 
     let mut out: Vec<Value> = vec![];
     for node in &nodes {
