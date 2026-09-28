@@ -401,7 +401,9 @@ def build_parser():
                         "분류한다. 규칙 파일의 embed·conflict 설정은 그대로 쓴다. "
                         "security 축은 영향을 받지 않는다")
     p.add_argument("--progress", action="store_true",
-                   help="파일별 진행 상황을 stderr 로 출력(형식: '[progress] 처리수/총수 경로'). UI 진행바용")
+                   help="파일별 진행 상황을 stderr 로 출력(형식: '[progress] 처리수/총수 경로'). "
+                        "2차 패스(전파)도 단계 이름을 달고 같은 모양으로 나간다"
+                        "('[progress][전파·보안등급]'·'[progress][전파·업무분류]'). UI 진행바용")
 
     # 출력 축약 옵션(C/S/O 분류 모드 전용). 모두 JSON 으로 출력한다.
     p.add_argument("--hash", dest="hash", action="store_true",
@@ -2586,9 +2588,31 @@ def run_classify(files, args, out_fp):
             # 사용자가 --seeds 로 명시했는데 파일이 없을 때만 알린다(내부 seed 로 진행).
             print(f"[MpowerClassify] seed 파일 없음(내부 seed 만 사용): {args.seeds}", file=sys.stderr)
 
+        #----------------------------------------------------------
+        # 2차 패스 진행 알림 만들기
+        #=> 추출·1차 분류는 파일마다 [progress] 를 내는데, 그 뒤 전파 단계는
+        #   여태 아무 말이 없었다. 문서가 수천 건이면 "멈춘 건가" 를 알 수 없다.
+        #   같은 [progress] 로 내되 단계 이름을 붙여 어느 패스인지 알게 한다
+        #   (진행바는 [progress] 로 시작하는 줄만 보므로 그대로 움직인다).
+        #
+        # -in: label = 단계 이름(예: "전파·업무분류")
+        #
+        # -out: fn = f(본수, 전체, 경로). --progress 가 아니면 None
+        # -out: error = 없음
+        #----------------------------------------------------------
+        def _prop_progress(label):
+            if not show_progress:
+                return None
+
+            def _tell(done, total, path):
+                print(f"[progress][{label}] {done}/{total} {path}",
+                      file=sys.stderr, flush=True)
+            return _tell
+
         # 내부 seed 읽기(cso_rule.yaml)
         # => cso_rule.yaml에서 고신뢰(seed_eligible) 설정된 경우에 대해 읽어옴
-        records, pstats = propagate_records(records, seed_index=seed_index, failsafe=args.failsafe)
+        records, pstats = propagate_records(records, seed_index=seed_index, failsafe=args.failsafe,
+                                            on_progress=_prop_progress("전파·보안등급"))
 
         #-------------------------------------------------------------
         # **업무분류 전파**
@@ -2617,7 +2641,8 @@ def run_classify(files, args, out_fp):
                 # 정한다. 여태 이 값들은 파일에 적혀 있어도 쓰이지 않았다.
                 records, dt_stats = propagate_doctype_records(
                     records, dt_seeds, taxonomy, doc_rules_set.conflict,
-                    embed_cap=doc_rules_set.defaults.embed_cap, **emb.kwargs())
+                    embed_cap=doc_rules_set.defaults.embed_cap,
+                    on_progress=_prop_progress("전파·업무분류"), **emb.kwargs())
                 print(f"[전파][업무분류] seed={dt_stats['seeds']} "
                       f"embed기여={dt_stats['embed_contributed']} "
                       f"벡터없음={dt_stats['no_vector']}", file=sys.stderr)

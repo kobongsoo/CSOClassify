@@ -203,7 +203,9 @@ fn usage() {
     eprintln!("  --no-doc-id               결과에 doc_id·key 를 넣지 않는다(보안등급만 볼 때)");
     eprintln!("  --report-missing-id <경로>  sfile_id 를 못 얻어 폴백으로 채운 문서 목록(jsonl).");
     eprintln!("                            그 문서들은 매핑 테이블 적재 대상이 아니다");
-    eprintln!("  --progress                파일마다 진행 상황을 stderr 로('[progress] 처리수/총수 경로')");
+    eprintln!("  --progress                파일마다 진행 상황을 stderr 로('[progress] 처리수/총수 경로').");
+    eprintln!("                            2차 패스(전파)도 같은 모양으로 단계 이름을 달고 나간다");
+    eprintln!("                            ('[progress][전파·보안등급]' · '[progress][전파·업무분류]')");
     eprintln!("  --no-timing               요약줄에서 총시간 표기를 뺀다");
     eprintln!("  --json-errors             실패할 때 stdout 에 오류 JSON 한 줄");
     eprintln!("                            ({{\"error\":{{code,kind,message,path}}}})");
@@ -2820,7 +2822,14 @@ fn main() {
                 let seeds = propagate::SeedIndex::merge(external, internal);
                 // 보류 문서만 전파(이미 등급 확정 문서는 손대지 않음).
                 let (mut decided, mut still) = (0u32, 0u32);
-                for it in items.iter_mut() {
+                // 2차 패스도 진행을 알린다. 추출·1차는 파일마다 [progress] 를 내는데
+                // 여기서부터는 여태 아무 말이 없어, 문서가 수천 건이면 "멈춘 건가"를
+                // 알 수 없었다. 건너뛰는 레코드에서도 세어 진행이 끊기지 않게 한다.
+                let prop_total = items.len();
+                for (done, it) in items.iter_mut().enumerate() {
+                    if opts.progress {
+                        eprintln!("[progress][전파·보안등급] {}/{} {}", done + 1, prop_total, it.file);
+                    }
                     if it.grade.is_some() { continue; }
                     let vec = match &it.vector { Some(v) => v.clone(), None => continue };
                     let esig = propagate::propagate(&vec, &seeds);
@@ -2852,7 +2861,11 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
                             min_share: drs.embed.min_share as f32,
                         };
                         let mut contributed = 0u32;
-                        for it in items.iter_mut() {
+                        let dt_total = items.len();
+                        for (done, it) in items.iter_mut().enumerate() {
+                            if opts.progress {
+                                eprintln!("[progress][전파·업무분류] {}/{} {}", done + 1, dt_total, it.file);
+                            }
                             let existing = match &it.dt { Some(sig) => sig.values.clone(), None => continue };
                             let vec = match &it.vector { Some(v) => v.clone(), None => continue };
                             let esig = propagate::propagate_doctype(&vec, &dt_seeds, dt_params);

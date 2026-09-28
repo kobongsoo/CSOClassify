@@ -281,6 +281,31 @@ def _ns_from_signal(d):
 
 
 #------------------------------------------------------------------
+# 2차 패스 진행 알리기
+#=> 전파 루프가 레코드 하나를 볼 때마다 호출자에게 알린다. 화면 진행바와
+#   콘솔의 [progress] 줄이 이것으로 움직인다.
+#   [왜 감싸나] 알림은 부속이지 판정이 아니다. 콜백이 터졌다고 분류가
+#   멈추면 안 되므로 예외를 삼킨다 — 진행 표시를 못 하는 것과 결과를 못
+#   내는 것은 무게가 전혀 다르다.
+#
+# -in: cb    = 호출자가 준 함수 f(본수, 전체, 파일경로). None 이면 아무 일도 안 한다
+# -in: done  = 지금까지 본 레코드 수(1부터)
+# -in: total = 전체 레코드 수
+# -in: rec   = 지금 보고 있는 레코드(파일 경로를 꺼내는 데만 쓴다)
+#
+# -out: 없음
+# -out: error = 없음(콜백이 던진 예외는 삼킨다)
+#------------------------------------------------------------------
+def _tell(cb, done, total, rec):
+    if cb is None:
+        return
+    try:
+        cb(done, total, (rec or {}).get("file") or "")
+    except Exception:
+        pass
+
+
+#------------------------------------------------------------------
 # 배치 임베딩 전파(Signal B, 2차 패스) — 핵심
 #=> 벡터가 실린 1차 레코드들을 받아, 고신뢰 등급을 seed 로 삼아 "보류(grade=None)"
 #   문서에만 라벨을 전파한다. 이미 등급이 확정된 문서는 손대지 않는다.
@@ -300,13 +325,17 @@ def _ns_from_signal(d):
 #                   seed(seed_eligible 문서)와 "합쳐서" 비교 기준으로 쓰고, None 이면
 #                   내부 seed 만 쓴다.
 # -in: failsafe   = 재융합 시에도 무신호면 부여할 기본등급(없으면 None)
+# -in: on_progress = 레코드 하나를 볼 때마다 부를 함수 f(본수, 전체, 파일경로).
+#                    None 이면 알리지 않는다. 건너뛴 레코드에서도 부른다 —
+#                    세는 수가 끊기면 진행바가 중간에서 멈춘 것처럼 보인다
 # -in: kw         = propagate() 임계값 override(k/dup_threshold/min_sim/min_share)
 #
 # -out: (records, stats) = 갱신된 레코드들, 통계 dict
 #       stats = {seeds, already_graded, embed_decided, still_unclassified, no_vector}
 # -out: error = 없음
 #------------------------------------------------------------------
-def propagate_records(records, seed_index=None, failsafe=None, **kw):
+def propagate_records(records, seed_index=None, failsafe=None,
+                      on_progress=None, **kw):
     # 비교 기준 seed = 코퍼스 내부 seed(seed_eligible 문서) + (있으면) 외부 큐레이션 seed.
     # 외부 seed 를 주면 '외부 + 내부' 양쪽과 비교하고(사용자 정책), 없으면 내부만 쓴다.
     # => cso_rule.yaml에서 고신뢰(seed_eligible) 설정된 경우에 대해 class_seed.jsonl 만듬 
@@ -318,7 +347,10 @@ def propagate_records(records, seed_index=None, failsafe=None, **kw):
     stats = {"seeds": seeds.size, "already_graded": 0,
              "embed_decided": 0, "still_unclassified": 0, "no_vector": 0}
 
-    for rec in records:
+    total = len(records)
+    for done, rec in enumerate(records, 1):
+        # 이 레코드를 건너뛰든 아니든 진행은 알린다(아래 continue 들 때문에 try 로 감싼다).
+        _tell(on_progress, done, total, rec)
         # 새 모양은 why.security, 옛 결과 파일은 최상위/labels — 둘 다 읽는다.
         if "security" not in rec.get("why", {}):
             old = record.security_of(rec)
@@ -386,6 +418,8 @@ def propagate_records(records, seed_index=None, failsafe=None, **kw):
 # -in: embed_cap = 벡터 '단독' 후보의 신뢰도 상한(재설계 9-3a). None 이면 상한
 #                  없음(종전 동작). doc_rule.yaml 의 defaults.embed_cap 을
 #                  호출자(cli.py)가 그대로 넘겨 주면 된다
+# -in: on_progress = 레코드 하나를 볼 때마다 부를 함수 f(본수, 전체, 파일경로).
+#                    None 이면 알리지 않는다(propagate_records 와 같은 약속)
 # -in: kw        = propagate_doctype() 임계값 override(k/dup_threshold/min_sim/min_share)
 #
 # -out: (records, stats) = 갱신된 레코드들, 통계 dict
@@ -393,11 +427,13 @@ def propagate_records(records, seed_index=None, failsafe=None, **kw):
 # -out: error = 없음
 #------------------------------------------------------------------
 def propagate_doctype_records(records, dt_seeds, taxonomy, conflict,
-                              embed_cap=None, **kw):
+                              embed_cap=None, on_progress=None, **kw):
     stats = {"seeds": dt_seeds.size if dt_seeds else 0,
              "embed_contributed": 0, "no_vector": 0, "axis_off": 0}
 
-    for rec in records:
+    total = len(records)
+    for done, rec in enumerate(records, 1):
+        _tell(on_progress, done, total, rec)
         dt = record.doctype_of(rec)
         if dt is None:
             stats["axis_off"] += 1
