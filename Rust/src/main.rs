@@ -1353,7 +1353,7 @@ fn run_suggest_terms(opts: &Opts) -> i32 {
     }
 
     println!("\n[MpowerClassify-rs] 규칙 파일은 고치지 않았습니다 — \
-넣을 말은 화면(설정 ③ 판단 기준)에서 고르세요.");
+넣을 말은 화면(설정 ② 판단 기준)에서 고르세요.");
     0
 }
 
