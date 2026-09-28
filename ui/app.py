@@ -2839,7 +2839,6 @@ def default_paths():
     result = next((p for p in (os.path.join(here, "cso_result.jsonl"),
                                os.path.join(here, "sample_cso_result.jsonl"))
                    if os.path.isfile(p)), os.path.join(here, "cso_result.jsonl"))
-    policy = os.path.abspath(os.path.join(here, "..", "resources", "policy"))
     # 고객 파일이 사는 자리. sync_policy.py 가 '원본'으로 보는 곳과 같아야 한다.
     ui_policy = os.path.join(here, "policy")
 
@@ -2857,20 +2856,6 @@ def default_paths():
     def _mine(name):
         return os.path.join(ui_policy, name)
 
-    #--------------------------------------------------------------
-    # 제품 파일의 기본 경로 — 고객 폴더에 있으면 그것, 없으면 제품 폴더
-    #=> 제품이 싣고 오는 파일(보안등급 규칙)은 고객 폴더에 아직 복사되지
-    #   않았을 수 있다. 그때는 갓 받은 저장소에서도 화면이 뜨도록 제품
-    #   폴더의 것을 읽는다.
-    #
-    # -in: name = 파일 이름(예: "cso_rule.yaml")
-    #
-    # -out: str = 절대경로
-    # -out: error = 없음
-    #--------------------------------------------------------------
-    def _shipped(name):
-        mine = os.path.join(ui_policy, name)
-        return mine if os.path.isfile(mine) else os.path.join(policy, name)
 
     # 실행 명령 기본값 = 배포 exe. 아직 없으면 소스 모듈로 폴백한다.
     exe = os.path.abspath(os.path.join(here, "..", "dist-pkg", "MpowerClassify.exe"))
@@ -2888,7 +2873,10 @@ def default_paths():
         # 기준 문서는 고객 파일이다 — 규칙·체계와 같은 폴더에 모은다.
         "seed": _mine("class_seed.jsonl"),
         "seed_audit": _mine("class_seed_audit.jsonl"),
-        "rules": _shipped("cso_rule.yaml"),
+        # 보안등급 규칙도 고객 파일이다(2026-09-28 결정) — 화면이 고치는 대상이라
+        # 원본이 저장소 쪽이면 고친 것이 다음 동기화에 되돌아간다. 아직 복사해
+        # 오지 않았으면 화면이 '고급에서 위치를 확인하라'고 안내한다.
+        "rules": _mine("cso_rule.yaml"),
         # 분류 체계를 '다시 가져올' 때 읽는 원본 JSON(MpowerV11 내보내기 결과).
         "export_input": _mine("doc_classification_export.json"),
         "doc_rules": _mine("doc_rule.yaml"),
