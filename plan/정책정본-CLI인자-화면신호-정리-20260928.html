@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>정책 정본 · CLI 인자 · 화면 신호 정리 — 2026-09-28</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  h2{font-size:20px;margin:36px 0 12px;padding-top:12px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.6em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .ok{border-left:3px solid var(--o);background:color-mix(in srgb,var(--o) 12%,transparent);
+      border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .must{border:1px solid color-mix(in srgb,var(--c) 45%,transparent);border-left:5px solid var(--c);
+    background:color-mix(in srgb,var(--c) 9%,transparent);border-radius:0 10px 10px 0;
+    padding:14px 16px;margin:16px 0}
+  .must .h{font-weight:800;color:var(--c);margin-bottom:6px;font-size:15px}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:5px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .def{color:var(--muted);font-size:.85em}
+  .pr{font-family:"Cascadia Code",Consolas,monospace;font-size:12.5px;color:var(--muted);white-space:nowrap}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>정책 정본 · CLI 인자 · 화면 신호 정리</h1>
+  <p>고객 정책 파일의 정본을 한 곳으로 모으고, 규칙셋 인자 이름을 두 축이 짝을 이루게 바꾸고,
+     화면이 못 따라오던 엔진 신호를 되살린 날의 기록.</p>
+  <p class="muted" style="margin-top:8px">2026-09-28 · PR #26–#39 · 새 설계가 아니라
+     <b>어긋나 있던 것을 맞춘 작업</b>이다</p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:14px">차례</h3>
+  <ul class="toc">
+    <li><a href="#s0">0. 한눈에 — 무엇이 바뀌었나</a></li>
+    <li><a href="#s1">1. CLI 인자 이름 — 두 축의 짝 맞추기</a></li>
+    <li><a href="#s2">2. 정책 파일의 정본 — ui/policy 하나로</a></li>
+    <li><a href="#s3">3. 화면이 엔진을 못 따라온 자리</a></li>
+    <li><a href="#s4">4. 안내문의 화면 번호 — ③ → ②</a></li>
+    <li><a href="#s5">5. 문서 점검에서 나온 것</a></li>
+    <li><a href="#s6">6. 남긴 것 · 다음에 볼 것</a></li>
+  </ul>
+</section>
+
+<!-- ══════════════════════════════════════════════════ 0 -->
+<h2 id="s0"><span class="n">0.</span>한눈에 — 무엇이 바뀌었나</h2>
+<section class="card">
+<p>오늘 한 일은 하나로 묶인다 — <b>"오래전에 바뀐 것을 따라오지 못한 자리들"</b>을 찾아 맞춘 것이다.
+   기능을 새로 만든 것은 없다. 그런데도 고칠 것이 많았던 까닭은, 어긋남이 조용해서다.
+   인자 이름이 짝이 안 맞아도 돌아가고, 화면이 신호 둘을 빠뜨려도 화면은 그려지고,
+   정본이 갈려 있어도 <code>settings.yaml</code> 이 가려 주면 티가 안 난다.</p>
+<div class="scroll">
+<table>
+  <tr><th>영역</th><th>바뀐 것</th><th>왜</th><th class="pr">PR</th></tr>
+  <tr><td>CLI</td><td><code>--rules</code> → <code>--cso-rules</code>,
+      옛 이름 <code>--rules</code>·<code>--save-text</code> 폐기</td>
+      <td>업무분류는 <code>--doc-rules</code> 인데 보안등급은 <code>--rules</code> 라 짝이 안 맞았다</td>
+      <td class="pr">#27</td></tr>
+  <tr><td>정책</td><td><code>cso_rule.yaml</code> 의 정본을 <code>ui/policy</code> 로,
+      화면 기본 경로도 그리로</td>
+      <td>화면이 고친 규칙을 동기화가 되돌리고 있었다</td><td class="pr">#37 #38 #39</td></tr>
+  <tr><td>화면</td><td>검토 화면에 <code>sensitive</code>·<code>stamp</code> 신호 표시,
+      죽은 <code>path</code>·<code>form</code>·<code>structure</code> 제거</td>
+      <td>확신 0.95 를 만든 신호를 화면이 말하지 못했다</td><td class="pr">#35 #36</td></tr>
+  <tr><td>안내문</td><td>설정 화면 번호 ③ → ② (38군데 · 29파일)</td>
+      <td>③ 은 '분류 실행' 이라 엉뚱한 데를 가리켰다</td><td class="pr">#32</td></tr>
+  <tr><td>문서</td><td>문서 7개의 틀린 값 정정, 작업가이드 신규</td>
+      <td>따라 하면 틀리는 안내가 남아 있었다</td><td class="pr">#26 #28–#34</td></tr>
+</table>
+</div>
+<div class="note"><b>오늘의 교훈 한 줄</b> — 어긋남은 대개 <b>무엇이 틀렸는지</b>가 아니라
+  <b>무엇이 조용한지</b>로 찾아야 한다. 오늘 가장 큰 버그(신호 둘 누락)는
+  "인자 이름 바꿔 줘" 에서 시작해 문서를 훑다가 나왔다.</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════ 1 -->
+<h2 id="s1"><span class="n">1.</span>CLI 인자 이름 — 두 축의 짝 맞추기 <span class="pill">#27</span></h2>
+<section class="card">
+<h3>무엇이 문제였나</h3>
+<p>두 축의 규칙셋 인자 이름이 짝을 이루지 못했다.</p>
+<table>
+  <tr><th>축</th><th>전</th><th>후</th></tr>
+  <tr><td>업무분류</td><td><code>--doc-rules</code></td><td><code>--doc-rules</code></td></tr>
+  <tr><td>보안등급</td><td><code>--rules</code></td><td><b><code>--cso-rules</code></b></td></tr>
+</table>
+<p>어느 쪽 규칙을 주는 자리인지 매번 헷갈렸다. 이름만 바꾸면 되는 일이지만,
+   <b>옛 이름을 어떻게 할지</b>가 실제 결정이었다.</p>
+
+<h3>결정 — 조용히 받아 주지 않는다</h3>
+<p>처음에는 프로젝트의 기존 관례(<code>--save-text</code> → <code>--textsave</code>)를 따라
+   옛 이름도 받되 안내만 내도록 했다. 그러나 그 관례 자체가 문제였다 — 받아 주면 아무도 옮기지 않고,
+   <b>두 이름이 같은 자리를 가리키는 상태가 굳는다.</b> 실제로 <code>--save-text</code> 는 그렇게 오래 남아 있었다.</p>
+<p>그래서 둘 다 끊었다. 다만 '모르는 인자'로 흘리지는 않는다 — 그러면 왜 안 되는지 알 수 없다.
+   이미 있는 폐기 옵션과 같은 길로, <b>없어졌다고 사실대로 답하고 무엇을 쓰면 되는지 알린다.</b></p>
+<pre><code>[MpowerClassify] --rules 는 없어졌습니다 — 보안등급 규칙셋은 --cso-rules 로 지정합니다(업무분류는 --doc-rules).
+[MpowerClassify] --save-text 는 없어졌습니다 — 추출 본문을 남길 폴더는 --textsave 로 지정합니다.
+
+  · unsupported_option(1012) · 종료코드 3
+  · 두 판의 문구·코드가 같다(접두만 다름)
+  · 값을 받던 옵션이라 값 없이 줘도 '값이 없습니다'로 새지 않는다</code></pre>
+
+<h3>곁가지 — 실제로 멎던 스크립트</h3>
+<div class="warn">인자를 끊고 나서 저장소를 훑다가 <code>scripts/PII_검출테스트.bat</code> 이
+  <code>--rules</code> 를 쓰고 있는 것을 찾았다. 문서가 아니라 <b>실제로 도는 스크립트</b>라
+  그대로 뒀으면 종료코드 3 으로 멎었다<span class="pr"> #29</span>.
+  <br><br><b>이름을 바꾸면 문서만이 아니라 스크립트·배치·테스트까지 같이 훑어야 한다</b>는
+  것을 다시 확인한 자리다.</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════ 2 -->
+<h2 id="s2"><span class="n">2.</span>정책 파일의 정본 — ui/policy 하나로 <span class="pill">#37 #38 #39</span></h2>
+<section class="card">
+<h3>세 곳에 흩어져 있었다</h3>
+<p>같은 이름의 정책 파일이 <code>resources/policy</code>(제품) · <code>ui/policy</code>(고객) ·
+   배포 폴더 4곳에 있다. <code>scripts/sync_policy.py</code> 가 파일마다 '원본'을 정해 사본에 복사한다.
+   문제는 <b>화면이 보는 자리가 그 어느 쪽도 아니었다</b>는 것이다.</p>
+<pre><code>default_paths()  →  ui/doc_rule.yaml        (없음)
+                 →  resources/policy/…      (제품 폴더로 떨어짐)
+실제 고객 파일    →  ui/policy/…             (아무도 안 봄)</code></pre>
+<p>그래서 새로 설치한 자리에서는 화면이 고친 규칙이 <b>제품 폴더에 쓰이고</b>,
+   동기화가 <code>ui/policy</code> 를 원본으로 보므로 <b>다음에 조용히 되돌아간다.</b>
+   지금 쓰는 자리에서는 <code>settings.yaml</code> 이 올바른 경로를 덮어써서 가려져 있었다 —
+   그래서 오래도록 아무도 못 봤다.</p>
+
+<h3>고친 것 — 파일의 '주인'으로 가른다</h3>
+<table>
+  <tr><th>묶음</th><th>파일</th><th>원본</th><th>사본</th></tr>
+  <tr><td>고객</td><td><code>doc_rule.yaml</code> · <code>doc_rule.local.yaml</code> ·
+      <code>class_seed.jsonl</code> · 체계 JSON · <code>synonyms/…local.yaml</code></td>
+      <td><code>ui/policy</code></td><td>저장소 + 배포 4곳</td></tr>
+  <tr><td>고객 <span class="def">(오늘 옮김)</span></td><td><code>cso_rule.yaml</code></td>
+      <td><b><code>ui/policy</code></b></td><td><b>배포 4곳만</b></td></tr>
+  <tr><td>제품</td><td><code>doc_rule_template.yaml</code> · <code>synonyms/</code> core·업종</td>
+      <td><code>resources/policy</code></td><td>저장소 + 화면 + 배포 4곳</td></tr>
+</table>
+<div class="must">
+  <div class="h">cso_rule.yaml 의 사본에서 저장소를 뺀 까닭</div>
+  <p style="margin:0">원본만 옮기고 사본 목록을 그대로 뒀다면 <b>새 구멍이 생길 뻔했다</b> —
+     동기화가 고객의 <code>cso_rule.yaml</code> 을 저장소로 밀어 넣는다. 이 파일에는
+     그 회사의 기밀 키워드·제품명이 들어간다. 회사 겹 유의어(<code>local</code>)를 뺀 것과 같은 까닭이다.
+     저장소의 <code>resources/policy/cso_rule.yaml</code> 은 이제
+     <b>새 고객이 복사해 가는 기본값</b>이고 동기화 대상이 아니다.</p>
+</div>
+
+<h3>대가 — 제품 기본값이 안 내려간다</h3>
+<p>방향을 뒤집은 대가로, 제품 기본값을 개선해도 이미 나간 고객 폴더에는 내려가지 않는다.
+   <b>자동 병합 도구는 두지 않기로 했다</b> — 드물게 바뀌는 데다, 자동으로 덮으면
+   고객이 고친 것을 다시 잃는다(방향을 뒤집은 까닭이 바로 그것이었다).
+   바뀌었을 때는 릴리스 노트 → 고객별로 골라 옮기기 → <code>--check-rules</code> →
+   <code>version</code> 상향 → <code>sync_policy --apply</code> 로 손수 처리한다.</p>
+<div class="note"><b>업무분류는 이 문제가 없다</b> — <code>doc_rule.yaml</code> 은 생성물이라
+  다시 만들면 제품 사전의 개선이 들어오고, 고객 결정은 <code>doc_rule.local.yaml</code> 에
+  따로 있어 살아남는다. <b>보안등급도 언젠가 같은 구조로 갈지</b> 판단할 때 이 대비가 근거가 된다.</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════ 3 -->
+<h2 id="s3"><span class="n">3.</span>화면이 엔진을 못 따라온 자리 <span class="pill">#35 #36</span></h2>
+<section class="card">
+<h3>오늘 찾은 것 중 가장 무거운 것</h3>
+<p>엔진이 내는 보안등급 신호는 <code>rule · sensitive · stamp · name</code>(+<code>embed</code>)인데,
+   검토 화면의 '왜 이렇게 판단했나' 패널은 <code>rule · path · name · embed</code> 만 읽고 있었다.
+   <code>path</code> 는 <b>2026-09-08 에 걷어낸 신호</b>다(설계: 보안등급-신호정리-paths제거).</p>
+<pre><code>· 대외비 문서 — grade C · confidence 0.95 · decided_by ["rule","stamp"]
+  화면이 적은 것: 기밀 표식 1회(rule) + "이 폴더에 대한 규칙이 없습니다"(죽은 줄)
+  → 0.95 를 만든 stamp 를 한 마디도 못 했다
+
+· 건강정보 문서 — grade C · decided_by ["sensitive"]
+  화면이 적은 것: "개인정보·키워드가 발견되지 않았습니다" 한 줄
+  → 등급이 C 인데 근거가 하나도 없다</code></pre>
+<div class="must">
+  <div class="h">감사 도구에서 "왜 C 인가"를 못 적는 것은 기능이 없는 것보다 나쁘다</div>
+  <p style="margin:0">화면이 조용히 그려지므로 아무도 고장으로 인식하지 않는다.
+     검토자는 근거가 없는 것을 '근거가 없는 문서'로 읽지, '화면이 못 읽는 신호'로 읽지 않는다.</p>
+</div>
+
+<h3>고친 것</h3>
+<ul>
+  <li>패널에 <code>sensitive</code>·<code>stamp</code> 블록 추가, 죽은 <code>path</code> 줄 제거</li>
+  <li><b>히트가 없으면 줄을 내지 않는다</b> — 엔진은 걸린 신호만 싣기 때문에 '없음'과 '안 봤음'을
+      구분할 수 없고, 빈 줄이 모든 카드에 붙으면 정작 근거가 묻힌다(방금 걷어낸 그 문제가 된다)</li>
+  <li>이름표에 <code>sensitive</code>("민감정보")·<code>stamp</code>("보안 표식") 추가</li>
+  <li>규칙설정 확신값 표가 <code>("regex","keyword","path")</code> 로 박혀 있어 없어진 <code>path</code> 는
+      빈 줄로 뜨고 <code>sensitive</code>·<code>stamp</code> 는 안 보였다 — 지금 규칙 파일에 맞췄다</li>
+  <li>데모 생성기가 <code>path</code> 레코드를 만들고 있었다. 그대로 뒀으면 데모 카드 두 장이
+      <b>근거 없는 카드</b>가 된다 — 민감정보·스탬프 예로 바꿨다</li>
+  <li>업무분류 쪽의 죽은 갈래(<code>form</code>·<code>structure</code>·<code>path</code>)도 함께 걷어냈다</li>
+</ul>
+<div class="ok"><b>이제 이름표에 남은 것은 엔진이 실제로 내는 신호뿐이다</b> —
+  보안등급 <code>rule·sensitive·stamp·name·embed</code> ·
+  업무분류 <code>title·head·body·name_head</code> · 사람 <code>manual</code>.</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════ 4 -->
+<h2 id="s4"><span class="n">4.</span>안내문의 화면 번호 — ③ → ② <span class="pill">#32</span></h2>
+<section class="card">
+<p>실제 설정 화면은 <b>1️⃣ 회사 분류 체계 / 2️⃣ 판단 기준 / 3️⃣ 분류 실행</b> 인데,
+   여러 안내문이 "설정 ③ 판단 기준" 이라고 적고 있었다. ③ 은 분류 실행이라 엉뚱한 데를 가리킨다.
+   같은 폴더 안에서도 <code>docbuild.py</code> 는 ②, <code>docvocab.py</code> 는 ③ 이었다 —
+   화면이 한 번 재번호된 뒤 일부만 안 고쳐진 것으로 보인다.</p>
+<p><b>38군데 · 29파일</b>을 고쳤다. <code>--suggest-terms</code> 마지막 줄(두 판),
+   유의어 사전·보안등급 규칙 머리글, 저장소·화면·배포 폴더의 정책 사본 전부.
+   <code>plan/</code> 과 작업기록은 날짜가 박힌 기록이라 뺐다.</p>
+<div class="warn"><b>주석 한 줄이 규칙 재생성을 불렀다</b> — 유의어 머리글이 바뀌면
+  규칙 생성 입력의 지문이 달라진다. 그대로 두면 "입력이 바뀌었습니다" 경고가 뜨므로
+  규칙을 다시 만들고 사본에 전파했다.
+  <br><code>doc_rule.yaml</code> <code>doctype-gen-bd1dd3bcd1f6</code> →
+  <code>doctype-gen-26fcb558a6ea</code>(7곳) ·
+  <code>policy01</code> <code>4aaae0aa131b</code> → <code>c20cf160a67b</code>.
+  <b>규칙 내용은 그대로다</b> — 바뀐 것은 주석 한 줄과 그 지문뿐이다.</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════ 5 -->
+<h2 id="s5"><span class="n">5.</span>문서 점검에서 나온 것 <span class="pill">#26 #28–#34</span></h2>
+<section class="card">
+<p><code>doc/</code> 13개 문서를 코드와 하나씩 대조했다. 값이 적혀 있으면 실제로 돌려 보거나
+   소스에서 상수를 찾아 맞췄다.</p>
+<div class="scroll">
+<table>
+  <tr><th>문서</th><th>틀려 있던 것</th><th>실제</th></tr>
+  <tr><td>작업기록 2026-08-14</td><td>우선순위 <code>환경변수 &gt; --rules &gt; exe 옆</code></td>
+      <td>인자 → 환경변수 → exe 옆
+      <span class="def">(순서는 2026-09-01 에 바뀜)</span></td></tr>
+  <tr><td>CSO_Rule</td><td>찾는 순서 ① 환경변수 ② 인자</td><td>① 인자 ② 환경변수
+      <span class="def">— DOC_Rule 은 처음부터 맞았다</span></td></tr>
+  <tr><td>Q&amp;A</td><td>분류 27개 중 21개에 규칙</td><td>28개 중 22개
+      <span class="def">(최상위 7 · 서랍 6)</span></td></tr>
+  <tr><td>PII검증가이드</td><td>회귀 10 / 사례 121건 ≈ 2,400회</td>
+      <td>회귀 15(단언 51) / 사례 164건 ≈ 3,300회</td></tr>
+  <tr><td>작업가이드</td><td>7단계 화면이 5단계 실행의 출력이었다</td>
+      <td>다시 돌려 교체 <span class="def">(--seeds 유무로 미분류 1 → 0)</span></td></tr>
+</table>
+</div>
+<p class="muted">기록물(<code>plan/</code>, 날짜가 박힌 작업기록)은 본문을 고치지 않았다.
+   작업기록만 예외로, 따라 하면 틀리는 값이라 <b>취소선으로 남기고 정정을 덧붙이는</b> 방식을 썼다.</p>
+<p><b>새로 쓴 것</b> — <code>doc/업무분류체계-분류-작업가이드.html</code>.
+   현장에서 체계를 받아 규칙을 만들고 전체를 분류하기까지의 일곱 단계를, 처음 쓰는 사람이
+   따라 할 수 있게 적었다. 화면 예시 9개는 고객 정책 폴더를 임시로 복사해 실제로 돌려 받은 출력이다.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════ 6 -->
+<h2 id="s6"><span class="n">6.</span>남긴 것 · 다음에 볼 것</h2>
+<section class="card">
+<table>
+  <tr><th>항목</th><th>왜 안 했나</th></tr>
+  <tr><td><code>plan/</code> 의 옛 인자·화면 번호 표기</td>
+      <td>날짜가 박힌 기록이다. 고치면 기록이 아니게 된다</td></tr>
+  <tr><td><code>doc/</code> 의 <code>--save-text</code> 언급 셋</td>
+      <td>"예전에는 …였다" 는 지난 이야기라 바꾸면 뜻이 망가진다</td></tr>
+  <tr><td>보안등급 규칙의 제품 기본값 자동 병합</td>
+      <td>드물게 바뀌고, 자동으로 덮으면 고객 편집을 잃는다(2장)</td></tr>
+  <tr><td>보안등급을 생성물 + 조정 파일 구조로</td>
+      <td>오늘의 범위가 아니다. 제품 기본값이 자주 바뀌기 시작하면 그때 판단한다</td></tr>
+</table>
+<h3>검증</h3>
+<ul>
+  <li>파이썬 966건 · Rust 273건 통과</li>
+  <li>Windows 배포본 두 판 재빌드 · <code>/d/sample</code> 18건 교차 검증 불일치 0건</li>
+  <li>Linux 빌드 깨끗한 자리 검증 Rust·Python OK · 묶음 안의 규칙 판·안내 문구 확인</li>
+  <li>배포본 exe 로 옛 인자가 종료코드 3 으로 끝나는 것 직접 확인</li>
+</ul>
+</section>
+
+<footer>
+  MpowerClassify · 2026-09-28 작업 정리 · 관련: plan/보안등급-신호정리-paths제거-20260908.html ·
+  plan/업무분류-규칙파일-자동생성-설계-20260922.html · doc/CSO_Rule.html · doc/업무분류체계-분류-작업가이드.html
+</footer>
+</div>
+</body>
+</html>
