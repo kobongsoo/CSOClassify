@@ -2821,10 +2821,17 @@ def render_rules_editor():
 #   경로는 반드시 ui 폴더 기준 '절대경로'로 만든다 — 상대경로면 streamlit 을 어느
 #   폴더에서 띄웠느냐에 따라 결과가 엉뚱한 곳에 쓰이고 화면이 못 찾는다.
 #
+#   [2026-09-28 고침] 고객 파일의 기본 자리를 ui/policy 로 바꿨다. 예전에는
+#   ui 바로 아래(ui/doc_rule.yaml)를 보고 없으면 resources/policy 로 떨어졌는데,
+#   실제 고객 파일은 둘 중 어디도 아닌 ui/policy 에 있다. 그래서 화면이 고친
+#   규칙이 제품 폴더(resources/policy)에 쓰이고, scripts/sync_policy.py 는
+#   ui/policy 를 원본으로 보므로 다음 동기화 때 **조용히 되돌아갔다**.
+#   지금 쓰는 자리에서는 settings.yaml 이 올바른 경로를 덮어써서 가려져 있었다.
+#
 # -in: 없음
 #
-# -out: dict = {result, override, seed, seed_audit, rules, taxonomy, doc_rules,
-#               folder, cmd, pythonpath}
+# -out: dict = {result, override, seed, seed_audit, rules, export_input,
+#               doc_rules, text_dir, folder, cmd, pythonpath}
 # -out: error = 없음(파일이 없어도 경로 문자열은 만든다)
 #------------------------------------------------------------------
 def default_paths():
@@ -2833,11 +2840,37 @@ def default_paths():
                                os.path.join(here, "sample_cso_result.jsonl"))
                    if os.path.isfile(p)), os.path.join(here, "cso_result.jsonl"))
     policy = os.path.abspath(os.path.join(here, "..", "resources", "policy"))
+    # 고객 파일이 사는 자리. sync_policy.py 가 '원본'으로 보는 곳과 같아야 한다.
+    ui_policy = os.path.join(here, "policy")
 
-    # 분류 체계·업무분류 규칙은 ui 폴더에 둔 것을 먼저 쓰고, 없으면 배포 정책 폴더를 본다.
-    def _pick(name):
-        local = os.path.join(here, name)
-        return local if os.path.isfile(local) else os.path.join(policy, name)
+    #--------------------------------------------------------------
+    # 고객 파일의 기본 경로 — 언제나 고객 폴더
+    #=> 규칙·체계·기준 문서는 이 회사의 것이고, 화면이 고쳐 쓰는 대상이다.
+    #   파일이 아직 없어도 고객 폴더 경로를 준다 — 제품 폴더로 떨어뜨리면
+    #   첫 저장이 제품 폴더에 쓰이고, sync_policy.py 가 다음에 되돌린다.
+    #
+    # -in: name = 파일 이름(예: "doc_rule.yaml")
+    #
+    # -out: str = 절대경로(ui/policy 아래)
+    # -out: error = 없음
+    #--------------------------------------------------------------
+    def _mine(name):
+        return os.path.join(ui_policy, name)
+
+    #--------------------------------------------------------------
+    # 제품 파일의 기본 경로 — 고객 폴더에 있으면 그것, 없으면 제품 폴더
+    #=> 제품이 싣고 오는 파일(보안등급 규칙)은 고객 폴더에 아직 복사되지
+    #   않았을 수 있다. 그때는 갓 받은 저장소에서도 화면이 뜨도록 제품
+    #   폴더의 것을 읽는다.
+    #
+    # -in: name = 파일 이름(예: "cso_rule.yaml")
+    #
+    # -out: str = 절대경로
+    # -out: error = 없음
+    #--------------------------------------------------------------
+    def _shipped(name):
+        mine = os.path.join(ui_policy, name)
+        return mine if os.path.isfile(mine) else os.path.join(policy, name)
 
     # 실행 명령 기본값 = 배포 exe. 아직 없으면 소스 모듈로 폴백한다.
     exe = os.path.abspath(os.path.join(here, "..", "dist-pkg", "MpowerClassify.exe"))
@@ -2850,13 +2883,15 @@ def default_paths():
 
     return {
         "result": result,
+        # 검토 이력은 정책이 아니라 화면이 쌓는 기록이라 ui 바로 아래 둔다.
         "override": os.path.join(here, "cso_override.jsonl"),
-        "seed": os.path.join(here, "class_seed.jsonl"),
-        "seed_audit": os.path.join(here, "class_seed_audit.jsonl"),
-        "rules": os.path.join(policy, "cso_rule.yaml"),
+        # 기준 문서는 고객 파일이다 — 규칙·체계와 같은 폴더에 모은다.
+        "seed": _mine("class_seed.jsonl"),
+        "seed_audit": _mine("class_seed_audit.jsonl"),
+        "rules": _shipped("cso_rule.yaml"),
         # 분류 체계를 '다시 가져올' 때 읽는 원본 JSON(MpowerV11 내보내기 결과).
-        "export_input": _pick("doc_classification_export.json"),
-        "doc_rules": _pick("doc_rule.yaml"),
+        "export_input": _mine("doc_classification_export.json"),
+        "doc_rules": _mine("doc_rule.yaml"),
         # 추출 본문 폴더 — 분류를 돌릴 때 --textsave 로 남긴 자리. 단어 제안이
         # 문서 본문을 읽는 유일한 통로다(원본 파일을 다시 열지 않는다).
         "text_dir": os.path.join(here, "_extracted"),
