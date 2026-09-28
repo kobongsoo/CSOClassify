@@ -81,7 +81,7 @@ fn 옛_모양_규칙은_check_rules_에서_종료4() {
     let rules = policy_dir().join("cso_rule.yaml");
     for axis in [None, Some("doctype")] {
         let mut args = vec!["--check-rules", "--json-errors",
-                            "--rules", rules.to_str().unwrap(), "--doc-rules", old.to_str().unwrap()];
+                            "--cso-rules", rules.to_str().unwrap(), "--doc-rules", old.to_str().unwrap()];
         if let Some(a) = axis { args.extend(["--axis", a]); }
         let out = run("old", &args);
         assert_eq!(out.status.code(), Some(4), "axis={:?}", axis);
@@ -96,7 +96,7 @@ fn 규칙_파일이_없으면_건너뛰고_axis_doctype_이면_종료3() {
     let d = tmp_dir("missing");
     let missing = d.join("없는_doc_rule.yaml");
     let rules = policy_dir().join("cso_rule.yaml");
-    let base = ["--check-rules", "--rules", rules.to_str().unwrap(),
+    let base = ["--check-rules", "--cso-rules", rules.to_str().unwrap(),
                 "--doc-rules", missing.to_str().unwrap()];
 
     // 기본: 알리고 보안등급만 — 정상 종료.
@@ -120,7 +120,7 @@ fn 규칙_파일이_없으면_건너뛰고_axis_doctype_이면_종료3() {
 fn 자동_생성_규칙은_check_rules_를_통과한다() {
     let p = policy_dir();
     let out = run("gen", &["--check-rules",
-                           "--rules", p.join("cso_rule.yaml").to_str().unwrap(),
+                           "--cso-rules", p.join("cso_rule.yaml").to_str().unwrap(),
                            "--doc-rules", p.join("doc_rule.yaml").to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(0), "stderr={}", String::from_utf8_lossy(&out.stderr));
     assert!(String::from_utf8_lossy(&out.stdout).contains("업무분류(doctype) 축 정상"));

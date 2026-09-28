@@ -90,10 +90,10 @@ pdfium)은 바이너리에 넣지 않고 **exe 옆 외부 파일로 런타임 �
 
 ```bat
 cargo build --release           REM → target\release\csoclassify-rs.exe (2.3MB)
-csoclassify-rs --dir "D:\분류함" --rules cso_rule.yaml --simple --nosummary --format jsonl
-csoclassify-rs --file a.docx    --rules cso_rule.yaml
+csoclassify-rs --dir "D:\분류함" --cso-rules cso_rule.yaml --simple --nosummary --format jsonl
+csoclassify-rs --file a.docx    --cso-rules cso_rule.yaml
 ```
-옵션: `--file/--dir · --files-from · --filelist · --rules · --format json|jsonl · --out · --simple · --hash · --with-pii · --rule-only · --vector-only · --with-vector · --embed-needed · --auto-propagate · --seeds · --summary · --nosummary · --failsafe · --no-doc-id · --report-missing-id`
+옵션: `--file/--dir · --files-from · --filelist · --cso-rules · --format json|jsonl · --out · --simple · --hash · --with-pii · --rule-only · --vector-only · --with-vector · --embed-needed · --auto-propagate · --seeds · --summary · --nosummary · --failsafe · --no-doc-id · --report-missing-id`
 - `--format json|jsonl` : **안 주면 `--out` 확장자를 따른다**(`.jsonl`/`.ndjson`→jsonl, `.json`→json,
   모르는 확장자·`--out` 없음→json). 추론되면 stderr 에 한 줄 알린다. `--format` 을 직접 주면 확장자와 달라도 그 값이 이긴다.
   파이썬 판 `resolve_format()` 과 같은 표를 쓴다.
@@ -312,7 +312,7 @@ copy dist-onedir\windows\pdfium.dll  target\release\
 ## parity 검증 방법
 
 ```
-Rust:   csoclassify-rs --dir <t> --rules <r> --simple --nosummary --format jsonl
+Rust:   csoclassify-rs --dir <t> --cso-rules <r> --simple --nosummary --format jsonl
 Python: csoclassify.exe --dir <t> --hybridparse --rule-only --simple --nosummary --format jsonl
 ```
 두 결과를 파일명 기준으로 등급 비교. 다만 **등급 비교만으로는 PII 검증이 안 된다** — 등급은

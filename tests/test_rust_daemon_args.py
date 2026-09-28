@@ -112,7 +112,7 @@ def test_daemon은_경고만_하고_계속한다(tmp_path):
     doc.write_text("월간 운영 보고\n\n정기 점검을 예정대로 수행했습니다.\n",
                    encoding="utf-8")
     rules = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
-    r = _run("--daemon", "--file", str(doc), "--rules", rules,
+    r = _run("--daemon", "--file", str(doc), "--cso-rules", rules,
              "--rule-only", "--format", "jsonl", "--nosummary", "--no-timing")
     assert r.returncode == 0, f"exit={r.returncode} :: {r.stderr[-300:]}"
     assert "--daemon" in r.stderr, f"경고가 없다 :: {r.stderr[-300:]}"
@@ -134,7 +134,7 @@ def test_no_daemon은_조용하다(tmp_path):
     doc.write_text("월간 운영 보고\n\n정기 점검을 예정대로 수행했습니다.\n",
                    encoding="utf-8")
     rules = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
-    r = _run("--no-daemon", "--file", str(doc), "--rules", rules,
+    r = _run("--no-daemon", "--file", str(doc), "--cso-rules", rules,
              "--rule-only", "--format", "jsonl", "--nosummary", "--no-timing")
     assert r.returncode == 0, f"exit={r.returncode} :: {r.stderr[-300:]}"
     assert '"file"' in r.stdout, f"분류가 돌지 않았다 :: {r.stderr[-300:]}"
@@ -174,7 +174,7 @@ def test_hybridparse는_조용하다(tmp_path):
     doc.write_text("월간 운영 보고" + chr(10) * 2 +
                    "정기 점검을 예정대로 수행했습니다." + chr(10), encoding="utf-8")
     rules = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
-    r = _run("--hybridparse", "--file", str(doc), "--rules", rules,
+    r = _run("--hybridparse", "--file", str(doc), "--cso-rules", rules,
              "--rule-only", "--format", "jsonl", "--nosummary", "--no-timing")
     assert r.returncode == 0, f"exit={r.returncode} :: {r.stderr[-300:]}"
     assert '"file"' in r.stdout, f"분류가 돌지 않았다 :: {r.stderr[-300:]}"

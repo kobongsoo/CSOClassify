@@ -221,7 +221,7 @@ def test_두_엔진이_같은_failsafe_등급을_준다(grade, tmp_path):
                    PYTHONIOENCODING="utf-8")
         r = subprocess.run(cmd + ["--file", str(doc),
                                   "--format", "jsonl", "--rule-only",
-                                  "--rules", rules, "--failsafe", grade],
+                                  "--cso-rules", rules, "--failsafe", grade],
                            cwd=ROOT, env=env, capture_output=True, text=True,
                            encoding="utf-8")
         recs = [json.loads(l) for l in r.stdout.splitlines()

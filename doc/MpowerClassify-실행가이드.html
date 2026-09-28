@@ -622,7 +622,7 @@ MpowerClassify.exe --serve    <span class="cmt">:: 데몬으로 직접 기동(�
     <tr><td><code>doc_rule.local.yaml</code></td><td><b>회사 조정</b> — 칸 비우기·말 빼기/더하기·분류 끄기·설정. 조정마다 이유</td><td>선택</td><td>화면(설정 › ② 판단 기준 › 업무분류)이 적음</td></tr>
     <tr><td><code>class_seed.jsonl</code></td><td><b>전파로 분류</b> — 이미 분류가 확정된 문서의 벡터+라벨</td><td>선택</td><td>사람이 확정한 문서를 seed 로 승격</td></tr>
   </table></div>
-  <p>규칙 파일은 <code>--rules</code> 와 같은 규칙으로 찾습니다: <b>인자 우선 → <code>CSOCLASSIFY_POLICY_DIR</code> → exe 옆</b>.
+  <p>규칙 파일은 <code>--cso-rules</code> 와 같은 규칙으로 찾습니다: <b>인자 우선 → <code>CSOCLASSIFY_POLICY_DIR</code> → exe 옆</b>.
   회사 조정 파일은 규칙 파일과 같은 폴더에서 찾습니다 <span class="def">(seed 는 <code>--seeds</code>)</span>.</p>
 
   <div class="note"><b>규칙 파일이 없거나 옛 모양이면 <span class="pill">2026-09-22 변경</span></b><br>
@@ -911,7 +911,7 @@ MpowerClassify.exe --dir "D:\collected" --seeds "class_seed.jsonl" --format json
   <div class="scroll"><table>
     <tr><th>절</th><th>무엇이 들어 있나</th><th>파이썬 판과</th></tr>
     <tr><td>①</td><td>무엇을 읽나 (대상) — <code>--file</code>·<code>--dir</code>·<code>--files-from</code>·<code>--filelist</code>·<code>--glob</code> <span class="def">(5종 전부)</span></td><td class="ok">같음</td></tr>
-    <tr><td>②</td><td>무엇으로 판단하나 (정책 파일 · 축) — <code>--rules</code>·<code>--doc-rules</code>·<code>--axis</code>·<code>--check-rules</code> 등</td><td class="ok">같음</td></tr>
+    <tr><td>②</td><td>무엇으로 판단하나 (정책 파일 · 축) — <code>--cso-rules</code>·<code>--doc-rules</code>·<code>--axis</code>·<code>--check-rules</code> 등</td><td class="ok">같음</td></tr>
     <tr><td>③</td><td>어떻게 판단하나 (분류 방식) — <code>--rule-only</code>·<code>--vector-only</code>·<code>--auto-propagate</code>·<code>--seeds</code>·<code>--failsafe</code>·<code>--propagate</code> 등</td><td class="ok">같음</td></tr>
     <tr><td>④</td><td>무엇을 내보내나 (출력) — <code>--format</code>·<code>--out</code>·<code>--simple</code>·<code>--hash</code>·<code>--json-errors</code>·<code>--progress</code> 등</td><td class="ok">같음</td></tr>
     <tr><td>⑤</td><td>추출 본문을 파일로 남기기 — <code>--textsave</code></td><td class="ok">같음</td></tr>
@@ -967,7 +967,7 @@ MpowerClassify.exe --dir "D:\collected" --seeds "class_seed.jsonl" --format json
 MpowerClassify.exe --dir "D:\collected" --hybridparse --with-vector --format jsonl --out py.jsonl
 
 <span class="cmt">:: Rust — 같은 폴더, 같은 벡터</span>
-MpowerClassify-rs.exe --dir "D:\collected" --rules cso_rule.yaml --with-vector --format jsonl --out rs.jsonl</code></pre>
+MpowerClassify-rs.exe --dir "D:\collected" --cso-rules cso_rule.yaml --with-vector --format jsonl --out rs.jsonl</code></pre>
   <div class="ok"><b>실측(2026-08-26)</b> — <code>d:\sample</code> 18건(구형 <code>.doc</code> 7건 포함)에서
   두 판의 벡터 <b>코사인 유사도 1.000000000</b>(최대 절대오차 1.5e-08 = float32 반올림 수준), 등급 불일치 0건.</div>
   <h3><code>--propagate</code> 도 두 판 모두 <span class="def">2026-08-26 Rust 추가</span></h3>
@@ -1102,7 +1102,7 @@ csoclassify --dir "폴더" --hybridparse --rule-only --format jsonl
     <tr><td><code>--rule-only</code> <span class="def">2026-08-15</span></td><td>—</td><td><b>규칙(cso_rule.yaml)만으로 분류</b> — 임베딩·전파를 하지 않음(<b>가장 빠름</b>). <code>--vector-only</code> 와 배타</td></tr>
     <tr><td><code>--vector-only</code> <span class="def">2026-08-15</span></td><td>—</td><td><b>규칙 검사 없이</b> 임베딩 벡터를 seed 와 비교해서만 분류. <code>--seeds</code> <b>필수</b>(비교 기준). <code>--rule-only</code> 와 배타</td></tr>
     <tr><td><code>--embed</code></td><td>—</td><td>분류 대신 <b>임베딩 벡터만</b> 출력(파일·차원·벡터)</td></tr>
-    <tr><td><code>--rules</code></td><td>경로</td><td>규칙셋 경로 <span class="def">기본 exe 옆 cso_rule.yaml</span></td></tr>
+    <tr><td><code>--cso-rules</code></td><td>경로</td><td>보안등급 규칙셋 경로 <span class="def">기본 exe 옆 cso_rule.yaml</span></td></tr>
     <tr><td><code>--failsafe</code></td><td>[등급] <span class="def">값 생략 시 S</span></td><td>어느 신호로도 못 정한 문서에 부여할 기본등급. <b><code>C</code>/<code>S</code>/<code>O</code> 만 허용</b>(그 외는 종료코드 3).
       <span class="def">2026-09-01 — Rust 판은 이 값을 <b>읽지 않고 늘 S</b> 를 쓰고 있었습니다(수정됨).
       그 전 배포본으로 <code>--failsafe C</code> 를 돌렸다면 결과를 다시 확인하세요.</span></td></tr>
@@ -1197,7 +1197,6 @@ MpowerClassify.exe --file "문서.hwp" --max-tokens 256 --overlap 32</code></pre
       코드 표와 부르는 쪽 예시 → <a href="#exit">6장</a></td></tr>
     <tr><td><code>--timing</code> / <code>--no-timing</code></td><td>— <span class="def">기본 on</span></td><td>단계별 처리시간 출력 on/off</td></tr>
     <tr><td><code>--textsave</code> <span class="pill">2026-09-07 신규</span></td><td>폴더 <span class="def">필수</span></td><td>추출 본문을 그 폴더에 <code>&lt;sha256&gt;.txt</code> 로 남긴다 <b class="bad">개인정보 포함 가능</b> · 두 판 공통 → <a href="#textsave">아래 설명</a></td></tr>
-    <tr><td><code>--save-text</code></td><td>폴더</td><td>(옛 이름) <code>--textsave</code> 와 같다 — 쓰면 안내 한 줄이 나온다</td></tr>
   </table></div>
 
   <h3 id="textsave">추출 본문을 파일로 남기기 — <code>--textsave</code> <span class="pill">2026-09-07 신규</span></h3>
@@ -1722,7 +1721,7 @@ else:
   <h3>규칙셋 미리 검사 — <code>--check-rules</code></h3>
   <p>규칙셋을 고친 뒤 <b>실제 스캔을 돌리기 전에</b> 안전한지 확인합니다. 문서는 한 건도 읽지 않습니다.
   <b>두 축을 모두</b> 검사합니다(업무분류 파일이 옆에 있으면 그것도 함께).</p>
-<pre><code>MpowerClassify.exe --check-rules --rules cso_rule.yaml</code></pre>
+<pre><code>MpowerClassify.exe --check-rules --cso-rules cso_rule.yaml</code></pre>
   <p>이상이 없으면 축별로 건수를 요약하고 <code>0</code> 으로 끝납니다:</p>
 <pre><code>[MpowerClassify] 규칙셋 정상: ...\cso_rule.yaml
   version=cso-2026.08.3  등급=O/S/C
@@ -1766,7 +1765,7 @@ else:
   <h3>환경변수(선택)</h3>
   <div class="scroll"><table>
     <tr><th>변수</th><th>설명</th></tr>
-    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>정책 파일(<code>cso_rule.yaml</code> · <code>doc_rule.yaml</code>)을 exe 옆이 아닌 지정 폴더에서 찾음. 규칙을 만들 때의 재료(체계 JSON·사전·본보기·조정 파일)는 규칙 파일과 같은 폴더에서 찾음. <span class="def">두 파일 모두 <b>"인자 → 이 변수 → exe 옆"</b> 순으로 찾습니다(<code>--rules</code>/<code>--doc-rules</code> 가 우선).
+    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>정책 파일(<code>cso_rule.yaml</code> · <code>doc_rule.yaml</code>)을 exe 옆이 아닌 지정 폴더에서 찾음. 규칙을 만들 때의 재료(체계 JSON·사전·본보기·조정 파일)는 규칙 파일과 같은 폴더에서 찾음. <span class="def">두 파일 모두 <b>"인자 → 이 변수 → exe 옆"</b> 순으로 찾습니다(<code>--cso-rules</code>/<code>--doc-rules</code> 가 우선).
       이 변수는 <b>관리자가 직접 내린 지시</b>이므로 exe 옆에 우연히 놓인 파일보다 먼저입니다.</span>
       <div class="warn" style="margin:8px 0 0"><b>2026-09-01 이전 Rust 판은 순서가 반대였습니다</b>
       (exe 옆 → 이 변수). 그래서 <b>두 조건이 함께 성립하면 두 판이 서로 다른 규칙셋을 읽었습니다</b> —
@@ -1806,7 +1805,7 @@ else:
 <pre><code><span class="cmt">:: 오류 로그 예시 (Rust 판)</span>
 ===== 2026-08-26 11:28:02 pid=19652 =====
 cmd: D:\...\MpowerClassify-rs.exe --file d:/a.pptx
-2026-08-26 11:28:02 [MpowerClassify-rs] 규칙셋(cso_rule.yaml)을 찾을 수 없습니다. --rules 로 지정하세요.
+2026-08-26 11:28:02 [MpowerClassify-rs] 규칙셋(cso_rule.yaml)을 찾을 수 없습니다. --cso-rules 로 지정하세요.
 2026-08-26 11:28:02 종료 코드 2 로 중단합니다.
 
 <span class="cmt">:: 오류 로그 예시 (파이썬 판)</span>

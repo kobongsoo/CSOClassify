@@ -127,7 +127,14 @@ REMOVED_OPTIONS = {
     "--no-fill-blank":     "업무분류 규칙은 --build-doc-rule 로 만듭니다(분류체계가 규칙 안에 들어갑니다)",
     "--sync-enrich":       "업무분류 규칙은 --build-doc-rule 로 만듭니다(분류체계가 규칙 안에 들어갑니다)",
     "--taxonomy":          "분류체계는 doc_rule.yaml(--build-doc-rule 로 만든 것) 안에 있습니다",
+    # 이름만 바뀐 둘(2026-09-28). 옛 이름을 조용히 받아 주면 배치가
+    # 언제까지나 옛 이름에 머무르고, 두 이름이 같은 자리를 가리키는 상태가 굳는다.
+    "--rules":             "보안등급 규칙셋은 --cso-rules 로 지정합니다(업무분류는 --doc-rules)",
+    "--save-text":         "추출 본문을 남길 폴더는 --textsave 로 지정합니다",
 }
+
+# 이 중 값을 받던 옵션들. 값까지 삼켜야 뒤 인자가 대상 파일로 잘못 읽히지 않는다.
+REMOVED_WITH_VALUE = {"--taxonomy", "--rules", "--save-text"}
 
 
 #------------------------------------------------------------------
@@ -142,7 +149,7 @@ REMOVED_OPTIONS = {
 #------------------------------------------------------------------
 def check_removed_options(args):
     for flag, hint in REMOVED_OPTIONS.items():
-        dest = "removed_taxonomy" if flag == "--taxonomy" else "removed_" + flag[2:].replace("-", "_")
+        dest = "removed_" + flag[2:].replace("-", "_")
         val = getattr(args, dest, None)
         # --taxonomy 는 값(문자열)을, 나머지는 True 를 담는다 — 둘 다 '줬다'는 뜻이다.
         if val is not None and val is not False:
@@ -222,8 +229,6 @@ def build_parser():
     p.add_argument("--textsave", dest="textsave", metavar="폴더", default=None,
                    help="추출 본문을 이 폴더에 <sha256>.txt 로 남긴다(개인정보 포함 가능)")
     # 옛 이름 — 같은 동작. 쓰면 안내 한 줄을 내고 계속한다(옛 명령줄을 깨지 않는다).
-    p.add_argument("--save-text", dest="save_text_old", metavar="폴더", default=None,
-                   help="(옛 이름) --textsave 와 같다")
     p.add_argument("--text-only", action="store_true", help="벡터 없이 추출 텍스트만 출력")
 
     # 문서 크기 상한(Size Gate) — 설계: plan/문서크기-상한-설계-20260904.html
@@ -290,8 +295,8 @@ def build_parser():
     p.add_argument("--classify", dest="classify", action="store_true",
                    help=argparse.SUPPRESS)
     # C/S/O 자동 분류(규칙 스캔 Signal A)
-    p.add_argument("--rules", dest="rules", default=None,
-                   help="분류 규칙셋 경로(기본 resources/policy/cso_rule.yaml)")
+    p.add_argument("--cso-rules", dest="rules", default=None,
+                   help="보안등급 규칙셋 경로(기본 resources/policy/cso_rule.yaml)")
     p.add_argument("--failsafe", dest="failsafe", nargs="?", const="S", default=None,
                    help="규칙 미검출 시 부여할 기본등급(값 생략 시 S)")
     p.add_argument("--check-rules", dest="check_rules", action="store_true",
@@ -319,13 +324,13 @@ def build_parser():
     # 없어진 옵션 — 도움말에는 숨기되 받아는 둔다. 모르는 옵션으로 argparse 가 멈추면
     # "왜 없어졌고 무엇을 쓰면 되는지"를 알려 줄 수 없다(엠파워 배치가 옛 명령을 부를 수 있다).
     for flag in REMOVED_OPTIONS:
-        if flag == "--taxonomy":
-            # 값을 받던 옵션이라 값까지 삼켜야 뒤 인자가 대상 파일로 잘못 읽히지 않는다.
-            p.add_argument(flag, dest="removed_taxonomy", nargs="?", const="",
+        dest = "removed_" + flag[2:].replace("-", "_")
+        if flag in REMOVED_WITH_VALUE:
+            p.add_argument(flag, dest=dest, nargs="?", const="",
                            default=None, help=argparse.SUPPRESS)
         else:
-            p.add_argument(flag, dest="removed_" + flag[2:].replace("-", "_"),
-                           action="store_true", help=argparse.SUPPRESS)
+            p.add_argument(flag, dest=dest, action="store_true",
+                           help=argparse.SUPPRESS)
     # ── 규칙 단어 제안(--suggest-terms) — 문서도 모델도 필요 없는 단독 모드 ──
     # 사람이 확정한 문서에서 "이 분류에만 나오는 말"을 뽑아 보여 주기만 한다.
     # 규칙 파일은 건드리지 않는다 — 넣는 것은 사람이 화면에서 할 일이다.
@@ -433,13 +438,11 @@ def build_parser():
 
 
 #------------------------------------------------------------------
-# --textsave / --save-text 를 하나로 정리하고 저장 폴더를 준비한다
-#=> 두 이름이 같은 자리를 가리키게 맞추고, 폴더를 시작 전에 만들어 본다.
-#   여기서 막지 않으면 문서 수천 건을 다 돌린 뒤에야 "한 건도 저장 못 했다"를
-#   알게 된다(설계 9장).
-#    1) 옛 이름을 정식 이름으로 옮긴다(둘 다 다른 폴더로 주면 오류)
-#    2) 폴더를 만들고 실제로 써 보며 확인한다
-#    3) "평문으로 남긴다"를 화면에 한 줄 알린다 — 켠 사람이 못 봤다고 할 수 없게
+# --textsave 저장 폴더를 미리 준비한다
+#=> 폴더를 시작 전에 만들고 실제로 써 본다. 여기서 막지 않으면 문서 수천 건을
+#   다 돌린 뒤에야 "한 건도 저장 못 했다"를 알게 된다(설계 9장).
+#    1) 폴더를 만들고 실제로 써 보며 확인한다
+#    2) "평문으로 남긴다"를 화면에 한 줄 알린다 — 켜 사람이 못 봤다고 할 수 없게
 #
 # -in: args = argparse 결과(제자리에서 args.textsave 를 절대경로로 바꾼다)
 #
@@ -447,18 +450,6 @@ def build_parser():
 # -out: error = 없음(실패는 fail_err 로 안내한 뒤 종료코드를 돌려준다)
 #------------------------------------------------------------------
 def resolve_textsave(args):
-    old = getattr(args, "save_text_old", None)
-    new = getattr(args, "textsave", None)
-    # 둘 다 줬는데 가리키는 곳이 다르면, 어디에 남길지 우리가 고를 문제가 아니다.
-    if old and new and os.path.abspath(old) != os.path.abspath(new):
-        return fail_err("bad_args",
-                        "[MpowerClassify] --textsave 와 --save-text 는 같은 옵션입니다 — "
-                        "서로 다른 폴더를 주면 어디에 남길지 정할 수 없습니다.")
-    if old and not new:
-        # 옛 이름도 그대로 받아 준다. 다만 새 이름을 알려 준다.
-        print("[MpowerClassify] --save-text 는 옛 이름입니다 — 앞으로는 --textsave 를 쓰세요.",
-              file=sys.stderr)
-        args.textsave = old
     if not getattr(args, "textsave", None):
         return None
     from . import textsave as _ts
@@ -488,8 +479,7 @@ def resolve_textsave(args):
 # -out: error = 없음
 #------------------------------------------------------------------
 def make_opts(args):
-    # --textsave(정식) 와 --save-text(옛 이름)는 같은 값이다. 정규화는 이미
-    # resolve_textsave() 가 끝냈으므로 여기서는 절대경로 하나만 꺼내 쓴다.
+    # 저장 폴더는 resolve_textsave() 가 이미 절대경로로 확정해 둔 값이다.
     save_dir = getattr(args, "textsave", None)
 
     return {
@@ -1768,7 +1758,7 @@ def run_classify(files, args, out_fp):
         ruleset = load_rules(args.rules)
     except FileNotFoundError as e:
         log.error("규칙셋 로드 실패 :: %s", e)
-        # 예외가 실제로 뒤진 경로를 알고 있으면 그것을 쓴다(--rules 를 안 준 경우 기본 경로).
+        # 예외가 실제로 뒤진 경로를 알고 있으면 그것을 쓴다(--cso-rules 를 안 준 경우 기본 경로).
         return fail_err("rules_missing", f"[MpowerClassify] {e}",
                         getattr(e, "filename", None) or args.rules)
     except RuleSetValidationError as e:

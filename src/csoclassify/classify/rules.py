@@ -2025,7 +2025,7 @@ def load_rules(path=None, validate=True):
         raise FileNotFoundError(
             f"규칙셋(cso_rule.yaml)을 찾을 수 없습니다: {path}\n"
             f"  · exe 와 같은 폴더에 cso_rule.yaml 을 두거나,\n"
-            f"  · --rules <파일경로> 로 지정하거나,\n"
+            f"  · --cso-rules <파일경로> 로 지정하거나,\n"
             f"  · 환경변수 CSOCLASSIFY_POLICY_DIR 로 폴더를 지정하세요."
         )
     with open(path, encoding="utf-8") as f:
