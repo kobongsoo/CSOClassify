@@ -535,16 +535,16 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 139 filtered out
         <td><code>--version</code> 이 <strong>거짓말</strong>을 하게 된다</td></tr>
   </table>
 
-  <h3>왜 14개밖에 안 되나 — 숫자에 속지 마세요</h3>
+  <h3>왜 19개밖에 안 되나 — 숫자에 속지 마세요</h3>
   <p>다른 묶음은 케이스 하나가 테스트 하나지만, <strong><code>pii</code> 는 테스트 하나가
      정답표 전량을 돕니다.</strong> 실제 대조 횟수로 세면 이렇습니다.</p>
   <table>
     <tr><th>종류</th><th>테스트 개수</th><th>실제 검사 횟수</th></tr>
-    <tr><td>회귀 테스트</td><td>10</td><td>약 30건의 단언</td></tr>
-    <tr><td>골든 테스트</td><td>4</td><td><strong>사례 121건 × 20라벨 ≈ 2,400회 대조</strong></td></tr>
+    <tr><td>회귀 테스트</td><td>15</td><td>단언 51건</td></tr>
+    <tr><td>골든 테스트</td><td>4</td><td><strong>사례 164건 × 20라벨 ≈ 3,300회 대조</strong></td></tr>
   </table>
   <div class="note">
-    그래서 <strong>코퍼스를 늘려도 테스트 개수는 14개 그대로</strong>이고 검증 범위만 넓어집니다.
+    그래서 <strong>코퍼스를 늘려도 골든 테스트 개수는 4개 그대로</strong>이고 검증 범위만 넓어집니다.
     실제로 사례를 31건에서 121건으로 늘렸을 때 개수는 안 변했지만
     <strong>포팅 버그 6건이 드러났습니다</strong>(<a href="#make">9장</a>).
   </div>
