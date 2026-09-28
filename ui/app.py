@@ -658,15 +658,29 @@ def render_evidence(rec, latest):
     if not (rule.get("hits") or []):
         lines.append(f"· 개인정보·키워드가 발견되지 않았습니다 · _{W.SIGNAL_LABEL['rule']}_")
 
-    # ── 폴더 규칙 ──
-    path = sig.get("path", {}) or {}
-    if path.get("grade"):
-        acl = " · 접근이 강하게 제한된 폴더" if path.get("acl_restricted") else ""
-        lines.append(f"{W.GRADE_EMOJI.get(norm_grade(path.get('grade')), '·')} "
-                     f"폴더 규칙 **{path.get('source')}** 에 해당{acl} · "
-                     f"_{W.SIGNAL_LABEL['path']}_")
-    else:
-        lines.append(f"· 이 폴더에 대한 규칙이 없습니다 · _{W.SIGNAL_LABEL['path']}_")
+    # ── 법상 민감정보군 ──
+    # rule 과 히트 모양이 같다(id·name·grade·count·terms). 다만 '없을 때'는 줄을
+    # 내지 않는다 — 엔진은 걸린 신호만 싣기 때문에 '없음'과 '안 봤음'을 구분할 수
+    # 없고, 모든 카드에 빈 줄이 붙으면 정작 걸린 근거가 묻힌다.
+    sens = sig.get("sensitive", {}) or {}
+    for h in sens.get("hits", []) or []:
+        terms = h.get("terms", [])
+        detail = (", ".join(term_count_text(t) for t in terms) if terms
+                  else f"{h.get('count', 0)}건 발견")
+        lines.append(f"{W.GRADE_EMOJI.get(norm_grade(h.get('grade')), '·')} "
+                     f"**{h.get('name', '')}** {detail} · "
+                     f"_{W.SIGNAL_LABEL['sensitive']}_")
+
+    # ── 보안분류 스탬프 ──
+    # 문서에 찍힌 '대외비'·'CONFIDENTIAL' 같은 표식. 오탐이 적어 확신값이 가장
+    # 높으므로(0.95), 이것이 등급을 정했을 때 화면이 그 사실을 못 적으면
+    # "왜 C 인지" 를 아무도 답할 수 없다.
+    stamp = sig.get("stamp", {}) or {}
+    for h in stamp.get("hits", []) or []:
+        where = {"head": "문서 앞부분에 ", "body": "본문에 "}.get(h.get("mode"), "")
+        lines.append(f"{W.GRADE_EMOJI.get(norm_grade(h.get('grade')), '·')} "
+                     f"{where}**{h.get('term', '')}** 표식이 있습니다"
+                     f"({h.get('name', '')}) · _{W.SIGNAL_LABEL['stamp']}_")
 
     # ── 파일 이름 ──
     name = sig.get("name", {}) or {}
@@ -2718,11 +2732,14 @@ def render_rules_editor():
         st.caption("확신은 **검토함에 담기는 기준과 정렬**에만 쓰이고 등급 자체는 바꾸지 않습니다. "
                    "수정하려면 **cso_rule.yaml 을 직접 편집**하세요(이 표는 표기 전용).")
         conf = doc.get("confidence", {}) or {}
+        # 규칙 파일의 confidence 블록에 실제로 있는 묶음만 보여 준다. 예전에는
+        # ("regex", "keyword", "path") 로 박혀 있어, 없어진 path 는 빈 줄로 뜨고
+        # sensitive·stamp 는 아예 안 보였다(2026-09-28 수정).
         st.dataframe(pd.DataFrame([{"신호": grp,
                                     "high": (conf.get(grp) or {}).get("high"),
                                     "medium": (conf.get(grp) or {}).get("medium"),
                                     "low": (conf.get(grp) or {}).get("low")}
-                                   for grp in ("regex", "keyword", "path")]),
+                                   for grp in ("regex", "keyword", "sensitive", "stamp")]),
                      hide_index=True, width="stretch")
         st.caption(f"파일 이름 신호의 고정 확신값: {conf.get('name')}")
 
