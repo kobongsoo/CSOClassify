@@ -46,7 +46,10 @@ def _r(root, rel):
 
 
 #------------------------------------------------------------------
-# cso_rule.yaml 사본만 있는 최소 구조 만들기
+# 유의어 사전 사본만 있는 최소 구조 만들기
+#=> 제품 파일 하나를 표본으로 쓴다. 예전에는 cso_rule.yaml 이었는데, 그것이
+#   2026-09-28 에 고객 파일로 옮겨가 원본·사본 모양이 달라졌다. 여기서 보는 것은
+#   파일 종류가 아니라 동기화 기계장치라, 같은 모양의 사전 파일로 옮겼다.
 #=> 원본(resources/policy) + 사본 둘(Rust 판·화면). 배포 폴더는 만들지 않는다 —
 #   없는 배포 폴더는 건너뛰어야 한다는 것도 함께 본다.
 #
@@ -59,9 +62,9 @@ def _r(root, rel):
 # -out: error = 없음
 #------------------------------------------------------------------
 def _tree(root, src, rust, ui):
-    _w(root, "resources/policy/cso_rule.yaml", src)
-    _w(root, "Rust/resources/policy/cso_rule.yaml", rust)
-    _w(root, "ui/policy/cso_rule.yaml", ui)
+    _w(root, "resources/policy/synonyms/doc_synonyms.core.yaml", src)
+    _w(root, "Rust/resources/policy/synonyms/doc_synonyms.core.yaml", rust)
+    _w(root, "ui/policy/synonyms/doc_synonyms.core.yaml", ui)
 
 
 #------------------------------------------------------------------
@@ -75,11 +78,11 @@ def _tree(root, src, rust, ui):
 def test_line_endings_only_is_same(tmp_path):
     root = str(tmp_path)
     _tree(root, b"version: a\r\nx: 1\r\n", b"version: a\nx: 1\n", b"version: a\r\nx: 1\r\n")
-    rows = SP.run(root, file="cso_rule.yaml")
+    rows = SP.run(root, file="synonyms/doc_synonyms.core.yaml")
     assert {r["state"] for r in rows} == {"same"}
     # 배포 폴더가 없으니 사본은 둘만 본다.
     assert {r["dst"] for r in rows} == {"Rust/resources/policy", "ui/policy"}
-    assert SP.main(["--root", root, "--file", "cso_rule.yaml"]) == 0
+    assert SP.main(["--root", root, "--file", "synonyms/doc_synonyms.core.yaml"]) == 0
 
 
 #------------------------------------------------------------------
@@ -94,9 +97,9 @@ def test_line_endings_only_is_same(tmp_path):
 def test_first_run_protects_different_copy(tmp_path):
     root = str(tmp_path)
     _tree(root, b"version: b\n", b"version: a\n", b"version: b\n")
-    assert SP.main(["--root", root, "--file", "cso_rule.yaml"]) == 1
-    assert SP.main(["--root", root, "--file", "cso_rule.yaml", "--apply"]) == 2
-    assert _r(root, "Rust/resources/policy/cso_rule.yaml") == b"version: a\n"
+    assert SP.main(["--root", root, "--file", "synonyms/doc_synonyms.core.yaml"]) == 1
+    assert SP.main(["--root", root, "--file", "synonyms/doc_synonyms.core.yaml", "--apply"]) == 2
+    assert _r(root, "Rust/resources/policy/synonyms/doc_synonyms.core.yaml") == b"version: a\n"
 
 
 #------------------------------------------------------------------
@@ -111,17 +114,17 @@ def test_first_run_protects_different_copy(tmp_path):
 def test_synced_copy_follows_source(tmp_path):
     root = str(tmp_path)
     _tree(root, b"version: b\n", b"version: a\r\n", b"version: b\n")
-    SP.run(root, apply=True, force=True, file="cso_rule.yaml", stamp="t1")
+    SP.run(root, apply=True, force=True, file="synonyms/doc_synonyms.core.yaml", stamp="t1")
     # 사본의 줄끝(CRLF)을 지켜서 썼다.
-    assert _r(root, "Rust/resources/policy/cso_rule.yaml") == b"version: b\r\n"
-    assert _r(root, "_backup/policy-sync/t1/Rust/resources/policy/cso_rule.yaml") == b"version: a\r\n"
+    assert _r(root, "Rust/resources/policy/synonyms/doc_synonyms.core.yaml") == b"version: b\r\n"
+    assert _r(root, "_backup/policy-sync/t1/Rust/resources/policy/synonyms/doc_synonyms.core.yaml") == b"version: a\r\n"
 
-    _w(root, "resources/policy/cso_rule.yaml", b"version: c\n")
-    rows = SP.run(root, file="cso_rule.yaml")
+    _w(root, "resources/policy/synonyms/doc_synonyms.core.yaml", b"version: c\n")
+    rows = SP.run(root, file="synonyms/doc_synonyms.core.yaml")
     assert {r["state"] for r in rows} == {"differ"}
-    assert SP.main(["--root", root, "--file", "cso_rule.yaml", "--apply"]) == 0
-    assert _r(root, "Rust/resources/policy/cso_rule.yaml") == b"version: c\r\n"
-    assert _r(root, "ui/policy/cso_rule.yaml") == b"version: c\n"
+    assert SP.main(["--root", root, "--file", "synonyms/doc_synonyms.core.yaml", "--apply"]) == 0
+    assert _r(root, "Rust/resources/policy/synonyms/doc_synonyms.core.yaml") == b"version: c\r\n"
+    assert _r(root, "ui/policy/synonyms/doc_synonyms.core.yaml") == b"version: c\n"
 
 
 #------------------------------------------------------------------
@@ -135,18 +138,18 @@ def test_synced_copy_follows_source(tmp_path):
 def test_copy_edited_after_sync_is_protected(tmp_path):
     root = str(tmp_path)
     _tree(root, b"version: a\n", b"version: a\n", b"version: a\n")
-    SP.run(root, apply=True, file="cso_rule.yaml")          # 같은 사본의 지문을 기록
-    _w(root, "ui/policy/cso_rule.yaml", b"version: a-ui\n")  # 화면에서 고침
-    _w(root, "resources/policy/cso_rule.yaml", b"version: b\n")
-    rows = {r["dst"]: r["state"] for r in SP.run(root, file="cso_rule.yaml")}
+    SP.run(root, apply=True, file="synonyms/doc_synonyms.core.yaml")          # 같은 사본의 지문을 기록
+    _w(root, "ui/policy/synonyms/doc_synonyms.core.yaml", b"version: a-ui\n")  # 화면에서 고침
+    _w(root, "resources/policy/synonyms/doc_synonyms.core.yaml", b"version: b\n")
+    rows = {r["dst"]: r["state"] for r in SP.run(root, file="synonyms/doc_synonyms.core.yaml")}
     assert rows == {"Rust/resources/policy": "differ", "ui/policy": "edited"}
-    assert SP.main(["--root", root, "--file", "cso_rule.yaml", "--apply"]) == 2
-    assert _r(root, "Rust/resources/policy/cso_rule.yaml") == b"version: b\n"
-    assert _r(root, "ui/policy/cso_rule.yaml") == b"version: a-ui\n"
+    assert SP.main(["--root", root, "--file", "synonyms/doc_synonyms.core.yaml", "--apply"]) == 2
+    assert _r(root, "Rust/resources/policy/synonyms/doc_synonyms.core.yaml") == b"version: b\n"
+    assert _r(root, "ui/policy/synonyms/doc_synonyms.core.yaml") == b"version: a-ui\n"
     # 차이 보기는 아무것도 쓰지 않고 사본에만 있는 줄을 보여 준다.
-    diff = SP.render_diff(root, SP.run(root, file="cso_rule.yaml"))
+    diff = SP.render_diff(root, SP.run(root, file="synonyms/doc_synonyms.core.yaml"))
     assert "+version: a-ui" in diff
-    assert _r(root, "ui/policy/cso_rule.yaml") == b"version: a-ui\n"
+    assert _r(root, "ui/policy/synonyms/doc_synonyms.core.yaml") == b"version: a-ui\n"
 
 
 #------------------------------------------------------------------

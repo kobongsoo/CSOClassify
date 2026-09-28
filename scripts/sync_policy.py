@@ -63,9 +63,14 @@ _INDUSTRIES = ["construction", "education", "finance", "legal",
 #   · 회사 겹 유의어(local)는 제품 소스 폴더에 두지 않는다(dc3fbae — 고객 제품명이 들어가
 #     공개 저장소로 나갈 수 있다). 그래서 사본 목록에서 resources/policy·Rust/resources/policy 를 뺀다
 #   · 본보기(doc_rule_template)는 Rust 판이 읽지 않아 Rust/resources/policy 에는 두지 않는다
+#   · [2026-09-28] 보안등급 규칙(cso_rule.yaml)을 제품에서 고객 묶음으로 옮겼다. 화면
+#     (설정 ② 판단 기준 › 보안등급)이 고치는 파일인데 원본이 저장소 쪽이어서, 화면에서
+#     고친 규칙을 다음 동기화가 조용히 되돌렸다. 사본 목록은 회사 겹 유의어와 같은
+#     까닭으로 배포 폴더만 둔다 — 이 파일에는 그 회사의 기밀 키워드·제품명이 들어간다.
+#     저장소의 resources/policy/cso_rule.yaml 은 이제 '새 고객이 복사해 가는 기본값'이고,
+#     동기화 대상이 아니다.
 MANIFEST = (
-    [("product", "cso_rule.yaml", PRODUCT_SRC,
-      ["Rust/resources/policy", CUSTOMER_SRC] + DIST_DIRS),
+    [("customer", "cso_rule.yaml", CUSTOMER_SRC, list(DIST_DIRS)),
      ("product", "doc_rule_template.yaml", PRODUCT_SRC, [CUSTOMER_SRC] + DIST_DIRS)]
     + [("product", f"synonyms/doc_synonyms.{k}.yaml", PRODUCT_SRC,
         ["Rust/resources/policy", CUSTOMER_SRC] + DIST_DIRS)

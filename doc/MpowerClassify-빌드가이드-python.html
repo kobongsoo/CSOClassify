@@ -317,11 +317,16 @@ for %F in (doc_rule.yaml doc_rule.local.yaml) do @(
     레코드의 <code>doctype_rule_version</code> 과 요약의 업무분류 롤업이 기대한 규칙판과
     맞는지 보면 됩니다.
     <br><br>
-    <span class="bad">미해결 —</span> 정본이 갈린 것 자체가 문제입니다. UI 화면
-    (<code>ui\app.py::default_paths()</code>)은 <code>ui\doc_rule.yaml</code>(=<code>ui</code> 바로 아래)을
-    먼저 찾고 없으면 <code>resources\policy</code> 를 보는데, 실제 파일은
-    <code>ui\policy\</code> 에 있어 <b>화면이 보는 파일과 배포에 싣는 파일이 서로 다릅니다</b>.
-    한 곳으로 합치는 것이 맞고, 그 전까지는 위 확인 절차가 유일한 방어선입니다.
+    <span class="ok">해결됨 <span class="def">2026-09-28</span> —</span> 예전에는 정본이 갈려
+    있었습니다. UI 화면(<code>ui\app.py::default_paths()</code>)이 <code>ui\doc_rule.yaml</code>
+    (=<code>ui</code> 바로 아래)을 먼저 찾고 없으면 <code>resources\policy</code> 를 봤는데,
+    실제 파일은 <code>ui\policy\</code> 에 있어 <b>화면이 보는 파일과 배포에 싣는 파일이 달랐습니다</b>.
+    지금은 <b>고객 파일의 정본이 <code>ui\policy\</code> 하나</b>입니다 — 화면 기본 경로가 그곳을
+    가리키고, <code>scripts/sync_policy.py</code> 도 같은 곳을 원본으로 봅니다.
+    보안등급 규칙(<code>cso_rule.yaml</code>)도 같은 날 고객 파일로 옮겨,
+    화면에서 고친 것이 동기화에 되돌아가지 않습니다. 저장소의
+    <code>resources\policy\cso_rule.yaml</code> 은 <b>새 고객이 복사해 가는 기본값</b>이고
+    동기화 대상이 아닙니다. 위 확인 절차는 그대로 해 두면 좋습니다.
     </div>
     <div class="warn"><b>seed 를 빠뜨리면 조용히 정확도가 깎입니다</b> —
     <code>class_seed.jsonl</code> 이 없으면 오류가 나지 않고 <b>전파(Signal B)만 통째로 꺼집니다</b>.
