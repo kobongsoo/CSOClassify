@@ -95,10 +95,10 @@
 <section class="card">
   <p><code>cso_rule.yaml</code>은 문서를 <b>C(기밀)/S(민감)/O(공개)</b>로 분류하는 <b>정책 파일</b>입니다. 실행파일(<code>csoclassify</code>)에 내장하지 않고 <b>exe 옆의 외장 파일</b>로 두어, 재빌드 없이 규칙만 교체·배포할 수 있습니다.</p>
   <div class="scroll"><table>
-    <tr><th>찾는 순서(우선)</th><th>위치</th></tr>
-    <tr><td>① 환경변수</td><td><code>CSOCLASSIFY_POLICY_DIR</code> 폴더의 <code>cso_rule.yaml</code></td></tr>
-    <tr><td>② 인자</td><td><code>--cso-rules &lt;파일경로&gt;</code> 로 직접 지정</td></tr>
-    <tr><td>③ 기본(배포)</td><td>exe 와 <b>같은 폴더</b>의 <code>cso_rule.yaml</code></td></tr>
+    <tr><th>cso_rule.yaml 을 찾는 순서</th><th>위치</th></tr>
+    <tr><td>① 인자</td><td><code>--cso-rules &lt;파일경로&gt;</code> 로 직접 지정하면 그것</td></tr>
+    <tr><td>② 환경변수</td><td><code>CSOCLASSIFY_POLICY_DIR</code> 폴더의 <code>cso_rule.yaml</code></td></tr>
+    <tr><td>③ 기본(배포)</td><td>실행파일과 <b>같은 폴더</b>의 <code>cso_rule.yaml</code></td></tr>
   </table></div>
   <p class="muted">파일이 없으면 분류 실행 시 “어디에 두라”는 안내를 내고 종료(코드 3)합니다. 편집은 이 파일을 직접 수정하거나 <b>UI 규칙설정</b>에서 합니다(UI는 주석을 보존하며 저장 시 <code>.bak</code> 백업 + 버전 자동 상향).</p>
   <div class="warn"><b>프라이버시 불변식</b> — 스캐너는 매칭된 <b>원문 PII 값</b>을 저장하지 않습니다. 결과 근거에는 <b>유형 id·건수·정책 키워드</b>만 남습니다(원문은 <code>--with-pii</code> 옵션 사용 시에만 <code>--out</code> 파일에 한정).</div>
