@@ -91,7 +91,7 @@ rem --rule-only : 임베딩·전파 없이 규칙만 — PII 검출만 보려는
 rem --with-pii  : 검출된 원문 PII 값까지 출력(가짜 시험문서라 안전하다)
 rem   ※ --simple 은 쓰지 않는다. 그걸 켜면 결과에서 pii 배열이 빠져
 rem      '무엇을 몇 건 잡았나'를 볼 수 없다(등급과 근거 요약만 남는다).
-"%CSO_EXE%" %MODE% "%TARGET%" --rules "%CSO_RULES%" --rule-only --with-pii ^
+"%CSO_EXE%" %MODE% "%TARGET%" --cso-rules "%CSO_RULES%" --rule-only --with-pii ^
   %GLOBOPT% --out "%OUTFILE%"
 set "RC=%ERRORLEVEL%"
 
