@@ -394,7 +394,11 @@
     <tr><td><b>서로 다른 가지가 걸림</b><br><span class="def">예) 계약서 + 제안서</span></td><td>둘 다 남깁니다. 1계층이 다르면 <code>cross_branch</code> 경고를 붙여 검토 우선순위를 올립니다(자동으로 버리지 않음)</td></tr>
     <tr><td><b>몇 개까지 남기나</b></td><td><code>conflict</code> 가 정합니다 — 아래</td></tr>
   </table></div>
-<pre><code>conflict: all                  <span class="cmt"># 기본 — 걸린 것을 전부 남긴다(점수 높은 순)</span>
+<pre><code>conflict:                      <span class="cmt"># 본보기 기본값(2026-09-28~) — 점수 높은 두 개만</span>
+  strategy: top_n
+  n: 2
+
+conflict: all                  <span class="cmt"># 걸린 것을 전부 남긴다(점수 높은 순)</span>
 
 conflict:                      <span class="cmt"># 상위 N 개만</span>
   strategy: top_n
@@ -446,7 +450,7 @@ defaults:
     <tr><td class="f">version</td><td>규칙셋 버전. 결과 레코드에 <code>doctype_rule_version</code> 으로 찍혀 “어느 규칙으로 분류했나”를 되짚게 합니다. 자동 생성 파일은 <code>doctype-gen-&lt;내용 지문 12자리&gt;</code></td><td>—</td></tr>
     <tr><td class="f">generated</td><td>자동 생성 파일에만 있음 — 만든 명령, 얹은 업종(<code>industry</code>), 재료 파일 지문(<code>inputs</code>), 본문 지문(<code>body_sha256</code>). 손으로 고침·입력 바뀜을 알아보는 데 씁니다</td><td>—</td></tr>
     <tr><td class="f">industry</td><td>얹을 업종 유의어 사전(앞에 적은 것이 셉니다). 예 <code>[finance, legal]</code>. <code>doc_rule.local.yaml</code> 의 <code>industry</code> 가 정하고(없으면 본보기 값), 규칙 파일에는 <code>generated.industry</code> 로 남습니다</td><td>없음</td></tr>
-    <tr><td class="f">conflict</td><td>여러 분류가 걸릴 때 몇 개 남기나(<a href="#multi">8장</a>)</td><td><code>all</code></td></tr>
+    <tr><td class="f">conflict</td><td>여러 분류가 걸릴 때 몇 개 남기나(<a href="#multi">8장</a>)</td><td><code>top_n</code> 2 <span class="def">본보기 값 · 줄이 아예 없으면 <code>all</code></span></td></tr>
     <tr><td class="f">defaults</td><td>문턱·구간 값(아래 표)</td><td>—</td></tr>
     <tr><td class="f">signals</td><td>네 신호의 점수 표(<a href="#signals">4장</a>). 일부만 적어도 나머지는 기본값</td><td>코드 기본값</td></tr>
     <tr><td class="f">embed</td><td>2차 분류 설정(<a href="#embed">9장</a>)</td><td>—</td></tr>
