@@ -212,13 +212,15 @@ def summarize_status(candidates):
 
 #------------------------------------------------------------------
 # 근거 한 신호를 사람 문장으로
-#=> evidence 블록 하나(제목/앞부분/본문/파일이름/서식/짜임새/비슷한문서)를
+#=> evidence 블록 하나(제목/앞부분/본문/파일이름/끝자리/비슷한문서)를
 #   "어디에서 어떤 말이 몇 번" 형태의 한 줄로 바꾼다. 신호마다 담긴 내용이
 #   달라서 한 가지 틀로는 안 되고, 여기서 갈라 준다.
 #   [프라이버시] 규칙에 적힌 말과 횟수만 쓴다. 문서 원문은 근거 블록에 애초에
 #   담기지 않으므로(재설계 13-3), 이 함수도 원문을 만질 일이 없다.
+#   [2026-09-28] form·structure·path 갈래를 걷어냈다. 2026-09-07 재설계에서
+#   엔진이 그 신호를 더 이상 내지 않아 한 번도 타지 않는 길이었다.
 #
-# -in: signal = 신호 이름("title"/"head"/"body"/"name"/"form"/"structure"/"path"/"embed")
+# -in: signal = 신호 이름("title"/"head"/"body"/"name"/"name_head"/"embed")
 # -in: ev     = 그 신호의 근거 dict
 #
 # -out: str = 사람이 읽는 한 줄(모르는 신호면 신호 이름만)
@@ -266,19 +268,6 @@ def reason_text(signal, ev):
         else:
             tail = f" — 회사 분류 체계의 분류 이름 **{src}** 에서 나온 말입니다"
         return f"{label}가 {word}{tail}"
-
-    if signal == "path":
-        return f"{label} — " + ", ".join(str(x) for x in (ev.get("matched") or [])[:4])
-
-    # 서식 항목 — "이 서식에 반드시 있어야 할 항목"이 몇 개 맞았는지.
-    if signal == "form":
-        matched = ev.get("matched") or []
-        need = ev.get("min_types")
-        tail = f"(최소 {need}종 필요)" if need else ""
-        return (f"{label} " + ", ".join(f"**{m}**" for m in matched[:6]) + f" {tail}").rstrip()
-
-    if signal == "structure":
-        return f"{label} — " + ", ".join(str(x) for x in (ev.get("matched") or [])[:4])
 
     # 비슷한 문서 — 이웃 문서의 경로는 내지 않는다(Q7 이 아직 미결이다).
     if signal == "embed":
