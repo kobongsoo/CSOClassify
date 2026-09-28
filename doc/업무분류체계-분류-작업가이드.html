@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>업무분류체계 분류 작업 가이드</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#5b6472; --line:#e3e7ee;
+    --code-bg:#f0f2f6; --code-ink:#0f172a; --accent:#2563eb; --accent-soft:#e8f0ff;
+    --c:#dc2626; --s:#ea8a00; --o:#16a34a; --chip:#eef1f6; --shadow:0 1px 3px rgba(20,30,50,.08);
+    --term-bg:#12161f; --term-ink:#dbe3f0;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1420; --panel:#161d2b; --ink:#e6eaf2; --muted:#9aa4b6; --line:#273248;
+      --code-bg:#0c1120; --code-ink:#d7e0f0; --accent:#6ea8ff; --accent-soft:#16233d;
+      --c:#f2726f; --s:#f0a83a; --o:#5cc98a; --chip:#1d2637; --shadow:0 1px 3px rgba(0,0,0,.4);
+      --term-bg:#080b12; --term-ink:#cdd7e8;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--line);border-radius:16px;padding:26px 28px;margin-bottom:26px;box-shadow:var(--shadow)}
+  header.hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header.hero p{margin:0;color:var(--muted)}
+  h2{font-size:20px;margin:38px 0 12px;padding-top:12px;border-top:2px solid var(--line);letter-spacing:-.01em}
+  h2 .n{display:inline-block;min-width:1.7em;color:var(--accent);font-weight:800}
+  h3{font-size:16px;margin:22px 0 8px}
+  h4{font-size:14px;margin:18px 0 6px;color:var(--muted)}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:4px 22px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;margin:10px 0;font-size:13px}
+  code{font-family:"Cascadia Code",Consolas,"D2Coding",monospace}
+  pre code{font-size:13px;white-space:pre}
+  p code,li code,td code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+    padding:.5px 5px;font-size:.88em;color:var(--code-ink)}
+  /* 실제 cmd 화면 — 검은 콘솔로 구분해 '내가 본 그 화면'임을 알게 한다 */
+  .term{background:var(--term-bg);color:var(--term-ink);border:1px solid #2a3346;border-radius:10px;
+    margin:12px 0;overflow:hidden;box-shadow:var(--shadow)}
+  .term .bar{background:#1b2230;color:#8f9db5;font-size:12px;padding:5px 12px;border-bottom:1px solid #2a3346;
+    font-family:"Cascadia Code",Consolas,monospace}
+  .term pre{background:none;border:none;border-radius:0;margin:0;color:inherit;padding:12px 14px;font-size:12.5px;line-height:1.5}
+  .term .in{color:#8ee6a8}
+  .term .dim{color:#7f8ca3}
+  .term .hi{color:#ffd479}
+  .term .bad{color:#ff8e8e}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--chip);font-weight:700;white-space:nowrap}
+  table.args td:first-child{white-space:nowrap;font-family:"Cascadia Code",Consolas,monospace;font-size:12.5px}
+  tr:last-child td{border-bottom:none}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;
+    padding:10px 14px;margin:12px 0}
+  .warn{border-left:3px solid var(--s);background:color-mix(in srgb,var(--s) 12%,transparent);
+    border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .ok{border-left:3px solid var(--o);background:color-mix(in srgb,var(--o) 12%,transparent);
+      border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0}
+  .must{border:1px solid color-mix(in srgb,var(--c) 45%,transparent);border-left:5px solid var(--c);
+    background:color-mix(in srgb,var(--c) 9%,transparent);border-radius:0 10px 10px 0;
+    padding:14px 16px;margin:16px 0}
+  .must .h{font-weight:800;color:var(--c);margin-bottom:6px;font-size:15px}
+  ul.toc{list-style:none;padding:0;margin:6px 0;columns:2;column-gap:24px}
+  ul.toc li{margin:5px 0;break-inside:avoid}
+  ul.toc a{color:var(--accent);text-decoration:none}
+  ul.toc a:hover{text-decoration:underline}
+  .tree{font-family:"Cascadia Code",Consolas,"D2Coding",monospace;font-size:13px;white-space:pre;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto}
+  .cmt{color:var(--muted)}
+  .pill{font-size:12px;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin-left:6px}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:14px 0}
+  .flow .step{flex:1 1 150px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .flow .step b{display:block;color:var(--accent);font-size:12px}
+  .flow .step span{font-size:13px}
+  .flow .step em{display:block;color:var(--muted);font-size:11.5px;font-style:normal;margin-top:4px;
+    font-family:"Cascadia Code",Consolas,monospace}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px}
+  .who{display:inline-block;font-size:11.5px;font-weight:700;border-radius:5px;padding:1px 7px;
+    border:1px solid var(--line);background:var(--chip);margin-left:8px;vertical-align:2px}
+  .who.dev{color:var(--accent)} .who.man{color:var(--o)} .who.exe{color:var(--s)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>업무분류체계 분류 작업 가이드</h1>
+  <p>업체 현장에서 문서분류체계를 받아 규칙을 만들고, 전체 문서를 분류해 내기까지 — 일곱 단계를 순서대로.
+     모든 명령과 화면은 <code>MpowerClassify-rs.exe</code> 를 실제 실행해 옮긴 것입니다.</p>
+  <p class="muted" style="margin-top:8px">2026-09-28 기준 · 대상 독자: 이 도구를 처음 쓰는 구축 담당자</p>
+</header>
+
+<section class="card">
+  <h3 style="margin-top:14px">차례</h3>
+  <ul class="toc">
+    <li><a href="#s0">0. 시작 전에 — 준비물과 전체 그림</a></li>
+    <li><a href="#s1">1단계. 문서분류체계 내보내기</a></li>
+    <li><a href="#s2">2단계. seed 목록 만들기(수작업)</a></li>
+    <li><a href="#s3">3단계. 기준 문서 등록(class_seed.jsonl)</a></li>
+    <li><a href="#s4">4단계. 업무분류 규칙 만들기(doc_rule.yaml)</a></li>
+    <li><a href="#s5">5단계. 규칙 검수 + 본문 미리 뽑기</a></li>
+    <li><a href="#s6">6단계. 키워드 뽑아 규칙에 넣기</a></li>
+    <li><a href="#s7">7단계. 전체 문서 분류</a></li>
+    <li><a href="#aA">부록 A. 인자 한눈에 보기</a></li>
+    <li><a href="#aB">부록 B. 종료코드</a></li>
+    <li><a href="#aC">부록 C. 이 메시지가 나오면</a></li>
+    <li><a href="#aD">부록 D. 단어 제안 문턱값</a></li>
+  </ul>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 0 -->
+<h2 id="s0"><span class="n">0.</span>시작 전에 — 준비물과 전체 그림</h2>
+<section class="card">
+
+<h3>이 작업이 만들어 내는 것</h3>
+<p>최종 결과물은 <b>둘</b>입니다.</p>
+<table>
+  <tr><th>결과물</th><th>무엇인가</th></tr>
+  <tr><td><code>doc_rule.yaml</code></td>
+      <td>“이런 말이 나오면 이 분류” 를 적어 둔 <b>업무분류 규칙 파일</b>. 업체마다 다릅니다.</td></tr>
+  <tr><td><code>result.jsonl</code></td>
+      <td>문서 하나하나에 <b>보안등급(C/S/O)</b> 과 <b>업무분류(dc_id)</b> 를 붙인 판정 결과.</td></tr>
+</table>
+
+<h3>일곱 단계 흐름</h3>
+<div class="flow">
+  <div class="step"><b>1</b><span>체계 내보내기</span><em>엠파워 UI</em></div>
+  <div class="step"><b>2</b><span>seed 목록 작성</span><em>사람이 손으로</em></div>
+  <div class="step"><b>3</b><span>기준 문서 등록</span><em>--seed-add-from</em></div>
+  <div class="step"><b>4</b><span>규칙 만들기</span><em>--build-doc-rule</em></div>
+  <div class="step"><b>5</b><span>검수·본문 저장</span><em>--textsave</em></div>
+  <div class="step"><b>6</b><span>키워드 보강</span><em>--suggest-terms</em></div>
+  <div class="step"><b>7</b><span>전체 분류</span><em>--dir --out</em></div>
+</div>
+<p class="muted">6단계에서 규칙을 손보면 <b>4단계로 되돌아가</b> 규칙을 다시 만듭니다. 이 왕복이 이 작업의 핵심입니다.</p>
+
+<h3>작업 폴더 만들기</h3>
+<p>exe 가 있는 폴더 밑에 업체용 정책 폴더(여기서는 <code>policy01</code>)를 하나 만들고 모든 정책 파일을 그 안에 모읍니다.
+   이렇게 해 두면 업체가 둘 이상이어도 폴더만 갈아 끼우면 됩니다.</p>
+<div class="tree">D:\Project\MpowerClassify\Rust\dist-onedir\windows\
+├─ MpowerClassify-rs.exe        <span class="cmt">← 실행 파일</span>
+├─ models\  onnxruntime.dll  pdfium.dll   <span class="cmt">← exe 와 한 세트. 따로 옮기지 않는다</span>
+└─ policy01\                   <span class="cmt">← 이 업체의 정책 폴더(직접 만든다)</span>
+   ├─ cso_rule.yaml                     <span class="cmt">보안등급 규칙 (기본 제공물 복사)</span>
+   ├─ doc_classification_export.json    <span class="cmt">1단계 산출물</span>
+   ├─ doc_rule_template.yaml            <span class="cmt">규칙 본보기 (기본 제공물 복사)</span>
+   ├─ doc_rule.local.yaml               <span class="cmt">업체별 조정 — 사람이 적는 유일한 규칙 파일</span>
+   ├─ synonyms\                         <span class="cmt">유의어 사전 (기본 제공물 복사)</span>
+   │  ├─ doc_synonyms.core.yaml
+   │  ├─ doc_synonyms.education.yaml …  <span class="cmt">업종 사전들</span>
+   │  └─ doc_synonyms.local.yaml        <span class="cmt">이 업체에서만 쓰는 말 (필요할 때 만든다)</span>
+   ├─ seedlist.jsonl                    <span class="cmt">2단계 산출물</span>
+   ├─ class_seed.jsonl                  <span class="cmt">3단계 산출물</span>
+   └─ doc_rule.yaml                     <span class="cmt">4단계 산출물 — 손으로 고치지 않는다</span></div>
+<p class="muted"><code>cso_rule.yaml</code>·<code>doc_rule_template.yaml</code>·<code>synonyms\</code> 는 배포본에 들어 있는 것을 그대로 복사하면 됩니다.</p>
+
+<h3>명령을 어디서 실행하나</h3>
+<p>윈도우 <b>명령 프롬프트(cmd)</b> 를 열고 exe 가 있는 폴더로 이동한 뒤 실행합니다.
+   아래 모든 예시는 이 자리를 기준으로 상대경로(<code>policy01\…</code>)를 씁니다.</p>
+<div class="term"><div class="bar">명령 프롬프트</div><pre><span class="in">C:\&gt; d:</span>
+<span class="in">D:\&gt; cd D:\Project\MpowerClassify\Rust\dist-onedir\windows</span>
+<span class="in">D:\Project\MpowerClassify\Rust\dist-onedir\windows&gt; MpowerClassify-rs.exe --help</span>
+<span class="dim">MpowerClassify-rs 1.x — 한국어 문서 → C/S/O 보안등급 · 업무분류 자동분류
+…(인자 도움말이 ①~⑩ 묶음으로 나옵니다)</span></pre></div>
+
+<div class="note"><b>세 가지 규약을 먼저 기억하세요.</b>
+<ol style="margin:6px 0 0 18px;padding:0">
+  <li><b>정책 경로는 항상 명시합니다.</b> 빼먹으면 exe 옆의 기본 파일을 조용히 씁니다(업체 파일이 아닌 것).</li>
+  <li><b><code>doc_rule.yaml</code> 은 손으로 고치지 않습니다.</b> 4단계에서 통째로 다시 만들어지는 생성물입니다.</li>
+  <li><b>사람이 적는 규칙 파일은 <code>doc_rule.local.yaml</code> 하나뿐</b>입니다.</li>
+</ol></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 1 -->
+<h2 id="s1"><span class="n">1.</span>문서분류체계 내보내기 <span class="who dev">엠파워 개발</span></h2>
+<section class="card">
+<h3>무엇을 하나</h3>
+<p>업체의 업무분류체계(대분류 &gt; 중분류 구조와 이름)는 엠파워v11 안에 이미 들어 있습니다.
+   그것을 이 도구가 읽을 수 있는 JSON 파일로 꺼냅니다.</p>
+<ol>
+  <li>엠파워v11 관리 화면 → <b>문서분류체계 설정</b></li>
+  <li>내보내기 → <code>doc_classification_export.json</code> 저장</li>
+  <li>그 파일을 <code>policy01\</code> 안에 넣습니다.</li>
+</ol>
+<div class="note"><b>[개발사항]</b> 엠파워 문서분류체계를 JSON 으로 내보내는 기능이 필요합니다.</div>
+
+<h3>파일이 어떻게 생겼나</h3>
+<p>분류 하나가 노드 하나입니다. <code>dc_id</code> 가 앞으로 모든 단계에서 분류를 가리키는 <b>열쇠</b>가 됩니다.</p>
+<pre><code>{
+  "nodes": [
+    { "dc_id": "DC_001",     "title": "CS",           "parent": null },
+    { "dc_id": "DC_001_001", "title": "제안서",        "parent": "DC_001" },
+    { "dc_id": "DC_001_003", "title": "PM구축자료",     "parent": "DC_001" },
+    { "dc_id": "DC_002_006", "title": "프로그래밍 강좌", "parent": "DC_002" }
+  ]
+}</code></pre>
+<div class="warn"><code>dc_id</code> 의 구분자는 <b>밑줄(_)</b> 입니다. <code>DC_006-003</code> 처럼 붙임표를 쓰면 어느 분류와도 맞지 않습니다.</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 2 -->
+<h2 id="s2"><span class="n">2.</span>seed 목록 만들기(수작업) <span class="who man">업체 담당자</span></h2>
+<section class="card">
+<h3>무엇을 하나</h3>
+<p>“이 분류는 <b>이런 문서</b>다” 를 도구에게 보여 주는 <b>견본 문서</b>를 고르는 일입니다. 분류마다 10건쯤이 적당합니다.
+   이 견본이 뒤에 나오는 <b>키워드 추출</b>과 <b>임베딩 전파</b>의 재료가 됩니다. 이 단계의 품질이 전체 성적을 좌우합니다.</p>
+
+<h3>① 분류별 폴더에 문서를 담는다</h3>
+<div class="must">
+  <div class="h">분류마다 폴더를 두 곳 이상으로 나누세요</div>
+  <p style="margin:0 0 6px">키워드 추출(6단계)은 <b>“근거 문서 3건 이상 + 서로 다른 폴더 2곳 이상”</b> 을 넘은 말만 후보로 올립니다.
+     같은 폴더에 있는 문서는 아무리 많아도 <b>1곳</b>으로 셉니다. 한 폴더에 몰아 담으면 후보가 거의 안 나옵니다.</p>
+  <table>
+    <tr><th>이렇게 하면 후보가 안 나옵니다</th><th>이렇게 담으세요</th></tr>
+    <tr>
+      <td><code>SEED\DC_001_003\</code> 에 10건 전부</td>
+      <td><code>SEED\DC_001_003\2024년\</code> 5건<br><code>SEED\DC_001_003\2025년\</code> 5건</td>
+    </tr>
+  </table>
+  <p class="muted" style="margin:6px 0 0">연도·고객사·프로젝트 등 <b>아무 기준</b>이어도 됩니다. 나뉘어 있기만 하면 됩니다.
+     왜 이렇게 세는지는 <a href="#aD">부록 D</a> 에서 설명합니다.</p>
+</div>
+
+<h3>② seedlist.jsonl 을 적는다</h3>
+<p>한 줄에 문서 하나. 담당자가 등급과 분류를 <b>직접</b> 적습니다(도구가 추측하지 않습니다).</p>
+<table class="args">
+  <tr><th>칸</th><th>넣는 값</th><th>필수</th></tr>
+  <tr><td>file</td><td>본문을 뽑을 실제 파일 경로. 상대경로면 <b>명령을 실행하는 폴더</b> 기준</td><td>필수</td></tr>
+  <tr><td>grade</td><td>보안등급 — <code>C</code>(기밀) / <code>S</code>(사내) / <code>O</code>(공개) 중 하나.
+      <span class="muted">숫자 0 이 아니라 영문 대문자 O</span></td><td>선택</td></tr>
+  <tr><td>doctype</td><td>업무분류 <code>dc_id</code> 목록(대괄호). 예: <code>["DC_001_003"]</code></td><td>선택</td></tr>
+  <tr><td>doc_id</td><td>엠파워V11 의 문서 <code>sfileid</code>. 나중에 결과를 엠파워와 맞출 때 씁니다</td><td>선택</td></tr>
+  <tr><td>note / reviewer</td><td>줄마다 다른 메모·확정자를 줄 때(없으면 명령에서 준 값을 씁니다)</td><td>선택</td></tr>
+</table>
+<p><code>grade</code> 와 <code>doctype</code> 은 <b>둘 중 하나만</b> 적어도 됩니다.</p>
+<pre><code>{"file":"D:\\분류함1\\SEED\\CS\\제안서\\2024_현대제철_제안서.pptx","doc_id":"SF-100231","grade":"C","doctype":["DC_001_001"]}
+{"file":"D:\\분류함1\\SEED\\CS\\매뉴얼\\사용자매뉴얼_v2.hwp","doctype":["DC_001_005"]}
+{"file":"D:\\분류함1\\SEED\\영업\\견적서\\2025_견적.xlsx","grade":"O"}</code></pre>
+<div class="warn"><b>JSON 이라 지켜야 하는 것</b> — 경로의 역슬래시는 <code>\\</code> 로 두 번 적습니다.
+  파일은 <b>UTF-8</b> 로 저장하고 줄 끝에 쉼표를 붙이지 않습니다(한 줄이 곧 한 건).</div>
+<div class="note"><b>[개발사항]</b> 엠파워에서 문서를 골라 등급·분류체계를 지정하면 이 목록이 자동으로 나오는 UI 가 있으면 이 단계가 사라집니다.</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 3 -->
+<h2 id="s3"><span class="n">3.</span>기준 문서 등록 — class_seed.jsonl <span class="who exe">exe</span></h2>
+<section class="card">
+<h3>무엇을 하나</h3>
+<p>2단계의 목록을 도구가 쓰는 <b>기준 문서 저장소</b>(<code>class_seed.jsonl</code>)로 바꿉니다.
+   이때 도구가 문서를 실제로 열어 <b>지문(SHA-256)</b> 과 <b>의미 벡터(384차원)</b> 를 만들어 함께 저장합니다.
+   그래서 이 단계는 시간이 좀 걸립니다.</p>
+
+<h3>명령</h3>
+<pre><code>MpowerClassify-rs.exe --seed-add-from policy01\seedlist.jsonl ^
+  --seed-reviewer "홍길동" ^
+  --seed-note "신규 seed 등록" ^
+  --seeds policy01\class_seed.jsonl ^
+  --rules policy01\cso_rule.yaml ^
+  --doc-rules policy01\doc_rule.yaml</code></pre>
+<p class="muted">cmd 에서 줄을 나눌 때는 끝에 <code>^</code> 를 붙입니다. 한 줄로 이어 써도 됩니다.
+   <b>맨 처음</b>에는 <code>doc_rule.yaml</code> 이 아직 없으니 <code>--doc-rules</code> 를 빼고 실행하고, 4단계 뒤에 다시 등록해도 됩니다.</p>
+
+<h4>인자 설명</h4>
+<table class="args">
+  <tr><th>인자</th><th>뜻</th></tr>
+  <tr><td>--seed-add-from &lt;목록&gt;</td><td>줄마다 값이 다른 문서를 한꺼번에 등록. <code>-</code> 를 주면 표준입력.
+      문서마다 같은 값을 줄 거면 <code>--seed-add &lt;문서…&gt;</code> 를 씁니다(둘은 함께 못 씁니다)</td></tr>
+  <tr><td>--seed-reviewer &lt;이름&gt;</td><td><b>필수.</b> 누가 확정했는지. 없으면 종료코드 3 으로 멈춥니다</td></tr>
+  <tr><td>--seed-note &lt;메모&gt;</td><td>선택. 왜 등록했는지 한 줄</td></tr>
+  <tr><td>--seeds &lt;파일&gt;</td><td>저장할 기준 문서 파일. 있으면 <b>잠그고 병합</b>합니다.
+      <b>주지 않으면 화면에만 찍고 파일은 건드리지 않습니다</b>(미리보기로 쓰기 좋음)</td></tr>
+  <tr><td>--seed-grade &lt;C|S|O&gt;</td><td><code>--seed-add</code> 로 문서를 직접 나열할 때 모두에게 줄 등급</td></tr>
+  <tr><td>--seed-doctype &lt;dc_id,…&gt;</td><td>같은 방식으로 줄 업무분류(콤마로 여럿)</td></tr>
+  <tr><td>--seed-audit &lt;경로&gt;</td><td>변경 기록 파일. 안 주면 <code>--seeds</code> 옆 <code>class_seed_audit.jsonl</code></td></tr>
+</table>
+
+<h4>실제 실행 화면</h4>
+<div class="term"><div class="bar">명령 프롬프트 — 2건 등록 예</div><pre><span class="in">&gt; MpowerClassify-rs.exe --seed-add-from mini.jsonl --seed-reviewer "홍길동" --seed-note "신규 seed 등록" --seeds policy01\demo_seed.jsonl --rules policy01\cso_rule.yaml --doc-rules policy01\doc_rule.yaml</span>
+<span class="dim">[MpowerClassify-rs] 전파용 seed 파일이 없어 자동 전파를 건너뜁니다: policy01\demo_seed.jsonl
+                규칙이 못 정한 문서는 미분류로 남습니다. 의도한 것이면 --rule-only 로 명시하세요.</span>
+[seed-add] 2건 등록 → policy01\demo_seed.jsonl (전체 2줄)
+[seed-add] 변경 기록: policy01\class_seed_audit.jsonl</pre></div>
+<p class="muted">첫 등록이라 비교할 seed 가 아직 없다는 안내입니다(정상). 두 번째 실행부터는 나오지 않습니다.</p>
+
+<h4>만들어진 줄 <span class="pill">class_seed.jsonl</span></h4>
+<pre><code>{"v":3,"file":"D:\\분류함1\\SEED\\CS\\01.제안서작업\\04. 소개자료_기능정리_CS팀_조강래.xlsx",
+ "hash":"54af5f54616fe513b053ae4c80e92fe33b5b1919273e822993361ff0baffcb95",
+ "doctype":["DC_001_001"],"source":"cli","approved_by":"홍길동","note":"신규 seed 등록",
+ "ts":"2026-09-28 08:44:03","dim":384,"engine":"rust","vector":[0.0339,-0.0698, … ]}</code></pre>
+<div class="ok"><b>확인 포인트</b> — <code>approved_by</code> 에 이름이 들어갔는지 보세요.
+  6단계 키워드 추출은 <b>사람이 승인한 seed 만</b> 재료로 씁니다. 이름이 없는 줄은 없는 것으로 취급됩니다.</div>
+<p class="muted">종료코드: 0 전부 등록 · 1 일부 실패 · 2 전부 실패 · 3 인자 잘못</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 4 -->
+<h2 id="s4"><span class="n">4.</span>업무분류 규칙 만들기 — doc_rule.yaml <span class="who exe">exe</span></h2>
+<section class="card">
+<h3>무엇을 하나</h3>
+<p>분류체계 JSON 의 분류 이름을 유의어 사전으로 부풀려 <b>“이런 말이 나오면 이 분류”</b> 규칙을 자동으로 짓습니다.
+   문서를 읽지 않으므로 몇 초면 끝납니다.</p>
+
+<h3>재료는 네 가지뿐</h3>
+<table>
+  <tr><th>재료</th><th>역할</th></tr>
+  <tr><td><code>doc_classification_export.json</code></td><td>분류 이름과 계층 — 규칙의 뼈대</td></tr>
+  <tr><td><code>synonyms\</code></td><td><code>core</code>(공통) + 업종 사전 + <code>local</code>(이 업체 말) 순으로 겹쳐 말을 늘림</td></tr>
+  <tr><td><code>doc_rule_template.yaml</code></td><td>점수·문턱 같은 공통 설정의 본보기</td></tr>
+  <tr><td><code>doc_rule.local.yaml</code></td><td>이 업체만의 조정 — 말 추가/제거, 문턱 조정</td></tr>
+</table>
+<div class="note"><code>class_seed.jsonl</code> 은 <b>규칙 생성 재료가 아닙니다.</b> 6·7단계에서 씁니다. 같은 폴더에 있어도 무해합니다.</div>
+
+<h3>명령</h3>
+<pre><code>MpowerClassify-rs.exe --build-doc-rule --doc-rules policy01\doc_rule.yaml</code></pre>
+<table class="args">
+  <tr><th>인자</th><th>뜻</th></tr>
+  <tr><td>--build-doc-rule</td><td>규칙 생성 모드. 문서·모델을 읽지 않습니다</td></tr>
+  <tr><td>--doc-rules &lt;파일&gt;</td><td><b>만들어 낼 규칙 파일의 경로.</b> 나머지 재료는 이 파일이 놓일
+      <b>같은 폴더</b>에서 이름으로 찾습니다 — 그래서 한 폴더에 모아 두는 것입니다</td></tr>
+  <tr><td>--export-input &lt;파일&gt;</td><td>분류체계 JSON 을 다른 이름·다른 자리에서 읽을 때만</td></tr>
+</table>
+
+<h4>실제 실행 화면</h4>
+<div class="term"><div class="bar">명령 프롬프트</div><pre><span class="in">&gt; MpowerClassify-rs.exe --build-doc-rule --doc-rules policy01\doc_rule.yaml</span>
+[MpowerClassify-rs] policy01\doc_rule.yaml 생성 — 규칙 <span class="hi">16개</span>(회사 조정 <span class="hi">0개</span>) · 판 <span class="hi">doctype-gen-4aaae0aa131b</span> · 입력 12개</pre></div>
+<table>
+  <tr><th>읽는 법</th><th>뜻</th></tr>
+  <tr><td>규칙 16개</td><td>만들어진 분류 규칙 수. <b>분류체계의 말단 분류 수와 맞는지</b> 확인하세요</td></tr>
+  <tr><td>회사 조정 0개</td><td><code>doc_rule.local.yaml</code> 에서 반영된 조정 수. 6단계에서 말을 넣으면 이 숫자가 오릅니다</td></tr>
+  <tr><td>판 doctype-gen-…</td><td>재료 내용으로 계산한 지문. 재료가 같으면 늘 같은 값 → <b>배포본끼리 같은 규칙인지</b> 이 값으로 비교합니다</td></tr>
+  <tr><td>입력 12개</td><td>읽은 재료 파일 수(사전 파일들 포함)</td></tr>
+</table>
+<div class="warn"><b>분류 수가 모자라면</b> <code>doc_classification_export.json</code> 을 잘못 넣은 것입니다.
+  <code>--doc-rules</code> 로 준 경로의 <b>옆</b>에 있는지 확인하세요.</div>
+<p class="muted">값만 검사해 보려면 <code>--check-rules</code> 를 씁니다(정상 0, 검증 실패 4).</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 5 -->
+<h2 id="s5"><span class="n">5.</span>규칙 검수 + 본문 미리 뽑기 <span class="who exe">exe</span></h2>
+<section class="card">
+<h3>① 규칙 파일을 눈으로 본다</h3>
+<p><code>policy01\doc_rule.yaml</code> 을 열어 분류별로 어떤 말이 잡혀 있는지 봅니다. 아래 셋을 봅니다.</p>
+<ul>
+  <li>분류 이름이 한 단어라 <b>말이 거의 없는</b> 분류(예: “인공지능”) — 6단계 보강 대상</li>
+  <li>서로 <b>비슷한 말을 공유</b>하는 분류(예: 제안서 ↔ 제품소개서) — 헷갈릴 자리</li>
+  <li>업체에서만 쓰는 줄임말·제품명이 <b>빠져 있는</b> 분류</li>
+</ul>
+
+<h3>② seed 문서의 본문을 미리 뽑아 둔다</h3>
+<p>6단계 키워드 추출은 <b>미리 저장해 둔 본문</b>을 읽습니다. 지금 한 번 뽑아 두면 키워드 추출을 몇 번이든 빨리 돌릴 수 있습니다.</p>
+<pre><code>MpowerClassify-rs.exe --dir "D:\분류함1\SEED" ^
+  --textsave "D:\분류함1\SEED_TEXT" ^
+  --rules policy01\cso_rule.yaml ^
+  --doc-rules policy01\doc_rule.yaml ^
+  --simple-why --progress --out text_pass.jsonl</code></pre>
+<table class="args">
+  <tr><th>인자</th><th>뜻</th></tr>
+  <tr><td>--dir &lt;폴더&gt;</td><td>이 폴더를 <b>하위까지</b> 훑습니다. 압축파일은 안을 펼쳐 각각 분류</td></tr>
+  <tr><td>--textsave &lt;폴더&gt;</td><td>뽑아낸 본문을 <code>&lt;sha256&gt;.txt</code> 로 저장. 짝으로 <code>_index.jsonl</code>
+      (지문↔원본 경로)이 생깁니다</td></tr>
+  <tr><td>--rules &lt;파일&gt;</td><td>보안등급 규칙. <b>생략하면 exe 옆 기본 파일</b>을 씁니다</td></tr>
+  <tr><td>--doc-rules &lt;파일&gt;</td><td>업무분류 규칙. 생략하면 업무분류 축이 꺼집니다</td></tr>
+  <tr><td>--simple-why</td><td>결과를 <code>file·hash·doc_id·grade·doctype</code> + 판정근거로 줄입니다</td></tr>
+  <tr><td>--progress</td><td>파일마다 진행 상황을 표시(오래 걸릴 때 필수)</td></tr>
+  <tr><td>--out &lt;파일&gt;</td><td>결과 저장 위치. <b>주지 않으면 화면에 JSON 이 쏟아집니다</b></td></tr>
+  <tr><td>--nosummary</td><td>맨 끝 요약을 빼고 파일별 결과만</td></tr>
+</table>
+
+<h4>실제 실행 화면</h4>
+<div class="term"><div class="bar">명령 프롬프트 — 10건 예 (실제 출력)</div><pre><span class="in">&gt; MpowerClassify-rs.exe --dir sample --textsave SAMPLE_TEXT --rules policy01\cso_rule.yaml --doc-rules policy01\doc_rule.yaml --simple-why --progress --out text_pass.jsonl</span>
+<span class="dim">[MpowerClassify-rs] --out 확장자에 맞춰 --format jsonl 로 저장합니다. (다르게 하려면 --format 을 직접 지정하세요)</span>
+<span class="bad">[MpowerClassify-rs] --textsave: 추출 본문(개인정보 포함 가능)을 …\SAMPLE_TEXT 에 평문으로 남깁니다. 보안등급 C 문서도 그대로 남습니다.</span>
+[progress] 0/10
+[progress] 1/10 …\sample\filelist.jsonl
+[progress] 2/10 …\sample\filelist.README.txt
+<span class="dim">      ⋮</span>
+[progress] 10/10 …\sample\seedlist.jsonl
+[전파][업무분류] seed=100 embed기여=0
+[전파] seed=102 전파결정=0 미분류잔여=1
+[MpowerClassify-rs] 감사용 전체 결과: text_pass.full.jsonl
+[summary][문서 ID] sfile_id 0 · 폴백(content) 10 · 폴백(path) 0
+[summary] 총 10개 / 검출 9, <span class="hi">C=1 S=5 O=3 미분류=1</span> 추출실패=0, <span class="hi">텍스트저장=10</span>, 총시간=6646.7ms
+[summary][텍스트 저장] 10건을 …\SAMPLE_TEXT 에 남겼습니다(내용이 같은 1건은 한 파일로 합쳐졌습니다). 원본 발췌이므로 공유·백업에 주의하세요.
+[summary][업무분류] <span class="hi">CS 5 (매뉴얼 4 · 제안서 1) / 영업 1 (견적서 1) / 미분류 6</span></pre></div>
+
+<h4>만들어진 본문 폴더</h4>
+<div class="tree">D:\분류함1\SEED_TEXT\
+├─ _index.jsonl                                   <span class="cmt">지문 ↔ 원본 경로 연결표</span>
+├─ 094524d301d49adb89094a316454df735a67aa68a….txt  <span class="cmt">파일 이름이 곧 문서 지문</span>
+└─ 1e271d0fe5b9a93aeaf1080f1054df4aad79eeaea….txt</div>
+<pre><code>{"hash":"26ad36c9…d12f","txt":"26ad36c9…d12f.txt","file":"…/sample/filelist.jsonl",
+ "doc_id":null,"chars":854,"truncated":false,"ts":"2026-09-28 08:44:30"}</code></pre>
+
+<div class="must">
+  <div class="h">본문 저장 폴더는 원본과 같은 등급으로 다루세요</div>
+  <p style="margin:0">C(기밀) 문서의 본문도 <b>평문</b>으로 남습니다. 폴더 접근 권한을 제한하고, 작업이 끝나면 지우거나 보관 규정에 따라 옮기세요.</p>
+</div>
+<div class="warn"><b>파이썬 판과 폴더를 나누세요.</b> 두 판은 추출기가 달라 본문이 조금 다릅니다. 같은 폴더에 섞으면 어느 판이 만든 본문인지 알 수 없습니다.</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 6 -->
+<h2 id="s6"><span class="n">6.</span>키워드 뽑아 규칙에 넣기 <span class="who exe">exe</span> <span class="who man">사람 판단</span></h2>
+<section class="card">
+<h3>무엇을 하나</h3>
+<p>seed 문서의 본문을 훑어 <b>“이 분류에만 자주 나오는 말”</b> 을 찾아 줍니다.
+   단순히 많이 나온 말이 아니라 <b>다른 분류에는 거의 안 나오는</b> 말을 고릅니다(그래야 구분에 쓸모가 있습니다).
+   도구는 <b>보여 주기만</b> 하고 규칙 파일은 고치지 않습니다.</p>
+
+<h3>명령</h3>
+<pre><code>MpowerClassify-rs.exe --suggest-terms DC_001_003 ^
+  --doc-rules policy01\doc_rule.yaml ^
+  --seeds policy01\class_seed.jsonl ^
+  --text-dir "D:\분류함1\SEED_TEXT"</code></pre>
+<table class="args">
+  <tr><th>인자</th><th>뜻</th></tr>
+  <tr><td>--suggest-terms &lt;dc_id|all&gt;</td><td>훑을 분류 하나. <code>all</code> 이면 확정 문서가 있는 분류 전부</td></tr>
+  <tr><td>--seeds &lt;파일&gt;</td><td>재료 ① 기준 문서. <b>반드시 주세요</b> — 빠뜨리면 exe 옆의 옛 파일을 읽습니다</td></tr>
+  <tr><td>--text-dir &lt;폴더&gt;</td><td>재료 ② 5단계에서 <code>--textsave</code> 로 저장한 본문 폴더.
+      <b>인자 이름에 붙임표가 있습니다</b>(<code>--textdir</code> 아님). 없으면 제목·파일 이름만 봅니다</td></tr>
+  <tr><td>--overrides &lt;파일&gt;</td><td>재료 ③ 검토 화면에서 확정·거절한 이력. 기본은 정책 폴더 옆 <code>cso_override.jsonl</code></td></tr>
+  <tr><td>--doc-rules &lt;파일&gt;</td><td><b>거르기용</b>. 이미 규칙에 있는 말, 다른 분류의 이름을 후보에서 뺍니다</td></tr>
+  <tr><td>--stopwords &lt;파일&gt;</td><td>제안하지 않을 말 목록. 기본은 정책 폴더 옆 <code>doc_rule_stopwords.yaml</code></td></tr>
+  <tr><td>--suggest-json &lt;경로&gt;</td><td>결과를 JSON 으로도 남깁니다(엑셀 정리용)</td></tr>
+  <tr><td>--suggest-min-docs &lt;수&gt;</td><td>제안을 시작할 최소 확정 문서 수(기본 3)</td></tr>
+</table>
+
+<h3>화면 읽는 법</h3>
+<table>
+  <tr><th>표기</th><th>뜻</th></tr>
+  <tr><td><code>[v]</code></td><td>근거가 단단한 후보 — 대개 그대로 넣어도 됩니다</td></tr>
+  <tr><td><code>[ ]</code></td><td>후보 — 사람이 보고 고릅니다</td></tr>
+  <tr><td><code>[-]</code></td><td>문턱 미달(참고) — 왜 떨어졌는지 뒤에 까닭이 붙습니다</td></tr>
+  <tr><td><b>덮는율</b></td><td>이 분류 문서 중 그 말이 나온 비율. <b>높을수록 대표적</b>(참고용 숫자)</td></tr>
+  <tr><td><b>다른분류</b></td><td>다른 분류 문서에 그 말이 나온 비율. <b>낮을수록 이 분류 전용</b> — 실제로 거르는 기준</td></tr>
+  <tr><td><b>폴더N</b></td><td>그 말이 나온 서로 다른 폴더 수. 같은 폴더 문서는 합쳐 1건으로 셉니다</td></tr>
+  <tr><td>제목 / 앞부분 / 본문 / 파일이름</td><td>그 말이 <b>어디에</b> 나왔나 → 규칙의 어느 칸에 넣을지가 정해집니다</td></tr>
+</table>
+
+<h4>실제 실행 화면 ⓐ — 후보가 나온 경우</h4>
+<div class="term"><div class="bar">명령 프롬프트 — 폴더가 7곳으로 나뉜 분류</div><pre><span class="in">&gt; MpowerClassify-rs.exe --suggest-terms DC_002_006 --doc-rules policy01\doc_rule.yaml --seeds policy01\class_seed.jsonl --text-dir "D:\분류함1\SEED_TEXT"</span>
+[MpowerClassify-rs] 재료 120건(기준문서 있음 · 검토이력 없음 · 본문 있음)
+<span class="dim">  덮는율 = 이 분류 문서 중 그 말이 나온 비율(참고) · 다른분류 = 다른 분류 문서 중 나온 비율(낮을수록 좋음 — 이 값으로 거릅니다)
+  같은 폴더 문서는 합쳐서 1건으로 세어 비율을 냅니다. [v] 근거가 단단한 후보 · [ ] 후보 · [-] 문턱 미달(참고)</span>
+
+■ 프로그래밍 강좌(DC_002_006) — 확정 13건 / <span class="hi">폴더 7곳</span>
+  <span class="hi">[v]</span> 이것             제목·파일이름                근거   3건/폴더3  다른분류   1.0% 덮는율  21.4%
+
+[MpowerClassify-rs] 규칙 파일은 고치지 않았습니다 — 넣을 말은 화면(설정 ③ 판단 기준)에서 고르세요.</pre></div>
+<p class="muted">폴더가 7곳으로 나뉘어 있어 문턱을 넘었습니다. 다만 “이것” 은 문서 종류를 가리키는 말이 아니므로 <b>넣지 않습니다</b> —
+  문턱을 넘었다고 다 좋은 말은 아닙니다. 사람이 걸러야 하는 이유입니다.</p>
+
+<h4>실제 실행 화면 ⓑ — 한 폴더에만 몰린 경우</h4>
+<div class="term"><div class="bar">명령 프롬프트</div><pre><span class="in">&gt; MpowerClassify-rs.exe --suggest-terms DC_003_003 --doc-rules policy01\doc_rule.yaml --seeds policy01\class_seed.jsonl --text-dir "D:\분류함1\SEED_TEXT"</span>
+[MpowerClassify-rs] 재료 120건(기준문서 있음 · 검토이력 없음 · 본문 있음)
+
+■ 라이센스증서(DC_003_003) — 확정 5건 / <span class="hi">폴더 1곳</span>
+  <span class="dim">[한 폴더 전용] 그 폴더에서만 쓰는 말일 수 있습니다:</span>
+  [ ] Agreement      제목·파일이름                근거   5건/폴더1  다른분류   0.0% 덮는율 100.0%  &lt;한 폴더 전용&gt;
+  [ ] Number         제목·파일이름                근거   5건/폴더1  다른분류   1.4% 덮는율 100.0%  &lt;한 폴더 전용&gt;</pre></div>
+<p class="muted">폴더가 1곳이라 정식 후보는 못 되지만, 5건 전부에 나오고 다른 분류에는 거의 없어 <b>참고 후보</b>로 올라왔습니다.
+  “Agreement” 는 라이센스증서에 쓸 만합니다 → 넣습니다. “Number” 는 너무 흔한 말이니 <b>넣지 않습니다</b>.</p>
+
+<h4>실제 실행 화면 ⓒ — 아무 후보도 못 넘은 경우</h4>
+<div class="term"><div class="bar">명령 프롬프트</div><pre><span class="in">&gt; MpowerClassify-rs.exe --suggest-terms DC_001_003 --doc-rules policy01\doc_rule.yaml --seeds policy01\class_seed.jsonl --text-dir "D:\분류함1\SEED_TEXT"</span>
+[MpowerClassify-rs] 재료 120건(기준문서 있음 · 검토이력 없음 · 본문 있음)
+
+■ PM구축자료(DC_001_003) — 확정 10건 / <span class="hi">폴더 1곳</span>
+  제안할 말이 없습니다.
+  <span class="dim">[문턱 미달 — 참고] 검출은 됐지만 기준에 못 미친 말입니다. 쓸 만한지는 관리자가 판단하세요:</span>
+  [-] 양호             앞부분      근거   4건/폴더1  다른분류   0.0% 덮는율  40.0%  <span class="dim">두 글자 — 앞부분·본문에서는 뺍니다</span>
+  [-] 삭제키            본문       근거   3건/폴더1  다른분류   0.0% 덮는율  30.0%  <span class="dim">폴더 1곳 — 2곳 이상이어야 합니다</span>
+  [-] <span class="hi">요구사항정의서</span>        본문       근거   3건/폴더1  다른분류   0.0% 덮는율  30.0%  <span class="dim">폴더 1곳 — 2곳 이상이어야 합니다</span>
+  [-] <span class="bad">박규영</span>            본문       근거   4건/폴더1  다른분류   0.5% 덮는율  40.0%  <span class="dim">폴더 1곳 — 2곳 이상이어야 합니다</span>
+  [-] C드라이브          본문       근거   2건/폴더1  다른분류   0.0% 덮는율  20.0%  <span class="dim">폴더 1곳 — 2곳 이상이어야 합니다</span>
+  [-] IT운영팀           본문       근거   2건/폴더1  다른분류   0.0% 덮는율  20.0%  <span class="dim">폴더 1곳 — 2곳 이상이어야 합니다</span>
+  <span class="dim">      ⋮ (최대 15개)</span></pre></div>
+<p><b>이 화면을 어떻게 쓰나.</b> 전부 “폴더 1곳” 에서 걸렸습니다 → 문턱 자체가 문제이므로
+  <b>2단계로 돌아가 이 분류의 seed 를 두 폴더 이상으로 나누는 것</b>이 정답입니다.
+  그게 어려우면 목록에서 쓸 만한 말만 골라 손으로 넣습니다.</p>
+<table>
+  <tr><th>고르는 기준</th><th>이 화면에서</th></tr>
+  <tr><td><b>넣는다</b> — 문서의 종류·양식을 가리키는 말</td><td><code>요구사항정의서</code></td></tr>
+  <tr><td><b>안 넣는다</b> — 사람 이름·회사 이름·팀 이름</td><td><code>박규영</code>, <code>기업금융운영팀</code></td></tr>
+  <tr><td><b>안 넣는다</b> — 어느 문서에나 나올 일반어·화면 용어</td><td><code>양호</code>, <code>C드라이브</code>, <code>단축아이콘</code></td></tr>
+</table>
+
+<div class="must">
+  <div class="h">뽑은 말은 doc_rule.yaml 에 넣지 마세요</div>
+  <p style="margin:0 0 8px"><code>doc_rule.yaml</code> 은 4단계에서 <b>통째로 다시 만들어지는 생성물</b>입니다.
+     손으로 고치면 다음 생성 때 사라지고, 실제로 이런 경고가 납니다.</p>
+  <pre style="margin:0"><code>[MpowerClassify-rs] doc_rule.yaml 이 만들어진 뒤 손으로 고쳐졌습니다 —
+                    다음에 다시 만들면 고친 것이 사라집니다. 조정은 doc_rule.local.yaml 에 적으세요</code></pre>
+</div>
+
+<h3>올바른 자리 — doc_rule.local.yaml</h3>
+<p>분류별 말 추가·제거는 <code>policy01\doc_rule.local.yaml</code> 의 <code>rules:</code> 아래에 적습니다.
+   칸마다 <code>add</code>(더하기) / <code>remove</code>(빼기) / <code>clear</code>(비우기) 를 쓸 수 있습니다.</p>
+<pre><code>rules:
+  DC_001_003:                      <span class="cmt"># PM구축자료</span>
+    add:
+      title_terms: ["요구사항정의서", "착수보고", "검수확인서"]   <span class="cmt"># 제목에 나오면</span>
+      head_terms:  ["구축 범위"]                                <span class="cmt"># 문서 앞부분에 나오면</span>
+      terms:       ["요구사항정의서"]                            <span class="cmt"># 본문에 나오면</span>
+      filename:    ["요구사항정의서"]                            <span class="cmt"># 파일 이름에 나오면</span>
+    remove:
+      terms: ["구축"]              <span class="cmt"># 너무 흔해 헷갈리게 하는 말을 뺀다</span>
+
+  DC_003_003:                      <span class="cmt"># 라이센스증서</span>
+    add:
+      title_terms: ["Agreement"]</code></pre>
+<table>
+  <tr><th>칸</th><th>어디를 보나</th><th>제안 화면의 표기</th></tr>
+  <tr><td><code>title_terms</code></td><td>문서 제목</td><td>제목</td></tr>
+  <tr><td><code>head_terms</code></td><td>본문 앞부분</td><td>앞부분</td></tr>
+  <tr><td><code>terms</code></td><td>본문 전체</td><td>본문</td></tr>
+  <tr><td><code>filename</code></td><td>파일 이름</td><td>파일이름</td></tr>
+</table>
+<div class="note">업체에서만 쓰는 <b>줄임말·다른 표기</b>(같은 뜻의 다른 말)는 규칙이 아니라 사전에 적습니다 →
+  <code>policy01\synonyms\doc_synonyms.local.yaml</code>.
+  같은 칸에 <code>add</code> 와 <code>clear</code> 를 함께 쓰면 <b>비우기가 먼저</b> 적용됩니다.</div>
+
+<h3>적었으면 4단계로 돌아갑니다</h3>
+<pre><code>MpowerClassify-rs.exe --build-doc-rule --doc-rules policy01\doc_rule.yaml</code></pre>
+<div class="term"><div class="bar">명령 프롬프트 — 조정이 반영된 모습</div><pre><span class="in">&gt; MpowerClassify-rs.exe --build-doc-rule --doc-rules policy01\doc_rule.yaml</span>
+[MpowerClassify-rs] policy01\doc_rule.yaml 생성 — 규칙 16개(회사 조정 <span class="hi">2개</span>) · 판 <span class="hi">doctype-gen-9c41ab07d2e5</span> · 입력 12개</pre></div>
+<p class="muted"><b>회사 조정</b> 숫자가 올랐고 <b>판</b> 값이 바뀌었으면 제대로 반영된 것입니다.
+  숫자가 그대로면 <code>dc_id</code> 오타이거나 파일을 다른 폴더에 적은 것입니다.</p>
+<p>이제 <b>6단계를 다시</b> 돌려 같은 말이 후보에서 사라졌는지 확인하고 다른 분류로 넘어갑니다.
+  이 <b>4↔6 왕복</b>을 분류가 만족스러워질 때까지 반복합니다.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 7 -->
+<h2 id="s7"><span class="n">7.</span>전체 문서 분류 <span class="who exe">exe</span></h2>
+<section class="card">
+<h3>명령</h3>
+<pre><code>MpowerClassify-rs.exe --simple-why --nosummary --json-errors --progress ^
+  --rules     "policy01\cso_rule.yaml" ^
+  --doc-rules "policy01\doc_rule.yaml" ^
+  --seeds     "policy01\class_seed.jsonl" ^
+  --dir       "D:\분류함1" ^
+  --out       "result.jsonl"</code></pre>
+<table class="args">
+  <tr><th>인자</th><th>뜻</th></tr>
+  <tr><td>--dir &lt;폴더&gt;</td><td>분류할 문서 폴더(하위까지). 여러 곳에 흩어져 있으면 <code>--files-from &lt;목록&gt;</code></td></tr>
+  <tr><td>--rules &lt;파일&gt;</td><td>보안등급 규칙</td></tr>
+  <tr><td>--doc-rules &lt;파일&gt;</td><td>업무분류 규칙 — 6단계까지 다듬은 그 파일</td></tr>
+  <tr><td>--seeds &lt;파일&gt;</td><td>기준 문서. 규칙이 못 정한 문서를 <b>의미가 비슷한 기준 문서와 비교해 구제</b>합니다(전파)</td></tr>
+  <tr><td>--out &lt;파일&gt;</td><td>결과 저장. 확장자로 형식을 정합니다(<code>.jsonl</code> → 한 줄에 한 건)</td></tr>
+  <tr><td>--simple-why</td><td>필요한 칸만 + 판정 근거. 이 인자를 주면 <code>&lt;out&gt;.full.jsonl</code> 도 함께 생깁니다</td></tr>
+  <tr><td>--nosummary</td><td>맨 끝 요약 생략. <b>처음에는 빼고</b> 돌려 요약을 보는 편이 좋습니다</td></tr>
+  <tr><td>--json-errors</td><td>실패할 때 오류를 JSON 한 줄로 — 다른 프로그램이 읽기 쉽게</td></tr>
+  <tr><td>--progress</td><td>진행 상황 표시</td></tr>
+  <tr><td>--rule-only</td><td>규칙만 쓰고 임베딩·전파를 끕니다(가장 빠름, 대신 미분류가 늘어남)</td></tr>
+  <tr><td>--filelist &lt;목록&gt;</td><td>엠파워V11 이 준 <code>{path, sfile_id}</code> 목록. 결과의 <code>doc_id</code> 를 이걸로 채웁니다</td></tr>
+</table>
+
+<h4>실제 실행 화면</h4>
+<div class="term"><div class="bar">명령 프롬프트 — 요약을 켜고 돌린 모습</div><pre><span class="in">&gt; MpowerClassify-rs.exe --simple-why --progress --rules policy01\cso_rule.yaml --doc-rules policy01\doc_rule.yaml --seeds policy01\class_seed.jsonl --dir sample --out result.jsonl</span>
+<span class="dim">[MpowerClassify-rs] --out 확장자에 맞춰 --format jsonl 로 저장합니다.</span>
+[progress] 1/10 …\sample\filelist.jsonl
+<span class="dim">      ⋮</span>
+[progress] 10/10 …\sample\seedlist.jsonl
+[전파][업무분류] seed=100 embed기여=0
+[전파] seed=102 전파결정=0 미분류잔여=1
+[MpowerClassify-rs] 감사용 전체 결과: <span class="hi">result.full.jsonl</span>
+[summary][문서 ID] sfile_id 0 · 폴백(content) 10 · 폴백(path) 0
+[summary][문서 ID] ※ 폴백 10건은 매핑 테이블 적재 대상이 아닙니다. --report-missing-id 로 목록 확인
+[summary] 총 10개 / 검출 9, <span class="hi">C=1 S=5 O=3 미분류=1</span> 추출실패=0, 총시간=6646.7ms
+[summary][업무분류] <span class="hi">CS 5 (매뉴얼 4 · 제안서 1) / 영업 1 (견적서 1) / 미분류 6</span></pre></div>
+
+<h4>결과 파일 두 개</h4>
+<table>
+  <tr><th>파일</th><th>무엇</th></tr>
+  <tr><td><code>result.jsonl</code></td><td>판정 결과. 엠파워에 넣거나 검토 화면이 읽는 파일</td></tr>
+  <tr><td><code>result.full.jsonl</code></td><td>감사용 전체 기록(모든 신호·점수). <code>--simple</code>/<code>--simple-why</code> 를 줄 때만 생깁니다</td></tr>
+</table>
+<pre><code>{"file":"…/sample/filelist.sample.txt",
+ "hash":"59b49fc4286fe5e43a245bdc10bb5287365a93a6331651f4cd392be2d07cdd39",
+ "doc_id":null,"grade":"S","doctype":[],
+ "why":{"security":{"by":["rule"],"conf":0.7,
+        "hits":[{"sig":"rule","id":"legal_contract","n":5},
+                {"sig":"rule","id":"project_codenames","n":3}]}}}</code></pre>
+<table>
+  <tr><th>칸</th><th>뜻</th></tr>
+  <tr><td><code>grade</code></td><td>보안등급 C / S / O</td></tr>
+  <tr><td><code>doctype</code></td><td>업무분류 <code>dc_id</code> 목록. <b>빈 대괄호면 미분류</b></td></tr>
+  <tr><td><code>doc_id</code></td><td>엠파워 <code>sfile_id</code>. <code>--filelist</code> 로 짝지은 것만 채워지고 아니면 <code>null</code></td></tr>
+  <tr><td><code>why</code></td><td>무엇을 보고 그렇게 판정했나 — <code>conf</code> 는 확신도(0~1), <code>hits</code> 는 걸린 신호</td></tr>
+</table>
+
+<h3>결과를 어떻게 읽나</h3>
+<div class="ok"><b>요약의 “미분류” 를 먼저 보세요.</b> 미분류가 많으면 그 분류의 규칙에 말이 모자란 것입니다 →
+  6단계로 돌아가 그 분류의 키워드를 보강하고, 4단계로 규칙을 다시 만든 뒤 여기로 옵니다.</div>
+<p class="muted">엉뚱하게 분류된 문서가 보이면 그 분류에서 <b>공통으로 잡히는 흔한 말</b>을 <code>remove</code> 로 빼는 것이 가장 효과가 큽니다.
+  한 문서에 분류가 여러 개 붙어 곤란하면 <code>--conflict doctype=top_n:2</code> 로 상위 2개만 남길 수 있습니다.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ 부록 -->
+<h2 id="aA"><span class="n">A.</span>인자 한눈에 보기</h2>
+<section class="card">
+<div class="scroll">
+<table class="args">
+  <tr><th>인자</th><th>쓰는 단계</th><th>뜻</th></tr>
+  <tr><td>--file &lt;파일&gt;</td><td>5·7</td><td>문서 1개만</td></tr>
+  <tr><td>--dir &lt;폴더&gt;</td><td>5·7</td><td>폴더 전체(하위까지). 압축은 안을 펼침</td></tr>
+  <tr><td>--files-from &lt;목록&gt;</td><td>7</td><td>처리할 경로를 한 줄에 하나씩 적은 파일</td></tr>
+  <tr><td>--filelist &lt;목록&gt;</td><td>7</td><td>엠파워의 <code>{path, sfile_id}</code> 목록 — <code>doc_id</code> 채우기</td></tr>
+  <tr><td>--glob &lt;패턴&gt;</td><td>5·7</td><td>고를 확장자(예: <code>"*.hwp,*.pdf"</code>)</td></tr>
+  <tr><td>--rules &lt;파일&gt;</td><td>3·5·7</td><td>보안등급 규칙셋</td></tr>
+  <tr><td>--doc-rules &lt;파일&gt;</td><td>3·4·5·6·7</td><td>업무분류 규칙셋(4단계에서는 <b>만들 파일</b>의 경로)</td></tr>
+  <tr><td>--seeds &lt;파일&gt;</td><td>3·6·7</td><td>기준 문서 저장소</td></tr>
+  <tr><td>--build-doc-rule</td><td>4</td><td>규칙 생성 모드</td></tr>
+  <tr><td>--export-input &lt;파일&gt;</td><td>4</td><td>분류체계 JSON 을 다른 이름으로 읽을 때</td></tr>
+  <tr><td>--textsave &lt;폴더&gt;</td><td>5</td><td>추출 본문을 <code>&lt;sha256&gt;.txt</code> 로 저장</td></tr>
+  <tr><td>--suggest-terms &lt;dc_id|all&gt;</td><td>6</td><td>키워드 제안</td></tr>
+  <tr><td>--text-dir &lt;폴더&gt;</td><td>6</td><td>저장해 둔 본문 폴더</td></tr>
+  <tr><td>--overrides &lt;파일&gt;</td><td>6</td><td>검토 확정·거절 이력</td></tr>
+  <tr><td>--stopwords &lt;파일&gt;</td><td>6</td><td>제안 금지 목록</td></tr>
+  <tr><td>--suggest-json &lt;경로&gt;</td><td>6</td><td>제안 결과를 JSON 으로</td></tr>
+  <tr><td>--suggest-min-docs &lt;수&gt;</td><td>6</td><td>제안 시작 최소 문서 수(기본 3)</td></tr>
+  <tr><td>--seed-add-from &lt;목록&gt;</td><td>3</td><td>줄마다 값이 다른 문서를 한꺼번에 등록</td></tr>
+  <tr><td>--seed-add &lt;문서…&gt;</td><td>3</td><td>문서를 직접 나열해 같은 값으로 등록</td></tr>
+  <tr><td>--seed-reviewer &lt;이름&gt;</td><td>3</td><td><b>필수</b> — 확정자</td></tr>
+  <tr><td>--seed-grade / --seed-doctype</td><td>3</td><td>나열한 문서 모두에 줄 등급·분류</td></tr>
+  <tr><td>--out &lt;파일&gt;</td><td>5·7</td><td>결과 저장(없으면 화면)</td></tr>
+  <tr><td>--format json|jsonl</td><td>5·7</td><td>출력 형식(기본은 <code>--out</code> 확장자로 판단)</td></tr>
+  <tr><td>--simple / --simple-why</td><td>5·7</td><td>칸 줄이기 / + 판정 근거. <code>&lt;out&gt;.full</code> 이 함께 생김</td></tr>
+  <tr><td>--nosummary / --summary</td><td>5·7</td><td>요약 없이 / 요약만</td></tr>
+  <tr><td>--progress</td><td>5·7</td><td>진행 상황 표시</td></tr>
+  <tr><td>--json-errors</td><td>7</td><td>오류를 JSON 한 줄로</td></tr>
+  <tr><td>--rule-only</td><td>7</td><td>규칙만(가장 빠름)</td></tr>
+  <tr><td>--check-rules</td><td>4 뒤</td><td>규칙 값만 검사하고 종료</td></tr>
+  <tr><td>--conflict doctype=top_n:2</td><td>7</td><td>한 문서에 분류가 여러 개 붙을 때 상위 N 개만 남김</td></tr>
+  <tr><td>-h, --help / -V, --version</td><td>—</td><td>도움말 / 버전</td></tr>
+</table>
+</div>
+</section>
+
+<h2 id="aB"><span class="n">B.</span>종료코드</h2>
+<section class="card">
+<table>
+  <tr><th>코드</th><th>뜻</th><th>무엇을 확인</th></tr>
+  <tr><td>0</td><td>정상</td><td>—</td></tr>
+  <tr><td>1</td><td>일부 실패(seed 등록 등)</td><td>화면에 찍힌 실패 건의 경로</td></tr>
+  <tr><td>2</td><td>한 건도 처리 못 함</td><td>대상 폴더가 비었는지, 경로 오타</td></tr>
+  <tr><td>3</td><td>인자가 잘못됐거나 재료가 없음</td><td>필수 인자(<code>--seed-reviewer</code> 등), 파일 존재 여부</td></tr>
+  <tr><td>4</td><td>규칙 검증 실패 / 결과 쓰기 실패</td><td><code>doc_rule.local.yaml</code> 문법, 출력 폴더 권한</td></tr>
+</table>
+<p class="muted">cmd 에서 확인: <code>echo %ERRORLEVEL%</code></p>
+</section>
+
+<h2 id="aC"><span class="n">C.</span>이 메시지가 나오면</h2>
+<section class="card">
+<table>
+  <tr><th>화면에 나온 말</th><th>뜻과 할 일</th></tr>
+  <tr><td>알 수 없는 인자: --textdir</td>
+      <td>인자 이름이 틀렸습니다 → <code>--text-dir</code> (붙임표)</td></tr>
+  <tr><td>제안할 재료가 없습니다</td>
+      <td><code>--seeds</code> 경로가 틀렸거나 파일이 없음. 3단계를 먼저 하세요</td></tr>
+  <tr><td>'DC_xxx' 로 확정된 문서가 없습니다</td>
+      <td><code>dc_id</code> 오타이거나 그 분류의 seed 를 등록하지 않았습니다. 뒤에 나오는 목록에서 실제 <code>dc_id</code> 를 확인하세요</td></tr>
+  <tr><td>규칙을 만든 뒤 입력이 바뀌었습니다: …(없어짐)</td>
+      <td>규칙을 만들 때 쓴 재료가 지금 자리에 없습니다. 정책 경로를 명시했는지 확인하고 4단계를 다시 실행</td></tr>
+  <tr><td>doc_rule.yaml 이 만들어진 뒤 손으로 고쳐졌습니다</td>
+      <td>생성물을 직접 편집했습니다. 그 내용을 <code>doc_rule.local.yaml</code> 로 옮기고 4단계를 다시 실행</td></tr>
+  <tr><td>제안할 말이 없습니다 + [문턱 미달 — 참고]</td>
+      <td>말은 찾았지만 기준에 못 미쳤습니다. 대개 “폴더 1곳” 이니 2단계에서 seed 폴더를 나누세요</td></tr>
+  <tr><td>액세스가 거부되었습니다</td>
+      <td>백신이 exe 를 격리·손상시킨 경우가 많습니다. 배포 폴더를 백신 예외로 등록하고 exe 를 다시 받으세요</td></tr>
+  <tr><td>전파용 seed 파일이 없어 자동 전파를 건너뜁니다</td>
+      <td>첫 등록이라 비교할 기준이 없다는 안내(정상)</td></tr>
+</table>
+</section>
+
+<h2 id="aD"><span class="n">D.</span>단어 제안 문턱값 — 왜 폴더를 나누라고 하나</h2>
+<section class="card">
+<p>키워드 제안은 <b>“많이 나온 말”</b> 이 아니라 <b>“이 분류에만 나오는 말”</b> 을 찾습니다.
+   그런데 같은 폴더의 문서들은 서로 닮기 쉽습니다 — 같은 프로젝트, 같은 작성자, 같은 양식이니
+   그 폴더에서만 쓰는 말이 “이 분류의 말” 처럼 보입니다.
+   그래서 <b>같은 폴더 문서는 합쳐서 1건</b>으로 세고, <b>서로 다른 폴더 2곳 이상</b>에서 나온 말만 신뢰합니다.</p>
+<table>
+  <tr><th>기준</th><th>값</th><th>뜻</th></tr>
+  <tr><td>최소 확정 문서</td><td>3건</td><td>이보다 적은 분류는 제안 자체를 건너뜁니다(<code>--suggest-min-docs</code> 로 조정)</td></tr>
+  <tr><td>말이 나온 문서 수</td><td>3건 이상</td><td>우연히 한두 번 나온 말을 걸러냅니다</td></tr>
+  <tr><td>말이 나온 폴더 수</td><td><b>2곳 이상</b></td><td>한 폴더에만 몰린 말은 그 폴더의 습관일 수 있습니다</td></tr>
+  <tr><td>다른 분류 등장률</td><td>5% 이하</td><td>이 값으로 실제로 거릅니다. 낮을수록 이 분류 전용</td></tr>
+  <tr><td>문서 끝말이 아닌 말</td><td>다른 분류 2% 이하 <b>+</b> 덮는율 50% 이상</td>
+      <td>“…서/…표/…계획” 처럼 문서를 가리키는 끝말이 아닌 말(예: 사람 이름, 제품명)은 기준을 더 엄하게 봅니다</td></tr>
+  <tr><td>글자 수</td><td>3자 이상<br><span class="muted">(앞부분·본문)</span></td><td>두 글자 말은 뜻이 겹쳐 오분류를 늘립니다. 제목·파일 이름은 두 글자도 허용</td></tr>
+  <tr><td>한 폴더 전용 예외</td><td>5건 이상 · 3자 이상 · 그 폴더 쏠림 90% 이상</td><td>폴더가 1곳이어도 <b>참고 후보</b>로는 보여 줍니다</td></tr>
+  <tr><td>문턱 미달 참고 목록</td><td>최대 15개</td><td>후보가 <b>하나도 없을 때만</b> 까닭과 함께 보여 줍니다</td></tr>
+</table>
+<div class="note"><b>결론</b> — 2단계에서 분류마다 폴더를 두 곳 이상으로 나누면 6단계가 훨씬 잘 돕니다.
+  이미 한 폴더로 만들어 버렸다면 문턱 미달 목록에서 사람이 골라 넣으면 됩니다.</div>
+</section>
+
+<footer>
+  MpowerClassify · 업무분류체계 분류 작업 가이드 · 2026-09-28<br>
+  화면 예시는 <code>MpowerClassify-rs.exe</code> 를 실제 실행해 옮긴 것입니다(경로는 줄여 표기).
+</footer>
+</div>
+</body>
+</html>
