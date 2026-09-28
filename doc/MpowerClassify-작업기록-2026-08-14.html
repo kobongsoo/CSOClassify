@@ -144,7 +144,13 @@
 
 <h2 id="ext"><span class="n">5</span> 규칙셋 외장화</h2>
 <section class="card">
-  <p>C/S/O 규칙셋(<code>cso_rule.yaml</code>)을 exe에 <b>내장하지 않고</b> exe 옆 외장 파일로 배포 → <b>재빌드 없이 규칙 교체</b>. 우선순위: <code>CSOCLASSIFY_POLICY_DIR</code> &gt; <code>--rules</code> &gt; exe 옆.</p>
+  <p>C/S/O 규칙셋(<code>cso_rule.yaml</code>)을 exe에 <b>내장하지 않고</b> exe 옆 외장 파일로 배포 → <b>재빌드 없이 규칙 교체</b>. <s class="muted">우선순위: <code>CSOCLASSIFY_POLICY_DIR</code> &gt; <code>--rules</code> &gt; exe 옆.</s></p>
+  <div class="note"><b>지금은 다릅니다</b> <span class="muted">2026-09-28 바로잡음</span><br>
+  위 줄은 이름도 순서도 지금과 맞지 않습니다. 현재는 <b>인자 → <code>CSOCLASSIFY_POLICY_DIR</code> → exe 옆</b> 입니다.
+  <ul style="margin:6px 0 0 18px;padding:0">
+    <li><b>순서</b> — 명시한 인자가 항상 먼저입니다. 환경변수와 exe 옆의 순서는 <b>2026-09-01</b> 에 바뀌었습니다 — 그전에는 이 판(Rust)만 exe 옆을 먼저 보아, 둘 다 있을 때 두 판이 <b>서로 다른 규칙셋을 조용히 읽었습니다</b>(실측 15건 중 11건의 등급이 갈렸습니다).</li>
+    <li><b>이름</b> — <code>--rules</code> 는 <b>2026-09-28</b> 에 <code>--cso-rules</code> 로 바뀌었습니다(업무분류 쪽 <code>--doc-rules</code> 와 짝을 맞춘 것). 옛 이름은 받지 않고 종료코드 3 으로 멈춥니다.</li>
+  </ul></div>
   <ul>
     <li><code>default_rules_path()</code>: frozen(exe) → exe 옆 / 소스 → <code>resources/policy</code></li>
     <li>두 spec에서 정책 번들 제거</li>
