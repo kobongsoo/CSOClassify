@@ -539,7 +539,7 @@
 <section class="card">
 <h3>명령</h3>
 <pre><code>MpowerClassify-rs.exe --simple-why --nosummary --json-errors --progress ^
-  --cso-rules     "policy01\cso_rule.yaml" ^
+  --cso-rules "policy01\cso_rule.yaml" ^
   --doc-rules "policy01\doc_rule.yaml" ^
   --seeds     "policy01\class_seed.jsonl" ^
   --dir       "D:\분류함1" ^
@@ -565,14 +565,15 @@
 [progress] 1/10 …\sample\filelist.jsonl
 <span class="dim">      ⋮</span>
 [progress] 10/10 …\sample\seedlist.jsonl
-[전파][업무분류] seed=100 embed기여=0
-[전파] seed=102 전파결정=0 미분류잔여=1
+[전파][업무분류] seed=120 embed기여=0
+[전파] seed=96 전파결정=1 미분류잔여=0
 [MpowerClassify-rs] 감사용 전체 결과: <span class="hi">result.full.jsonl</span>
 [summary][문서 ID] sfile_id 0 · 폴백(content) 10 · 폴백(path) 0
 [summary][문서 ID] ※ 폴백 10건은 매핑 테이블 적재 대상이 아닙니다. --report-missing-id 로 목록 확인
-[summary] 총 10개 / 검출 9, <span class="hi">C=1 S=5 O=3 미분류=1</span> 추출실패=0, 총시간=6646.7ms
+[summary] 총 10개 / 검출 10, <span class="hi">C=1 S=6 O=3 미분류=0</span> 추출실패=0, 총시간=1592ms
 [summary][업무분류] <span class="hi">CS 5 (매뉴얼 4 · 제안서 1) / 영업 1 (견적서 1) / 미분류 6</span></pre></div>
 
+<p class="muted">5단계 화면과 숫자가 다릅니다 — 그쪽은 <code>--seeds</code> 를 주지 않아 exe 옆 기본 기준 문서를 썼기 때문입니다. 여기서는 <code>policy01\class_seed.jsonl</code>(120건)을 줘서, 규칙이 못 정한 문서 한 건이 전파로 구제됐습니다(<code>전파결정=1 미분류잔여=0</code>).</p>
 <h4>결과 파일 두 개</h4>
 <table>
   <tr><th>파일</th><th>무엇</th></tr>
@@ -661,7 +662,7 @@
   <tr><td>알 수 없는 인자: --textdir</td>
       <td>인자 이름이 틀렸습니다 → <code>--text-dir</code> (붙임표)</td></tr>
   <tr><td>--rules 는 없어졌습니다</td>
-      <td>보안등급 규칙셋 인자가 <code>--cso-rules</code> 로 바뀜습니다(업무분류 쪽 <code>--doc-rules</code> 와 짝을 맞춘 것). 종료코드 3 으로 멈추니 배치 파일의 이름을 고치세요</td></tr>
+      <td>보안등급 규칙셋 인자가 <code>--cso-rules</code> 로 바뀌었습니다(업무분류 쪽 <code>--doc-rules</code> 와 짝을 맞춘 것). 종료코드 3 으로 멈추니 배치 파일의 이름을 고치세요</td></tr>
   <tr><td>제안할 재료가 없습니다</td>
       <td><code>--seeds</code> 경로가 틀렸거나 파일이 없음. 3단계를 먼저 하세요</td></tr>
   <tr><td>'DC_xxx' 로 확정된 문서가 없습니다</td>
