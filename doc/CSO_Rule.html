@@ -102,6 +102,28 @@
   </table></div>
   <p class="muted">파일이 없으면 분류 실행 시 “어디에 두라”는 안내를 내고 종료(코드 3)합니다. 편집은 이 파일을 직접 수정하거나 <b>UI 규칙설정</b>에서 합니다(UI는 주석을 보존하며 저장 시 <code>.bak</code> 백업 + 버전 자동 상향).</p>
   <div class="warn"><b>프라이버시 불변식</b> — 스캐너는 매칭된 <b>원문 PII 값</b>을 저장하지 않습니다. 결과 근거에는 <b>유형 id·건수·정책 키워드</b>만 남습니다(원문은 <code>--with-pii</code> 옵션 사용 시에만 <code>--out</code> 파일에 한정).</div>
+
+  <h3>이 파일의 정본은 고객 쪽입니다 <span class="def">2026-09-28</span></h3>
+  <p>이 파일은 <b>그 회사의 것</b>입니다. 정본은 <code>ui/policy/cso_rule.yaml</code> 하나이고,
+     <code>scripts/sync_policy.py</code> 가 거기서 <b>배포 폴더 4곳으로만</b> 복사합니다.
+     저장소(<code>resources/policy</code>·<code>Rust/resources/policy</code>)는 사본 목록에 없습니다 —
+     이 파일에는 그 회사의 기밀 키워드·제품명이 들어가므로 공개 저장소로 나가면 안 됩니다.</p>
+  <p>저장소의 <code>resources/policy/cso_rule.yaml</code> 은 <b>새 고객이 복사해 가는 기본값</b>입니다.
+     화면에서 고친 규칙이 동기화에 되돌아가지 않도록, 예전(저장소가 정본)과 방향을 뒤집은 것입니다.</p>
+  <div class="note"><b>제품 기본값이 바뀌면 — 손으로 반영합니다</b><br>
+    방향을 뒤집은 대가로, <b>제품 기본값을 개선해도 이미 나간 고객 폴더에는 자동으로 내려가지 않습니다.</b>
+    자동 병합 도구는 두지 않기로 했습니다(2026-09-28 결정) — 이 파일의 제품 기본값은 드물게 바뀌고,
+    자동으로 덮으면 고객이 고친 것을 다시 잃기 때문입니다.
+    <br><br>바뀌었을 때의 절차:
+    <ol style="margin:6px 0 0 18px;padding:0">
+      <li>무엇이 왜 바뀌었는지 릴리스 노트에 적습니다(규칙 id 단위로).</li>
+      <li>고객마다 <code>ui/policy/cso_rule.yaml</code> 과 저장소 기본값을 견줘, <b>그 고객에게 필요한 것만</b> 옮깁니다.</li>
+      <li>옮긴 뒤 <code>--check-rules</code> 로 검사하고(정상 0·검증 실패 4),
+          <code>version:</code> 을 올린 다음 <code>sync_policy.py --apply</code> 로 배포 폴더에 전파합니다.</li>
+    </ol>
+    <span class="def">업무분류 쪽(<code>doc_rule.yaml</code>)은 이 문제가 없습니다 — 생성물이라
+    다시 만들면 제품 사전의 개선이 들어오고, 고객 결정은 <code>doc_rule.local.yaml</code> 에 따로 있어 살아남습니다.</span>
+  </div>
 </section>
 
 <!-- ============ 공통 개념 ============ -->
