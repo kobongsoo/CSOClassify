@@ -417,7 +417,7 @@ pyinstaller build/csoclassify.spec</code></pre></div>
     <h4><span class="num">4</span> 서버에서 동작 확인</h4>
 <pre><code>cd &lt;파이썬빌드폴더&gt;/dist/MpowerClassify
 ./MpowerClassify --help
-./MpowerClassify --classify --file /tmp/샘플.txt --rules /경로/cso_rule.yaml</code></pre>
+./MpowerClassify --classify --file /tmp/샘플.txt --cso-rules /경로/cso_rule.yaml</code></pre>
     <div class="bad"><code>ImportError: … CXXABI_1.3.9 not found</code> 가 나오면
     <code>_internal/libstdc++.so.6</code> 가 안 들어간 것입니다 → <a href="#trouble">8-①</a></div>
   </div>
@@ -460,7 +460,7 @@ chmod +x MpowerClassify synap/linux/snf_exe
 ./MpowerClassify --classify --file "문서.pdf"</code></pre>
     <p class="def">tgz 를 풀면 <code>MpowerClassify/</code> 폴더가 생깁니다. 실행파일이 외장 리소스를
     <b>자기 옆</b>에서 찾으므로, <code>cso_rule.yaml</code>·<code>models/</code>·<code>synap/</code> 을
-    <code>MpowerClassify/</code> 안으로 옮기거나 <code>--rules</code>/환경변수로 경로를 지정하세요.</p>
+    <code>MpowerClassify/</code> 안으로 옮기거나 <code>--cso-rules</code>/환경변수로 경로를 지정하세요.</p>
   </div>
 </section>
 
@@ -550,7 +550,7 @@ python scripts/quantize_onnx.py --model e5-small-ko</code></pre>
   <h3>경로를 바꾸고 싶다면 — 환경변수</h3>
   <div class="scroll"><table>
     <tr><th>변수</th><th>의미</th></tr>
-    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>규칙셋 폴더 <span class="def">(<code>--rules</code> 로도 지정 가능)</span></td></tr>
+    <tr><td><code>CSOCLASSIFY_POLICY_DIR</code></td><td>규칙셋 폴더 <span class="def">(<code>--cso-rules</code> 로도 지정 가능)</span></td></tr>
     <tr><td><code>CSOCLASSIFY_MODELS_DIR</code></td><td>임베딩 모델 폴더</td></tr>
     <tr><td><code>CSOCLASSIFY_SYNAP_DIR</code></td><td>사이냅 추출기 폴더</td></tr>
     <tr><td><code>CSO_EXTRA_LIBDIR</code></td><td><b>빌드 시에만</b> — <code>libstdc++.so.6</code> 를 찾을 경로(리눅스)</td></tr>
@@ -690,7 +690,7 @@ pyinstaller build/csoclassify.spec</code></pre>
 <pre><code>du -sh dist/MpowerClassify/_internal/* | sort -h | tail -20</code></pre>
 
   <h3>⑤ <code>cso_rule.yaml</code> 을 못 찾음 (종료코드 3) <span class="os">공통</span></h3>
-  <p>실행파일 옆에 두거나, <code>--rules</code> 또는 <code>CSOCLASSIFY_POLICY_DIR</code> 로 경로를 지정하세요.</p>
+  <p>실행파일 옆에 두거나, <code>--cso-rules</code> 또는 <code>CSOCLASSIFY_POLICY_DIR</code> 로 경로를 지정하세요.</p>
 
   <h3>⑥ 빌드가 <code>src</code> 를 못 찾음 <span class="os">공통</span></h3>
   <p>spec 이 <code>os.getcwd()</code> 기준으로 경로를 잡습니다. <b>프로젝트 최상위에서</b>

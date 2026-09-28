@@ -26,7 +26,7 @@ WARN = "전파용 seed 파일이 없어 자동 전파를 건너뜁니다"
 # csoclassify 를 별도 프로세스로 한 번 돌린다
 #=> 경고는 stderr 로 나가므로 프로세스를 실제로 띄워야 확인할 수 있다.
 #   CSOCLASSIFY_POLICY_DIR 를 임시폴더로 돌려 seed 유무를 이 시험이 직접 정하되,
-#   규칙셋만은 --rules 로 저장소 파일을 명시해 준다(빈 폴더면 '규칙셋 없음'으로
+#   규칙셋만은 --cso-rules 로 저장소 파일을 명시해 준다(빈 폴더면 '규칙셋 없음'으로
 #   먼저 죽어 seed 판정에 닿지 못한다 — 실제로 그렇게 거짓 통과한 적이 있다).
 #
 # -in: tmp    = 정책 디렉터리로 쓸 임시 경로(pathlib.Path)
@@ -46,7 +46,7 @@ def _run(tmp, doc, extra=()):
     rules = os.path.join(ROOT, "resources", "policy", "cso_rule.yaml")
     return subprocess.run(
         [sys.executable, "-m", "csoclassify", "--file", str(doc),
-         "--rules", rules,
+         "--cso-rules", rules,
          "--format", "jsonl", "--no-daemon", "--nosummary", *extra],
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
 

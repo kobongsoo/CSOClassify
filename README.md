@@ -78,7 +78,7 @@ csoclassify.exe --embed --file "D:\docs\보고서.hwp"
 > **압축파일 자동 확장** — 입력이 압축파일이면 내부 파일을 임시폴더에 풀어 **파일 하나하나를 개별 분류**한다(중첩 압축도 재귀). 지원: **zip · tar · tar.gz · tar.bz2 · tar.xz · gz · bz2 · xz**(stdlib, 무의존) · **7z**(py7zr) · **rar**(번들 unrar). 결과 JSON 은 파일별 레코드의 배열이고 각 레코드 `file` 은 `"<압축경로>/<내부경로>"` 로 표기돼 **어느 내부 파일이 C/S/O 인지** 알 수 있다. 처리 후 임시폴더는 자동 삭제(민감정보 잔존 방지). ※ docx/xlsx/pptx/hwpx 는 내부가 zip 이라도 '문서 1개'로 취급해 펼치지 않는다(내용 감지로 구분).
 >
 > **압축파일 '자체'의 등급(집계)** — 압축은 그 안 파일 중 **가장 높은 위험등급(C>S>O)** 을 자기 등급으로 받는다. 결과에 `"archive": true, "grade": "<최고위험>", "contains": {C,S,O,미분류,total}` 형태의 요약 레코드가 파일별 레코드 뒤에 추가돼, **압축만 봐도 위험도**를 안다. (내부 파일 등급 집계와 별개 레코드라 총계에는 중복 계산되지 않음.)
-| `--rules` | 규칙셋 경로 | exe 옆 `cso_rule.yaml` |
+| `--cso-rules` | 보안등급 규칙셋 경로 | exe 옆 `cso_rule.yaml` |
 | `--failsafe [등급]` | 어느 신호로도 못 정한 문서의 기본등급(값 생략=S) | 미부여(보류) |
 | `--embed-needed` | **보류·seed 후보**에만 임베딩(확정문서 생략 → 빠름) | — |
 | `--with-vector` | **모든 문서**에 임베딩 | — |
@@ -180,7 +180,7 @@ dist-onedir/windows/                    dist-onedir/linux/
   `acl_restricted` 둘 다 없음)이 있으면 **문서를 한 건도 읽지 않고** 위반을 전부 모아
   보여 주고 종료(코드 4). 예전에는 이런 값을 조용히 무시해 그 규칙이 판정에서
   빠졌고, 문서가 실제보다 낮은 등급을 받았습니다.
-  배포 전 미리 확인: `csoclassify --check-rules --rules cso_rule.yaml` (문서 불필요)
+  배포 전 미리 확인: `csoclassify --check-rules --cso-rules cso_rule.yaml` (문서 불필요)
 - 경로 규칙(`paths`)은 `acl_restricted: true` 인 경우 `grade` 를 **생략**할 수 있습니다. 그러면
   스스로 등급을 내지 않고, 내용·파일명에서 아무 신호도 없을 때만 fail-safe 로 최고 등급을
   줍니다 — "보안 폴더인데 내용을 못 읽는 파일"이 미분류로 새는 것을 막는 안전망입니다.
@@ -193,7 +193,7 @@ dist-onedir/windows/                    dist-onedir/linux/
 
 | 변수 | 설명 |
 |---|---|
-| `CSOCLASSIFY_POLICY_DIR` | 규칙셋 폴더(`--rules` 로도 지정) |
+| `CSOCLASSIFY_POLICY_DIR` | 규칙셋 폴더(`--cso-rules` 로도 지정) |
 | `CSOCLASSIFY_MODELS_DIR` / `CSOCLASSIFY_SYNAP_DIR` | 모델 / 사이냅 위치 재정의 |
 | `CSOCLASSIFY_DAEMON=0` | 데몬 전역 off |
 | `CSOCLASSIFY_HYBRID=1` | 하이브리드 추출(`--hybridparse`) 전역 기본 on |

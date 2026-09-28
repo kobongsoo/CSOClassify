@@ -171,7 +171,7 @@ fn usage() {
     eprintln!("  --glob <패턴>             --dir 에서 고를 파일 패턴(예: \"*.hwp,*.pdf\" · \"*.{{hwp,pdf}}\")");
     eprintln!("");
     eprintln!("─── ② 무엇으로 판단하나 (정책 파일 · 축) ───────────────────────");
-    eprintln!("  --rules <cso_rule.yaml>        보안등급 규칙셋(미지정 시 exe 옆/CSOCLASSIFY_POLICY_DIR)");
+    eprintln!("  --cso-rules <cso_rule.yaml>     보안등급 규칙셋(미지정 시 exe 옆/CSOCLASSIFY_POLICY_DIR)");
     eprintln!("  --doc-rules <doc_rule.yaml>     업무분류 규칙셋 — 분류체계도 이 안에 있다(--build-doc-rule 로 만든 것).");
     eprintln!("                                  없으면 업무분류 축을 끔");
     eprintln!("  --seeds <class_seed.jsonl>      전파 비교 기준 seed(미지정 시 exe 옆 class_seed.jsonl)");
@@ -217,7 +217,6 @@ fn usage() {
     eprintln!("                            ※ 개인정보가 평문으로 남습니다 — C(기밀) 문서 본문도 그대로.");
     eprintln!("                              기본은 꺼짐이고 폴더를 반드시 지정해야 합니다.");
     eprintln!("                            ※ 파이썬 판과 파서가 달라 본문이 다릅니다 — 폴더를 나누세요");
-    eprintln!("  --save-text <폴더>        (옛 이름) --textsave 와 같다");
     eprintln!("  --text-only               분류하지 않고 뽑아낸 본문만 내보낸다(파이썬 판과 같다).");
     eprintln!("                            규칙셋·PII 검사를 아예 하지 않아 파서 성능을 잴 때 쓴다.");
     eprintln!("                            문서마다 '===== 경로 =====' 줄 다음에 본문이 온다.");
@@ -419,6 +418,12 @@ fn removed_option_message(flag: &str) -> Option<String> {
     match flag {
         "--taxonomy" => Some("[MpowerClassify-rs] --taxonomy 는 없어졌습니다 — \
 분류체계는 doc_rule.yaml(--build-doc-rule 로 만든 것) 안에 있습니다.".to_string()),
+        // 이름만 바뀐 둘. 옛 이름을 조용히 받아 주면 배치가 언제까지나 옛 이름에
+        // 머무르고, 두 이름이 같은 자리를 가리키는 상태가 굳는다.
+        "--rules" => Some("[MpowerClassify-rs] --rules 는 없어졌습니다 — \
+보안등급 규칙셋은 --cso-rules 로 지정합니다(업무분류는 --doc-rules).".to_string()),
+        "--save-text" => Some("[MpowerClassify-rs] --save-text 는 없어졌습니다 — \
+추출 본문을 남길 폴더는 --textsave 로 지정합니다.".to_string()),
         "--export-taxonomy" | "--scaffold-doc-rule" | "--sync-doc-rule"
         | "--no-fill-blank" | "--sync-enrich" => Some(format!(
             "[MpowerClassify-rs] {} 는 없어졌습니다 — 업무분류 규칙은 --build-doc-rule 로 \
@@ -485,13 +490,13 @@ fn parse_args() -> Result<Opts, String> {
             "--file" | "-file" => o.file = Some(take(false).unwrap()),
             "--dir" | "-dir" => o.dir = Some(take(false).unwrap()),
             "--files-from" => o.files_from = Some(take(false).unwrap()),
-            "--rules" => o.rules_path = Some(take(false).unwrap()),
+            "--cso-rules" => o.rules_path = Some(take(false).unwrap()),
             // [설계 7단계] 옛 방식(doc_taxonomy.yaml 을 따로 두던 길)의 옵션들은 없앴다.
             // '모르는 인자'(bad_args)로 흘리지 않고 '없어진 옵션'이라고 사실대로 답한다 —
             // 옛 명령줄을 쓰던 사람이 무엇으로 바꿔야 하는지 그 자리에서 알게 하려는 것이다.
             // --taxonomy 는 값을 받던 옵션이지만 값을 집지 않고 바로 끝낸다(값이 빠져도 죽지 않게).
             "--taxonomy" | "--export-taxonomy" | "--scaffold-doc-rule" | "--sync-doc-rule"
-            | "--no-fill-blank" | "--sync-enrich" => {
+            | "--no-fill-blank" | "--sync-enrich" | "--rules" | "--save-text" => {
                 let msg = removed_option_message(a).unwrap_or_default();
                 errcodes::fail("unsupported_option", &msg, None);
             }
@@ -624,16 +629,9 @@ fn parse_args() -> Result<Opts, String> {
 "),
                     None);
             }
-            // 추출 본문 보존. 예전에는 "--save-text" 를 삼키고 아무 일도 안 했다 —
-            // 오류도 경고도 없이 폴더가 비어 있어, 사용자가 혼자 헤맸다.
-            // 그 조용한 실패를 없애고 실제로 처리한다(설계 1장).
+            // 추출 본문 보존(설계 1장). 옛 이름 --save-text 는 없앴다 —
+            // 위 '없어진 옵션' 자리에서 새 이름을 알려 준다.
             "--textsave" => { o.textsave = take(false); }
-            "--save-text" => {
-                // 옛 이름도 그대로 받되 새 이름을 알려 준다(옛 명령줄을 깨지 않는다).
-                eprintln!("[MpowerClassify-rs] --save-text 는 옛 이름입니다 — \
-                           앞으로는 --textsave 를 쓰세요.");
-                o.textsave = take(false);
-            }
 
             // 여기까지 안 걸렸으면 정말 모르는 인자다. 조용히 넘어가면 오타 하나가
             // 옵션을 통째로 무효로 만든다(예: --json-erros). 파이썬 판도 여기서
@@ -1022,12 +1020,12 @@ const RULES_NAME_OLD: &str = "cso_rules.yaml";
 
 //------------------------------------------------------------------
 // 규칙셋 경로 결정 — 새 이름 우선, 없으면 옛 이름
-//=> --rules → CSOCLASSIFY_POLICY_DIR → exe 옆 차례는 그대로다(파이썬 판과 같다).
+//=> --cso-rules → CSOCLASSIFY_POLICY_DIR → exe 옆 차례는 그대로다(파이썬 판과 같다).
 //   각 폴더 안에서 새 이름을 먼저 보고, 없을 때만 옛 이름을 쓴다. 옛 이름을
 //   썼으면 한 줄 알린다 — 조용히 쓰면 "언제까지 이대로 두어도 되나"를 아무도
 //   모르고, 어느 날 지원이 끊길 때 갑자기 멈춘다.
 //
-// -in: opts = 실행 옵션(--rules 를 줬으면 그 경로가 그대로 이긴다)
+// -in: opts = 실행 옵션(--cso-rules 를 줬으면 그 경로가 그대로 이긴다)
 //
 // -out: Option<PathBuf> = 찾은 규칙셋 경로(둘 다 없으면 None)
 // -out: error = 없음
@@ -1036,7 +1034,7 @@ fn resolve_rules(opts: &Opts) -> Option<PathBuf> {
     if let Some(p) = resolve_policy_file(&opts.rules_path, RULES_NAME) {
         return Some(p);
     }
-    // --rules 를 준 경우에는 그 경로가 이미 위에서 반환됐다. 여기 온다면
+    // --cso-rules 를 준 경우에는 그 경로가 이미 위에서 반환됐다. 여기 온다면
     // 자동 탐색이었으므로, 같은 차례로 옛 이름을 한 번 더 찾는다.
     if opts.rules_path.is_none() {
         if let Some(p) = resolve_policy_file(&None, RULES_NAME_OLD) {
@@ -2087,7 +2085,7 @@ fn main() {
     let rules_path = match resolve_rules(&opts) {
         Some(p) => p,
         None => errcodes::fail("rules_missing",
-            "[MpowerClassify-rs] 규칙셋(cso_rule.yaml)을 찾을 수 없습니다. --rules 로 지정하세요.",
+            "[MpowerClassify-rs] 규칙셋(cso_rule.yaml)을 찾을 수 없습니다. --cso-rules 로 지정하세요.",
             opts.rules_path.as_deref()),
     };
     if !rules_path.is_file() {

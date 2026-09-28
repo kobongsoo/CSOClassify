@@ -261,7 +261,7 @@
   --seed-reviewer "홍길동" ^
   --seed-note "신규 seed 등록" ^
   --seeds policy01\class_seed.jsonl ^
-  --rules policy01\cso_rule.yaml ^
+  --cso-rules policy01\cso_rule.yaml ^
   --doc-rules policy01\doc_rule.yaml</code></pre>
 <p class="muted">cmd 에서 줄을 나눌 때는 끝에 <code>^</code> 를 붙입니다. 한 줄로 이어 써도 됩니다.
    <b>맨 처음</b>에는 <code>doc_rule.yaml</code> 이 아직 없으니 <code>--doc-rules</code> 를 빼고 실행하고, 4단계 뒤에 다시 등록해도 됩니다.</p>
@@ -281,7 +281,7 @@
 </table>
 
 <h4>실제 실행 화면</h4>
-<div class="term"><div class="bar">명령 프롬프트 — 2건 등록 예</div><pre><span class="in">&gt; MpowerClassify-rs.exe --seed-add-from mini.jsonl --seed-reviewer "홍길동" --seed-note "신규 seed 등록" --seeds policy01\demo_seed.jsonl --rules policy01\cso_rule.yaml --doc-rules policy01\doc_rule.yaml</span>
+<div class="term"><div class="bar">명령 프롬프트 — 2건 등록 예</div><pre><span class="in">&gt; MpowerClassify-rs.exe --seed-add-from mini.jsonl --seed-reviewer "홍길동" --seed-note "신규 seed 등록" --seeds policy01\demo_seed.jsonl --cso-rules policy01\cso_rule.yaml --doc-rules policy01\doc_rule.yaml</span>
 <span class="dim">[MpowerClassify-rs] 전파용 seed 파일이 없어 자동 전파를 건너뜁니다: policy01\demo_seed.jsonl
                 규칙이 못 정한 문서는 미분류로 남습니다. 의도한 것이면 --rule-only 로 명시하세요.</span>
 [seed-add] 2건 등록 → policy01\demo_seed.jsonl (전체 2줄)
@@ -355,7 +355,7 @@
 <p>6단계 키워드 추출은 <b>미리 저장해 둔 본문</b>을 읽습니다. 지금 한 번 뽑아 두면 키워드 추출을 몇 번이든 빨리 돌릴 수 있습니다.</p>
 <pre><code>MpowerClassify-rs.exe --dir "D:\분류함1\SEED" ^
   --textsave "D:\분류함1\SEED_TEXT" ^
-  --rules policy01\cso_rule.yaml ^
+  --cso-rules policy01\cso_rule.yaml ^
   --doc-rules policy01\doc_rule.yaml ^
   --simple-why --progress --out text_pass.jsonl</code></pre>
 <table class="args">
@@ -363,7 +363,7 @@
   <tr><td>--dir &lt;폴더&gt;</td><td>이 폴더를 <b>하위까지</b> 훑습니다. 압축파일은 안을 펼쳐 각각 분류</td></tr>
   <tr><td>--textsave &lt;폴더&gt;</td><td>뽑아낸 본문을 <code>&lt;sha256&gt;.txt</code> 로 저장. 짝으로 <code>_index.jsonl</code>
       (지문↔원본 경로)이 생깁니다</td></tr>
-  <tr><td>--rules &lt;파일&gt;</td><td>보안등급 규칙. <b>생략하면 exe 옆 기본 파일</b>을 씁니다</td></tr>
+  <tr><td>--cso-rules &lt;파일&gt;</td><td>보안등급 규칙. <b>생략하면 exe 옆 기본 파일</b>을 씁니다</td></tr>
   <tr><td>--doc-rules &lt;파일&gt;</td><td>업무분류 규칙. 생략하면 업무분류 축이 꺼집니다</td></tr>
   <tr><td>--simple-why</td><td>결과를 <code>file·hash·doc_id·grade·doctype</code> + 판정근거로 줄입니다</td></tr>
   <tr><td>--progress</td><td>파일마다 진행 상황을 표시(오래 걸릴 때 필수)</td></tr>
@@ -372,7 +372,7 @@
 </table>
 
 <h4>실제 실행 화면</h4>
-<div class="term"><div class="bar">명령 프롬프트 — 10건 예 (실제 출력)</div><pre><span class="in">&gt; MpowerClassify-rs.exe --dir sample --textsave SAMPLE_TEXT --rules policy01\cso_rule.yaml --doc-rules policy01\doc_rule.yaml --simple-why --progress --out text_pass.jsonl</span>
+<div class="term"><div class="bar">명령 프롬프트 — 10건 예 (실제 출력)</div><pre><span class="in">&gt; MpowerClassify-rs.exe --dir sample --textsave SAMPLE_TEXT --cso-rules policy01\cso_rule.yaml --doc-rules policy01\doc_rule.yaml --simple-why --progress --out text_pass.jsonl</span>
 <span class="dim">[MpowerClassify-rs] --out 확장자에 맞춰 --format jsonl 로 저장합니다. (다르게 하려면 --format 을 직접 지정하세요)</span>
 <span class="bad">[MpowerClassify-rs] --textsave: 추출 본문(개인정보 포함 가능)을 …\SAMPLE_TEXT 에 평문으로 남깁니다. 보안등급 C 문서도 그대로 남습니다.</span>
 [progress] 0/10
@@ -539,7 +539,7 @@
 <section class="card">
 <h3>명령</h3>
 <pre><code>MpowerClassify-rs.exe --simple-why --nosummary --json-errors --progress ^
-  --rules     "policy01\cso_rule.yaml" ^
+  --cso-rules     "policy01\cso_rule.yaml" ^
   --doc-rules "policy01\doc_rule.yaml" ^
   --seeds     "policy01\class_seed.jsonl" ^
   --dir       "D:\분류함1" ^
@@ -547,7 +547,7 @@
 <table class="args">
   <tr><th>인자</th><th>뜻</th></tr>
   <tr><td>--dir &lt;폴더&gt;</td><td>분류할 문서 폴더(하위까지). 여러 곳에 흩어져 있으면 <code>--files-from &lt;목록&gt;</code></td></tr>
-  <tr><td>--rules &lt;파일&gt;</td><td>보안등급 규칙</td></tr>
+  <tr><td>--cso-rules &lt;파일&gt;</td><td>보안등급 규칙</td></tr>
   <tr><td>--doc-rules &lt;파일&gt;</td><td>업무분류 규칙 — 6단계까지 다듬은 그 파일</td></tr>
   <tr><td>--seeds &lt;파일&gt;</td><td>기준 문서. 규칙이 못 정한 문서를 <b>의미가 비슷한 기준 문서와 비교해 구제</b>합니다(전파)</td></tr>
   <tr><td>--out &lt;파일&gt;</td><td>결과 저장. 확장자로 형식을 정합니다(<code>.jsonl</code> → 한 줄에 한 건)</td></tr>
@@ -560,7 +560,7 @@
 </table>
 
 <h4>실제 실행 화면</h4>
-<div class="term"><div class="bar">명령 프롬프트 — 요약을 켜고 돌린 모습</div><pre><span class="in">&gt; MpowerClassify-rs.exe --simple-why --progress --rules policy01\cso_rule.yaml --doc-rules policy01\doc_rule.yaml --seeds policy01\class_seed.jsonl --dir sample --out result.jsonl</span>
+<div class="term"><div class="bar">명령 프롬프트 — 요약을 켜고 돌린 모습</div><pre><span class="in">&gt; MpowerClassify-rs.exe --simple-why --progress --cso-rules policy01\cso_rule.yaml --doc-rules policy01\doc_rule.yaml --seeds policy01\class_seed.jsonl --dir sample --out result.jsonl</span>
 <span class="dim">[MpowerClassify-rs] --out 확장자에 맞춰 --format jsonl 로 저장합니다.</span>
 [progress] 1/10 …\sample\filelist.jsonl
 <span class="dim">      ⋮</span>
@@ -611,7 +611,7 @@
   <tr><td>--files-from &lt;목록&gt;</td><td>7</td><td>처리할 경로를 한 줄에 하나씩 적은 파일</td></tr>
   <tr><td>--filelist &lt;목록&gt;</td><td>7</td><td>엠파워의 <code>{path, sfile_id}</code> 목록 — <code>doc_id</code> 채우기</td></tr>
   <tr><td>--glob &lt;패턴&gt;</td><td>5·7</td><td>고를 확장자(예: <code>"*.hwp,*.pdf"</code>)</td></tr>
-  <tr><td>--rules &lt;파일&gt;</td><td>3·5·7</td><td>보안등급 규칙셋</td></tr>
+  <tr><td>--cso-rules &lt;파일&gt;</td><td>3·5·7</td><td>보안등급 규칙셋</td></tr>
   <tr><td>--doc-rules &lt;파일&gt;</td><td>3·4·5·6·7</td><td>업무분류 규칙셋(4단계에서는 <b>만들 파일</b>의 경로)</td></tr>
   <tr><td>--seeds &lt;파일&gt;</td><td>3·6·7</td><td>기준 문서 저장소</td></tr>
   <tr><td>--build-doc-rule</td><td>4</td><td>규칙 생성 모드</td></tr>
@@ -660,6 +660,8 @@
   <tr><th>화면에 나온 말</th><th>뜻과 할 일</th></tr>
   <tr><td>알 수 없는 인자: --textdir</td>
       <td>인자 이름이 틀렸습니다 → <code>--text-dir</code> (붙임표)</td></tr>
+  <tr><td>--rules 는 없어졌습니다</td>
+      <td>보안등급 규칙셋 인자가 <code>--cso-rules</code> 로 바뀜습니다(업무분류 쪽 <code>--doc-rules</code> 와 짝을 맞춘 것). 종료코드 3 으로 멈추니 배치 파일의 이름을 고치세요</td></tr>
   <tr><td>제안할 재료가 없습니다</td>
       <td><code>--seeds</code> 경로가 틀렸거나 파일이 없음. 3단계를 먼저 하세요</td></tr>
   <tr><td>'DC_xxx' 로 확정된 문서가 없습니다</td>

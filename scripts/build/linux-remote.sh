@@ -191,7 +191,7 @@ clean_room() {
     if [ -d /tmp/deploytest/MpowerClassify ]; then
         ( cd /tmp/deploytest/MpowerClassify \
           && ./MpowerClassify --dir /tmp/csotest/doc --out /tmp/c_py.jsonl \
-             --simple --nosummary --format jsonl --rules "$RS_BUILD/assets/cso_rule.yaml" >/dev/null 2>&1 ) \
+             --simple --nosummary --format jsonl --cso-rules "$RS_BUILD/assets/cso_rule.yaml" >/dev/null 2>&1 ) \
             || die "파이썬 배포본이 깨끗한 자리에서 돌지 않습니다"
         echo "  Python OK"
     fi

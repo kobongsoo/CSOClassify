@@ -70,7 +70,7 @@ def _run(engine, doc_dir):
     env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
                PYTHONIOENCODING="utf-8")
     r = subprocess.run(
-        cmd + ["--dir", str(doc_dir), "--rule-only", "--rules", POLICY,
+        cmd + ["--dir", str(doc_dir), "--rule-only", "--cso-rules", POLICY,
                "--format", "jsonl", "--nosummary"],
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
     recs = [json.loads(l) for l in r.stdout.splitlines()

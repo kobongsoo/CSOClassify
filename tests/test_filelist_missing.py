@@ -38,7 +38,7 @@ def run(args, out):
     env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
                PYTHONIOENCODING="utf-8")
     r = subprocess.run([sys.executable, "-m", "csoclassify"] + args +
-                       ["--rules", RULES, "--rule-only", "--out", out],
+                       ["--cso-rules", RULES, "--rule-only", "--out", out],
                        cwd=ROOT, env=env, capture_output=True, text=True,
                        encoding="utf-8")
     rows = [json.loads(l) for l in io.open(out, encoding="utf-8") if l.strip()]

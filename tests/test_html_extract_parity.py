@@ -62,7 +62,7 @@ def _extract(engine, doc_dir, save):
     env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
                PYTHONIOENCODING="utf-8")
     r = subprocess.run(
-        cmd + ["--dir", str(doc_dir), "--rule-only", "--rules", POLICY,
+        cmd + ["--dir", str(doc_dir), "--rule-only", "--cso-rules", POLICY,
                "--format", "jsonl", "--nosummary", "--textsave", str(save)],
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
     files = sorted(glob.glob(os.path.join(str(save), "*.txt")))

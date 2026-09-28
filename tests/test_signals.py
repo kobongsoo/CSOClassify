@@ -218,7 +218,7 @@ def test_두_판이_같은_점수를_낸다(tmp_path):
         for name, cmd in (("python", [sys.executable, "-m", "csoclassify"]), ("rust", [RS_EXE])):
             env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"), PYTHONIOENCODING="utf-8")
             r = subprocess.run(cmd + ["--dir", str(doc), "--rule-only", "--nosummary",
-                                      "--rules", rules, "--doc-rules", str(rule_path),
+                                      "--cso-rules", rules, "--doc-rules", str(rule_path),
                                       "--format", "jsonl"],
                                cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
             got = []

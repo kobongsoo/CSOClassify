@@ -73,7 +73,7 @@ def _run(engine, doc_dir, seeds):
     env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
                PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
     r = subprocess.run(
-        cmd + ["--dir", str(doc_dir), "--rules", POLICY,
+        cmd + ["--dir", str(doc_dir), "--cso-rules", POLICY,
                "--doc-rules", DOC_RULES,
                "--seeds", str(seeds), "--format", "jsonl", "--nosummary"] + extra,
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
@@ -139,7 +139,7 @@ def _make_fixture(tmp_path):
                PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
     r = subprocess.run(
         [sys.executable, "-m", "csoclassify", "--dir", str(doc_dir),
-         "--rules", POLICY, "--doc-rules", DOC_RULES,
+         "--cso-rules", POLICY, "--doc-rules", DOC_RULES,
          "--with-vector", "--format", "jsonl", "--nosummary"],
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
     recs = [json.loads(l) for l in r.stdout.splitlines()

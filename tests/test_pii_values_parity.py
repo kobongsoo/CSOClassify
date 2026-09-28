@@ -98,7 +98,7 @@ def _run(engine, doc_dir, textsave=None):
                PYTHONIOENCODING="utf-8")
     extra = ["--textsave", str(textsave)] if textsave else []
     r = subprocess.run(
-        cmd + ["--dir", str(doc_dir), "--rule-only", "--rules", POLICY,
+        cmd + ["--dir", str(doc_dir), "--rule-only", "--cso-rules", POLICY,
                "--with-pii", "--format", "jsonl", "--nosummary"] + extra,
         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
     recs = [json.loads(l) for l in r.stdout.splitlines()
