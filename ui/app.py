@@ -2313,10 +2313,33 @@ def pick_folder(initial=""):
 
 
 #------------------------------------------------------------------
+# 보안등급 기준 파일 → 분류 명령 인자
+#=> 화면이 고치는 cso_rule.yaml 을 엔진도 읽게 --cso-rules 로 넘긴다. 넘기지 않으면
+#   엔진은 exe 옆 cso_rule.yaml 을 읽어, 화면에서 고친 기준이 분류에 반영되지 않는다.
+#    1) 설정의 rules 경로에 파일이 있으면 ["--cso-rules", 경로]
+#    2) 비었거나 파일이 없으면 [] — 없는 경로를 주면 엔진이 오류(2001)로 멈추므로,
+#       그때는 지금까지처럼 exe 옆 규칙으로 돌게 둔다
+#
+# -in: paths = 화면 경로 묶음(dict, "rules" 키를 본다)
+#
+# -out: list = 덧붙일 인자(파일이 없으면 빈 리스트)
+# -out: error = 없음
+#------------------------------------------------------------------
+def cso_rules_args(paths):
+    rules_path = (paths or {}).get("rules") or ""
+    # 파일이 있을 때만 넘긴다 — 폴더나 없는 경로는 엔진을 멈추게 한다.
+    if os.path.isfile(rules_path):
+        return ["--cso-rules", rules_path]
+    return []
+
+
+#------------------------------------------------------------------
 # 설정 ④ 분류 실행 렌더 (설계서 10장)
 #=> 고른 폴더를 실제로 분류한다. 예전에는 실행 명령·PYTHONPATH 같은 개발용 입력칸이
 #   화면에 있었는데, 실무 관리자가 정할 값이 아니라서 전부 감추고 **체크박스 3개**만
 #   남겼다. 체크박스가 곧 CLI 옵션(--axis / --doc-rules / 전파)이 된다.
+#   보안등급 기준 파일은 체크박스와 상관없이 --cso-rules 로 넘긴다(2026-09-29) —
+#   화면이 고치는 파일과 엔진이 읽는 파일이 달라지지 않게 하려는 것이다.
 #    1) 무엇을 판정할지 고른다(보안등급 · 업무분류 · 비슷한 문서 참고)
 #    2) csoclassify 를 한 번만 실행한다 — 엔진이 분류하면서 보류 문서 전파까지
 #       그 자리에서 끝내므로, 결과 파일을 다시 읽는 2차 패스는 두지 않는다
@@ -2419,6 +2442,12 @@ def render_run_panel(grades_path, paths=None, tax=None, records=None):
     extra += ["--hash"]
     if do_doc and tax:
         extra += ["--doc-rules", paths.get("doc_rules") or ""]
+    # 보안등급 규칙도 화면이 고치는 그 파일로 못박는다(없으면 exe 옆 규칙으로 돈다).
+    rules_args = cso_rules_args(paths)
+    extra += rules_args
+    if not rules_args and do_sec:
+        st.caption("　↳ 보안등급 기준 파일이 설정 위치에 없어 실행 파일 옆 `cso_rule.yaml` 을 씁니다"
+                   " — 고급 ▸ 파일 위치에서 확인하세요")
     if do_sec and not do_doc:
         extra += ["--axis", "security"]
     elif do_doc and not do_sec:
@@ -2489,7 +2518,7 @@ def render_run_panel(grades_path, paths=None, tax=None, records=None):
             _base or ["MpowerClassify"], folder, grades_path, glob=_pat,
             extra_args=extra)), language="text")
         st.caption("↳ 위 체크 상자들이 그대로 인자가 됩니다 — `--axis`(한 축만 켤 때) · "
-                   "`--doc-rules`(업무분류) · `--doctype-vector-only` · "
+                   "`--cso-rules`(보안등급 기준) · `--doc-rules`(업무분류) · `--doctype-vector-only` · "
                    "`--rule-only`(비슷한 문서 참고 끔) · `--seeds`(기준 문서). "
                    "`--embed-needed` 는 판단 못 한 문서만 임베딩해 빠르게 도는 기본값입니다.")
         if want_simple:

@@ -89,3 +89,25 @@ def test_폴더고르기는_예외를_올리지_않는다(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake)
     got, err = app.pick_folder("D:/없는폴더")
     assert got is None and err, (got, err)
+
+
+#------------------------------------------------------------------
+# 화면이 고치는 보안등급 기준 파일을 --cso-rules 로 넘긴다
+#=> 예전에는 넘기지 않아 엔진이 exe 옆 cso_rule.yaml 을 읽었다 — 화면에서 기준을
+#   고쳐도 분류 결과가 그대로였다. 파일이 없을 때는 넘기지 않는다(없는 경로를 주면
+#   엔진이 2001 로 멈춘다).
+#
+# -in: tmp_path = pytest 임시 폴더
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_보안등급_기준파일을_넘긴다(tmp_path):
+    rules = tmp_path / "cso_rule.yaml"
+    rules.write_text("version: x\n", encoding="utf-8")
+    assert app.cso_rules_args({"rules": str(rules)}) == ["--cso-rules", str(rules)]
+    # 없는 파일 · 빈 값 · 폴더 · 키 없음 → 넘기지 않는다
+    assert app.cso_rules_args({"rules": str(tmp_path / "없음.yaml")}) == []
+    assert app.cso_rules_args({"rules": ""}) == []
+    assert app.cso_rules_args({"rules": str(tmp_path)}) == []
+    assert app.cso_rules_args({}) == []
+    assert app.cso_rules_args(None) == []
