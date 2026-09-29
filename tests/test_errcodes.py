@@ -1207,3 +1207,240 @@ def test_seed_add_성공도_상태줄(engine, tmp_path):
                                     str(tmp_path / "seed.jsonl"), "--axis", "security"])
     assert rc == 0 and len(lines) == 1, lines
     assert (lines[0]["kind"], lines[0]["total"], lines[0]["failed"]) == ("success", 1, 0)
+
+
+
+# ════════════════════════════════════════════════════════════════════
+# 2026-09-29 재검토 8~11 — 중단 · stderr · 출력 경로 · 파이썬 전용 옵션
+# ════════════════════════════════════════════════════════════════════
+
+#------------------------------------------------------------------
+# Rust 판이 아는 파이썬 모델 목록이 파이썬 표와 같은가
+#=> Rust 판은 이 목록으로 --model 을 가른다(모르는 이름 1003 · 이 판에 없는 모델 1012).
+#   파이썬에 모델이 늘었는데 Rust 목록이 그대로면 새 모델 이름이 '오타'로 잘못 불린다.
+#
+# -in: 없음
+#
+# -out: 없음(단언)
+# -out: error = Rust 소스가 없으면 건너뛴다
+#------------------------------------------------------------------
+def test_rust_모델목록이_파이썬과_같다():
+    src_path = os.path.join(ROOT, "Rust", "src", "embed.rs")
+    if not os.path.isfile(src_path):
+        pytest.skip("Rust 소스 없음")
+    from csoclassify import config
+    body = open(src_path, encoding="utf-8").read().split("PYTHON_MODELS", 1)[1].split(";", 1)[0]
+    assert re.findall(r'"([^"]+)"', body) == list(config.MODELS)
+
+
+#------------------------------------------------------------------
+# 파이썬 전용 옵션 — 두 엔진이 같은 번호로 막는다(값 형식 오류 · 모르는 모델)
+#=> 예전 Rust 판은 --model·--max-tokens·--precision 등의 값을 통째로 삼켜 늘 success 였다.
+#   값 자체가 틀린 것(오타)은 두 판 모두 1003 이어야 한다.
+#
+# -in: engine   = "python" | "rust"
+# -in: argv     = 덧붙일 인자
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("argv", [
+    ["--model", "없는모델"],
+    ["--max-tokens", "abc"],
+    ["--overlap", "x"],
+    ["--precision", "f99"],
+    ["--num-threads", "abc"],
+])
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_파이썬전용_옵션_값오류는_1003(engine, argv, tmp_path):
+    _need(engine)
+    docs = tmp_path / "docs"
+    _plain_doc(docs)
+    rc, lines = _run_lines(engine, ["--dir", str(docs), "--rule-only"] + argv)
+    assert (rc, [l["code"] for l in lines]) == (3, [1003]), lines
+
+
+#------------------------------------------------------------------
+# 결과(벡터)를 바꾸는 값을 이 판이 못 따르면 1012 — Rust
+#=> 예전에는 `--model ko-sroberta` 를 줘도 조용히 e5-small-ko 로 벡터를 만들어, 다른 모델로
+#   만든 seed 와 섞어 비교하는 결과가 오류 없이 나왔다. --max-tokens·--overlap·--precision f16
+#   도 벡터를 바꾸는 값이다. 이 판이 쓰는 값(기본값)은 그대로 받는다.
+#
+# -in: argv     = 덧붙일 인자
+# -in: code     = 기대하는 code(0 이면 성공)
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("argv, code", [
+    (["--model", "ko-sroberta"], 1012),
+    (["--model", "e5-small"], 1012),
+    (["--max-tokens", "256"], 1012),
+    (["--overlap", "64"], 1012),
+    (["--precision", "f16"], 1012),
+    (["--make-doctype-seeds", "out.jsonl"], 1012),
+    # 이 판이 쓰는 값이면 받는다 — 파이썬 판과 같은 명령줄을 그대로 넘길 수 있어야 한다.
+    (["--model", "e5-small-ko"], 0),
+    (["--max-tokens", "512", "--overlap", "32", "--precision", "f32"], 0),
+    (["--num-threads", "4", "--idle-timeout", "0"], 0),
+])
+def test_rust_벡터를_바꾸는_값은_1012(argv, code, tmp_path):
+    _need("rust")
+    docs = tmp_path / "docs"
+    _plain_doc(docs)
+    rc, lines = _run_lines("rust", ["--dir", str(docs), "--rule-only",
+                                    "--out", str(tmp_path / "o.jsonl")] + argv)
+    assert lines[-1]["code"] == code, lines
+    assert rc == (0 if code == 0 else 3)
+
+
+#------------------------------------------------------------------
+# --json-errors 면 사람용 알림이 stderr 에 새지 않는다 (기본 모드 · --textsave)
+#=> Rust 판은 note! 를 거치지 않는 eprintln! 15곳이 남아, "전파용 seed 파일이 없어…"·
+#   "--textsave: 추출 본문(개인정보…)" 같은 줄이 --json-errors 에서도 나갔다.
+#   실행가이드 6장의 약속은 "[progress]·[summary] 만 나간다" 이다.
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_json이면_경고도_stderr에_안_나간다(engine, tmp_path):
+    _need(engine)
+    docs = tmp_path / "docs"
+    _plain_doc(docs)
+    cmd = [RS_EXE] if engine == "rust" else [sys.executable, "-m", "csoclassify"]
+    env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"), PYTHONIOENCODING="utf-8",
+               CSOCLASSIFY_POLICY_DIR=os.path.join(ROOT, "resources", "policy"))
+    # 기본 모드 + 없는 seed(전파 건너뜀 안내) + --textsave(개인정보 경고) — 알림이 나올 자리들.
+    r = subprocess.run(cmd + ["--dir", str(docs), "--seeds", str(tmp_path / "없는seed.jsonl"),
+                              "--textsave", str(tmp_path / "ts"), "--no-daemon",
+                              "--format", "jsonl", "--out", str(tmp_path / "o.jsonl"),
+                              "--json-errors"],
+                       cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+    leaked = [l for l in r.stderr.splitlines()
+              if l.strip() and not l.startswith(("[progress]", "[summary]"))]
+    assert not leaked, leaked
+
+
+#------------------------------------------------------------------
+# --out 을 못 쓰면 문서를 읽기 전에 멈춘다 — Rust
+#=> Rust 판은 결과를 끝에서 한 번에 써서, 경로가 틀려도 전체 스캔을 다 돌린 뒤에야 4001 로
+#   실패했다. 스캔이 끝나야 나오는 [summary] 줄이 없어야 '읽기 전에 멈췄다'는 뜻이다.
+#   (파이썬 판은 원래 시작할 때 파일을 열어 멈춘다 — 같은 모양인지 함께 본다.)
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_out을_못쓰면_읽기전에_멈춘다(engine, tmp_path):
+    _need(engine)
+    docs = tmp_path / "docs"
+    _plain_doc(docs)
+    cmd = [RS_EXE] if engine == "rust" else [sys.executable, "-m", "csoclassify"]
+    env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"), PYTHONIOENCODING="utf-8",
+               CSOCLASSIFY_POLICY_DIR=os.path.join(ROOT, "resources", "policy"))
+    bad = str(tmp_path / "없는폴더" / "o.jsonl")
+    r = subprocess.run(cmd + ["--dir", str(docs), "--rule-only", "--out", bad, "--json-errors"],
+                       cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+    lines = [json.loads(l)["error"] for l in r.stdout.splitlines() if l.startswith('{"error"')]
+    assert (r.returncode, [l["code"] for l in lines]) == (1, [4001]), lines
+    assert "[summary]" not in r.stderr, "스캔을 다 돈 뒤에 멈췄다"
+
+
+#------------------------------------------------------------------
+# --out 확인이 기존 결과 파일을 자르지 않는다 — Rust
+#=> 읽기 전 확인은 append 로 열기만 한다. 뒤에서 다른 이유로 멈춰도(여기서는 --vector-only
+#   인데 seed 가 없음) 예전 결과 파일은 그대로 남아야 한다.
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+def test_rust_out_확인이_기존파일을_자르지_않는다(tmp_path):
+    _need("rust")
+    docs = tmp_path / "docs"
+    _plain_doc(docs)
+    out = tmp_path / "old.jsonl"
+    out.write_text('{"file":"예전결과"}\n', encoding="utf-8")
+    rc, lines = _run_lines("rust", ["--dir", str(docs), "--vector-only",
+                                    "--seeds", str(tmp_path / "없는seed.jsonl"), "--out", str(out)])
+    assert lines[-1]["code"] == 1007, lines
+    assert out.read_text(encoding="utf-8") == '{"file":"예전결과"}\n'
+
+
+#------------------------------------------------------------------
+# Ctrl+C 로 멈추면 130 으로 끝나고 임시폴더를 치운다 — Rust (윈도우)
+#=> 예전에는 처리기가 없어 OS 가 프로세스를 끊었다 — 종료코드가 0xC000013A 로 파이썬 판(130)과
+#   달랐고, 압축을 풀어 둔 임시폴더가 내부 원문째로 남았다.
+#   `--files-from -` 로 띄우면 표준입력을 기다리며 멈춰 있으므로, 그 사이에 이 프로세스 몫의
+#   임시폴더를 하나 만들어 두고 중단 신호(CTRL_BREAK)를 보낸다.
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = 윈도우가 아니거나 Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.skipif(sys.platform != "win32", reason="CTRL_BREAK 신호는 윈도우 시험")
+def test_rust_중단하면_130_이고_임시폴더를_치운다(tmp_path):
+    import signal
+    import tempfile
+    import time
+    _need("rust")
+    env = dict(os.environ, CSOCLASSIFY_POLICY_DIR=os.path.join(ROOT, "resources", "policy"),
+               CSOCLASSIFY_ERRLOG=str(tmp_path / "err.log"))
+    p = subprocess.Popen([RS_EXE, "--files-from", "-", "--rule-only", "--json-errors"],
+                         cwd=ROOT, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+    try:
+        # 이 프로세스 몫의 압축 임시폴더(안에 원문이 있다고 친다).
+        leftover = os.path.join(tempfile.gettempdir(), f"cso_zip_{p.pid}")
+        os.makedirs(leftover, exist_ok=True)
+        open(os.path.join(leftover, "원문.txt"), "w", encoding="utf-8").write("민감한 본문")
+        time.sleep(1.0)     # 처리기를 달 시간
+        p.send_signal(signal.CTRL_BREAK_EVENT)
+        # communicate() 는 표준입력을 닫는다 — 그러면 목록 읽기가 끝나 '대상 0건(3)'과
+        # 경주하게 되므로, 입력은 열어 둔 채 끝나기만 기다린다.
+        p.wait(timeout=20)
+        out = p.stdout.read()
+    finally:
+        if p.poll() is None:
+            p.kill()
+    assert p.returncode == 130
+    assert not os.path.exists(leftover), "임시폴더(원문)가 남았다"
+    # 중단은 결과가 아니다 — 상태 줄을 내지 않는다(파이썬 판과 같다).
+    assert b'{"error"' not in out
+
+
+#------------------------------------------------------------------
+# --files-from - (표준입력 목록) 이 두 엔진에서 동작한다
+#=> Rust 판의 인자 해석기가 '-' 로 시작하는 값을 모두 다음 옵션으로 보아, 문서에 적힌
+#   `--files-from -` 가 Rust 판에서는 처음부터 "값이 없습니다"(1003)로 죽었다(2026-09-29 발견).
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_files_from_표준입력이_된다(engine, tmp_path):
+    _need(engine)
+    doc = _plain_doc(tmp_path / "docs")
+    cmd = [RS_EXE] if engine == "rust" else [sys.executable, "-m", "csoclassify"]
+    env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"), PYTHONIOENCODING="utf-8",
+               CSOCLASSIFY_POLICY_DIR=os.path.join(ROOT, "resources", "policy"))
+    r = subprocess.run(cmd + ["--files-from", "-", "--rule-only", "--out", str(tmp_path / "o.jsonl"),
+                              "--json-errors"],
+                       input=str(doc) + "\n", cwd=ROOT, env=env, capture_output=True,
+                       text=True, encoding="utf-8")
+    st = [json.loads(l)["error"] for l in r.stdout.splitlines() if l.startswith('{"error"')][-1]
+    assert (r.returncode, st["kind"], st["total"]) == (0, "success", 1), st

@@ -477,7 +477,9 @@ fn parse_args() -> Result<Opts, String> {
         // `--failsafe --json-errors` 가 등급 "--json-errors" 로 읽힌다.
         let mut take = |optional: bool| -> Option<String> {
             match args.get(i + 1) {
-                Some(v) if !v.starts_with('-') => {
+                // 단 '-' 하나는 옵션이 아니라 '표준입력'이라는 값이다(`--files-from -`).
+                // 예전에는 이것까지 옵션으로 보아 `--files-from -` 가 늘 "값이 없습니다"로 죽었다.
+                Some(v) if v == "-" || !v.starts_with('-') => {
                     i += 1;
                     Some(v.clone())
                 }
@@ -614,16 +616,64 @@ fn parse_args() -> Result<Opts, String> {
             "--log" => o.log = take(false),
             // ※ "--nosummary"·"--with-text" 는 실제로 처리하므로 여기 두면 안 된다
             //   (도달할 수 없는 갈래가 되어 unreachable_patterns 경고가 난다).
-            // 값을 하나 데리고 오는 것들 — 그 값까지 함께 삼켜야 뒤가 밀리지 않는다.
-            "--model" | "--max-tokens" | "--overlap" | "--precision" | "--num-threads"
-            | "--idle-timeout" | "--seed-per-dir"
-            | "--seed-per-node" => { take(false); }
+            // 파이썬 판에서 '벡터를 바꾸는' 옵션들. 예전에는 값까지 삼키고 아무 일도 안 했다 —
+            // `--model ko-sroberta` 를 줘도 조용히 e5-small-ko 로 벡터를 만들어, 다른 모델로
+            // 만든 seed 와 섞어 비교하는 결과가 오류 없이 나왔다. 이 판이 쓰는 값이면 받고,
+            // 다른 값이면 '이 판에 없는 기능'(1012), 값 자체가 틀리면 인자 오류(1003).
+            "--model" => {
+                let v = take(false).unwrap();
+                if !embed::PYTHON_MODELS.contains(&v.as_str()) {
+                    errcodes::fail("bad_args",
+                        &format!("[MpowerClassify-rs] 알 수 없는 모델 '{}'. 사용 가능: {}",
+                                 v, embed::PYTHON_MODELS.join(", ")), None);
+                }
+                if v != embed::MODEL_NAME {
+                    errcodes::fail("unsupported_option",
+                        &format!("[MpowerClassify-rs] --model {} 은 이 판에 없습니다 — 이 판은 {} 만 씁니다. \
+다른 모델로 만든 기준 문서와 섞이면 비교가 틀어지므로 멈춥니다. 그 모델이 필요하면 파이썬 판을 쓰십시오.",
+                                 v, embed::MODEL_NAME), None);
+                }
+            }
+            "--max-tokens" | "--overlap" => {
+                let v = take(false).unwrap();
+                let fixed = if a.as_str() == "--max-tokens" { embed::CHUNK_MAX_TOKENS } else { embed::CHUNK_OVERLAP };
+                match v.trim().parse::<i64>() {
+                    Err(_) => errcodes::fail("bad_args",
+                        &format!("[MpowerClassify-rs] {} 값이 정수가 아닙니다: {}", a, v), None),
+                    // 청크를 바꾸면 벡터가 바뀐다 — 이 판은 고정값이라 다른 값은 받을 수 없다.
+                    Ok(n) if n != fixed as i64 => errcodes::fail("unsupported_option",
+                        &format!("[MpowerClassify-rs] {} {} 은 이 판에 없습니다 — 이 판은 {} 로 고정입니다(값이 다르면 벡터가 파이썬 판과 달라집니다).",
+                                 a, v, fixed), None),
+                    Ok(_) => {}
+                }
+            }
+            "--precision" => {
+                let v = take(false).unwrap();
+                match v.as_str() {
+                    "f32" => {}
+                    // f16 은 벡터를 반올림해 내보내는 파이썬 판 기능이다 — 이 판은 늘 f32 다.
+                    "f16" => errcodes::fail("unsupported_option",
+                        "[MpowerClassify-rs] --precision f16 은 이 판에 없습니다 — 이 판은 벡터를 늘 f32 로 냅니다.", None),
+                    _ => errcodes::fail("bad_args",
+                        &format!("[MpowerClassify-rs] --precision 은 f32 또는 f16 입니다: {}", v), None),
+                }
+            }
+            // 결과와 무관한 옵션(스레드 수·데몬 유휴시간·파이썬 판 씨앗 설정) — 값은 쓰지 않지만
+            // 형식은 본다. 오타가 조용히 통과하면 파이썬 판으로 옮겼을 때 처음 터진다.
+            "--num-threads" | "--idle-timeout" | "--seed-per-dir" | "--seed-per-node" => {
+                let v = take(false).unwrap();
+                if v.trim().parse::<i64>().is_err() {
+                    errcodes::fail("bad_args",
+                        &format!("[MpowerClassify-rs] {} 값이 정수가 아닙니다: {}", a, v), None);
+                }
+            }
             // 이 판에는 업무분류 씨앗 자동 생성이 없다. 예전에는 값까지 삼키고
             // 아무 일도 안 했다 — 오류도 경고도 없이 class_seed.jsonl 이 그대로라,
             // "왜 씨앗이 안 생기지"를 아무도 알 수 없었다. 조용한 실패를 없앤다.
             "--make-doctype-seeds" => {
                 take(false);
-                errcodes::fail("bad_args",
+                // 인자가 틀린 것이 아니라 '이 판에 없는 기능'이다 — 1003 이 아니라 1012.
+                errcodes::fail("unsupported_option",
                     &["[MpowerClassify-rs] --make-doctype-seeds 는 이 판(Rust)에 없습니다.",
                       "                 파이썬 판(MpowerClassify)으로 만드세요 — 만든 파일은 이 판도 그대로 읽습니다.",
                       "                 문서 하나씩 등록하려면 --seed-add 를 쓰세요(두 판 모두 있습니다)."]
@@ -1040,7 +1090,7 @@ fn resolve_rules(opts: &Opts) -> Option<PathBuf> {
     // 자동 탐색이었으므로, 같은 차례로 옛 이름을 한 번 더 찾는다.
     if opts.rules_path.is_none() {
         if let Some(p) = resolve_policy_file(&None, RULES_NAME_OLD) {
-            eprintln!("[MpowerClassify-rs] {} 은 옛 이름입니다 — {} 로 바꿔 두세요(지금은 그대로 씁니다).", RULES_NAME_OLD, RULES_NAME);
+            note!("[MpowerClassify-rs] {} 은 옛 이름입니다 — {} 로 바꿔 두세요(지금은 그대로 씁니다).", RULES_NAME_OLD, RULES_NAME);
             return Some(p);
         }
     }
@@ -1244,7 +1294,7 @@ fn run_suggest_terms(opts: &Opts) -> i32 {
         if have_ov { Some(ov_path.as_path()) } else { None },
         text_dir.as_deref(), !opts.include_auto_seeds);
     if opts.include_auto_seeds {
-        eprintln!("[MpowerClassify-rs] 사람이 승인하지 않은 seed 도 재료에 넣었습니다 — \
+        note!("[MpowerClassify-rs] 사람이 승인하지 않은 seed 도 재료에 넣었습니다 — \
 규칙이 만든 라벨이 다시 규칙을 만드는 고리가 생길 수 있습니다.");
     }
 
@@ -1265,12 +1315,12 @@ fn run_suggest_terms(opts: &Opts) -> i32 {
                         Ok(tax) => {
                             for n in &tax.nodes { titles.insert(n.dc_id.clone(), n.title.clone()); }
                         }
-                        Err(e) => eprintln!("[MpowerClassify-rs] 규칙에서 분류 체계를 짓지 \
+                        Err(e) => note!("[MpowerClassify-rs] 규칙에서 분류 체계를 짓지 \
 못해 '다른 분류 이름'을 거르지 못합니다: {}", e),
                     }
                     rule_doc = Some(doc);
                 }
-                None => eprintln!("[MpowerClassify-rs] 규칙 파일을 읽지 못해 '이미 있는 말'을 \
+                None => note!("[MpowerClassify-rs] 규칙 파일을 읽지 못해 '이미 있는 말'을 \
 거르지 못합니다: {}", p.display()),
             }
             // 끝말·활용형 꼬리는 규칙 파일 옆 유의어 사전에서 온다(core 가 기준).
@@ -1278,7 +1328,7 @@ fn run_suggest_terms(opts: &Opts) -> i32 {
             suffixes = syn.suffixes.clone();
             endings = termsuggest::load_endings(&syn.layers);
         }
-        None => eprintln!("[MpowerClassify-rs] 규칙 파일이 없어 '이미 있는 말'을 거르지 \
+        None => note!("[MpowerClassify-rs] 규칙 파일이 없어 '이미 있는 말'을 거르지 \
 못합니다: {}", doc_rules::default_doc_rule_filename()),
     }
     let sidx = termsuggest::suffix_index(&suffixes);
@@ -1298,7 +1348,7 @@ fn run_suggest_terms(opts: &Opts) -> i32 {
         labelled.clone()
     } else {
         if !labelled.contains(&want) {
-            eprintln!("[MpowerClassify-rs] '{}' 로 확정된 문서가 없습니다. 확정 문서가 있는 분류: {}",
+            note!("[MpowerClassify-rs] '{}' 로 확정된 문서가 없습니다. 확정 문서가 있는 분류: {}",
                       want, if labelled.is_empty() { "(없음)".to_string() } else { labelled.join(", ") });
         }
         vec![want]
@@ -1410,11 +1460,11 @@ fn run_build_doc_rule(opts: &Opts) -> i32 {
         errcodes::fail("doc_rules_invalid", &format!("[MpowerClassify-rs] {}", e), out_path.to_str());
     }
     // 요약·경고는 오류가 아니다 — --json-errors(화면 호출)여도 stderr 로 낸다(화면이 요약 줄을 읽는다).
-    for w in &warns { eprintln!("[MpowerClassify-rs] {}", w); }
+    for w in &warns { note!("[MpowerClassify-rs] {}", w); }
     let rules = doc["doctype_rules"].as_array().map(|a| a.len()).unwrap_or(0);
     let local = doc["doctype_rules"].as_array().map(|a| a.iter().filter(|r| r.get("local").is_some()).count()).unwrap_or(0);
     let inputs = doc["generated"]["inputs"].as_array().map(|a| a.len()).unwrap_or(0);
-    eprintln!("[MpowerClassify-rs] {} 생성 — 규칙 {}개(회사 조정 {}개) · 판 {} · 입력 {}개",
+    note!("[MpowerClassify-rs] {} 생성 — 규칙 {}개(회사 조정 {}개) · 판 {} · 입력 {}개",
           out_path.display(), rules, local, doc["version"].as_str().unwrap_or(""), inputs);
     0
 }
@@ -1840,7 +1890,7 @@ fn handle_daemon_args(opts: &Opts) {
         std::process::exit(errcodes::finish(0, None));
     }
     if opts.daemon_requested {
-        eprintln!("[MpowerClassify-rs] --daemon 은 이 판에 없습니다(상주 데몬 미지원) — 호출마다 모델을 새로 읽습니다. 분류 결과는 같고 속도만 다릅니다. 대량 처리는 --files-from 으로 한 프로세스에 몰아주십시오.");
+        note!("[MpowerClassify-rs] --daemon 은 이 판에 없습니다(상주 데몬 미지원) — 호출마다 모델을 새로 읽습니다. 분류 결과는 같고 속도만 다릅니다. 대량 처리는 --files-from 으로 한 프로세스에 몰아주십시오.");
     }
 }
 
@@ -2039,6 +2089,37 @@ fn file_hash(path: &Path) -> Option<String> {
     Some(format!("{:x}", h.finalize()))
 }
 
+//------------------------------------------------------------------
+// Ctrl+C(중단) 처리기 달기
+//=> 예전에는 처리기가 없어 OS 가 프로세스를 그냥 끊었다. 그러면
+//    · 종료코드가 윈도우에서 0xC000013A 로 나가 파이썬 판(130)과 달랐고
+//    · 압축을 풀어 둔 임시폴더(cso_zip_<pid>·cso_txt_<pid>)가 **내부 원문째로
+//      디스크에 남았다** — 파이썬 판은 finally 로 지우는데 이 판만 흘렸다.
+//   그래서 중단 신호를 받으면 임시폴더를 지우고 130 으로 끝낸다.
+//    1) 이 프로세스의 임시폴더 두 개를 지운다(없으면 조용히 넘어간다)
+//    2) --json-errors 가 아니면 사람용 안내 한 줄
+//    3) 130 으로 끝낸다 — 상태 줄은 내지 않는다(중단은 결과가 아니다. 파이썬 판과 같다)
+//   오류 로그에는 남기지 않는다 — 사용자가 멈춘 것은 오류가 아니다(파이썬 판과 같다).
+//
+// -in: 없음
+//
+// -out: 없음
+// -out: error = 없음(처리기를 못 달면 예전처럼 OS 기본 동작으로 둔다)
+//------------------------------------------------------------------
+fn install_interrupt_handler() {
+    let _ = ctrlc::set_handler(|| {
+        let pid = std::process::id();
+        // 압축 확장 임시폴더 — 분류(cso_zip_)와 --text-only(cso_txt_) 두 곳이 만든다.
+        for prefix in ["cso_zip_", "cso_txt_"] {
+            let _ = std::fs::remove_dir_all(std::env::temp_dir().join(format!("{}{}", prefix, pid)));
+        }
+        if !errcodes::quiet() {
+            eprintln!("\n[MpowerClassify-rs] 사용자가 중단했습니다.");
+        }
+        std::process::exit(130);
+    });
+}
+
 // -----------------------------------------------------------------
 // 메인함수
 // -----------------------------------------------------------------
@@ -2046,6 +2127,7 @@ fn main() {
     // 예상 못 한 내부 오류(패닉)도 파일에 남긴다 — 화면이 없는 환경(UI·배치)에서
     // 죽으면 원인을 알 방법이 사라진다. 가장 먼저 건다.
     errlog::install_panic_hook();
+    install_interrupt_handler();
 
     // 히든: 임베딩 검증용(--emb-test "<텍스트>") → 384벡터 JSON 출력.
     let raw: Vec<String> = std::env::args_os()
@@ -2247,13 +2329,13 @@ fn main() {
                 } else {
                     String::new()
                 };
-                eprintln!("[MpowerClassify-rs] 목록 {}: {}건 적재(데이터 {}줄{})",
+                note!("[MpowerClassify-rs] 목록 {}: {}건 적재(데이터 {}줄{})",
                           Path::new(lp).file_name()
                               .map(|s| s.to_string_lossy().into_owned())
                               .unwrap_or_else(|| lp.to_string()),
                           fl.len(), fl.lines, skipped);
                 for w in &fl.warnings {
-                    eprintln!("[MpowerClassify-rs] {}", w);
+                    note!("[MpowerClassify-rs] {}", w);
                 }
                 Some(fl)
             }
@@ -2280,6 +2362,22 @@ fn main() {
     let files: Vec<archive::Job> = archive::expand_paths(&files, &arc_tmp, 3, &mut arc_stats);
     if files.is_empty() {
         fail_no_input(&opts);
+    }
+    // --out 을 쓸 수 있는지 문서를 읽기 전에 본다. 결과는 끝에서 한 번에 쓰므로, 예전에는
+    // 경로가 틀려도 전체 스캔을 다 돌린 뒤에야 4001 로 실패했다(파이썬 판은 시작 전에 멈춘다).
+    // append 로 열어 기존 파일을 자르지 않고, 확인하려고 새로 만든 파일이면 바로 치운다 —
+    // 뒤에서 다른 이유로 멈췄을 때 빈 결과 파일이 남아 '결과가 있다'로 오인되지 않게.
+    if let Some(p) = opts.out.as_deref() {
+        let existed = Path::new(p).exists();
+        match std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            Ok(_) => { if !existed { let _ = std::fs::remove_file(p); } }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&arc_tmp);
+                errcodes::fail("output_write_failed",
+                    &format!("[MpowerClassify-rs] 출력 파일을 쓰지 못했습니다: {}\n  {}", p, e),
+                    Some(p));
+            }
+        }
     }
 
     // 분류 모드 결정(ko-pii cli.py) — 배타: 벡터만 / 규칙만 / 기본(규칙+자동전파).
@@ -2310,7 +2408,7 @@ fn main() {
             // 배포) 오류로 막지는 않고, '무엇이 꺼졌는지'만 분명히 알린다.
             // 문구는 cli.py 와 같게 맞춘다 — 두 판을 같은 눈으로 보게 하려는 것이다.
             let shown = seeds_path.clone().unwrap_or_else(|| "class_seed.jsonl".into());
-            eprintln!("[MpowerClassify-rs] 전파용 seed 파일이 없어 자동 전파를 건너뜁니다: {}\n\
+            note!("[MpowerClassify-rs] 전파용 seed 파일이 없어 자동 전파를 건너뜁니다: {}\n\
                        \x20               규칙이 못 정한 문서는 미분류로 남습니다. \
                       의도한 것이면 --rule-only 로 명시하세요.", shown);
         }
@@ -2415,7 +2513,7 @@ fn main() {
         Some(d) => match textsave::prepare(d) {
             Ok(p) => {
                 // 기본 방어를 여는 문이다 — 조용히 열리면 안 된다(설계 10장 S2).
-                eprintln!("[MpowerClassify-rs] --textsave: 추출 본문(개인정보 포함 가능)을 \
+                note!("[MpowerClassify-rs] --textsave: 추출 본문(개인정보 포함 가능)을 \
                            {} 에 평문으로 남깁니다. 보안등급 C 문서도 그대로 남습니다.",
                           p.display());
                 Some(p)
@@ -3339,10 +3437,10 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
                 .map(|r| format!("{}
 ", r)).collect();
             match std::fs::write(mp, body) {
-                Ok(_) => eprintln!("[MpowerClassify-rs] 문서 ID 미획득 목록: {} ({}건)",
+                Ok(_) => note!("[MpowerClassify-rs] 문서 ID 미획득 목록: {} ({}건)",
                                    mp, missing_id_rows.len()),
                 // 본 작업은 끝난 뒤라, 리포트를 못 썼다고 결과까지 버릴 이유는 없다.
-                Err(e) => eprintln!("[MpowerClassify-rs] 미획득 목록을 쓰지 못했습니다: {}", e),
+                Err(e) => note!("[MpowerClassify-rs] 미획득 목록을 쓰지 못했습니다: {}", e),
             }
         }
     }

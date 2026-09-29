@@ -189,7 +189,12 @@
     <h3>어디로 내보내나</h3>
     <ul class="plain">
       <li><b>stdout</b> 에 한 줄. 실패하면 결과가 없으므로 결과와 부딪히지 않고, 부르는 쪽은 stdout 만 파싱하면 된다.</li>
-      <li><b>stderr</b> 로는 오류를 <b>내지 않는다</b>. <span class="def">[2026-09-01 구현 중 변경] 설계 때는 "같은 내용을 사람 문장으로 한 번 더 낸다"고 했는데, 부르는 쪽이 두 갈래를 합쳐 받으면(2&gt;&amp;1) JSON 뒤에 그 문장이 따라붙어 파싱이 깨졌다. 옵션을 준 호출은 "기계가 읽겠다"는 뜻이므로 사람용 줄을 뺀다. 진행률·요약·경고는 오류가 아니므로 그대로 나가고, 오류 로그 파일에도 그대로 남는다.</span></li>
+      <li><b>stderr</b> 로는 오류를 <b>내지 않는다</b>. <span class="def">[2026-09-01 구현 중 변경] 설계 때는 "같은 내용을 사람 문장으로 한 번 더 낸다"고 했는데, 부르는 쪽이 두 갈래를 합쳐 받으면(2&gt;&amp;1) JSON 뒤에 그 문장이 따라붙어 파싱이 깨졌다. 옵션을 준 호출은 "기계가 읽겠다"는 뜻이므로 사람용 줄을 뺀다. <b>기계가 읽는 진행률(<code class="inl">[progress]</code>)·요약(<code class="inl">[summary]</code>) 줄만</b> 그대로 나가고,
+      경고·알림(<code class="inl">[전파]</code>·본문없음 등)도 나가지 않는다. 오류는 오류 로그 파일에 그대로 남는다.
+      <span class="def">(2026-09-29 — 설계서에는 "경고는 그대로 나간다"고 적혀 있었으나 파이썬 판과 실행가이드는 처음부터 경고도 걸렀다.
+      Rust 판만 15곳이 새고 있어 파이썬 판에 맞췄다.)</span></span></li>
+      <li><b>사용자 중단(Ctrl+C)은 계약 밖</b>이다 — 종료코드 <code class="inl">130</code>, 상태 줄 없음, 압축 해제 임시폴더는 지우고 끝난다(두 판 같음).
+      <span class="def">중단은 '결과'가 아니고, 강제 종료처럼 프로그램이 줄을 낼 수 없는 경우도 있어 0~4 안으로 억지로 넣지 않는다.</span></li>
       <li>프로세스 <b>종료코드</b>는 표의 <code class="inl">exit</code> 값으로 끝낸다 — 셸 스크립트가 그것만 보고도 굴러가게.</li>
       <li><b>성공해도 한 줄</b> 낸다 — stdout 의 <b>마지막 줄</b>이 언제나 상태 객체다(<code class="inl">code 0 · kind success</code>).
       <span class="def">[2026-09-01 구현 중 추가] 실패할 때만 줄이 나가면 부르는 쪽은 '줄이 없음'을 성공으로 읽어야 하는데,
@@ -225,7 +230,9 @@
           <tr><td class="mono">1002</td><td class="mono">no_target_arg</td><td class="mono">3</td>
               <td>대상 인자(<code class="inl">--file</code>·<code class="inl">--dir</code>·<code class="inl">--files-from</code>·<code class="inl">--filelist</code>)를 아예 안 줌</td><td>—</td></tr>
           <tr><td class="mono">1003</td><td class="mono">bad_args</td><td class="mono">3</td>
-              <td>인자 해석 실패(모르는 인자·값이 빠진 옵션 등)</td><td>—</td></tr>
+              <td>인자 해석 실패(모르는 인자·값이 빠진 옵션 등). 파이썬 판 전용 옵션도 <b>값 형식</b>은 본다 —
+              <code class="inl">--max-tokens abc</code>·<code class="inl">--precision f99</code>·모르는 <code class="inl">--model</code> 이름
+              <span class="def">(2026-09-29 — 그 전 Rust 판은 값을 통째로 삼켰다)</span></td><td>—</td></tr>
           <tr><td class="mono">1004</td><td class="mono">bad_axis</td><td class="mono">3</td>
               <td><code class="inl">--axis</code> 가 security/doctype 이 아님</td><td>—</td></tr>
           <tr><td class="mono">1005</td><td class="mono">bad_failsafe</td><td class="mono">3</td>
@@ -245,7 +252,10 @@
               <td><code class="inl">--filelist</code> 목록 내용이 틀림 <span class="def">(부른 쪽이 준 입력이라 정책 파일처럼 4 가 아니라 3)</span></td><td>—</td></tr>
           <tr><td class="mono">1012</td><td class="mono">unsupported_option</td><td class="mono">3</td>
               <td>이 판에 없는 기능을 요구함 — Rust 판의 <code class="inl">--serve</code>·<code class="inl">--synap-only</code>,
-              없앤 옵션(<code class="inl">--export-taxonomy</code>·<code class="inl">--taxonomy</code> 등). 조용히 무시하면 부르는 쪽은 요청이 받아들여진 줄 안다</td><td>—</td></tr>
+              <code class="inl">--make-doctype-seeds</code>, 없앤 옵션(<code class="inl">--export-taxonomy</code>·<code class="inl">--taxonomy</code> 등).
+              <b>Rust 판에서 벡터를 바꾸는 값</b>도 여기다 — <code class="inl">--model</code> 이 e5-small-ko 가 아님 ·
+              <code class="inl">--max-tokens</code>≠512 · <code class="inl">--overlap</code>≠32 · <code class="inl">--precision f16</code>.
+              조용히 무시하면 부르는 쪽은 요청이 받아들여진 줄 안다 — 다른 모델로 만든 seed 와 섞어 비교하는 결과가 오류 없이 나왔다</td><td>—</td></tr>
         </tbody>
       </table>
     </div>
@@ -399,7 +409,7 @@ st = json.loads(r.stdout.splitlines()[-1])["error"]   <span class="cm"># 마지�
           <tr><td class="mono">4</td><td>두 엔진이 <b>같은 상황에서 같은 code</b> 를 내는지 테스트로 묶는다</td><td class="mono">테스트</td><td><b>완료</b></td></tr>
           <tr><td class="mono">5</td><td>실행가이드 6장(종료코드)에 이 표를 싣고, 화면 오류 표시도 kind 를 함께 남긴다</td><td class="mono">문서 · UI</td><td><b>완료</b></td></tr>
           <tr><td class="mono">6</td><td>배포본 4종(Rust·Python × Windows·Linux) 재빌드</td><td class="mono">배포</td><td><b>완료</b></td></tr>
-          <tr><td class="mono">7</td><td><b>오류를 오류로 알리지 못하던 자리 보완</b>(7장) · 대조 시험 22건 추가 · 실행가이드 6장 반영</td>
+          <tr><td class="mono">7</td><td><b>오류를 오류로 알리지 못하던 자리 보완</b>(7장) · 대조 시험 추가 · 실행가이드 6장 반영</td>
               <td class="mono">Rust · Python</td><td><b>완료</b> <span class="def">2026-09-29 · PR #44</span></td></tr>
           <tr><td class="mono">8</td><td>보완판 리눅스 배포본 재빌드</td><td class="mono">배포</td><td>남음 <span class="def">윈도우 2종은 2026-09-29 재빌드</span></td></tr>
         </tbody>
@@ -429,6 +439,11 @@ st = json.loads(r.stdout.splitlines()[-1])["error"]   <span class="cm"># 마지�
           <tr><td class="mono">5</td><td>Rust <code class="inl">--check-rules</code>·<code class="inl">--seed-add</code>·<code class="inl">--status</code>·<code class="inl">--stop</code></td><td>상태 줄 없음</td><td>상태 줄 한 줄</td></tr>
           <tr><td class="mono">6</td><td><code class="inl">--propagate</code> 입력이 전부 깨짐</td><td>빈 결과 · success</td><td class="mono">1008 (3)</td></tr>
           <tr><td class="mono">7</td><td>seed-add 0건 등록</td><td><code class="inl">3002</code>(역추적) · success 인데 failed=1</td><td><code class="inl">3003</code>(모델 탓이면 <code class="inl">3002</code>) · 건수는 등록 기준</td></tr>
+          <tr><td class="mono">8</td><td>Ctrl+C 중단 <span class="def">Rust · 윈도우</span></td><td><code class="inl">0xC000013A</code> · 임시폴더(원문) 남음</td><td><code class="inl">130</code> · 임시폴더 지움</td></tr>
+          <tr><td class="mono">9</td><td><code class="inl">--json-errors</code> 인데 사람용 알림이 stderr 로 샘 <span class="def">Rust 15곳</span></td><td>나감</td><td>안 나감(<code class="inl">[progress]</code>·<code class="inl">[summary]</code> 만)</td></tr>
+          <tr><td class="mono">10</td><td><code class="inl">--out</code> 을 못 씀 <span class="def">Rust</span></td><td>전체 스캔 뒤 <code class="inl">4001</code></td><td>읽기 전 <code class="inl">4001</code>(기존 파일은 자르지 않음)</td></tr>
+          <tr><td class="mono">11</td><td>파이썬 전용 옵션 <span class="def">Rust</span></td><td>값을 삼키고 success</td><td>값 오류 <code class="inl">1003</code> · 벡터를 바꾸는 값 <code class="inl">1012</code></td></tr>
+          <tr><td class="mono">—</td><td><code class="inl">--files-from -</code>(표준입력) <span class="def">Rust</span></td><td>늘 "값이 없습니다"(1003)</td><td>정상 동작</td></tr>
         </tbody>
       </table>
     </div>

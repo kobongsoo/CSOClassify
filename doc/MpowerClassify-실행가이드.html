@@ -1350,6 +1350,9 @@ MpowerClassify.exe --seed-add-from list.jsonl --seed-reviewer "고봉수" --seed
         (정의되지 않은 등급, <code>bulk_grade</code> 가 <code>base_grade</code> 보다 낮음).
         <b>업무분류 축의 검증 실패</b>(아래 표)와 <code>--conflict</code> 오류도 같은 코드.
         <b>문서를 한 건도 읽지 않고</b> 종료한다</td></tr>
+    <tr><td><code>130</code></td><td><b>사용자가 중단</b>(Ctrl+C) — 오류가 아니라 계약(0~4) 밖에 둔다. <b>상태 줄을 내지 않고</b>,
+        압축을 풀어 둔 임시폴더는 지우고 끝난다. 두 판이 같다
+        <span class="def">2026-09-29 — 그 전 Rust 판은 윈도우에서 <code>0xC000013A</code> 로 끝나며 임시폴더(내부 원문)를 남겼습니다</span></td></tr>
   </table></div>
   <p class="def">코드 3 과 4 를 나눈 이유 — 3 은 "파일을 못 찾음"(배치가 경로를 고치면 됨),
   4 는 "파일 내용이 틀림"(관리자가 파일을 고쳐야 함)이라 대응이 다르다.
@@ -1377,6 +1380,13 @@ MpowerClassify.exe --seed-add-from list.jsonl --seed-reviewer "고봉수" --seed
     <tr><td><code>--files-from</code> 목록 파일이 없음 <span class="def">파이썬 판</span></td><td>1</td><td><b>3</b> <span class="def">1001</span></td><td>없음</td></tr>
     <tr><td><code>--propagate</code> 입력이 전부 깨짐</td><td>0 <span class="def">빈 결과</span></td><td><b>3</b> <span class="def">1008</span></td><td>없음</td></tr>
     <tr><td><code>--text-only</code> 의 <code>--out</code> 을 못 씀 <span class="def">Rust 판</span></td><td>3</td><td><b>1</b> <span class="def">4001</span></td><td>없음</td></tr>
+    <tr><td><code>--out</code> 을 못 씀 <span class="def">Rust 판</span></td><td>1 <span class="def">전체 스캔 뒤</span></td><td>1 <span class="def">4001 · <b>문서를 읽기 전</b></span></td><td>없음</td></tr>
+    <tr><td><code>--model ko-sroberta</code> 처럼 이 판에 없는 모델 · <code>--max-tokens</code>·<code>--overlap</code> 을 기본값과 다르게 · <code>--precision f16</code> <span class="def">Rust 판</span></td>
+        <td>0 <span class="def">조용히 무시</span></td><td><b>3</b> <span class="def">1012</span></td><td>없음</td></tr>
+    <tr><td><code>--model</code>·<code>--max-tokens</code>·<code>--precision</code> 등의 값이 틀림(<code>--max-tokens abc</code>) <span class="def">Rust 판</span></td>
+        <td>0</td><td><b>3</b> <span class="def">1003</span></td><td>없음</td></tr>
+    <tr><td><code>--files-from -</code>(표준입력 목록) <span class="def">Rust 판</span></td><td>3 <span class="def">늘 실패</span></td><td>정상 동작</td><td>있음</td></tr>
+    <tr><td>Ctrl+C 로 중단 <span class="def">Rust 판 · 윈도우</span></td><td><code>0xC000013A</code></td><td><b>130</b></td><td>없음 <span class="def">임시폴더도 지움</span></td></tr>
   </table></div>
   <b>왜 모델 실패를 0 으로 두면 안 되나</b> — 모델이 빠진 배포는 '미분류가 좀 많은 정상 결과'처럼 보입니다.
   특히 <code>--vector-only</code> 는 등급을 임베딩으로만 정하므로 <b>전 문서가 미분류</b>인데도 성공으로 끝나,
@@ -1623,8 +1633,9 @@ result.full.jsonl   <span class="cmt">← 감사용(전체 레코드 + 요약 + 
       <b>모르는 인자</b>(오타), 값이 빠진 옵션 등
       <span class="def">2026-09-01 — 그 전 Rust 판은 모르는 인자를 경고 한 줄로 흘려보냈습니다.
       <code>--json-erros</code> 처럼 철자가 하나 틀리면 옵션이 통째로 무효가 되는데도
-      그대로 돌았습니다. 파이썬 판 전용 옵션(<code>--model</code>·<code>-r</code>·<code>--timing</code> 등)은
-      지금도 그냥 통과합니다</span></td></tr>
+      그대로 돌았습니다.</span> 파이썬 판 전용 옵션도 <b>값의 형식은 봅니다</b> —
+      <code>--max-tokens abc</code>·<code>--precision f99</code>·모르는 <code>--model</code> 이름은 두 판 모두 1003
+      <span class="def">2026-09-29 — 그 전 Rust 판은 값을 통째로 삼켰습니다. 값이 없는 플래그(<code>-r</code>·<code>--timing</code> 등)는 지금도 그냥 통과합니다</span></td></tr>
     <tr><td><code>1004</code></td><td><code>bad_axis</code></td><td>3</td><td><code>--axis</code> 가 <code>security</code>/<code>doctype</code> 이 아님</td></tr>
     <tr><td><code>1005</code></td><td><code>bad_failsafe</code></td><td>3</td><td><code>--failsafe</code> 등급이 정의된 등급이 아님</td></tr>
     <tr><td><code>1006</code></td><td><code>mode_conflict</code></td><td>3</td><td><code>--rule-only</code> 와 <code>--vector-only</code> 를 함께 줌</td></tr>
@@ -1634,7 +1645,11 @@ result.full.jsonl   <span class="cmt">← 감사용(전체 레코드 + 요약 + 
     <tr><td><code>1009</code></td><td><code>bad_conflict_axis</code></td><td>4</td><td><code>--conflict</code> 로 <code>security</code> 축을 덮어쓰려 함(T11)</td></tr>
     <tr><td><code>1010</code></td><td><code>filelist_missing</code></td><td>3</td><td><code>--filelist</code> 목록 파일이 없음</td></tr>
     <tr><td><code>1011</code></td><td><code>filelist_invalid</code></td><td>3</td><td><code>--filelist</code> 목록 내용이 틀림(부른 쪽이 준 입력이라 4 가 아니라 3)</td></tr>
-    <tr><td><code>1012</code></td><td><code>unsupported_option</code></td><td>3</td><td>이 판에 없는 기능을 요구함(Rust 판의 <code>--serve</code>·<code>--synap-only</code>, 없앤 옵션 <code>--export-taxonomy</code> 등)</td></tr>
+    <tr><td><code>1012</code></td><td><code>unsupported_option</code></td><td>3</td><td>이 판에 없는 기능을 요구함 — Rust 판의 <code>--serve</code>·<code>--synap-only</code>·<code>--make-doctype-seeds</code>,
+      없앤 옵션 <code>--export-taxonomy</code> 등. <b>Rust 판에서 벡터를 바꾸는 값</b>도 여기다:
+      <code>--model</code> 이 <code>e5-small-ko</code> 가 아님 · <code>--max-tokens</code>≠512 · <code>--overlap</code>≠32 · <code>--precision f16</code>
+      <span class="def">2026-09-29 — 그 전에는 조용히 무시해, 다른 모델로 만든 기준 문서와 이 판의 벡터를 섞어 비교하는 결과가 오류 없이 나왔습니다.
+      이 판이 쓰는 값(기본값)을 주면 그대로 받습니다</span></td></tr>
     <tr><td colspan="4" class="def"><b>2000 — 정책 파일</b> (규칙셋 · 분류체계)</td></tr>
     <tr><td><code>2001</code></td><td><code>rules_missing</code></td><td>3</td><td><code>cso_rule.yaml</code> 을 못 찾음</td></tr>
     <tr><td><code>2002</code></td><td><code>rules_invalid</code></td><td>4</td><td>규칙셋 내용 오류 — V0 · V5 · V6 · V12. <b>YAML 문법 오류</b>·최상위가 매핑이 아닌 것도 V0

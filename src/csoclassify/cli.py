@@ -3939,19 +3939,6 @@ def run_check_rules(args):
 
 
 #------------------------------------------------------------------
-# 메인 (핵심)
-#=> 인자를 파싱하고 모드를 분기해 실행한다. 파일 대상이 없으면 사용법을 알린다.
-#    1) 데몬 제어 명령이면 그쪽 처리
-#    1.4) --check-rules 면 규칙셋만 검사하고 종료(문서 불필요)
-#    2) 모델 별칭 검증
-#    3) 대상 파일 수집 → text-only/일반 처리
-#
-# -in: argv = 명령행 인자 리스트(None 이면 sys.argv 사용)
-#
-# -out: code = 프로세스 종료코드
-# -out: error = 없음(내부에서 예외를 코드로 환원)
-#------------------------------------------------------------------
-#------------------------------------------------------------------
 # 오류 이름 하나로: JSON + 화면 + 로그 + 종료코드
 #=> 실패 자리에서 종료코드를 손으로 고르지 않게 한다. 이름(kind)만 고르면
 #   번호(code)와 종료코드는 errcodes 표가 정한다 — 같은 상황에서 값이
@@ -3970,6 +3957,18 @@ def run_check_rules(args):
 # -out: code = 표가 정한 종료코드
 # -out: error = 표에 없는 이름이면 KeyError(개발 중 오타)
 #------------------------------------------------------------------
+def fail_err(kind, msg, path=None):
+    errcodes.emit(kind, msg, path)
+    if errcodes.is_json():
+        # 같은 내용이 이미 stdout 으로 나갔다. stderr 로 한 번 더 내면, 부르는 쪽이
+        # 두 갈래를 합쳐 받을 때(2>&1) JSON 뒤에 사람용 문장이 따라붙어 파싱이 깨진다.
+        # 로그 파일에는 그대로 남긴다 — 화면이 없는 배치에서 원인을 찾을 흔적이다.
+        logsetup.get_logger("csoclassify.cli").error(
+            "%s", " / ".join(msg.splitlines()), stacklevel=2)
+        return errcodes.exit_of(kind)
+    return fail_code(msg, errcodes.exit_of(kind))
+
+
 #------------------------------------------------------------------
 # 오류 안내 + 오류 로그 + 종료코드 (한 번에)
 #=> "화면에 안내하고 코드로 끝낸다"를 한 함수로 묶는다. 예전에는 print 만 하고
@@ -3992,18 +3991,6 @@ def run_check_rules(args):
 # -out: code = 받은 종료코드 그대로 (호출부에서 return fail_code(...) 로 쓴다)
 # -out: error = 없음(예외를 던지지 않는다)
 #------------------------------------------------------------------
-def fail_err(kind, msg, path=None):
-    errcodes.emit(kind, msg, path)
-    if errcodes.is_json():
-        # 같은 내용이 이미 stdout 으로 나갔다. stderr 로 한 번 더 내면, 부르는 쪽이
-        # 두 갈래를 합쳐 받을 때(2>&1) JSON 뒤에 사람용 문장이 따라붙어 파싱이 깨진다.
-        # 로그 파일에는 그대로 남긴다 — 화면이 없는 배치에서 원인을 찾을 흔적이다.
-        logsetup.get_logger("csoclassify.cli").error(
-            "%s", " / ".join(msg.splitlines()), stacklevel=2)
-        return errcodes.exit_of(kind)
-    return fail_code(msg, errcodes.exit_of(kind))
-
-
 def fail_code(msg, code):
     print(msg, file=sys.stderr)
     # 로그는 한 줄로 눌러 담는다 — 여러 줄이면 로그 파일에서 한 사건이 여러 건처럼 보인다.
@@ -4189,6 +4176,19 @@ def main(argv=None):
         return 1
 
 
+#------------------------------------------------------------------
+# 메인 (핵심)
+#=> 인자를 파싱하고 모드를 분기해 실행한다. 파일 대상이 없으면 사용법을 알린다.
+#    1) 데몬 제어 명령이면 그쪽 처리
+#    1.4) --check-rules 면 규칙셋만 검사하고 종료(문서 불필요)
+#    2) 모델 별칭 검증
+#    3) 대상 파일 수집 → text-only/일반 처리
+#
+# -in: argv = 명령행 인자 리스트(None 이면 sys.argv 사용)
+#
+# -out: code = 프로세스 종료코드
+# -out: error = 잡지 못한 예외는 그대로 올린다(바깥 main() 이 받아 로그를 남기고 코드로 환원)
+#------------------------------------------------------------------
 def _main(argv=None):
     # 출력 인코딩을 UTF-8 로 고정한다. 얼려진(PyInstaller exe) 환경에서는 PYTHONUTF8 이
     # 무시되어 stdout/stderr 가 로케일(예: 한국어 Windows=cp949)로 나가는데, UI 가

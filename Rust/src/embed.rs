@@ -15,11 +15,20 @@ use tokenizers::Tokenizer;
 pub const MODEL_ROOT: &str = "models";
 pub const MODEL_NAME: &str = "e5-small-ko";
 
+/// 파이썬 판이 아는 모델 별칭(`config.MODELS` 의 키) — 이 판은 그중 `MODEL_NAME` 하나만 쓴다.
+/// `--model` 을 가를 때 쓴다: 목록에 없는 이름은 오타(1003), 목록에 있지만
+/// `MODEL_NAME` 이 아니면 '이 판에 없는 모델'(1012). 조용히 받아 주면 다른 모델로
+/// 만든 seed 와 이 판의 벡터를 섞어 비교하게 된다. 파이썬 표와 같은지는
+/// `tests/test_errcodes.py` 가 대조한다.
+pub const PYTHON_MODELS: &[&str] = &["e5-small-ko", "e5-small", "ko-sroberta"];
+
 // e5-small-ko 스펙(config.MODELS 와 동일).
 const PASSAGE_PREFIX: &str = "passage: ";
 const MODEL_MAX_TOKENS: usize = 512;
-const CHUNK_MAX_TOKENS: usize = 512; // DEFAULT_MAX_TOKENS
-const CHUNK_OVERLAP: usize = 32;     // DEFAULT_OVERLAP
+// 청크 크기·겹침 — 파이썬 판은 --max-tokens/--overlap 으로 바꿀 수 있지만 이 판은
+// 이 값으로 고정이다. main.rs 가 다른 값을 받으면 1012 로 멈추려고 공개한다.
+pub const CHUNK_MAX_TOKENS: usize = 512; // DEFAULT_MAX_TOKENS
+pub const CHUNK_OVERLAP: usize = 32;     // DEFAULT_OVERLAP
 pub const DIM: usize = 384;
 
 /// 임베더 — onnxruntime 세션 + 토크나이저.
