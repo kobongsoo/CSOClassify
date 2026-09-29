@@ -61,6 +61,7 @@
   h3{font-size:17px;margin:30px 0 12px;font-weight:700;letter-spacing:-0.01em;}
   p{margin:0 0 15px;max-width:72ch;}
   ul.plain{margin:0 0 15px;padding-left:20px;} ul.plain li{margin:5px 0;color:var(--muted);}
+  .def{color:var(--muted);font-size:.9em;}
   ul.plain li b{color:var(--ink);font-weight:600;}
   .tldr{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);
     border-radius:12px;padding:22px 24px;box-shadow:var(--shadow);}
@@ -112,7 +113,7 @@
       <span class="chip"><b>대상</b> Python · Rust 두 엔진</span>
       <span class="chip"><b>방식</b> --json-errors (선택)</span>
       <span class="chip"><b>필드</b> code · kind · message · path</span>
-      <span class="chip"><b>상태</b> 구현 완료 · 2026-09-01</span>
+      <span class="chip"><b>상태</b> 구현 완료 · 2026-09-01 · 보완 2026-09-29</span>
       <span class="chip"><b>작성일</b> 2026-08-31</span>
     </div>
   </header>
@@ -190,6 +191,12 @@
       <li><b>stdout</b> 에 한 줄. 실패하면 결과가 없으므로 결과와 부딪히지 않고, 부르는 쪽은 stdout 만 파싱하면 된다.</li>
       <li><b>stderr</b> 로는 오류를 <b>내지 않는다</b>. <span class="def">[2026-09-01 구현 중 변경] 설계 때는 "같은 내용을 사람 문장으로 한 번 더 낸다"고 했는데, 부르는 쪽이 두 갈래를 합쳐 받으면(2&gt;&amp;1) JSON 뒤에 그 문장이 따라붙어 파싱이 깨졌다. 옵션을 준 호출은 "기계가 읽겠다"는 뜻이므로 사람용 줄을 뺀다. 진행률·요약·경고는 오류가 아니므로 그대로 나가고, 오류 로그 파일에도 그대로 남는다.</span></li>
       <li>프로세스 <b>종료코드</b>는 표의 <code class="inl">exit</code> 값으로 끝낸다 — 셸 스크립트가 그것만 보고도 굴러가게.</li>
+      <li><b>성공해도 한 줄</b> 낸다 — stdout 의 <b>마지막 줄</b>이 언제나 상태 객체다(<code class="inl">code 0 · kind success</code>).
+      <span class="def">[2026-09-01 구현 중 추가] 실패할 때만 줄이 나가면 부르는 쪽은 '줄이 없음'을 성공으로 읽어야 하는데,
+      그건 프로세스가 조용히 죽은 것과 구분되지 않는다. 문서를 다룬 실행이면 <code class="inl">total</code>·<code class="inl">failed</code>
+      건수와 정책 버전이 함께 붙고, <code class="inl">--out</code> 으로 저장하면 결과 파일 끝에도 같은 객체가 들어간다.
+      분류뿐 아니라 <code class="inl">--text-only</code>·<code class="inl">--check-rules</code>·<code class="inl">--seed-add</code>·<code class="inl">--propagate</code>
+      도 같다(2026-09-29 — Rust 판 일부 모드에서 빠져 있던 것을 채웠다).</span></li>
     </ul>
 
     <div class="note info">
@@ -203,7 +210,9 @@
   <section>
     <div class="sec-head"><span class="sec-num">03</span><h2>오류 목록 — 나올 수 있는 전부</h2></div>
     <p>두 엔진의 실패 지점을 전수 조사해 정리했다(Rust <code class="inl">errlog::fail</code> 13곳,
-    Python <code class="inl">fail()</code>·<code class="inl">return EXIT_*</code> 18곳). 번호는 백의 자리로 묶는다.</p>
+    Python <code class="inl">fail()</code>·<code class="inl">return EXIT_*</code> 18곳). 번호는 백의 자리로 묶는다.
+    <span class="def">정본은 코드의 표(<code class="inl">src/csoclassify/errcodes.py</code> · <code class="inl">Rust/src/errcodes.rs</code>)이고,
+    두 표가 같은지는 <code class="inl">tests/test_errcodes.py</code> 가 한 줄씩 대조한다. 아래는 2026-09-29 기준.</span></p>
 
     <h3><span class="grp">1000</span> 인자 · 입력</h3>
     <div class="twrap">
@@ -211,11 +220,12 @@
         <thead><tr><th>code</th><th>kind</th><th>exit</th><th>언제</th><th>path</th></tr></thead>
         <tbody>
           <tr><td class="mono">1001</td><td class="mono">no_input</td><td class="mono">3</td>
-              <td>처리할 파일이 0건(폴더가 없거나, 패턴에 맞는 파일이 없음)</td><td>대상 폴더·파일</td></tr>
+              <td>처리할 파일이 0건(폴더가 없거나, 패턴에 맞는 파일이 없음, <code class="inl">--file</code> 경로가 없거나 폴더임).
+              <code class="inl">--files-from</code> 목록 파일 자체를 못 읽을 때도 이 값 <span class="def">(2026-09-29)</span></td><td>대상 폴더·파일·목록</td></tr>
           <tr><td class="mono">1002</td><td class="mono">no_target_arg</td><td class="mono">3</td>
-              <td><code class="inl">--file</code>·<code class="inl">--dir</code> 를 아예 안 줌</td><td>—</td></tr>
+              <td>대상 인자(<code class="inl">--file</code>·<code class="inl">--dir</code>·<code class="inl">--files-from</code>·<code class="inl">--filelist</code>)를 아예 안 줌</td><td>—</td></tr>
           <tr><td class="mono">1003</td><td class="mono">bad_args</td><td class="mono">3</td>
-              <td>인자 해석 실패(값이 빠진 옵션 등)</td><td>—</td></tr>
+              <td>인자 해석 실패(모르는 인자·값이 빠진 옵션 등)</td><td>—</td></tr>
           <tr><td class="mono">1004</td><td class="mono">bad_axis</td><td class="mono">3</td>
               <td><code class="inl">--axis</code> 가 security/doctype 이 아님</td><td>—</td></tr>
           <tr><td class="mono">1005</td><td class="mono">bad_failsafe</td><td class="mono">3</td>
@@ -225,9 +235,17 @@
           <tr><td class="mono">1007</td><td class="mono">seeds_missing</td><td class="mono">3</td>
               <td><code class="inl">--vector-only</code> 인데 기준 문서 파일이 없음(비교할 잣대가 없어 전부 미분류가 된다)</td><td>seed 파일</td></tr>
           <tr><td class="mono">1008</td><td class="mono">propagate_input_missing</td><td class="mono">3</td>
-              <td><code class="inl">--propagate</code> 로 준 1차 결과 파일이 없거나 못 읽음</td><td>결과 파일</td></tr>
+              <td><code class="inl">--propagate</code> 로 준 1차 결과 파일이 없거나 못 읽음 — 줄이 전부 깨져 문서 레코드가 0건인 경우 포함
+              <span class="def">(2026-09-29 — 그 전에는 빈 결과와 success 였다. 멀쩡한 줄이 섞여 있으면 계속하고 깨진 줄은 경고)</span></td><td>결과 파일</td></tr>
           <tr><td class="mono">1009</td><td class="mono">bad_conflict_axis</td><td class="mono">4</td>
               <td><code class="inl">--conflict</code> 로 security 축 전략을 덮어쓰려 함(T11 — security 는 언제나 max 고정)</td><td>—</td></tr>
+          <tr><td class="mono">1010</td><td class="mono">filelist_missing</td><td class="mono">3</td>
+              <td><code class="inl">--filelist</code> 목록 파일이 없음</td><td>—</td></tr>
+          <tr><td class="mono">1011</td><td class="mono">filelist_invalid</td><td class="mono">3</td>
+              <td><code class="inl">--filelist</code> 목록 내용이 틀림 <span class="def">(부른 쪽이 준 입력이라 정책 파일처럼 4 가 아니라 3)</span></td><td>—</td></tr>
+          <tr><td class="mono">1012</td><td class="mono">unsupported_option</td><td class="mono">3</td>
+              <td>이 판에 없는 기능을 요구함 — Rust 판의 <code class="inl">--serve</code>·<code class="inl">--synap-only</code>,
+              없앤 옵션(<code class="inl">--export-taxonomy</code>·<code class="inl">--taxonomy</code> 등). 조용히 무시하면 부르는 쪽은 요청이 받아들여진 줄 안다</td><td>—</td></tr>
         </tbody>
       </table>
     </div>
@@ -240,10 +258,12 @@
           <tr><td class="mono">2001</td><td class="mono">rules_missing</td><td class="mono">3</td>
               <td>보안등급 규칙셋(<code class="inl">cso_rule.yaml</code>)을 못 찾음</td><td>찾아본 경로</td></tr>
           <tr><td class="mono">2002</td><td class="mono">rules_invalid</td><td class="mono">4</td>
-              <td>규칙셋 내용 오류 — V0(구조) · V5(정의 안 된 등급) · V6(bulk 가 base 보다 낮음) ·
-              V12(경로 규칙에 grade·acl_restricted 둘 다 없음)</td><td>규칙셋</td></tr>
+              <td>규칙셋 내용 오류 — V0(구조 — <b>YAML 문법 오류·최상위가 매핑이 아님</b> 포함) · V5(정의 안 된 등급) ·
+              V6(bulk 가 base 보다 낮음) · V12(없앤 <code class="inl">paths:</code> 블록이 남아 있음)
+              <span class="def">(2026-09-29 — 그 전 Python 판은 YAML 문법 오류를 9001 로 냈다)</span></td><td>규칙셋</td></tr>
           <tr><td class="mono">2003</td><td class="mono">taxonomy_missing</td><td class="mono">3</td>
-              <td><code class="inl">--axis doctype</code> 인데 분류체계(<code class="inl">doc_taxonomy.yaml</code>)가 없음
+              <td><code class="inl">--axis doctype</code> 인데 분류체계가 없음 — 2026-09-22 부터 분류체계는 규칙 파일 안에 있으므로
+              <b><code class="inl">doc_rule.yaml</code> 이 없음</b>
               <span style="color:var(--muted)">(축을 명시하지 않았으면 오류가 아니라 축만 끄고 계속한다)</span></td><td>분류체계</td></tr>
           <tr><td class="mono">2004</td><td class="mono">taxonomy_invalid</td><td class="mono">4</td>
               <td>분류체계 구조 오류 — T7(순환 A→B→A) · T8(부모가 없는 고아 노드)</td><td>분류체계</td></tr>
@@ -251,9 +271,11 @@
               <td>업무분류 규칙셋 내용 오류 — T0(구조·id 중복) · T2(conflict 전략 이상) ·
               T5(없는 node 참조) · T10(top_n 인데 n 이 없음)</td><td>doc_rule.yaml</td></tr>
           <tr><td class="mono">2006</td><td class="mono">doc_rules_write_failed</td><td class="mono">4</td>
-              <td><code class="inl">--sync-doc-rule</code>·<code class="inl">--scaffold-doc-rule</code> 이 규칙 파일을 쓰지 못함(권한·잠김)</td><td>doc_rule.yaml</td></tr>
+              <td><code class="inl">--build-doc-rule</code> 이 규칙 파일을 쓰지 못함(권한·잠김)
+              <span class="def">(옛 <code class="inl">--sync-doc-rule</code>·<code class="inl">--scaffold-doc-rule</code> 자리)</span></td><td>doc_rule.yaml</td></tr>
           <tr><td class="mono">2007</td><td class="mono">export_input_missing</td><td class="mono">3</td>
-              <td><code class="inl">--export-taxonomy</code> 의 원본 JSON 을 못 찾음</td><td>원본 JSON</td></tr>
+              <td><code class="inl">--build-doc-rule</code> 의 원본 JSON(<code class="inl">--export-input</code>)을 못 찾음
+              <span class="def">(옛 <code class="inl">--export-taxonomy</code> 자리)</span></td><td>원본 JSON</td></tr>
           <tr><td class="mono">2008</td><td class="mono">export_input_invalid</td><td class="mono">4</td>
               <td>원본 JSON 구조가 아니거나, 변환 결과를 축 로더가 다시 읽지 못함(왕복 검증 실패)</td><td>원본 JSON</td></tr>
         </tbody>
@@ -266,11 +288,17 @@
         <thead><tr><th>code</th><th>kind</th><th>exit</th><th>언제</th><th>path</th></tr></thead>
         <tbody>
           <tr><td class="mono">3001</td><td class="mono">extract_failed</td><td class="mono">1</td>
-              <td><b>실행 전체</b>가 텍스트를 하나도 못 뽑음. 문서 하나가 실패한 것은 오류가 아니다(아래 4장)</td><td>—</td></tr>
+              <td><b>못 읽은 문서가 있음</b> — 결과 파일은 정상이고 상태 줄에 <code class="inl">total</code>·<code class="inl">failed</code> 건수가 붙는다(아래 4장)
+              <span class="def">(설계 때는 '실행 전체가 하나도 못 뽑음'으로 적었으나, 구현은 처음부터 일부 실패에 이 값을 썼다 — 문서를 구현에 맞춤)</span></td><td>대상</td></tr>
+          <tr><td class="mono">3004</td><td class="mono">file_missing</td><td class="mono">1</td>
+              <td><code class="inl">--filelist</code> 에 있는데 디스크에 없는 문서가 있음 — 결과에 <code class="inl">error.kind=file_missing</code> 레코드로 남는다</td><td>대상</td></tr>
           <tr><td class="mono">3002</td><td class="mono">model_load_failed</td><td class="mono">2</td>
-              <td>임베딩 모델·런타임을 못 올림(<code class="inl">models/e5-small-ko</code>·onnxruntime 확인)</td><td>모델 폴더</td></tr>
+              <td>임베딩이 필요했는데 모델·런타임을 못 올림(<code class="inl">models/e5-small-ko</code>·onnxruntime 확인).
+              <b>기본 모드는 결과를 내고</b> 2, <b><code class="inl">--vector-only</code> 는 문서를 읽기 전에 멈춘다</b>(7장).
+              <code class="inl">--seed-add</code> 가 이 때문에 한 건도 등록하지 못해도 이 값 <span class="def">(2026-09-29 — 그 전에는 0·success)</span></td><td>—</td></tr>
           <tr><td class="mono">3003</td><td class="mono">embed_failed</td><td class="mono">2</td>
-              <td>모델은 올랐는데 벡터를 못 만듦(빈 텍스트 등)</td><td>문서</td></tr>
+              <td>모델은 올랐는데 벡터를 못 만듦 — <code class="inl">--seed-add</code> 로 준 문서를 <b>한 건도</b> 등록하지 못함(문서를 못 읽음·벡터 없음)
+              <span class="def">(2026-09-29 — 그 전에는 종료코드 역추적으로 3002 가 잘못 붙었다)</span></td><td>—</td></tr>
         </tbody>
       </table>
     </div>
@@ -307,8 +335,9 @@
   <!-- 4 -->
   <section>
     <div class="sec-head"><span class="sec-num">04</span><h2>문서 하나의 실패는 오류가 아니다</h2></div>
-    <p>이 계약은 <b>실행 전체가 멈춘 경우</b>에만 쓴다. 문서 100건 중 3건에서 텍스트를 못 뽑은 것은
-    <b>정상적인 결과</b>이고, 지금처럼 그 문서의 레코드에 담겨 나간다.</p>
+    <p>문서 하나의 실패는 <b>실행을 멈추지 않는다.</b> 문서 100건 중 3건에서 텍스트를 못 뽑은 것은
+    <b>정상적인 결과</b>이고, 그 문서의 레코드에 담겨 나간다. 실행이 끝나면 상태 줄이
+    <code class="inl">3001</code> 과 건수로 "몇 건을 못 읽었는지"를 알린다.</p>
 <pre>{"file":"D:/sample/그림만있는.pdf","grade":null,
  "method":"extract_failed","signals":{},<span class="cm">…</span>}</pre>
     <div class="note safe">
@@ -316,6 +345,14 @@
       <p>못 읽은 문서를 결과에서 빼면 <b>"18건 중 11건"</b> 처럼 조용히 줄어든 숫자만 남는다. 무엇이 왜 빠졌는지
       알 수 없는 것은 거버넌스 도구에서 가장 나쁜 실패다. 그래서 실패도 <b>결과의 일부</b>로 낸다.
       실행 전체의 종료코드는 <b>그런 문서가 하나라도 있으면 1</b> 이다(결과 파일은 정상적으로 만들어진다).</p>
+    </div>
+<pre>{"error":{"code":3001,"kind":"extract_failed","message":"16건 중 1건을 읽지 못했습니다",
+          "path":"D:\docs","total":16,"failed":1,"rule_version":"cso-2026.09.2"}}</pre>
+    <div class="note info">
+      <span class="badge">모델 실패는 모드에 따라 다르다</span>
+      <p>기본 모드에서 모델을 못 올리면 <b>규칙으로 정한 등급은 유효</b>하므로 결과를 내고 3002(종료 2)로 알린다.
+      <code class="inl">--vector-only</code> 는 등급을 임베딩으로만 정하므로 모델이 없으면 결과가 <b>전부 미분류</b>다 —
+      정상 결과처럼 적재될 위험만 있어 <b>결과를 내지 않고 멈춘다</b>(7장).</p>
     </div>
   </section>
 
@@ -326,14 +363,19 @@
 r = subprocess.run([EXE, "--dir", folder, "--json-errors",
                     "--format", "jsonl", "--out", out],
                    capture_output=True, text=True, encoding="utf-8")
-<span class="kw">if</span> r.returncode != 0:
-    err = json.loads(r.stdout).get("error", {})
-    <span class="kw">if</span> err.get("code") == 1001:        <span class="cm"># 대상이 없다 → 사용자에게 폴더를 다시 묻는다</span>
-        ask_folder_again(err.get("path"))
-    <span class="kw">elif</span> err.get("code") == 3002:      <span class="cm"># 모델을 못 올렸다 → 설치 안내</span>
-        show_install_guide()
-    <span class="kw">else</span>:
-        log.error("%s(%s): %s", err.get("kind"), err.get("code"), err.get("message"))</pre>
+st = json.loads(r.stdout.splitlines()[-1])["error"]   <span class="cm"># 마지막 줄 — 성공이든 실패든 늘 있다</span>
+<span class="kw">if</span> st["code"] == 0:                   <span class="cm"># 전부 성공</span>
+    use(out)
+<span class="kw">elif</span> st["code"] == 3001:              <span class="cm"># 결과는 있고, 못 읽은 문서가 st["failed"] 건</span>
+    use(out); queue_for_review(st["failed"])
+<span class="kw">elif</span> st["code"] == 1001:              <span class="cm"># 대상이 없다 → 사용자에게 폴더를 다시 묻는다</span>
+    ask_folder_again(st.get("path"))
+<span class="kw">elif</span> st["code"] == 3002:              <span class="cm"># 모델을 못 올렸다 → 설치 안내</span>
+    show_install_guide()                <span class="cm"># 기본 모드면 out 에 규칙 등급은 있다(전파만 빠짐)</span>
+<span class="kw">else</span>:
+    log.error("%s(%s): %s", st["kind"], st["code"], st["message"])</pre>
+    <p class="def">예전 예시는 <code class="inl">json.loads(r.stdout)</code> 로 stdout 전체를 읽었다. <code class="inl">--out</code> 없이 부르면
+    결과 본문 뒤에 상태 줄이 붙으므로 <b>마지막 줄만</b> 읽어야 한다.</p>
     <div class="note info">
       <span class="badge">권장</span>
       <p><code class="inl">code</code> 로 분기하고, 모르는 code 는 <b>백의 자리로 뭉뚱그려</b> 처리하면 좋다 —
@@ -357,6 +399,9 @@ r = subprocess.run([EXE, "--dir", folder, "--json-errors",
           <tr><td class="mono">4</td><td>두 엔진이 <b>같은 상황에서 같은 code</b> 를 내는지 테스트로 묶는다</td><td class="mono">테스트</td><td><b>완료</b></td></tr>
           <tr><td class="mono">5</td><td>실행가이드 6장(종료코드)에 이 표를 싣고, 화면 오류 표시도 kind 를 함께 남긴다</td><td class="mono">문서 · UI</td><td><b>완료</b></td></tr>
           <tr><td class="mono">6</td><td>배포본 4종(Rust·Python × Windows·Linux) 재빌드</td><td class="mono">배포</td><td><b>완료</b></td></tr>
+          <tr><td class="mono">7</td><td><b>오류를 오류로 알리지 못하던 자리 보완</b>(7장) · 대조 시험 22건 추가 · 실행가이드 6장 반영</td>
+              <td class="mono">Rust · Python</td><td><b>완료</b> <span class="def">2026-09-29 · PR #44</span></td></tr>
+          <tr><td class="mono">8</td><td>보완판 리눅스 배포본 재빌드</td><td class="mono">배포</td><td>남음 <span class="def">윈도우 2종은 2026-09-29 재빌드</span></td></tr>
         </tbody>
       </table>
     </div>
@@ -367,9 +412,53 @@ r = subprocess.run([EXE, "--dir", folder, "--json-errors",
     </div>
   </section>
 
+  <!-- 7 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>2026-09-29 보완 — 오류를 오류로 알리지 못하던 자리</h2></div>
+    <p>계약 도입 뒤 두 엔진을 실제로 돌려 전수 점검했다. 표(번호·이름·종료코드)는 맞았지만,
+    <b>실패 자리가 계약을 거치지 않거나 엉뚱한 이름을 고르는 곳</b>이 남아 있었다.</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>#</th><th>상황</th><th>전</th><th>후</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">1</td><td>임베딩 모델·런타임을 못 올림</td><td>0 · success (전 문서 미분류)</td>
+              <td>기본 모드: 결과 + <code class="inl">3002</code>(2)<br><code class="inl">--vector-only</code>: 읽기 전에 <code class="inl">3002</code>(2), 결과 없음</td></tr>
+          <tr><td class="mono">2</td><td>규칙셋 YAML 문법 오류 <span class="def">Python</span></td><td class="mono">9001 (1)</td><td class="mono">2002 (4)</td></tr>
+          <tr><td class="mono">3</td><td><code class="inl">--files-from</code> 목록 파일 없음</td><td>Python <code class="inl">9001</code> · Rust 엉뚱한 안내</td><td><code class="inl">1001</code>(3) + path</td></tr>
+          <tr><td class="mono">4</td><td>Rust <code class="inl">--text-only</code> 실패</td><td>JSON 없음 · 출력 실패 3</td><td><code class="inl">1001</code> · <code class="inl">4001</code>(1) · 성공 상태 줄</td></tr>
+          <tr><td class="mono">5</td><td>Rust <code class="inl">--check-rules</code>·<code class="inl">--seed-add</code>·<code class="inl">--status</code>·<code class="inl">--stop</code></td><td>상태 줄 없음</td><td>상태 줄 한 줄</td></tr>
+          <tr><td class="mono">6</td><td><code class="inl">--propagate</code> 입력이 전부 깨짐</td><td>빈 결과 · success</td><td class="mono">1008 (3)</td></tr>
+          <tr><td class="mono">7</td><td>seed-add 0건 등록</td><td><code class="inl">3002</code>(역추적) · success 인데 failed=1</td><td><code class="inl">3003</code>(모델 탓이면 <code class="inl">3002</code>) · 건수는 등록 기준</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>종료코드에서 이름을 거꾸로 찾지 않는다 — <code class="inl">set_status</code></h3>
+    <p>상태 줄은 원래 종료코드로 이름을 역추적했다. 그런데 한 종료코드에 이름이 여럿이라
+    (<code class="inl">exit 2</code> = <code class="inl">model_load_failed</code>·<code class="inl">embed_failed</code>) 언제나 표의 앞쪽이 골라졌다.
+    이제 <b>까닭을 아는 실패 자리가 <code class="inl">errcodes.set_status(kind, message)</code> 로 적어 두고</b>,
+    상태 줄은 그것을 먼저 쓴다. 적어 둔 이름의 종료코드가 실제 종료코드와 다르면 쓰지 않는다 —
+    <code class="inl">code</code> 와 종료코드는 언제나 짝이 맞아야 하기 때문이다.</p>
+
+    <h3>모델 실패를 왜 0 으로 두면 안 되나</h3>
+    <div class="note bad">
+      <span class="badge">조용한 실패</span>
+      <p>모델이 빠진 배포는 '미분류가 좀 많은 정상 결과'처럼 보인다. 특히 <code class="inl">--vector-only</code> 는
+      <b>전 문서가 미분류인데도 성공</b>으로 끝나 그 결과가 그대로 적재될 수 있었다. 설계서 5장의
+      "3002 면 설치 안내" 분기는 한 번도 타지 않았다.</p>
+    </div>
+    <div class="note warn">
+      <span class="badge">배포 시 주의</span>
+      <p>모델이 빠진 배포에서 <b>지금까지 종료코드 0 으로 돌던 배치가 2 로 끝난다</b>(기본 모드는 결과 파일은 그대로 만든다).
+      종료코드만 보고 분기하는 스크립트가 있으면 확인해야 한다.</p>
+    </div>
+    <p class="def">남은 것 — Python seed-add 가 남기는 <code class="inl">.lock</code> 파일 때문에 이후 Rust seed-add 가 10초 뒤
+    <code class="inl">4001</code> 로 실패하는 문제는 오류 계약이 아니라 잠금 방식의 차이라 따로 다룬다.</p>
+  </section>
+
   <footer>
     <span>CLI 오류 출력 — 기계가 읽는 오류 계약</span>
-    <span>MpowerClassify · 2026-08-31 설계 · 2026-09-01 구현</span>
+    <span>MpowerClassify · 2026-08-31 설계 · 2026-09-01 구현 · 2026-09-29 보완</span>
   </footer>
 
 </div>
