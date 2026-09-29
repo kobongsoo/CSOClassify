@@ -1557,6 +1557,8 @@ def run_text_only(files, opts, out_fp):
     # --hybridparse 여부에 따라 사이냅 단독 또는 하이브리드 추출기를 만든다.
     extractor = build_extractor(hybrid=opts.get("hybridparse", False))
     code = config.EXIT_OK
+    # 못 읽은 문서 수 — 상태 줄에 "N건 중 M건"을 싣는다(종료코드 1 의 까닭).
+    failed = 0
     for item in files:
         # src=실제 읽을 경로(압축 내부면 임시파일), label=표시용(압축경로/내부경로).
         src, label, _origin = _as_job(item)
@@ -1569,7 +1571,42 @@ def run_text_only(files, opts, out_fp):
             # ExtractError 는 이제 사유만 담으므로 경로는 여기서 한 번 붙인다.
             print(f"[MpowerClassify] 추출 실패: {label} :: {e}", file=sys.stderr)
             code = config.EXIT_EXTRACT_FAIL
+            failed += 1
+    errcodes.set_counts(len(files), failed)
     return code
+
+
+#------------------------------------------------------------------
+# 임베딩 모델을 쓸 수 있는가 (값싼 확인 — 세션은 만들지 않는다)
+#=> --vector-only 는 임베딩 비교만으로 등급을 정하므로, 모델이 없으면 결과가 전부
+#   미분류가 된다. 그런 결과 파일은 쓸모가 없고 정상 결과처럼 적재될 위험만 있다.
+#   그래서 문서를 한 건도 읽기 전에 확인한다(Rust 판 embed::check_deployment 와 같은 자리).
+#    1) 모델 폴더를 찾는다(env·캐시·exe 옆·번들 순 — 임베더와 같은 규칙)
+#    2) model.onnx · tokenizer.json 이 있는지 본다
+#    3) onnxruntime · tokenizers 를 불러올 수 있는지 본다
+#
+# -in: model = 모델 별칭(--model 값)
+#
+# -out: str = 쓸 수 없는 까닭(쓸 수 있으면 None)
+# -out: error = 없음(모든 실패를 까닭 문자열로 돌려준다)
+#------------------------------------------------------------------
+def _model_unavailable(model):
+    from . import resources
+    try:
+        spec = config.get_model_spec(model)
+        mdir = resources.resolve_model_dir(spec.local_dir)
+    except Exception as e:      # noqa: BLE001 (별칭 오류·압축 해제 실패 모두 '못 씀')
+        return f"모델 폴더를 정하지 못했습니다: {type(e).__name__}: {e}"
+    # 임베더가 실제로 여는 두 파일 — 폴더만 있고 알맹이가 없는 배포가 있었다.
+    for name in ("model.onnx", "tokenizer.json"):
+        if not os.path.isfile(os.path.join(mdir, name)):
+            return f"{name} 이(가) 없습니다: {os.path.join(mdir, name)}"
+    try:
+        import onnxruntime  # noqa: F401
+        import tokenizers   # noqa: F401
+    except ImportError as e:
+        return f"필수 라이브러리를 불러오지 못했습니다(onnxruntime/tokenizers): {e}"
+    return None
 
 
 #------------------------------------------------------------------
@@ -1854,6 +1891,12 @@ def run_classify(files, args, out_fp):
                             "[MpowerClassify] --vector-only 는 비교 기준 seed 파일이 필요합니다: "
                             "--seeds <class_seed.jsonl>(또는 exe 옆 class_seed.jsonl)",
                             seeds_path)
+        # 모델을 못 쓰면 이 모드는 전 문서가 미분류가 된다 — 결과를 내지 않고 멈춘다.
+        # (기본 모드는 규칙 등급이 유효하므로 결과를 내고 종료코드 2 로만 알린다.)
+        why = _model_unavailable(args.model)
+        if why:
+            return fail_err("model_load_failed",
+                            f"[MpowerClassify] --vector-only 는 임베딩 모델이 있어야 합니다 — {why}")
         embed_mode = "all"      # 모든 문서를 임베딩해야 seed 와 비교 가능
         auto_prop = True        # 전파(=벡터 비교)로 등급을 정하므로 항상 켠다
     elif rule_only:
@@ -1956,6 +1999,7 @@ def run_classify(files, args, out_fp):
     # 등급 분포 집계(요약용). none = 규칙 미검출(+failsafe 미사용).
     counts = {"C": 0, "S": 0, "O": 0, "none": 0}
     embedded = 0            # 실제 임베딩한 문서 수(요약·검증용)
+    embed_errors = []       # 임베딩 실패 사유(한 건도 성공 못 했으면 모델 실패로 본다)
     # 본문을 못 읽은 문서 수 — 추출기가 예외를 던진 것과 '글자가 사실상 없던 것'을
     # 함께 센다. 부르는 쪽이 "이번 실행에 손봐야 할 문서가 몇 건인가"를 알아야 한다.
     n_extract_failed = 0
@@ -2487,8 +2531,15 @@ def run_classify(files, args, out_fp):
                 rec["vector"] = _embed_text(text, timing)
                 embedded += 1
             except Exception as e:
-                # 모델 없음 등의 오류: 벡터 없이 계속 진행
-                log.warning("분류 임베딩 실패 file=%s :: %s", path, e)
+                # 모델 없음 등의 오류: 벡터 없이 계속 진행(결과는 낸다).
+                # 첫 실패는 화면·오류 로그에도 남긴다 — 예전에는 일반 로그 warning 뿐이라
+                # 모델이 빠진 배포가 아무 흔적 없이 '미분류만 많은 결과'로 끝났다.
+                if not embed_errors:
+                    print(f"[MpowerClassify] 임베딩 실패 → 벡터 없이 계속합니다: {e}", file=sys.stderr)
+                    log.error("분류 임베딩 실패 file=%s :: %s", path, e)
+                else:
+                    log.warning("분류 임베딩 실패 file=%s :: %s", path, e)
+                embed_errors.append(f"{type(e).__name__}: {e}")
 
         # 옵션: 추출(정제) 텍스트를 결과 레코드에 함께 저장(기본 off — 프라이버시).
         # safe_text 를 거치는 이유: 깨진 문서에서 '짝 없는 대리 문자'가 본문에 섞여
@@ -2569,6 +2620,14 @@ def run_classify(files, args, out_fp):
                 why = " ".join(f"{k}={v}" for k, v in
                                sorted(sstats["탈락사유"].items(), key=lambda x: -x[1]))
                 print(f"[seed][업무분류] 탈락 사유: {why}", file=sys.stderr)
+
+    # --vector-only 인데 모델을 못 올렸다(파일은 있는데 로드 실패 — 깨진 모델·런타임 불일치).
+    # 앞의 값싼 확인을 통과한 드문 경우다. 이 모드의 결과는 전부 미분류라 내보내지 않는다.
+    # (auto_prop 이 늘 켜진 모드라 아직 한 건도 출력하지 않은 상태다.)
+    if vector_only and embed_errors and not embedded:
+        return fail_err("model_load_failed",
+                        f"[MpowerClassify] --vector-only 인데 임베딩 모델을 올리지 못했습니다 — "
+                        f"{embed_errors[0]}")
 
     #----------------------------------------------------------------------------
     # **(4) 보류문서들 전파(seed 비교)
@@ -2716,6 +2775,15 @@ def run_classify(files, args, out_fp):
     # 상태 줄에 실을 건수를 남겨 둔다 — '16건 중 1건 실패'를 숫자로 알려 준다.
     # 상태 줄의 '실패' 건수에는 없는 파일도 넣는다 — 부르는 쪽에는 둘 다
     # "요청했는데 결과를 못 받은 문서"로 같은 뜻이다.
+    # 임베딩이 필요했는데 한 건도 못 했다 = 모델·런타임을 못 올렸다. 결과는 그대로
+    # 내되 종료코드를 2(3002 model_load_failed)로 올린다 — 예전에는 exit 0·success 로
+    # 끝나, --vector-only 에서 전 문서가 미분류인데도 부르는 쪽은 성공으로 읽었다.
+    # 일부만 실패한 것은 문서 문제라 올리지 않는다(Rust 판과 같은 기준).
+    if embed_errors and not embedded:
+        errcodes.set_status("model_load_failed",
+                            f"[MpowerClassify] 임베딩 모델을 올리지 못해 임베딩·전파를 "
+                            f"건너뛰었습니다 — {embed_errors[0]}")
+        code = errcodes.exit_of("model_load_failed")
     errcodes.set_counts(total_files, n_extract_failed + n_missing_file)
     # 정책 버전도 함께 — 결과만 있고 '어떤 규칙으로 판정했는지'가 없으면 나중에
     # 재현할 수 없다(--simple --nosummary 면 지금까지 어디에도 안 남았다).
@@ -2946,7 +3014,14 @@ def run_classify(files, args, out_fp):
     # 기준 문서 등록 모드는 여기가 본론이다 — 위의 분류는 지문과 벡터를 얻는
     # 과정이었을 뿐이고, 이제 그 결과를 기준 문서 줄로 바꿔 쓴다.
     if getattr(args, "_seed_plan", None):
-        return _finish_seed_add(args, taxonomy)
+        seed_code = _finish_seed_add(args, taxonomy)
+        # 한 건도 못 넣은 까닭이 '모델을 못 올림'이면 그것을 알린다 — 대응(설치 점검)이
+        # 문서 탓(embed_failed)과 다르다. 둘 다 종료코드 2 라 번호만 달라진다.
+        if seed_code == config.EXIT_EMBED_FAIL and embed_errors and not embedded:
+            errcodes.set_status("model_load_failed",
+                                f"[MpowerClassify] 임베딩 모델을 올리지 못해 기준 문서를 "
+                                f"한 건도 등록하지 못했습니다 — {embed_errors[0]}")
+        return seed_code
     return code
 
 
@@ -3057,9 +3132,21 @@ def _finish_seed_add(args, taxonomy):
 
     # 받는 쪽이 stdout 줄 수만 세면 "3건 넣었는데 2줄"을 못 알아챈다.
     # 0 과 1 이 다르다는 것을 종료코드로 못박는다(설계 P4).
+    # 상태 줄의 건수·까닭은 '등록'을 기준으로 다시 적는다. 앞선 분류 단계의 건수를
+    # 그대로 두면 "success 인데 failed=1" 같은 어긋난 줄이 나간다.
+    errcodes.set_counts(len(plan), len(failed))
+    first_why = failed[0]["why"] if failed else ""
     if not added:
+        # 실패 사유는 '문서를 못 읽음'·'벡터를 못 얻음' — 기준으로 쓸 벡터를 못 만든
+        # 것이라 embed_failed(3003)다. 역추적하면 model_load_failed 로 잘못 붙는다.
+        errcodes.set_status("embed_failed",
+                            f"{len(plan)}건 중 한 건도 등록하지 못했습니다({first_why})")
         return config.EXIT_EMBED_FAIL
-    return config.EXIT_EXTRACT_FAIL if failed else config.EXIT_OK
+    if not failed:
+        return config.EXIT_OK
+    errcodes.set_status("extract_failed",
+                        f"{len(plan)}건 중 {len(failed)}건을 등록하지 못했습니다({first_why})")
+    return config.EXIT_EXTRACT_FAIL
 
 
 #------------------------------------------------------------------
@@ -3104,6 +3191,8 @@ def run_propagate(args):
     #  1) 파일 전체를 JSON 으로 파싱 시도 → 배열이면 그대로, 객체면 1건으로.
     #  2) 실패하면 jsonl(한 줄=한 레코드)로 폴백 파싱.
     recs = []
+    # 깨진 줄 수 — 한 줄도 못 읽었는데 성공(빈 결과)으로 끝나지 않도록 센다.
+    bad_lines = 0
     with open(args.propagate, encoding="utf-8") as f:
         raw = f.read()
     try:
@@ -3117,6 +3206,9 @@ def run_propagate(args):
             try:
                 recs.append(json.loads(line))
             except json.JSONDecodeError as e:
+                bad_lines += 1
+                # 조용히 건너뛰면 결과 건수만 줄어든다 — 화면에도 알린다(Rust 판과 같다).
+                print(f"[MpowerClassify] 전파 입력 {i}행 파싱 실패: {e}", file=sys.stderr)
                 log.warning("전파 입력 %d 행 파싱 실패: %s", i, e)
 
     # 문서가 아닌 줄을 걸러낸다 — 'file' 이 있는 것만 문서 레코드로 본다.
@@ -3129,6 +3221,13 @@ def run_propagate(args):
     # 오류가 안 나는 종류라, 2차 패스를 돌릴 때마다 미분류가 1건씩 늘어나는데도
     # 그것이 문서인 줄 알았다. Rust 판 load_propagate_input 과 같은 기준이다.
     recs = [r for r in recs if isinstance(r, dict) and isinstance(r.get("file"), str)]
+    # 깨진 줄만 있고 문서가 한 건도 없으면 '못 읽음'(1008)이다. 예전에는 빈 배열과
+    # success 로 끝나, 부르는 쪽이 "전파할 문서가 없었다"로 잘못 읽었다.
+    if not recs and bad_lines:
+        return fail_err("propagate_input_missing",
+                        f"[MpowerClassify] 전파 입력을 읽지 못했습니다"
+                        f"(문서 레코드 0건, 깨진 줄 {bad_lines}줄): {args.propagate}",
+                        args.propagate)
 
     # --seeds 가 있으면 외부 큐레이션 seed 저장소를 기준으로 비교(Phase 3 정석).
     seed_index = None
@@ -4240,7 +4339,14 @@ def _main(argv=None):
     # 문서 수집
     # => --file, --dir, --filelist 등 인자값에 따라 분류할 문서수집
     #-------------------------------------------
-    files = collect_files(args)
+    try:
+        files = collect_files(args)
+    except OSError as e:
+        # --files-from 목록 파일 자체를 못 연 경우(없음·권한). 예전에는 예외가 그대로
+        # 올라가 internal_error(9001)로 나갔다 — Rust 판과 같은 no_input(1001)으로 맞춘다.
+        return fail_err("no_input",
+                        f"[MpowerClassify] --files-from 목록 파일을 읽을 수 없습니다: "
+                        f"{args.files_from}\n  {e}", args.files_from)
     # 등록 모드에서는 계획에 적힌 문서가 곧 대상이다(--file/--dir 은 못 쓴다).
     if getattr(args, "_seed_plan", None):
         files = [p["file"] for p in args._seed_plan]

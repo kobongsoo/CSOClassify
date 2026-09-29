@@ -1484,7 +1484,14 @@ fn read_files_from(src: &str) -> Vec<PathBuf> {
         let _ = std::io::stdin().read_to_string(&mut buf);
         buf
     } else {
-        std::fs::read_to_string(src).unwrap_or_default()
+        // 목록 파일 자체를 못 열면 그 자리에서 멈춘다. 예전에는 빈 목록으로 삼켜
+        // "목록이 비었거나…" 라는 엉뚱한 안내가 나갔다 — 원인(파일 없음·권한)이 다르다.
+        match std::fs::read_to_string(src) {
+            Ok(s) => s,
+            Err(e) => errcodes::fail("no_input",
+                &format!("[MpowerClassify-rs] --files-from 목록 파일을 읽을 수 없습니다: {}\n  {}", src, e),
+                Some(src)),
+        }
     };
     // 메모장이 붙이는 BOM 을 떼어 낸다(안 떼면 첫 경로가 통째로 어긋난다).
     let raw = raw.trim_start_matches('\u{feff}');
@@ -1521,6 +1528,48 @@ fn filelist_is_target(opts: &Opts) -> bool {
 }
 
 //------------------------------------------------------------------
+// 처리할 문서가 0건일 때 — 계약대로 알리고 종료
+//=> 분류와 --text-only 가 같은 말·같은 코드로 멈추게 한 곳에 모은다.
+//   예전에는 --text-only 만 stderr 한 줄과 종료코드 3 으로 끝나, --json-errors 를
+//   줘도 JSON 이 나가지 않았다.
+//    1) 대상을 아예 안 줌 → 1002 no_target_arg (명령 자체를 고쳐야 한다)
+//    2) 줬는데 0건      → 1001 no_input (사용자에게 대상을 다시 물으면 된다)
+//
+// -in: opts = 파싱된 실행 옵션(file/dir/files_from/filelist/glob 을 본다)
+//
+// -out: 반환하지 않음(프로세스 종료)
+// -out: error = 언제나 errcodes::fail 로 종료(종료코드 3)
+//------------------------------------------------------------------
+fn fail_no_input(opts: &Opts) -> ! {
+    // 부르는 쪽의 대응이 다르므로 두 상황을 갈라 준다.
+    match opts.file.as_deref().or(opts.dir.as_deref()).or(opts.files_from.as_deref())
+              .or(opts.filelist.as_deref()) {
+        None => errcodes::fail("no_target_arg",
+            "[MpowerClassify-rs] 처리할 파일이 없습니다. --file · --dir · --files-from · --filelist 중 하나 지정.", None),
+        Some(t) => {
+            // 왜 0건인지를 상황에 맞게 말해 준다 — "없다"만으로는 무엇을
+            // 고칠지 모른다.
+            let why = if opts.file.is_some() {
+                if Path::new(t).is_dir() {
+                    "폴더입니다 — 폴더는 --dir 로 지정하세요.".to_string()
+                } else {
+                    "그런 파일이 없습니다.".to_string()
+                }
+            } else if opts.files_from.is_some() {
+                // 파이썬 판과 같은 안내 — 목록은 '폴더·패턴'과 고칠 곳이 다르다.
+                "목록이 비었거나, 목록의 경로가 모두 실제 파일이 아닙니다.".to_string()
+            } else {
+                format!("폴더가 없거나, --glob 패턴({})에 맞는 파일이 없습니다.",
+                        opts.glob.as_deref().unwrap_or("*"))
+            };
+            errcodes::fail("no_input",
+                &format!("[MpowerClassify-rs] 처리할 파일이 없습니다: {}\n{}", t, why),
+                Some(t))
+        }
+    }
+}
+
+//------------------------------------------------------------------
 // 본문만 뽑아 내보내기 (--text-only)
 //=> 등급도 PII 도 보지 않고, 문서에서 글자만 뽑아 정제해 그대로 내놓는다.
 //   파이썬 판 `run_text_only` 와 같은 모양이다 — 문서마다 '===== 경로 =====' 한 줄,
@@ -1544,31 +1593,36 @@ fn run_text_only(opts: &Opts) -> i32 {
     let mut arc_stats = archive::ExpandStats::default();
     let jobs: Vec<archive::Job> = archive::expand_paths(&files, &arc_tmp, 3, &mut arc_stats);
     if jobs.is_empty() {
-        eprintln!("[MpowerClassify-rs] 처리할 파일이 없습니다.");
         let _ = std::fs::remove_dir_all(&arc_tmp);
-        return 3;
+        fail_no_input(opts);
     }
     // --out 이 있으면 파일로, 없으면 화면으로. 본문이 크므로 버퍼를 쓴다.
     let mut sink: Box<dyn std::io::Write> = match &opts.out {
         Some(p) => match std::fs::File::create(p) {
             Ok(f) => Box::new(std::io::BufWriter::new(f)),
             Err(e) => {
-                eprintln!("[MpowerClassify-rs] 출력 파일을 못 만듭니다: {} :: {}", p, e);
+                // 인자 오류(3)가 아니라 출력 실패(4001, 종료코드 1)다 — 파이썬 판과 같다.
                 let _ = std::fs::remove_dir_all(&arc_tmp);
-                return 3;
+                errcodes::fail("output_write_failed",
+                    &format!("[MpowerClassify-rs] 출력 파일을 쓰지 못했습니다: {}\n  {}", p, e),
+                    Some(p));
             }
         },
         None => Box::new(std::io::BufWriter::new(std::io::stdout())),
     };
     let mut code = 0;
+    // 못 읽은 문서 수 — 상태 줄에 "N건 중 M건"을 싣는다(종료코드 1 의 까닭).
+    let mut failed = 0i64;
     for job in &jobs {
         let path = &job.src;
         let fmt = detect::detect_format(path);
         // 크기 상한은 분류 때와 같은 자를 쓴다 — 여기만 무제한이면 '이 판이 읽을 수
         // 있는 문서'의 범위가 모드마다 달라져 비교가 어긋난다.
-        let text = if let Some(why) = limits::check_size_limit(path, fmt) {
-            eprintln!("[MpowerClassify-rs] 크기 초과: {} :: {}", job.label, why);
+        let limits_hit = limits::check_size_limit(path, fmt);
+        let text = if let Some(why) = limits_hit.as_ref() {
+            note!("[MpowerClassify-rs] 크기 초과: {} :: {}", job.label, why);
             code = 1;
+            failed += 1;
             None
         } else {
             extract::extract_text(path, fmt)
@@ -1581,7 +1635,9 @@ fn run_text_only(opts: &Opts) -> i32 {
                 let _ = writeln!(sink, "{}", t);
             }
             None => {
-                eprintln!("[MpowerClassify-rs] 추출 실패: {} (감지={})",
+                // 크기 초과로 이미 센 문서는 또 세지 않는다(text 가 None 인 까닭이 같다).
+                if limits_hit.is_none() { failed += 1; }
+                note!("[MpowerClassify-rs] 추출 실패: {} (감지={})",
                           job.label, fmt.as_str());
                 code = 1;
             }
@@ -1589,6 +1645,7 @@ fn run_text_only(opts: &Opts) -> i32 {
     }
     let _ = sink.flush();
     let _ = std::fs::remove_dir_all(&arc_tmp);
+    errcodes::set_counts(jobs.len() as i64, failed);
     code
 }
 
@@ -1773,13 +1830,14 @@ fn handle_daemon_args(opts: &Opts) {
             "[MpowerClassify-rs] --serve 는 이 판에서 지원하지 않습니다 — 이 빌드에는 상주 데몬이 없습니다. 서버가 필요하면 파이썬 판(MpowerClassify.exe --serve)을 쓰고, 이 판은 호출마다 새 프로세스로 분류하십시오(대량 처리는 --files-from 이 가장 빠릅니다).",
             None);
     }
+    // --status/--stop 도 끝을 상태 줄로 알린다 — 파이썬 판은 언제나 한 줄을 낸다.
     if opts.status {
         println!("데몬 없음 — 이 빌드(MpowerClassify-rs)에는 상주 데몬이 없습니다");
-        std::process::exit(0);
+        std::process::exit(errcodes::finish(0, None));
     }
     if opts.stop {
         println!("정지할 데몬 없음 — 이 빌드(MpowerClassify-rs)에는 상주 데몬이 없습니다");
-        std::process::exit(0);
+        std::process::exit(errcodes::finish(0, None));
     }
     if opts.daemon_requested {
         eprintln!("[MpowerClassify-rs] --daemon 은 이 판에 없습니다(상주 데몬 미지원) — 호출마다 모델을 새로 읽습니다. 분류 결과는 같고 속도만 다릅니다. 대량 처리는 --files-from 으로 한 프로세스에 몰아주십시오.");
@@ -1956,8 +2014,21 @@ fn finish_seed_add(opts: &Opts, plan: &[seedcli::Plan], records: &[Value]) -> i3
 
     // 받는 쪽이 stdout 줄 수만 세면 "3건 넣었는데 2줄"을 못 알아챈다.
     // 0 과 1 이 다르다는 것을 종료코드로 못박는다(설계 P4).
-    if added.is_empty() { return 2; }
-    if failed.is_empty() { 0 } else { 1 }
+    // 상태 줄의 건수·까닭은 '등록'을 기준으로 다시 적는다. 앞선 분류 단계의 건수를
+    // 그대로 두면 "success 인데 failed=1" 같은 어긋난 줄이 나간다.
+    errcodes::set_counts(plan.len() as i64, failed.len() as i64);
+    let first_why = failed.first().map(|(_, w)| w.as_str()).unwrap_or("");
+    if added.is_empty() {
+        // 실패 사유는 '문서를 못 읽음'·'벡터를 못 얻음' — 기준으로 쓸 벡터를 못 만든
+        // 것이라 embed_failed(3003)다. 역추적하면 model_load_failed 로 잘못 붙는다.
+        errcodes::set_status("embed_failed",
+            &format!("{}건 중 한 건도 등록하지 못했습니다({})", plan.len(), first_why));
+        return 2;
+    }
+    if failed.is_empty() { return 0; }
+    errcodes::set_status("extract_failed",
+        &format!("{}건 중 {}건을 등록하지 못했습니다({})", plan.len(), failed.len(), first_why));
+    1
 }
 
 
@@ -2081,7 +2152,9 @@ fn main() {
     // 필요 없고, 없어야 이 모드가 '순수 파서'를 재는 자가 된다(있으면 규칙 읽는
     // 시간이 파서 시간으로 둔갑한다). 규칙셋이 아예 없는 자리에서도 돌아간다.
     if opts.text_only {
-        std::process::exit(run_text_only(&opts));
+        // 끝을 상태 줄로 알린다 — 분류와 같은 계약(성공도 한 줄). 파이썬 판과 같다.
+        let target = opts.file.clone().or_else(|| opts.dir.clone());
+        std::process::exit(errcodes::finish(run_text_only(&opts), target.as_deref()));
     }
 
     let rules_path = match resolve_rules(&opts) {
@@ -2132,7 +2205,6 @@ fn main() {
     // 문서·모델이 필요 없으므로 파일 수집 전에 끝낸다.
     if opts.check_rules {
         // 검사만 하는 모드도 끝을 알린다 — 부르는 쪽이 한 가지 방법으로만 읽게.
-        let _guard = ();
         println!("[MpowerClassify-rs] 규칙셋 정상: {}", rules_path.display());
         println!("  version={}  등급={}", rs.version, rules::GRADES.join("/"));
         println!("  regex_pii={} · pii_combos={} · keywords={} · sensitive={} · stamps={}",
@@ -2150,7 +2222,8 @@ fn main() {
             }
             None => println!("[MpowerClassify-rs] 업무분류(doctype) 축은 이번 실행에서 꺼져 있습니다."),
         }
-        return;
+        // 예전에는 여기서 그냥 return 해 --json-errors 여도 상태 줄이 없었다.
+        std::process::exit(errcodes::finish(0, None));
     }
 
     // 목록과 --file/--dir 을 같이 주면 어느 쪽이 진짜 대상인지 알 수 없다 —
@@ -2206,31 +2279,7 @@ fn main() {
     let mut arc_stats = archive::ExpandStats::default();
     let files: Vec<archive::Job> = archive::expand_paths(&files, &arc_tmp, 3, &mut arc_stats);
     if files.is_empty() {
-        // 부르는 쪽의 대응이 다르므로 두 상황을 갈라 준다.
-        //   · 대상을 아예 안 줌(1002) → 명령 자체를 고쳐야 한다
-        //   · 줬는데 0건(1001)        → 사용자에게 폴더를 다시 물으면 된다
-        match opts.file.as_deref().or(opts.dir.as_deref()).or(opts.files_from.as_deref())
-                  .or(opts.filelist.as_deref()) {
-            None => errcodes::fail("no_target_arg",
-                "[MpowerClassify-rs] 처리할 파일이 없습니다. --file · --dir · --files-from · --filelist 중 하나 지정.", None),
-            Some(t) => {
-                // 왜 0건인지를 상황에 맞게 말해 준다 — "없다"만으로는 무엇을
-                // 고칠지 모른다.
-                let why = if opts.file.is_some() {
-                    if Path::new(t).is_dir() {
-                        "폴더입니다 — 폴더는 --dir 로 지정하세요.".to_string()
-                    } else {
-                        "그런 파일이 없습니다.".to_string()
-                    }
-                } else {
-                    format!("폴더가 없거나, --glob 패턴({})에 맞는 파일이 없습니다.",
-                            opts.glob.as_deref().unwrap_or("*"))
-                };
-                errcodes::fail("no_input",
-                    &format!("[MpowerClassify-rs] 처리할 파일이 없습니다: {}\n{}", t, why),
-                    Some(t))
-            }
-        }
+        fail_no_input(&opts);
     }
 
     // 분류 모드 결정(ko-pii cli.py) — 배타: 벡터만 / 규칙만 / 기본(규칙+자동전파).
@@ -2301,13 +2350,24 @@ fn main() {
     // 아니라 **패닉**으로 죽는다(실측: "expected 1.22.x, but got 1.17.1", 종료코드 101).
     // Embedder::load() 가 None 을 준다는 전제가 거기서 깨지므로, 확인이 실패했으면
     // 아예 부르지 않는다 — 결과 파일도 못 내고 죽는 것보다 '전파만 못 한' 결과가 낫다.
+    // 확인 실패 사유 — 실제로 임베딩이 필요했던 배치면 아래에서 종료코드 2(3002)로 올린다.
+    let mut deploy_why: Option<String> = None;
     let deploy_ok = if embed_mode != "none" {
         match embed::check_deployment() {
             Ok(()) => true,
             Err(why) => {
+                // --vector-only 는 임베딩 비교만으로 등급을 정한다 — 모델이 없으면 전 문서가
+                // 미분류가 되므로 결과를 내지 않고 여기서 멈춘다(아직 문서를 읽기 전이다).
+                // 기본 모드는 규칙 등급이 유효하므로 결과를 내고 종료코드 2 로만 알린다.
+                if opts.vector_only {
+                    errcodes::fail("model_load_failed",
+                        &format!("[MpowerClassify-rs] --vector-only 는 임베딩 모델이 있어야 합니다 — {}", why),
+                        None);
+                }
                 errlog::err(&format!(
                     "[MpowerClassify-rs] 임베딩 모델/런타임 확인 실패 — {} \
 → 임베딩·전파를 건너뜁니다(규칙으로 정해진 등급은 그대로 나갑니다)", why));
+                deploy_why = Some(why);
                 false
             }
         }
@@ -2800,6 +2860,14 @@ fn main() {
         // 뒤에 붙던 [전파] 요약줄도 이 경우엔 안 나가므로, 그 자리를 이 줄이 대신한다.
         note!("[MpowerClassify-rs] 임베딩 불필요(전 문서 규칙 확정) → 모델 로드 생략");
     }
+    // 모델을 못 올려 임베딩이 필요한 문서를 못 다룬 경우 — 결과는 그대로 내되
+    // 종료코드를 2(3002 model_load_failed)로 올린다. 예전에는 exit 0·success 로 끝나,
+    // --vector-only 에서 전 문서가 미분류인데도 부르는 쪽은 성공으로 읽었다.
+    let mut model_fail: Option<String> = None;
+    if embed_mode != "none" && need_any && !deploy_ok {
+        model_fail = Some(format!("[MpowerClassify-rs] 임베딩 모델/런타임을 올리지 못해 임베딩·전파를 건너뛰었습니다 — {}",
+                                  deploy_why.clone().unwrap_or_default()));
+    }
     if embed_mode != "none" && need_any && deploy_ok {
         match embed::Embedder::load() {
             Some(mut embedder) => {
@@ -2887,9 +2955,21 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
                 }
                 } // if auto_prop
             }
-            None => errlog::err(&format!(
-                "[MpowerClassify-rs] 임베딩 모델/런타임 로드 실패 → 임베딩·전파 생략({}/{}, onnxruntime.dll 확인).",
-                embed::MODEL_ROOT, embed::MODEL_NAME)),
+            None => {
+                // 파일은 있는데 로드가 실패한 드문 경우(깨진 모델 등). --vector-only 는
+                // 결과가 전부 미분류라 내보내지 않는다 — 아직 한 건도 출력하지 않은 자리다.
+                if opts.vector_only {
+                    errcodes::fail("model_load_failed",
+                        &format!("[MpowerClassify-rs] --vector-only 인데 임베딩 모델을 올리지 못했습니다({}/{}, onnxruntime.dll 확인).",
+                                 embed::MODEL_ROOT, embed::MODEL_NAME),
+                        None);
+                }
+                let m = format!(
+                    "[MpowerClassify-rs] 임베딩 모델/런타임 로드 실패 → 임베딩·전파 생략({}/{}, onnxruntime.dll 확인).",
+                    embed::MODEL_ROOT, embed::MODEL_NAME);
+                errlog::err(&m);
+                model_fail = Some(m);
+            }
         }
     }
 
@@ -3066,7 +3146,15 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
     // 과정이었을 뿐이고, 이제 그 결과를 기준 문서 줄로 바꿔 쓴다.
     if !seed_plan.is_empty() {
         let code = finish_seed_add(&opts, &seed_plan, &records);
-        std::process::exit(code);
+        // 한 건도 못 넣은 까닭이 '모델을 못 올림'이면 그것을 알린다 — 대응(설치 점검)이
+        // 문서 탓(embed_failed)과 다르다. 둘 다 종료코드 2 라 번호만 달라진다.
+        if code == errcodes::exit_of("model_load_failed") {
+            if let Some(m) = model_fail.as_ref() {
+                errcodes::set_status("model_load_failed", m);
+            }
+        }
+        // 등록 모드도 끝을 상태 줄로 알린다(예전에는 바로 exit 해 줄이 없었다).
+        std::process::exit(errcodes::finish(code, None));
     }
 
     if let Some((seeds_n, decided, still)) = prop_stats {
@@ -3144,9 +3232,15 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
     let target = opts.file.clone().or_else(|| opts.dir.clone());
     // 못 읽은 문서와 아예 없던 문서는 부르는 쪽에 같은 뜻이다 —
     // "요청했는데 결과를 못 받았다". 둘 중 하나라도 있으면 종료코드를 올린다.
-    let code = if fail > 0 || n_missing_file > 0 {
+    let mut code = if fail > 0 || n_missing_file > 0 {
         errcodes::exit_of("extract_failed")
     } else { 0 };
+    // 모델 실패는 추출 실패보다 먼저 알린다 — 대응(설치 점검)이 배치 전체에 걸린다.
+    // 못 읽은 문서 건수는 상태 줄의 total·failed 에 그대로 남는다.
+    if let Some(m) = model_fail.as_ref() {
+        errcodes::set_status("model_load_failed", m);
+        code = errcodes::exit_of("model_load_failed");
+    }
 
     // 출력 조립. --out 으로 저장할 때는 상태도 파일 안에 남긴다 — 파일만 받아
     // 나중에 읽는 쪽은 stdout 을 이미 흘려보낸 뒤라, 파일 자체가 "이 결과가
@@ -3431,6 +3525,8 @@ fn load_propagate_input(path: &str) -> Vec<Value> {
         }
     };
     let mut recs: Vec<Value> = vec![];
+    // 깨진 줄 수 — 한 줄도 못 읽었는데 성공(빈 결과)으로 끝나지 않도록 센다.
+    let mut bad_lines = 0usize;
     match serde_json::from_str::<Value>(&raw) {
         Ok(Value::Array(a)) => recs = a,
         Ok(Value::Object(o)) => recs.push(Value::Object(o)),
@@ -3442,13 +3538,24 @@ fn load_propagate_input(path: &str) -> Vec<Value> {
                 if line.is_empty() { continue; }
                 match serde_json::from_str::<Value>(line) {
                     Ok(v) => recs.push(v),
-                    Err(e) => errlog::err(&format!("[MpowerClassify-rs] 전파 입력 {}행 파싱 실패: {}", i + 1, e)),
+                    Err(e) => {
+                        bad_lines += 1;
+                        errlog::err(&format!("[MpowerClassify-rs] 전파 입력 {}행 파싱 실패: {}", i + 1, e));
+                    }
                 }
             }
         }
     }
     // 요약 줄 제거 — 'file' 이 있는 것만 문서 레코드로 본다.
     recs.retain(|r| r.get("file").map_or(false, |f| f.is_string()));
+    // 깨진 줄만 있고 문서가 한 건도 없으면 '못 읽음'(1008)이다. 예전에는 빈 배열과
+    // success 로 끝나, 부르는 쪽이 "전파할 문서가 없었다"로 잘못 읽었다.
+    if recs.is_empty() && bad_lines > 0 {
+        errcodes::fail("propagate_input_missing",
+            &format!("[MpowerClassify-rs] 전파 입력을 읽지 못했습니다(문서 레코드 0건, 깨진 줄 {}줄): {}",
+                     bad_lines, path),
+            Some(path));
+    }
     recs
 }
 

@@ -2016,6 +2016,7 @@ def format_violations(path, violations):
 # -out: RuleSet
 # -out: error = 파일 없음 시 FileNotFoundError(어디에 두면 되는지 안내 메시지 포함)
 # -out: error = 등급 값이 틀리면 RuleSetValidationError(위반 전체 목록 포함)
+# -out: error = YAML 문법 오류·최상위가 매핑이 아니면 RuleSetValidationError(V0 1건)
 #------------------------------------------------------------------
 def load_rules(path=None, validate=True):
     path = path or default_rules_path()
@@ -2028,8 +2029,20 @@ def load_rules(path=None, validate=True):
             f"  · --cso-rules <파일경로> 로 지정하거나,\n"
             f"  · 환경변수 CSOCLASSIFY_POLICY_DIR 로 폴더를 지정하세요."
         )
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+    # YAML 문법이 깨졌거나 최상위가 매핑이 아니면 '내용 오류(V0)'로 알린다.
+    # 예전에는 YAMLError 가 그대로 올라가 internal_error(9001, 종료코드 1)로 나갔다 —
+    # 종료코드 1 은 '결과는 있는데 일부 문서를 못 읽음'이라 배치가 결과가 있는 줄 알았다.
+    # validate=False 여도 막는다: 매핑이 아니면 아래 data.get 에서 어차피 죽는다.
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        raise RuleSetValidationError(path, [_violation(
+            "V0", "(파일)", "-", "", _ABSENT,
+            "YAML 문법 오류 — " + " / ".join(str(e).splitlines()))])
+    if not isinstance(data, dict):
+        raise RuleSetValidationError(path, [_violation(
+            "V0", "(파일)", "-", "", data, "최상위가 매핑(mapping)이 아닙니다")])
 
     # 등급 값 검증을 '파싱 직후·객체 생성 전'에 한다. 로더가 기본값을 채워 넣기 전의
     # 원본을 봐야 관리자가 실제로 적은 값을 그대로 짚어 줄 수 있다.

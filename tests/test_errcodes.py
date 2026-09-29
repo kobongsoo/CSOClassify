@@ -750,3 +750,460 @@ def test_textsave_없으면_아무것도_안_남긴다(engine, tmp_path):
                       if '"file"' in l][0])
     assert "text_saved" not in rec, rec
     assert not list(tmp_path.glob("**/_index.jsonl"))
+
+
+
+# ════════════════════════════════════════════════════════════════════
+# 2026-09-29 오류 계약 검토에서 나온 구멍들 — 두 엔진이 같은 번호를 내는지 지킨다
+# ════════════════════════════════════════════════════════════════════
+
+#------------------------------------------------------------------
+# 한 엔진을 돌려 (종료코드, stdout 의 오류/상태 줄 전부) 를 받는 도우미
+#=> _run_status 는 '줄이 있다'를 전제로 한다. 여기서는 줄이 몇 개 나왔는지까지
+#   봐야 하는 시험이 있어(상태 줄이 빠지던 구멍) 줄 목록을 그대로 돌려준다.
+#
+# -in: engine    = "python" | "rust"
+# -in: argv      = 인자 목록(--json-errors 는 여기서 붙인다)
+# -in: extra_env = 덧붙일 환경변수(기본 None)
+#
+# -out: (returncode, [dict, ...]) = 종료코드와 {"error":…} 줄들의 error 객체
+# -out: error = 없음
+#------------------------------------------------------------------
+def _run_lines(engine, argv, extra_env=None):
+    cmd = [RS_EXE] if engine == "rust" else [sys.executable, "-m", "csoclassify"]
+    env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
+               PYTHONIOENCODING="utf-8",
+               CSOCLASSIFY_POLICY_DIR=os.path.join(ROOT, "resources", "policy"))
+    env.update(extra_env or {})
+    r = subprocess.run(cmd + argv + ["--json-errors"], cwd=ROOT, env=env,
+                       capture_output=True, text=True, encoding="utf-8")
+    lines = [json.loads(l)["error"] for l in r.stdout.splitlines()
+             if l.startswith('{"error"')]
+    return r.returncode, lines
+
+
+#------------------------------------------------------------------
+# Rust exe 가 없으면 rust 쪽 시험을 건너뛴다
+#=> 매 시험 첫 줄에 같은 두 줄을 되풀이하지 않으려는 작은 도우미다.
+#
+# -in: engine = "python" | "rust"
+#
+# -out: 없음
+# -out: error = rust 인데 exe 가 없으면 pytest.skip
+#------------------------------------------------------------------
+def _need(engine):
+    if engine == "rust" and not os.path.isfile(RS_EXE):
+        pytest.skip("Rust exe 없음(cargo build --release 먼저)")
+
+
+#------------------------------------------------------------------
+# 시험용 평범한 문서 하나 만들기
+#=> 규칙에 걸리지 않고 본문 길이도 충분한 문서 — 여러 시험이 같은 것을 쓴다.
+#
+# -in: folder = 문서를 둘 폴더(pathlib.Path)
+#
+# -out: pathlib.Path = 만든 문서 경로
+# -out: error = 없음
+#------------------------------------------------------------------
+def _plain_doc(folder):
+    folder.mkdir(parents=True, exist_ok=True)
+    doc = folder / "a.txt"
+    doc.write_text("사내 규정에 따른 일반 안내문입니다. " * 5, encoding="utf-8")
+    return doc
+
+
+#------------------------------------------------------------------
+# 적어 둔 까닭(set_status)이 종료코드 역추적보다 먼저다
+#=> exit 2 에는 model_load_failed·embed_failed 두 이름이 있다. 역추적만 하면
+#   언제나 표 앞쪽(3002)이 붙어, "기준 문서 0건 등록"이 "모델을 못 올렸다"로
+#   보고됐다. 종료코드와 짝이 안 맞는 까닭은 쓰지 않는다(code 와 exit 가 어긋나면 안 된다).
+#
+# -in: monkeypatch = 모듈 상태를 시험 뒤에 되돌린다
+#
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_적어둔_까닭이_역추적보다_먼저다(monkeypatch):
+    monkeypatch.setattr(errcodes, "_STATUS", None)
+    monkeypatch.setattr(errcodes, "_TOTAL", None)
+    monkeypatch.setattr(errcodes, "_FAILED", None)
+    errcodes.set_status("embed_failed", "3건 중 한 건도 등록하지 못했습니다")
+    st = errcodes.status_object(2)["error"]
+    assert (st["code"], st["kind"]) == (3003, "embed_failed")
+    assert st["message"] == "3건 중 한 건도 등록하지 못했습니다"
+    # 종료코드가 다르면(1) 적어 둔 까닭을 쓰지 않는다.
+    assert errcodes.status_object(1)["error"]["kind"] != "embed_failed"
+    assert errcodes.status_object(0)["error"]["kind"] == "success"
+    # 표에 없는 이름은 개발 중 오타다 — 조용히 넘기지 않는다.
+    with pytest.raises(KeyError):
+        errcodes.set_status("no_such_kind")
+
+
+#------------------------------------------------------------------
+# 규칙셋 YAML 문법이 깨지면 두 엔진 모두 2002(종료 4)
+#=> 파이썬 판은 YAMLError 가 그대로 올라가 internal_error(9001, 종료 1)로 나갔다.
+#   종료 1 은 '결과는 있는데 일부 문서를 못 읽음'이라 배치가 결과가 있는 줄 알았다.
+#   --check-rules 도 같은 로더를 쓰므로 함께 본다.
+#
+# -in: engine   = "python" | "rust"
+# -in: mode     = 추가 인자(분류 / --check-rules)
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("mode", [["--rule-only"], ["--check-rules"]])
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_깨진_규칙셋은_2002(engine, mode, tmp_path):
+    _need(engine)
+    bad = tmp_path / "cso_rule.yaml"
+    bad.write_text("regex_pii: [\n", encoding="utf-8")
+    _plain_doc(tmp_path / "docs")
+    rc, lines = _run_lines(engine, ["--dir", str(tmp_path / "docs"),
+                                    "--cso-rules", str(bad)] + mode)
+    assert (rc, lines[-1]["code"], lines[-1]["kind"]) == (4, 2002, "rules_invalid"), lines
+    assert lines[-1]["path"].replace("\\", "/").endswith("cso_rule.yaml")
+
+
+#------------------------------------------------------------------
+# 규칙셋 최상위가 매핑이 아니어도 V0 (파이썬 로더)
+#=> YAML 로는 멀쩡한데 목록 하나뿐인 파일은 로더 안의 data.get 에서 AttributeError
+#   로 죽어 9001 이 됐을 자리다. 내용 오류이므로 V0 로 알린다.
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_규칙셋_최상위가_목록이면_V0(tmp_path):
+    from csoclassify.classify.rules import load_rules, RuleSetValidationError
+    p = tmp_path / "cso_rule.yaml"
+    p.write_text("- a\n- b\n", encoding="utf-8")
+    with pytest.raises(RuleSetValidationError) as ei:
+        load_rules(str(p))
+    assert ei.value.violations[0]["code"] == "V0"
+
+
+#------------------------------------------------------------------
+# --files-from 목록 파일이 없으면 두 엔진 모두 1001 + path
+#=> 파이썬 판은 FileNotFoundError 가 그대로 올라가 9001 로 나갔고, Rust 판은 빈
+#   목록으로 삼켜 "목록이 비었거나…" 라는 엉뚱한 안내를 냈다.
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_files_from_목록이_없으면_1001(engine, tmp_path):
+    _need(engine)
+    lst = str(tmp_path / "없는목록.txt")
+    rc, lines = _run_lines(engine, ["--files-from", lst, "--rule-only"])
+    assert (rc, [l["code"] for l in lines]) == (3, [1001]), lines
+    assert lines[0]["path"] == lst
+
+
+#------------------------------------------------------------------
+# --text-only 도 같은 계약을 따른다 (0건 · 출력 실패 · 성공)
+#=> Rust 판은 이 모드만 errcodes 를 거치지 않아, --json-errors 를 줘도 JSON 이
+#   없었고 출력 파일 실패를 인자 오류(3)로 냈다. 성공해도 상태 줄이 없었다.
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_text_only도_계약을_따른다(engine, tmp_path):
+    _need(engine)
+    docs = tmp_path / "docs"
+    _plain_doc(docs)
+
+    # (1) 대상 0건
+    rc, lines = _run_lines(engine, ["--text-only", "--dir", str(tmp_path / "없다")])
+    assert (rc, [l["code"] for l in lines]) == (3, [1001]), lines
+
+    # (2) 출력 파일을 못 씀 — 인자 오류가 아니라 4001(종료 1)
+    bad_out = str(tmp_path / "없는폴더" / "o.txt")
+    rc, lines = _run_lines(engine, ["--text-only", "--dir", str(docs), "--out", bad_out])
+    assert (rc, [l["code"] for l in lines]) == (1, [4001]), lines
+    assert lines[0]["path"] == bad_out
+
+    # (3) 성공 — 상태 줄 한 줄, 건수 포함
+    rc, lines = _run_lines(engine, ["--text-only", "--dir", str(docs),
+                                    "--out", str(tmp_path / "o.txt")])
+    assert rc == 0 and len(lines) == 1, lines
+    assert (lines[0]["kind"], lines[0]["total"], lines[0]["failed"]) == ("success", 1, 0)
+
+
+#------------------------------------------------------------------
+# --check-rules 가 성공해도 상태 줄이 나온다
+#=> Rust 판은 검사 결과만 찍고 그냥 return 해 상태 줄이 없었다. 부르는 쪽은
+#   '줄이 없음'을 성공으로 읽어야 했다 — 프로세스가 조용히 죽은 것과 구분이 안 된다.
+#
+# -in: engine = "python" | "rust"
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_check_rules_성공도_상태줄(engine):
+    _need(engine)
+    rc, lines = _run_lines(engine, ["--check-rules"])
+    assert rc == 0 and len(lines) == 1, lines
+    assert (lines[0]["code"], lines[0]["kind"]) == (0, "success")
+
+
+#------------------------------------------------------------------
+# Rust --status/--stop 도 상태 줄을 낸다
+#=> 파이썬 판은 데몬 질의도 _main 을 거쳐 언제나 한 줄을 낸다. Rust 판만 exit(0)
+#   으로 바로 끝나 줄이 없었다. (파이썬 --status 는 데몬 접속을 시도해 느려서 뺀다.)
+#
+# -in: flag = "--status" | "--stop"
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("flag", ["--status", "--stop"])
+def test_rust_데몬질의도_상태줄(flag):
+    _need("rust")
+    rc, lines = _run_lines("rust", [flag])
+    assert rc == 0 and [l["kind"] for l in lines] == ["success"], lines
+
+
+#------------------------------------------------------------------
+# --propagate 입력이 전부 깨졌으면 1008
+#=> 두 엔진 모두 깨진 줄을 건너뛰고 빈 배열과 success 로 끝났다. 부르는 쪽은
+#   "전파할 문서가 없었다"로 읽는다 — 실제로는 입력을 하나도 못 읽었는데.
+#   멀쩡한 줄이 섞여 있으면 그 줄로 계속한다(일부 손상은 경고로 알린다).
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_전파입력이_전부_깨지면_1008(engine, tmp_path):
+    _need(engine)
+    bad = tmp_path / "r.jsonl"
+    bad.write_text("not json\n{broken\n", encoding="utf-8")
+    rc, lines = _run_lines(engine, ["--propagate", str(bad)])
+    assert (rc, [l["code"] for l in lines]) == (3, [1008]), lines
+    assert lines[0]["path"] == str(bad)
+
+    # 멀쩡한 문서 줄이 하나라도 있으면 멈추지 않는다.
+    bad.write_text('not json\n{"file":"a.txt","grade":"C"}\n', encoding="utf-8")
+    rc, lines = _run_lines(engine, ["--propagate", str(bad), "--axis", "security"])
+    assert rc == 0 and lines[-1]["kind"] == "success", lines
+
+
+#------------------------------------------------------------------
+# 모델을 못 올리면 — Rust (vector-only 는 멈춤 · 기본 모드는 결과 + 3002)
+#=> 예전에는 두 경우 모두 exit 0·success 였다. 설계서 5장의 "3002 면 설치 안내"
+#   분기가 한 번도 타지 않았다.
+#    · --vector-only: 임베딩 비교만으로 등급을 정하므로 모델이 없으면 전 문서가
+#      미분류다. 그런 결과는 쓸모가 없고 정상 결과처럼 적재될 위험만 있어, 문서를
+#      읽기 전에 오류만 내고 멈춘다(결과 파일을 만들지 않는다).
+#    · 기본 모드: 규칙 등급은 유효하므로 결과를 내고 종료코드 2 로 알린다.
+#   CSO_MODEL 을 '빈 폴더'로 준다 — 없는 경로를 주면 exe 옆 모델로 되돌아간다.
+#
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+def test_rust_모델을_못_올리면_3002(tmp_path):
+    _need("rust")
+    docs = tmp_path / "docs"
+    doc = _plain_doc(docs)
+    seeds = tmp_path / "seed.jsonl"
+    seeds.write_text('{"file":"x","grade":"C","vector":[0.1,0.2]}\n', encoding="utf-8")
+    (tmp_path / "빈모델").mkdir()
+    env = {"CSO_MODEL": str(tmp_path / "빈모델")}
+
+    # (1) --vector-only — 오류 한 줄만, 결과 파일은 만들지 않는다.
+    out = tmp_path / "vo.jsonl"
+    rc, lines = _run_lines("rust", ["--dir", str(docs), "--vector-only", "--seeds", str(seeds),
+                                    "--format", "jsonl", "--out", str(out)], env)
+    assert (rc, [l["code"] for l in lines]) == (2, [3002]), lines
+    assert "--vector-only" in lines[0]["message"]
+    assert not out.exists(), "vector-only 는 모델이 없으면 결과를 내지 않아야 한다"
+
+    # (2) 기본 모드 — 결과는 내되 종료코드 2 · 3002.
+    out = tmp_path / "def.jsonl"
+    rc, lines = _run_lines("rust", ["--dir", str(docs), "--seeds", str(seeds),
+                                    "--format", "jsonl", "--out", str(out)], env)
+    assert (rc, lines[-1]["code"], lines[-1]["kind"]) == (2, 3002, "model_load_failed"), lines
+    assert any('"file"' in l for l in out.read_text(encoding="utf-8").splitlines())
+
+    # (3) 기준 문서 등록도 모델이 없으면 0건 — 까닭은 3002 이지 3003 이 아니다.
+    rc, lines = _run_lines("rust", ["--seed-add", str(doc), "--seed-grade", "C",
+                                    "--seed-reviewer", "시험", "--seeds",
+                                    str(tmp_path / "new_seed.jsonl"), "--axis", "security"], env)
+    assert (rc, lines[-1]["code"]) == (2, 3002), lines
+    assert (lines[-1]["total"], lines[-1]["failed"]) == (1, 1)
+
+
+#------------------------------------------------------------------
+# 파이썬 main 을 프로세스 안에서 돌리는 준비
+#=> 파이썬 판은 모델 경로를 끌 환경변수가 없어(캐시·exe 옆 등 폴백이 여럿) 모듈을
+#   바꿔 끼워 '모델 없음'을 만든다. main 이 바꾸는 전역(stderr·errcodes 상태)은
+#   시험 뒤에 되돌린다.
+#
+# -in: monkeypatch = 전역을 시험 뒤에 되돌린다
+# -in: tmp_path    = pytest 임시 폴더(오류 로그 자리)
+#
+# -out: (docs, seeds) = 평범한 문서 폴더, seed 파일 경로
+# -out: error = 없음
+#------------------------------------------------------------------
+def _py_inprocess_setup(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "stderr", sys.stderr)
+    for name, val in (("_JSON", False), ("_DONE", False), ("_TOTAL", None),
+                      ("_FAILED", None), ("_STATUS", None), ("_VERSIONS", {})):
+        monkeypatch.setattr(errcodes, name, val)
+    monkeypatch.setenv("CSOCLASSIFY_POLICY_DIR", os.path.join(ROOT, "resources", "policy"))
+    monkeypatch.setenv("CSOCLASSIFY_ERRLOG", str(tmp_path / "err.log"))
+    docs = tmp_path / "docs"
+    _plain_doc(docs)
+    seeds = tmp_path / "seed.jsonl"
+    seeds.write_text('{"file":"x","grade":"C","vector":[0.1,0.2]}\n', encoding="utf-8")
+    return docs, seeds
+
+
+#------------------------------------------------------------------
+# 파이썬 main 을 돌려 (종료코드, 오류/상태 줄들) 받기
+#=> 위 준비를 마친 뒤 부른다. --json-errors 는 여기서 붙인다.
+#
+# -in: argv   = 인자 목록
+# -in: capsys = stdout 을 받는다
+#
+# -out: (code, [dict, ...]) = 종료코드와 {"error":…} 줄들의 error 객체
+# -out: error = 없음
+#------------------------------------------------------------------
+def _py_inprocess_run(argv, capsys):
+    code = cli.main(argv + ["--no-daemon", "--json-errors"])
+    lines = [json.loads(l)["error"] for l in capsys.readouterr().out.splitlines()
+             if l.startswith('{"error"')]
+    return code, lines
+
+
+#------------------------------------------------------------------
+# 모델 파일이 없으면 --vector-only 는 문서를 읽기 전에 멈춘다 — Python
+#=> 값싼 확인(_model_unavailable)이 모델 폴더에서 model.onnx 를 못 찾으면 3002 한 줄만
+#   내고 끝난다. 임베더를 만들려는 시도조차 없어야 한다(가짜 임베더가 불리면 실패).
+#
+# -in: monkeypatch = 모델 폴더·임베더를 바꿔 끼운다
+# -in: capsys      = stdout 을 받는다
+# -in: tmp_path    = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_python_vector_only_모델없으면_멈춘다(monkeypatch, capsys, tmp_path):
+    from csoclassify import resources
+    from csoclassify.embed import onnx_embedder
+    docs, seeds = _py_inprocess_setup(monkeypatch, tmp_path)
+    empty = tmp_path / "빈모델"
+    empty.mkdir()
+    monkeypatch.setattr(resources, "resolve_model_dir", lambda local_dir: str(empty))
+
+    # 임베더가 불리면 '읽기 전에 멈춘다'는 약속이 깨진 것이다.
+    class _MustNotLoad:
+        def __init__(self, *a, **k):
+            raise AssertionError("vector-only 사전 확인이 임베더보다 먼저여야 한다")
+
+    monkeypatch.setattr(onnx_embedder, "OnnxEmbedder", _MustNotLoad)
+    out = tmp_path / "o.jsonl"
+    code, lines = _py_inprocess_run(["--dir", str(docs), "--vector-only", "--seeds", str(seeds),
+                                     "--axis", "security", "--format", "jsonl",
+                                     "--out", str(out)], capsys)
+    assert (code, [l["code"] for l in lines]) == (2, [3002]), lines
+    assert "model.onnx" in lines[0]["message"]
+    assert not any('"file"' in l for l in out.read_text(encoding="utf-8").splitlines())
+
+
+#------------------------------------------------------------------
+# 모델 파일은 있는데 로드가 실패해도 --vector-only 는 결과를 내지 않는다 — Python
+#=> 깨진 모델·런타임 불일치처럼 값싼 확인을 통과한 드문 경우다. 임베더를 '늘 실패하는
+#   가짜'로 바꿔 끼워 만든다. 결과가 전부 미분류라 내보내지 않고 3002 로 멈춘다.
+#
+# -in: monkeypatch = 임베더를 바꿔 끼운다
+# -in: capsys      = stdout 을 받는다
+# -in: tmp_path    = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_python_vector_only_로드실패도_멈춘다(monkeypatch, capsys, tmp_path):
+    from csoclassify.embed import onnx_embedder
+    docs, seeds = _py_inprocess_setup(monkeypatch, tmp_path)
+    # 사전 확인은 통과시킨다 — 파일은 있는 상황이다.
+    monkeypatch.setattr(cli, "_model_unavailable", lambda model: None)
+
+    class _Broken:
+        def __init__(self, *a, **k):
+            raise RuntimeError("model.onnx 깨짐(시험용)")
+
+    monkeypatch.setattr(onnx_embedder, "OnnxEmbedder", _Broken)
+    out = tmp_path / "o.jsonl"
+    code, lines = _py_inprocess_run(["--dir", str(docs), "--vector-only", "--seeds", str(seeds),
+                                     "--axis", "security", "--format", "jsonl",
+                                     "--out", str(out)], capsys)
+    assert (code, [l["code"] for l in lines]) == (2, [3002]), lines
+    assert "model.onnx 깨짐" in lines[0]["message"]
+    assert not any('"file"' in l for l in out.read_text(encoding="utf-8").splitlines())
+
+
+#------------------------------------------------------------------
+# 기본 모드는 모델을 못 올려도 결과를 내고 3002(종료 2) — Python
+#=> 규칙으로 정해진 등급은 유효하므로 결과를 버리지 않는다. 예전에는 일반 로그
+#   warning 한 줄뿐이라 화면에도 오류 로그에도 흔적이 없었고 exit 0 이었다.
+#
+# -in: monkeypatch = 임베더를 바꿔 끼운다
+# -in: capsys      = stdout 을 받는다
+# -in: tmp_path    = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = 없음
+#------------------------------------------------------------------
+def test_python_기본모드는_결과내고_3002(monkeypatch, capsys, tmp_path):
+    from csoclassify.embed import onnx_embedder
+    docs, seeds = _py_inprocess_setup(monkeypatch, tmp_path)
+
+    class _NoModel:
+        def __init__(self, *a, **k):
+            raise RuntimeError("model.onnx 없음(시험용)")
+
+    monkeypatch.setattr(onnx_embedder, "OnnxEmbedder", _NoModel)
+    out = tmp_path / "o.jsonl"
+    code, lines = _py_inprocess_run(["--dir", str(docs), "--seeds", str(seeds),
+                                     "--axis", "security", "--format", "jsonl",
+                                     "--out", str(out)], capsys)
+    assert (code, lines[-1]["code"], lines[-1]["kind"]) == (2, 3002, "model_load_failed"), lines
+    assert "model.onnx 없음" in lines[-1]["message"]
+    assert any('"file"' in l for l in out.read_text(encoding="utf-8").splitlines())
+
+
+#------------------------------------------------------------------
+# 기준 문서 등록이 끝나면 상태 줄 한 줄 — 건수는 '등록' 기준
+#=> Rust 판은 등록 뒤 바로 exit 해 상태 줄이 없었고, 파이썬 판은 분류 단계의
+#   건수를 그대로 실어 "success 인데 failed=1" 같은 어긋난 줄을 낼 수 있었다.
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_seed_add_성공도_상태줄(engine, tmp_path):
+    _need(engine)
+    doc = _plain_doc(tmp_path / "docs")
+    rc, lines = _run_lines(engine, ["--seed-add", str(doc), "--seed-grade", "C",
+                                    "--seed-reviewer", "시험", "--seeds",
+                                    str(tmp_path / "seed.jsonl"), "--axis", "security"])
+    assert rc == 0 and len(lines) == 1, lines
+    assert (lines[0]["kind"], lines[0]["total"], lines[0]["failed"]) == ("success", 1, 0)
