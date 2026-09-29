@@ -1610,6 +1610,31 @@ def _model_unavailable(model):
 
 
 #------------------------------------------------------------------
+# seed 파일이 이번 벡터와 같은 차원인가
+#=> 다른 모델로 만든 seed 를 쓰면 비교가 성립하지 않는다(파이썬은 행렬 오류로 죽고,
+#   Rust 판은 조용히 잘라 엉뚱한 유사도를 냈다). 쓰기 전에 차원을 맞춰 본다.
+#    1) seed 파일의 {차원: 건수} 를 센다
+#    2) 이번 차원과 다른 것이 하나라도 있으면(섞인 경우 포함) 안내 문장을 돌려준다
+#
+# -in: seeds_path = seed 파일 경로
+# -in: dim        = 이번 실행 벡터의 차원
+# -in: what       = 안내에 쓸 '이번 벡터'의 설명(예: "모델 ko-sroberta(768차원)")
+#
+# -out: str = 맞지 않는 까닭(맞으면 None)
+# -out: error = 없음
+#------------------------------------------------------------------
+def _seed_dim_problem(seeds_path, dim, what):
+    from .classify.propagate import seed_file_dims
+    dims = seed_file_dims(seeds_path)
+    bad = {d: n for d, n in dims.items() if d != dim}
+    if not bad:
+        return None
+    shown = " · ".join(f"{d}차원 {n}건" for d, n in sorted(dims.items()))
+    return (f"기준 문서(seed) 벡터가 이번 벡터와 맞지 않습니다 — {what}, seed 파일은 {shown}: {seeds_path}\n"
+            f"  seed 를 만든 모델로 --model 을 맞추거나, 이 모델로 seed 를 다시 만드세요.")
+
+
+#------------------------------------------------------------------
 # 업무분류(doctype) 축 로드 — 자동 생성 규칙 파일 하나로 켠다 (설계서 4-6)
 #=> --build-doc-rule 로 만든 doc_rule.yaml 을 읽는다. 분류체계(제목·경로·조상)가
 #   규칙 줄 안에 있으므로 다른 파일은 읽지 않는다(2026-09-22 — doc_taxonomy.yaml 없앰).
@@ -1934,6 +1959,15 @@ def run_classify(files, args, out_fp):
         # 전파(auto_prop)는 보류 문서 벡터가 있어야 구제 가능 → 꺼져 있으면 needed 로 올린다.
         if auto_prop and embed_mode == "none":
             embed_mode = "needed"
+
+    # seed 를 실제로 쓰는 실행(전파·기준 문서 등록)이면, 문서를 읽기 전에 seed 벡터가
+    # 이번 모델과 같은 차원인지 본다 — 다른 모델로 만든 seed 와는 비교가 성립하지 않는다.
+    # 규칙만 쓰는 실행은 exe 옆 seed 가 무엇이든 상관없으므로 보지 않는다.
+    if (auto_prop or getattr(args, "_seed_plan", None)) and seeds_path and os.path.isfile(seeds_path):
+        _spec = config.get_model_spec(args.model)
+        why = _seed_dim_problem(seeds_path, _spec.dim, f"모델 {_spec.key}({_spec.dim}차원)")
+        if why:
+            return fail_err("seeds_model_mismatch", f"[MpowerClassify] {why}", seeds_path)
 
     #-----------------------------------------------------------
     # 임베딩 수단 준비(임베딩이 필요한 정책일 때만). 데몬(웜 모델 재사용) 우선, 실패 시
@@ -3236,6 +3270,14 @@ def run_propagate(args):
             return fail_err("seeds_missing",
                             f"[MpowerClassify] seed 파일이 없습니다: {args.seeds}",
                             args.seeds)
+        # 1차 결과의 벡터와 seed 벡터가 같은 모델에서 나왔는지(차원) 본다. 전파 모드는 모델을
+        # 올리지 않으므로 '이번 벡터'는 입력 레코드에 이미 실린 벡터다.
+        rec_dim = next((len(r["vector"]) for r in recs
+                        if isinstance(r.get("vector"), list) and r["vector"]), None)
+        if rec_dim:
+            why = _seed_dim_problem(args.seeds, rec_dim, f"1차 결과 벡터({rec_dim}차원)")
+            if why:
+                return fail_err("seeds_model_mismatch", f"[MpowerClassify] {why}", args.seeds)
         seed_index = SeedIndex.from_seed_file(args.seeds)
         print(f"[MpowerClassify] 외부 seed {seed_index.size}건 로드: {args.seeds}", file=sys.stderr)
 

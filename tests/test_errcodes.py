@@ -1020,7 +1020,7 @@ def test_rust_모델을_못_올리면_3002(tmp_path):
     docs = tmp_path / "docs"
     doc = _plain_doc(docs)
     seeds = tmp_path / "seed.jsonl"
-    seeds.write_text('{"file":"x","grade":"C","vector":[0.1,0.2]}\n', encoding="utf-8")
+    _seed_file(seeds)   # e5 계열(384차원) seed — 차원 검사(1013)에 걸리지 않게
     (tmp_path / "빈모델").mkdir()
     env = {"CSO_MODEL": str(tmp_path / "빈모델")}
 
@@ -1069,7 +1069,7 @@ def _py_inprocess_setup(monkeypatch, tmp_path):
     docs = tmp_path / "docs"
     _plain_doc(docs)
     seeds = tmp_path / "seed.jsonl"
-    seeds.write_text('{"file":"x","grade":"C","vector":[0.1,0.2]}\n', encoding="utf-8")
+    _seed_file(seeds)   # e5 계열(384차원) seed — 차원 검사(1013)에 걸리지 않게
     return docs, seeds
 
 
@@ -1215,22 +1215,31 @@ def test_seed_add_성공도_상태줄(engine, tmp_path):
 # ════════════════════════════════════════════════════════════════════
 
 #------------------------------------------------------------------
-# Rust 판이 아는 파이썬 모델 목록이 파이썬 표와 같은가
-#=> Rust 판은 이 목록으로 --model 을 가른다(모르는 이름 1003 · 이 판에 없는 모델 1012).
-#   파이썬에 모델이 늘었는데 Rust 목록이 그대로면 새 모델 이름이 '오타'로 잘못 불린다.
+# 두 판의 모델 표가 칸 하나까지 같은가
+#=> 2026-09-29 부터 Rust 판도 세 모델(e5-small-ko · e5-small · ko-sroberta)을 --model 로
+#   고른다. 같은 --model 인데 폴더·차원·프리픽스·토큰 상한이 하나라도 다르면 두 판이
+#   다른 벡터를 만들고, 그 벡터로 만든 seed 가 서로 섞인다. 그래서 표 전체를 대조한다.
 #
 # -in: 없음
 #
 # -out: 없음(단언)
 # -out: error = Rust 소스가 없으면 건너뛴다
 #------------------------------------------------------------------
-def test_rust_모델목록이_파이썬과_같다():
+def test_두_판의_모델표가_같다():
     src_path = os.path.join(ROOT, "Rust", "src", "embed.rs")
     if not os.path.isfile(src_path):
         pytest.skip("Rust 소스 없음")
     from csoclassify import config
-    body = open(src_path, encoding="utf-8").read().split("PYTHON_MODELS", 1)[1].split(";", 1)[0]
-    assert re.findall(r'"([^"]+)"', body) == list(config.MODELS)
+    src = open(src_path, encoding="utf-8").read()
+    body = src.split("pub const MODELS", 1)[1].split("];", 1)[0]
+    rust = [(m.group(1), m.group(2), int(m.group(3)), m.group(4), int(m.group(5)))
+            for m in re.finditer(r'key:\s*"([^"]*)",\s*local_dir:\s*"([^"]*)",\s*dim:\s*(\d+),\s*'
+                                 r'passage_prefix:\s*"([^"]*)",\s*max_tokens_model:\s*(\d+)', body)]
+    py = [(s.key, s.local_dir, s.dim, s.passage_prefix, s.max_tokens_model)
+          for s in config.MODELS.values()]
+    assert rust == py
+    # 기본 모델도 같아야 한다 — --model 을 안 준 호출이 두 판에서 같은 벡터를 내려면.
+    assert re.search(r'DEFAULT_MODEL:\s*&str\s*=\s*"([^"]+)"', src).group(1) == config.DEFAULT_MODEL
 
 
 #------------------------------------------------------------------
@@ -1263,9 +1272,9 @@ def test_파이썬전용_옵션_값오류는_1003(engine, argv, tmp_path):
 
 #------------------------------------------------------------------
 # 결과(벡터)를 바꾸는 값을 이 판이 못 따르면 1012 — Rust
-#=> 예전에는 `--model ko-sroberta` 를 줘도 조용히 e5-small-ko 로 벡터를 만들어, 다른 모델로
-#   만든 seed 와 섞어 비교하는 결과가 오류 없이 나왔다. --max-tokens·--overlap·--precision f16
-#   도 벡터를 바꾸는 값이다. 이 판이 쓰는 값(기본값)은 그대로 받는다.
+#=> --max-tokens·--overlap·--precision f16 은 파이썬 판에서 벡터를 바꾸는 값인데 이 판은
+#   고정값만 쓴다 — 다른 값은 1012 로 멈춘다. 이 판이 쓰는 값(기본값)은 그대로 받는다.
+#   (--model 은 2026-09-29 부터 세 모델 모두 실제로 고른다.)
 #
 # -in: argv     = 덧붙일 인자
 # -in: code     = 기대하는 code(0 이면 성공)
@@ -1275,8 +1284,9 @@ def test_파이썬전용_옵션_값오류는_1003(engine, argv, tmp_path):
 # -out: error = Rust exe 가 없으면 건너뛴다
 #------------------------------------------------------------------
 @pytest.mark.parametrize("argv, code", [
-    (["--model", "ko-sroberta"], 1012),
-    (["--model", "e5-small"], 1012),
+    # 모델 고르기는 이제 받는다(2026-09-29 — 세 모델 모두). --rule-only 라 모델을 올리지는 않는다.
+    (["--model", "ko-sroberta"], 0),
+    (["--model", "e5-small"], 0),
     (["--max-tokens", "256"], 1012),
     (["--overlap", "64"], 1012),
     (["--precision", "f16"], 1012),
@@ -1444,3 +1454,156 @@ def test_files_from_표준입력이_된다(engine, tmp_path):
                        text=True, encoding="utf-8")
     st = [json.loads(l)["error"] for l in r.stdout.splitlines() if l.startswith('{"error"')][-1]
     assert (r.returncode, st["kind"], st["total"]) == (0, "success", 1), st
+
+
+
+# ════════════════════════════════════════════════════════════════════
+# 2026-09-29 세 모델 지원 — 다른 모델로 만든 seed 는 섞지 않는다(1013)
+# ════════════════════════════════════════════════════════════════════
+
+#------------------------------------------------------------------
+# 384차원 seed 파일 만들기(e5 계열이 만든 seed 흉내)
+#=> 값은 의미가 없고 '차원'만 본다.
+#
+# -in: path = 만들 파일 경로(pathlib.Path)
+# -in: dim  = 벡터 차원(기본 384)
+#
+# -out: pathlib.Path = 만든 파일
+# -out: error = 없음
+#------------------------------------------------------------------
+def _seed_file(path, dim=384):
+    path.write_text(json.dumps({"file": "x.txt", "grade": "C", "vector": [0.01] * dim}) + "\n",
+                    encoding="utf-8")
+    return path
+
+
+#------------------------------------------------------------------
+# 다른 모델의 seed 로 전파하려 하면 1013 — 분류 · 기준 문서 등록
+#=> --model ko-sroberta(768차원)로 돌리는데 seed 는 e5(384차원)로 만든 것이면 비교가
+#   성립하지 않는다. 예전에는 파이썬 판이 행렬 모양 오류로 죽고(9001), Rust 판은 짧은 쪽에
+#   맞춰 잘라 엉뚱한 유사도를 냈다. 문서를 읽기 전에(모델을 올리기 전에) 멈춘다 —
+#   이 PC 에 ko-sroberta 모델 파일이 없어도 1013 이 먼저 나와야 한다.
+#
+# -in: engine   = "python" | "rust"
+# -in: mode     = 추가 인자(분류 기본 모드 / 기준 문서 등록)
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("mode", ["classify", "seed_add"])
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_다른모델_seed는_1013(engine, mode, tmp_path):
+    _need(engine)
+    doc = _plain_doc(tmp_path / "docs")
+    seeds = _seed_file(tmp_path / "seed.jsonl")
+    if mode == "classify":
+        argv = ["--dir", str(tmp_path / "docs"), "--seeds", str(seeds)]
+    else:
+        argv = ["--seed-add", str(doc), "--seed-grade", "C", "--seed-reviewer", "시험",
+                "--seeds", str(seeds), "--axis", "security"]
+    rc, lines = _run_lines(engine, argv + ["--model", "ko-sroberta", "--no-daemon"])
+    assert (rc, [l["code"] for l in lines]) == (3, [1013]), lines
+    assert lines[0]["path"] == str(seeds)
+    assert "768" in lines[0]["message"] and "384" in lines[0]["message"]
+    # 같은 모델이면 이 검사에 걸리지 않는다(규칙만 쓰는 실행으로 확인 — 모델 파일 불필요).
+    rc, lines = _run_lines(engine, ["--dir", str(tmp_path / "docs"), "--seeds", str(seeds),
+                                    "--model", "ko-sroberta", "--rule-only",
+                                    "--out", str(tmp_path / "o.jsonl")])
+    assert lines[-1]["code"] == 0, lines
+
+
+#------------------------------------------------------------------
+# 전파 입력의 벡터와 seed 의 차원이 다르면 1013 — --propagate
+#=> 전파 모드는 모델을 올리지 않는다. 비교 대상은 1차 결과 레코드에 이미 실린 벡터다.
+#   seed 안에 차원이 섞여 있어도(일부만 다른 모델) 같은 오류다.
+#
+# -in: engine   = "python" | "rust"
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("engine", ["python", "rust"])
+def test_전파입력과_seed_차원이_다르면_1013(engine, tmp_path):
+    _need(engine)
+    rec = tmp_path / "r1.jsonl"
+    rec.write_text(json.dumps({"file": "a.txt", "grade": None, "vector": [0.02] * 768}) + "\n",
+                   encoding="utf-8")
+    seeds = _seed_file(tmp_path / "seed.jsonl")
+    rc, lines = _run_lines(engine, ["--propagate", str(rec), "--seeds", str(seeds),
+                                    "--axis", "security"])
+    assert (rc, [l["code"] for l in lines]) == (3, [1013]), lines
+
+    # 차원이 섞인 seed(384 + 768) — 하나라도 다르면 멈춘다.
+    with open(seeds, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"file": "y.txt", "grade": "S", "vector": [0.03] * 768}) + "\n")
+    rc, lines = _run_lines(engine, ["--propagate", str(rec), "--seeds", str(seeds),
+                                    "--axis", "security"])
+    assert (rc, [l["code"] for l in lines]) == (3, [1013]), lines
+    assert "384차원 1건" in lines[0]["message"] and "768차원 1건" in lines[0]["message"]
+
+    # 차원이 맞으면 그대로 돈다.
+    _seed_file(seeds, dim=768)
+    rc, lines = _run_lines(engine, ["--propagate", str(rec), "--seeds", str(seeds),
+                                    "--axis", "security"])
+    assert rc == 0 and lines[-1]["kind"] == "success", lines
+
+
+
+#------------------------------------------------------------------
+# 같은 --model 이면 두 판이 같은 벡터를 낸다 — 세 모델 모두
+#=> 2026-09-29 부터 Rust 판도 --model 로 세 모델을 고른다. 모델마다 프리픽스(e5 'passage: ' ·
+#   sroberta 없음)·차원(384·768)·입력 이름(RoBERTa 는 token_type_ids 없음)이 달라, 한 칸만
+#   어긋나도 벡터가 달라진다. 긴 문서를 하나 넣어 청크 나누기(프리픽스 길이만큼 예산이
+#   달라진다)까지 견준다.
+#   모델 파일은 저장소에 없다(scripts/export_onnx.py 로 만든다) — 없는 모델은 건너뛴다.
+#   두 판 모두 CSOCLASSIFY_MODELS_DIR 로 같은 폴더를 가리킨다(Rust 판도 이 변수를 읽는다).
+#
+# -in: model    = 모델 별칭
+# -in: tmp_path = pytest 임시 폴더
+#
+# -out: 없음(단언)
+# -out: error = 모델 파일이나 Rust exe 가 없으면 건너뛴다
+#------------------------------------------------------------------
+@pytest.mark.parametrize("model", ["e5-small-ko", "e5-small", "ko-sroberta"])
+def test_같은_모델이면_두판의_벡터가_같다(model, tmp_path):
+    _need("rust")
+    from csoclassify import config
+    spec = config.MODELS[model]
+    models_dir = os.path.join(ROOT, "resources", "models")
+    if not os.path.isfile(os.path.join(models_dir, spec.local_dir, "model.onnx")):
+        pytest.skip(f"{model} 모델 파일 없음(python scripts/export_onnx.py --model {model})")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "짧은.txt").write_text("사내 규정에 따른 일반 안내문입니다. 회의는 매주 화요일에 열립니다.",
+                                  encoding="utf-8")
+    # 512 토큰을 넘겨 청크가 여러 개가 되게 한다.
+    (docs / "긴.txt").write_text(
+        "연구소 안전관리 규정은 실험실의 사고를 예방하고 연구원의 건강을 지키기 위해 만든 것이다. " * 80,
+        encoding="utf-8")
+
+    vecs = {}
+    for engine in ("python", "rust"):
+        cmd = [RS_EXE] if engine == "rust" else [sys.executable, "-m", "csoclassify"]
+        env = {k: v for k, v in os.environ.items() if k != "CSO_MODEL"}
+        env.update(PYTHONPATH=os.path.join(ROOT, "src"), PYTHONIOENCODING="utf-8",
+                   CSOCLASSIFY_POLICY_DIR=os.path.join(ROOT, "resources", "policy"),
+                   CSOCLASSIFY_MODELS_DIR=models_dir)
+        out = tmp_path / f"{engine}.jsonl"
+        r = subprocess.run(cmd + ["--dir", str(docs), "--model", model, "--with-vector",
+                                  "--seeds", str(tmp_path / "없는seed.jsonl"), "--axis", "security",
+                                  "--no-daemon", "--format", "jsonl", "--out", str(out)],
+                           cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode == 0, f"{engine}: {r.stderr[-800:]}"
+        recs = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if '"file"' in l]
+        vecs[engine] = {os.path.basename(x["file"]): x.get("vector") for x in recs}
+
+    assert set(vecs["python"]) == set(vecs["rust"]) == {"짧은.txt", "긴.txt"}
+    for name in vecs["python"]:
+        a, b = vecs["python"][name], vecs["rust"][name]
+        assert a and b, (name, "벡터가 없다")
+        assert len(a) == len(b) == spec.dim, (name, len(a), len(b))
+        # 두 판 모두 L2 정규화 벡터 — 내적이 곧 코사인이다.
+        cos = sum(x * y for x, y in zip(a, b))
+        assert cos > 0.9999, (model, name, cos)

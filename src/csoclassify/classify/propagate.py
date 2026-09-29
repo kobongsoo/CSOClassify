@@ -99,6 +99,40 @@ class EmbedSignal:
 
 
 #------------------------------------------------------------------
+# seed 파일의 벡터 차원 세기
+#=> 모델마다 벡터 차원이 다르다(e5 384 · ko-sroberta 768). 다른 모델로 만든 seed 와
+#   이번 실행의 벡터를 비교하면 numpy 가 행렬 모양 오류로 죽는다(Rust 판은 짧은 쪽에
+#   맞춰 잘라 엉뚱한 유사도를 낸다). 그래서 쓰기 전에 차원을 세어 본다.
+#    1) 줄마다 JSON 을 읽어 vector 길이를 센다(깨진 줄·벡터 없는 줄은 건너뛴다)
+#    2) {차원: 건수} 로 돌려준다 — 여러 차원이 섞였는지도 한눈에 보인다
+#
+# -in: path = seed 파일 경로(class_seed.jsonl)
+#
+# -out: dict = {차원: seed 수} (파일이 없거나 벡터가 없으면 빈 dict)
+# -out: error = 없음(읽기 실패는 빈 dict)
+#------------------------------------------------------------------
+def seed_file_dims(path):
+    dims = {}
+    if not path or not os.path.isfile(path):
+        return dims
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    v = json.loads(line).get("vector")
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                if isinstance(v, list) and v:
+                    dims[len(v)] = dims.get(len(v), 0) + 1
+    except OSError:
+        return {}
+    return dims
+
+
+#------------------------------------------------------------------
 # seed 인덱스(라벨 씨앗 모음)
 #=> 등급이 붙은 seed 문서들의 (정규화 벡터, 등급)을 담아 코사인 검색을 제공한다.
 #

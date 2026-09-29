@@ -1,56 +1,169 @@
-//! 임베딩(전파/--vector-only 용) — e5-small-ko ONNX 를 onnxruntime 으로 돌린다.
+//! 임베딩(전파/--vector-only 용) — ONNX 임베딩 모델을 onnxruntime 으로 돌린다.
 //! 모델·런타임은 바이너리에 넣지 않고 '외부 파일'로 로딩한다(pdfium 방식):
 //!   · onnxruntime.dll : 환경변수 ORT_DYLIB_PATH → exe 옆 onnxruntime.dll
-//!   · 모델 폴더        : 환경변수 CSO_MODEL → exe 옆 models/e5-small-ko/
-//! ko-pii(embed) 파이프라인과 동일: 'passage: ' 프리픽스 + 슬라이딩청크 + 평균풀링 + 청크평균 + L2.
+//!   · 모델 폴더        : 아래 `model_dir()` 차례(파이썬 판 resources._model_dir_candidates 와 같다)
+//! 모델은 파이썬 판 `config.MODELS` 와 같은 세 가지(e5-small-ko · e5-small · ko-sroberta)이고
+//! `--model` 로 고른다(기본 e5-small-ko). 파이프라인은 파이썬 판과 같다:
+//! 모델별 프리픽스 + 슬라이딩청크 + 평균풀링 + 청크평균 + L2.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
-use ort::session::{builder::GraphOptimizationLevel, Session};
+use ort::session::{builder::GraphOptimizationLevel, Session, SessionInputValue};
 use ort::value::Tensor;
 use tokenizers::Tokenizer;
 
-// 모델 폴더 위치(exe 옆 기준) — 다른 모델로 바꿀 땐 이 두 상수만 고친다.
-// 에러 메시지(main.rs)도 같은 상수를 써서 안내 경로가 코드와 어긋나지 않게 한다.
+// 모델 폴더의 부모 이름(exe 옆 기준). 에러 메시지(main.rs)도 같은 상수를 쓴다.
 pub const MODEL_ROOT: &str = "models";
-pub const MODEL_NAME: &str = "e5-small-ko";
 
-/// 파이썬 판이 아는 모델 별칭(`config.MODELS` 의 키) — 이 판은 그중 `MODEL_NAME` 하나만 쓴다.
-/// `--model` 을 가를 때 쓴다: 목록에 없는 이름은 오타(1003), 목록에 있지만
-/// `MODEL_NAME` 이 아니면 '이 판에 없는 모델'(1012). 조용히 받아 주면 다른 모델로
-/// 만든 seed 와 이 판의 벡터를 섞어 비교하게 된다. 파이썬 표와 같은지는
-/// `tests/test_errcodes.py` 가 대조한다.
-pub const PYTHON_MODELS: &[&str] = &["e5-small-ko", "e5-small", "ko-sroberta"];
+//------------------------------------------------------------------
+// 임베딩 모델 1개의 스펙 — 파이썬 판 config.ModelSpec 과 같은 칸
+//=> "별칭 → 폴더·차원·프리픽스·토큰 상한"을 묶어 둔 표의 한 행이다.
+//   e5 계열은 문서 앞에 'passage: ' 를 붙여야 성능이 나오고, sroberta 계열은 붙이지 않는다.
+//
+// -필드: key              = --model 에서 쓰는 별칭
+// -필드: local_dir        = models/ 아래 폴더명(model.onnx · tokenizer.json 위치)
+// -필드: dim              = 출력 벡터 차원(seed 와 비교할 때 이 값이 같아야 한다)
+// -필드: passage_prefix   = 문서에 붙일 프리픽스(없으면 "")
+// -필드: max_tokens_model = 모델이 받는 최대 토큰(안전 상한)
+//------------------------------------------------------------------
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ModelSpec {
+    pub key: &'static str,
+    pub local_dir: &'static str,
+    pub dim: usize,
+    pub passage_prefix: &'static str,
+    pub max_tokens_model: usize,
+}
 
-// e5-small-ko 스펙(config.MODELS 와 동일).
-const PASSAGE_PREFIX: &str = "passage: ";
-const MODEL_MAX_TOKENS: usize = 512;
+/// 지원 모델 표 — 파이썬 판 `config.MODELS` 와 **같아야 한다**(차례·값까지).
+/// `tests/test_errcodes.py` 가 두 표를 한 칸씩 대조한다. 한쪽만 고치면 같은 `--model`
+/// 인데 두 판이 다른 벡터를 만든다.
+pub const MODELS: &[ModelSpec] = &[
+    ModelSpec { key: "e5-small-ko", local_dir: "e5-small-ko", dim: 384,
+                passage_prefix: "passage: ", max_tokens_model: 512 },
+    ModelSpec { key: "e5-small", local_dir: "e5-small", dim: 384,
+                passage_prefix: "passage: ", max_tokens_model: 512 },
+    ModelSpec { key: "ko-sroberta", local_dir: "ko-sroberta", dim: 768,
+                passage_prefix: "", max_tokens_model: 512 },
+];
+
+/// 기본 모델 별칭(파이썬 판 `config.DEFAULT_MODEL`).
+pub const DEFAULT_MODEL: &str = "e5-small-ko";
+
+// 이번 실행에 쓸 모델 — 인자 해석(--model)에서 한 번 정한다. 안 정하면 기본 모델.
+static SELECTED: OnceLock<&'static ModelSpec> = OnceLock::new();
+
+//------------------------------------------------------------------
+// 별칭 → 스펙
+//=> 표에서 찾는다. 없으면 None — 부르는 쪽이 '알 수 없는 모델'(1003)로 알린다.
+//
+// -in: key = 모델 별칭
+//
+// -out: Option<&ModelSpec> = 찾은 스펙
+// -out: error = 없음
+//------------------------------------------------------------------
+pub fn spec_of(key: &str) -> Option<&'static ModelSpec> {
+    MODELS.iter().find(|m| m.key == key)
+}
+
+//------------------------------------------------------------------
+// 이번 실행의 모델 정하기 (--model)
+//=> 인자 해석에서 한 번 부른다. 모르는 이름이면 false — 부르는 쪽이 1003 으로 멈춘다.
+//   두 번째 호출은 무시된다(한 실행에 모델은 하나다).
+//
+// -in: key = 모델 별칭
+//
+// -out: bool = 표에 있는 이름이면 true
+// -out: error = 없음
+//------------------------------------------------------------------
+pub fn select(key: &str) -> bool {
+    match spec_of(key) {
+        Some(s) => { let _ = SELECTED.set(s); true }
+        None => false,
+    }
+}
+
+//------------------------------------------------------------------
+// 이번 실행의 모델 스펙
+//=> --model 로 정했으면 그것, 아니면 기본 모델.
+//
+// -in: 없음
+//
+// -out: &ModelSpec = 이번 실행에 쓰는 스펙
+// -out: error = 없음(기본 모델은 표에 늘 있다)
+//------------------------------------------------------------------
+pub fn current() -> &'static ModelSpec {
+    SELECTED.get().copied().unwrap_or_else(|| spec_of(DEFAULT_MODEL).expect("기본 모델이 표에 없다"))
+}
+
+/// 모델 별칭 목록(안내 문구용) — "e5-small-ko, e5-small, ko-sroberta".
+pub fn model_keys() -> String {
+    MODELS.iter().map(|m| m.key).collect::<Vec<_>>().join(", ")
+}
+
 // 청크 크기·겹침 — 파이썬 판은 --max-tokens/--overlap 으로 바꿀 수 있지만 이 판은
 // 이 값으로 고정이다. main.rs 가 다른 값을 받으면 1012 로 멈추려고 공개한다.
 pub const CHUNK_MAX_TOKENS: usize = 512; // DEFAULT_MAX_TOKENS
 pub const CHUNK_OVERLAP: usize = 32;     // DEFAULT_OVERLAP
-pub const DIM: usize = 384;
 
-/// 임베더 — onnxruntime 세션 + 토크나이저.
+/// 임베더 — onnxruntime 세션 + 토크나이저 + 이번 모델 스펙.
 pub struct Embedder {
     session: Session,
     tokenizer: Tokenizer,
     prefix_ids_len: usize,
+    spec: &'static ModelSpec,
+    // 모델이 실제로 받는 입력 이름 — 모델마다 token_type_ids 유무가 다르다(RoBERTa 는 없다).
+    input_names: Vec<String>,
 }
 
-/// 모델 폴더 결정: CSO_MODEL → exe 옆 `MODEL_ROOT`/`MODEL_NAME`.
+//------------------------------------------------------------------
+// 모델 폴더 후보(차례대로) — 파이썬 판 _model_dir_candidates 와 같은 차례
+//=> 1) CSO_MODEL (이 판 전용 — 모델 폴더를 그대로 가리킨다)
+//   2) CSOCLASSIFY_MODELS_DIR/<local_dir>
+//   3) 캐시 %LOCALAPPDATA%/MpowerClassify/models/<local_dir> (없으면 ~/.csoclassify/…)
+//   4) exe 옆 models/<local_dir>, exe 옆 resources/models/<local_dir>
+//   파이썬 판의 '번들 안 경로'와 '.tar.xz 압축 풀기'는 이 판에 없다.
+//
+// -in: spec = 이번 모델 스펙
+//
+// -out: Vec<PathBuf> = 후보 폴더(존재 여부는 확인 안 함)
+// -out: error = 없음
+//------------------------------------------------------------------
+fn model_dir_candidates(spec: &ModelSpec) -> Vec<PathBuf> {
+    let mut c = vec![];
+    if let Ok(env) = std::env::var("CSOCLASSIFY_MODELS_DIR") {
+        if !env.is_empty() { c.push(PathBuf::from(env).join(spec.local_dir)); }
+    }
+    let base = std::env::var("LOCALAPPDATA").ok().filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).ok()
+                 .map(|h| PathBuf::from(h).join(".csoclassify")));
+    if let Some(b) = base { c.push(b.join("MpowerClassify").join(MODEL_ROOT).join(spec.local_dir)); }
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
+        c.push(dir.join(MODEL_ROOT).join(spec.local_dir));
+        c.push(dir.join("resources").join(MODEL_ROOT).join(spec.local_dir));
+    }
+    c
+}
+
+//------------------------------------------------------------------
+// 이번 모델의 폴더 정하기
+//=> CSO_MODEL 이 폴더면 그대로 쓴다(알맹이 확인은 check_deployment 가 한다 — 빈 폴더를
+//   주면 'model.onnx 없음'으로 정확히 알린다). 아니면 후보 중 model.onnx 가 있는 첫 폴더
+//   (파이썬 판 resolve_model_dir 과 같은 규칙).
+//
+// -in: 없음(current() 스펙을 쓴다)
+//
+// -out: Option<PathBuf> = 모델 폴더(못 찾으면 None)
+// -out: error = 없음
+//------------------------------------------------------------------
 fn model_dir() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("CSO_MODEL") {
         let pb = PathBuf::from(p);
         if pb.is_dir() { return Some(pb); }
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let pb = dir.join(MODEL_ROOT).join(MODEL_NAME);
-            if pb.is_dir() { return Some(pb); }
-        }
-    }
-    None
+    model_dir_candidates(current()).into_iter().find(|d| d.join("model.onnx").is_file())
 }
 
 /// onnxruntime 동적 라이브러리 경로: ORT_DYLIB_PATH 유지 or exe 옆 onnxruntime.dll 지정.
@@ -85,7 +198,8 @@ pub fn check_deployment() -> Result<(), String> {
     let dir = match model_dir() {
         Some(d) => d,
         None => return Err(format!(
-            "모델 폴더를 찾지 못했습니다(exe 옆 {}/{} 또는 CSO_MODEL)", MODEL_ROOT, MODEL_NAME)),
+            "모델 폴더를 찾지 못했습니다(exe 옆 {}/{} 또는 CSO_MODEL·CSOCLASSIFY_MODELS_DIR)",
+            MODEL_ROOT, current().local_dir)),
     };
     // 폴더만 있고 알맹이가 없는 배포가 실제로 있었다 — 파일 단위로 본다.
     for name in ["model.onnx", "tokenizer.json"] {
@@ -109,14 +223,19 @@ impl Embedder {
     /// commit_from_file => 모델 파일을 불러옴.
     pub fn load() -> Option<Embedder> {
         ensure_dylib();
+        let spec = current();
         let dir = model_dir()?;
         let tok = Tokenizer::from_file(dir.join("tokenizer.json")).ok()?;
         let session = Session::builder().ok()?
             .with_optimization_level(GraphOptimizationLevel::Level3).ok()?
             .commit_from_file(dir.join("model.onnx")).ok()?;
-        // 프리픽스 토큰 길이(특수토큰 제외) — 청크 예산 계산용.
-        let prefix_ids_len = tok.encode(PASSAGE_PREFIX, false).map(|e| e.get_ids().len()).unwrap_or(0);
-        Some(Embedder { session, tokenizer: tok, prefix_ids_len })
+        // 프리픽스 토큰 길이(특수토큰 제외) — 청크 예산 계산용. 프리픽스가 없는 모델은 0.
+        let prefix_ids_len = if spec.passage_prefix.is_empty() { 0 } else {
+            tok.encode(spec.passage_prefix, false).map(|e| e.get_ids().len()).unwrap_or(0)
+        };
+        // 모델이 실제로 받는 입력 이름을 기억한다 — 없는 입력을 넣으면 추론이 실패한다.
+        let input_names = session.inputs.iter().map(|i| i.name.clone()).collect();
+        Some(Embedder { session, tokenizer: tok, prefix_ids_len, spec, input_names })
     }
 
     /// 문서 임베딩(정규화된 384벡터). 청크별 평균풀링 → 청크평균 → L2.
@@ -131,15 +250,20 @@ impl Embedder {
         if text.trim().is_empty() { return None; }
         let chunks = self.split_chunks(text);
         if chunks.is_empty() { return None; }
-        let mut acc = vec![0f32; DIM];
+        // 차원은 모델마다 다르다(384·768) — 스펙 값으로 누적한다.
+        let dim = self.spec.dim;
+        let mut acc = vec![0f32; dim];
         let mut n = 0usize;
         for c in &chunks {
             let v = self.embed_one(c)?;
-            for i in 0..DIM { acc[i] += v[i]; }
+            // 모델 출력 차원이 스펙과 다르면(엉뚱한 폴더의 모델) 벡터를 만들지 않는다 —
+            // 다른 차원 벡터가 seed 와 섞이면 비교가 조용히 틀어진다.
+            if v.len() != dim { return None; }
+            for i in 0..dim { acc[i] += v[i]; }
             n += 1;
         }
         if n == 0 { return None; }
-        for i in 0..DIM { acc[i] /= n as f32; }
+        for i in 0..dim { acc[i] /= n as f32; }
         l2_normalize(&mut acc);
         Some(acc)
     }
@@ -149,7 +273,7 @@ impl Embedder {
         let enc = match self.tokenizer.encode(text, false) { Ok(e) => e, Err(_) => return vec![] };
         let ids = enc.get_ids();
         if ids.is_empty() { return vec![]; }
-        let hard_cap = CHUNK_MAX_TOKENS.min(MODEL_MAX_TOKENS);
+        let hard_cap = CHUNK_MAX_TOKENS.min(self.spec.max_tokens_model);
         let effective = hard_cap.saturating_sub(self.prefix_ids_len + 2).max(8);
         let eff_overlap = CHUNK_OVERLAP.min(effective - 1);
         let mut out = vec![];
@@ -164,23 +288,30 @@ impl Embedder {
 
     /// 청크 문자열 1개 → 평균풀링 벡터(정규화 전).
     fn embed_one(&mut self, chunk_text: &str) -> Option<Vec<f32>> {
-        let full = format!("{}{}", PASSAGE_PREFIX, chunk_text);
+        // 모델별 프리픽스(e5 는 'passage: ', sroberta 는 없음).
+        let full = format!("{}{}", self.spec.passage_prefix, chunk_text);
         let enc = self.tokenizer.encode(full, true).ok()?;
         let mut ids: Vec<i64> = enc.get_ids().iter().map(|&x| x as i64).collect();
         let mut mask: Vec<i64> = enc.get_attention_mask().iter().map(|&x| x as i64).collect();
-        if ids.len() > MODEL_MAX_TOKENS { ids.truncate(MODEL_MAX_TOKENS); mask.truncate(MODEL_MAX_TOKENS); }
+        let cap = self.spec.max_tokens_model;
+        if ids.len() > cap { ids.truncate(cap); mask.truncate(cap); }
         let seq = ids.len();
-        let tt = vec![0i64; seq];
-        let input_ids = Tensor::from_array(([1usize, seq], ids)).ok()?;
-        let attn = Tensor::from_array(([1usize, seq], mask.clone())).ok()?;
-        let ttids = Tensor::from_array(([1usize, seq], tt)).ok()?;
-        let outputs = self.session.run(ort::inputs![
-            "input_ids" => input_ids,
-            "attention_mask" => attn,
-            "token_type_ids" => ttids,
-        ]).ok()?;
-        let (shape, data) = outputs["last_hidden_state"].try_extract_tensor::<f32>().ok()?;
-        // shape = [1, seq, DIM]
+        // 모델이 요구하는 입력만 넣는다(파이썬 판과 같다) — RoBERTa 계열은 token_type_ids 가 없다.
+        let has = |n: &str| self.input_names.iter().any(|x| x == n);
+        let mut feeds: Vec<(&str, SessionInputValue)> = vec![];
+        if has("input_ids") {
+            feeds.push(("input_ids", Tensor::from_array(([1usize, seq], ids)).ok()?.into()));
+        }
+        if has("attention_mask") {
+            feeds.push(("attention_mask", Tensor::from_array(([1usize, seq], mask.clone())).ok()?.into()));
+        }
+        if has("token_type_ids") {
+            feeds.push(("token_type_ids", Tensor::from_array(([1usize, seq], vec![0i64; seq])).ok()?.into()));
+        }
+        let outputs = self.session.run(feeds).ok()?;
+        // 첫 출력을 last_hidden_state (1, seq, dim) 로 본다 — 파이썬 판과 같다(이름은 모델마다 다를 수 있다).
+        let (shape, data) = outputs[0].try_extract_tensor::<f32>().ok()?;
+        // shape = [1, seq, dim]
         let sq = shape[1] as usize;
         let dim = shape[2] as usize;
         // 마스크 평균 풀링.

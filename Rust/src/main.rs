@@ -616,22 +616,16 @@ fn parse_args() -> Result<Opts, String> {
             "--log" => o.log = take(false),
             // ※ "--nosummary"·"--with-text" 는 실제로 처리하므로 여기 두면 안 된다
             //   (도달할 수 없는 갈래가 되어 unreachable_patterns 경고가 난다).
-            // 파이썬 판에서 '벡터를 바꾸는' 옵션들. 예전에는 값까지 삼키고 아무 일도 안 했다 —
-            // `--model ko-sroberta` 를 줘도 조용히 e5-small-ko 로 벡터를 만들어, 다른 모델로
-            // 만든 seed 와 섞어 비교하는 결과가 오류 없이 나왔다. 이 판이 쓰는 값이면 받고,
-            // 다른 값이면 '이 판에 없는 기능'(1012), 값 자체가 틀리면 인자 오류(1003).
+            // 임베딩 모델 고르기 — 파이썬 판과 같은 세 가지(e5-small-ko · e5-small · ko-sroberta).
+            // [2026-09-29] 예전에는 값을 삼키고 늘 e5-small-ko 를 썼다 — `--model ko-sroberta` 를
+            // 줘도 조용히 다른 모델로 벡터를 만들었다. 이제 고른 모델을 실제로 쓰고,
+            // 모르는 이름은 파이썬 판과 같은 문구·같은 번호(1003)로 멈춘다.
             "--model" => {
                 let v = take(false).unwrap();
-                if !embed::PYTHON_MODELS.contains(&v.as_str()) {
+                if !embed::select(&v) {
                     errcodes::fail("bad_args",
                         &format!("[MpowerClassify-rs] 알 수 없는 모델 '{}'. 사용 가능: {}",
-                                 v, embed::PYTHON_MODELS.join(", ")), None);
-                }
-                if v != embed::MODEL_NAME {
-                    errcodes::fail("unsupported_option",
-                        &format!("[MpowerClassify-rs] --model {} 은 이 판에 없습니다 — 이 판은 {} 만 씁니다. \
-다른 모델로 만든 기준 문서와 섞이면 비교가 틀어지므로 멈춥니다. 그 모델이 필요하면 파이썬 판을 쓰십시오.",
-                                 v, embed::MODEL_NAME), None);
+                                 v, embed::model_keys()), None);
                 }
             }
             "--max-tokens" | "--overlap" => {
@@ -2090,6 +2084,26 @@ fn file_hash(path: &Path) -> Option<String> {
 }
 
 //------------------------------------------------------------------
+// seed 파일이 이번 벡터와 같은 차원인가 — 파이썬 cli._seed_dim_problem 과 같은 문구
+//=> 다른 모델로 만든 seed 를 쓰면 비교가 성립하지 않는다. 이 판의 cosine 은 zip 으로
+//   짧은 쪽에 맞춰 잘라 곱해, 오류 없이 엉뚱한 유사도를 냈다. 쓰기 전에 차원을 본다.
+//
+// -in: path = seed 파일 경로
+// -in: dim  = 이번 실행 벡터의 차원
+// -in: what = 안내에 쓸 '이번 벡터'의 설명(예: "모델 ko-sroberta(768차원)")
+//
+// -out: Option<String> = 맞지 않는 까닭(맞으면 None)
+// -out: error = 없음
+//------------------------------------------------------------------
+fn seed_dim_problem(path: &str, dim: usize, what: &str) -> Option<String> {
+    let dims = propagate::seed_file_dims(path);
+    if dims.keys().all(|d| *d == dim) { return None; }
+    let shown = dims.iter().map(|(d, n)| format!("{}차원 {}건", d, n)).collect::<Vec<_>>().join(" · ");
+    Some(format!("기준 문서(seed) 벡터가 이번 벡터와 맞지 않습니다 — {}, seed 파일은 {}: {}\n  \
+seed 를 만든 모델로 --model 을 맞추거나, 이 모델로 seed 를 다시 만드세요.", what, shown, path))
+}
+
+//------------------------------------------------------------------
 // Ctrl+C(중단) 처리기 달기
 //=> 예전에는 처리기가 없어 OS 가 프로세스를 그냥 끊었다. 그러면
 //    · 종료코드가 윈도우에서 0xC000013A 로 나가 파이썬 판(130)과 달랐고
@@ -2144,7 +2158,7 @@ fn main() {
             },
             None => errcodes::fail("model_load_failed",
                 &format!("[MpowerClassify-rs] 모델/런타임 로드 실패({}/{}, onnxruntime.dll 확인)",
-                         embed::MODEL_ROOT, embed::MODEL_NAME),
+                         embed::MODEL_ROOT, embed::current().local_dir),
                 None),
         }
         return;
@@ -2433,6 +2447,19 @@ fn main() {
     // 통째로 생략해, 가장 비싼 단계를 건너뛴 대량 업무분류 스캔이 크게 빨라진다.
     if opts.axis.as_deref() == Some("doctype") {
         rules_enabled = false;
+    }
+
+    // seed 를 실제로 쓰는 실행(전파·기준 문서 등록)이면, 문서를 읽기 전에 seed 벡터가
+    // 이번 모델과 같은 차원인지 본다 — 다른 모델로 만든 seed 와는 비교가 성립하지 않는다
+    // (파이썬 판 run_classify 와 같은 자리·같은 조건). 규칙만 쓰는 실행은 보지 않는다.
+    if (auto_prop || !seed_plan.is_empty()) && seed_exists {
+        if let Some(p) = seeds_path.as_deref() {
+            let spec = embed::current();
+            if let Some(why) = seed_dim_problem(p, spec.dim, &format!("모델 {}({}차원)", spec.key, spec.dim)) {
+                let _ = std::fs::remove_dir_all(&arc_tmp);
+                errcodes::fail("seeds_model_mismatch", &format!("[MpowerClassify-rs] {}", why), Some(p));
+            }
+        }
     }
 
     // 모델·런타임 배포 점검(값싼 확인) — 세션은 만들지 않고 파일 존재만 본다.
@@ -3059,12 +3086,12 @@ embed.enabled 가 false 라 2단계를 건너뜁니다", dt_seeds.size());
                 if opts.vector_only {
                     errcodes::fail("model_load_failed",
                         &format!("[MpowerClassify-rs] --vector-only 인데 임베딩 모델을 올리지 못했습니다({}/{}, onnxruntime.dll 확인).",
-                                 embed::MODEL_ROOT, embed::MODEL_NAME),
+                                 embed::MODEL_ROOT, embed::current().local_dir),
                         None);
                 }
                 let m = format!(
                     "[MpowerClassify-rs] 임베딩 모델/런타임 로드 실패 → 임베딩·전파 생략({}/{}, onnxruntime.dll 확인).",
-                    embed::MODEL_ROOT, embed::MODEL_NAME);
+                    embed::MODEL_ROOT, embed::current().local_dir);
                 errlog::err(&m);
                 model_fail = Some(m);
             }
@@ -3689,6 +3716,17 @@ fn run_propagate(opts: &Opts) -> i32 {
         if !Path::new(p).is_file() {
             errcodes::fail("seeds_missing",
                 &format!("[MpowerClassify-rs] seed 파일이 없습니다: {}", p), Some(p));
+        }
+    }
+    // 1차 결과의 벡터와 seed 벡터가 같은 모델에서 나왔는지(차원) 본다. 전파 모드는 모델을
+    // 올리지 않으므로 '이번 벡터'는 입력 레코드에 이미 실린 벡터다(파이썬 run_propagate 와 같다).
+    let rec_dim = records.iter()
+        .find_map(|r| r.get("vector").and_then(|v| v.as_array()).filter(|a| !a.is_empty()).map(|a| a.len()));
+    if let (Some(d), Some(p)) = (rec_dim, seeds_path.as_deref()) {
+        if Path::new(p).is_file() {
+            if let Some(why) = seed_dim_problem(p, d, &format!("1차 결과 벡터({}차원)", d)) {
+                errcodes::fail("seeds_model_mismatch", &format!("[MpowerClassify-rs] {}", why), Some(p));
+            }
         }
     }
     let external = match &seeds_path {
