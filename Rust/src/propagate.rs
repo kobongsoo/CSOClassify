@@ -20,6 +20,32 @@ const MIN_SHARE: f32 = 0.70;      // 1등 득표율 < → 보류
 // 잡았다. Python classify/propagate.py 의 MIN_SHARE_DOCTYPE 과 값을 맞춘다.
 const MIN_SHARE_DOCTYPE: f32 = 0.25;
 
+//------------------------------------------------------------------
+// seed 파일의 벡터 차원 세기 — 파이썬 classify/propagate.py::seed_file_dims 와 같다
+//=> 모델마다 벡터 차원이 다르다(e5 384 · ko-sroberta 768). 아래 cosine 은 zip 으로
+//   짧은 쪽에 맞춰 잘라 곱하므로, 차원이 다른 seed 와 비교하면 오류 없이 엉뚱한
+//   유사도가 나온다. 그래서 쓰기 전에 차원을 세어 본다.
+//
+// -in: path = seed 파일 경로
+//
+// -out: BTreeMap<차원, 건수> (파일이 없거나 벡터가 없으면 빈 맵)
+// -out: error = 없음(읽기 실패·깨진 줄은 건너뜀)
+//------------------------------------------------------------------
+pub fn seed_file_dims(path: &str) -> std::collections::BTreeMap<usize, usize> {
+    let mut dims = std::collections::BTreeMap::new();
+    let text = match fs::read_to_string(path) { Ok(t) => t, Err(_) => return dims };
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            if let Some(a) = v.get("vector").and_then(|x| x.as_array()) {
+                if !a.is_empty() { *dims.entry(a.len()).or_insert(0) += 1; }
+            }
+        }
+    }
+    dims
+}
+
 /// seed 인덱스 — L2 정규화된 벡터 + 등급 + 파일경로.
 pub struct SeedIndex {
     vectors: Vec<Vec<f32>>, // 각 행 L2 정규화

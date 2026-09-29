@@ -38,6 +38,9 @@ rars = "0.9.4"
 # xlsx 시트 XML 을 흘려 읽기(SAX) 위한 순수 Rust 파서. 정규식으로 통째로 훑던
 # 방식은 거대한 단일 시트에서 비용이 급격히 커졌다(실측 15.2MB 파일 5.0초).
 quick-xml = { version = "0.42.0", default-features = false }
+# Ctrl+C 를 받아 압축 해제 임시폴더(내부 원문 포함)를 지우고 130 으로 끝내기 위해.
+# 순수 Rust(윈도우는 windows-sys, 리눅스는 nix)라 정적 단일 바이너리 목표를 깨지 않는다.
+ctrlc = "3"
 
 [profile.release]
 opt-level = 3

@@ -38,6 +38,9 @@ pub const ERRORS: &[(&str, i64, i32)] = &[
     // 이 판에 없는 기능(데몬)을 요구받았을 때. 조용히 무시하면 부르는 쪽은
     // 요청이 받아들여진 줄 안다 — 그건 결과를 못 읽는 상태로 이어진다.
     ("unsupported_option", 1012, 3),
+    // seed 벡터가 이번 모델과 차원이 다름 — 다른 모델로 만든 seed 와는 비교가 성립하지
+    // 않는다. 부른 쪽이 --model 이나 seed 를 맞추면 고칠 수 있어 3 이다(2026-09-29).
+    ("seeds_model_mismatch", 1013, 3),
     // ── 2000 정책 파일(규칙셋 · 분류체계) ────────────────────────────
     ("rules_missing", 2001, 3),
     ("rules_invalid", 2002, 4),
@@ -73,6 +76,22 @@ static FAILED: AtomicI64 = AtomicI64::new(0);
 /// 반년 뒤에 재현할 수 없다 — 더 나쁜 것은 그새 규칙이 바뀐 줄 모르고 지금
 /// 규칙으로 재현해 보고 "맞네" 하는 것이다. 실행 단위 정보라 상태 줄에 싣는다.
 static VERSIONS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+/// 이번 실행이 '왜' 0 이 아닌 종료코드로 끝나는지 — 실행이 직접 적어 둔 이름·문장.
+/// 종료코드만 보고 이름을 거꾸로 찾으면 exit 2 는 언제나 model_load_failed 가 되는
+/// 식으로 엉뚱한 이름이 붙는다(한 종료코드에 이름이 여럿이다). 그래서 까닭을 아는
+/// 자리가 적어 두고, 상태 줄은 그것을 먼저 쓴다.
+static STATUS: Mutex<Option<(String, String)>> = Mutex::new(None);
+
+/// 이번 실행이 끝나는 까닭을 적어 둔다(상태 줄의 kind·message 가 된다).
+///
+/// 표에 없는 이름이면 즉시 패닉한다(개발 중 오타) — `row()` 와 같은 원칙이다.
+pub fn set_status(kind: &str, message: &str) {
+    let _ = row(kind);
+    if let Ok(mut st) = STATUS.lock() {
+        *st = Some((kind.to_string(), message.to_string()));
+    }
+}
 
 /// 이번 실행에 쓴 정책 버전을 기록한다(빈 값은 넣지 않는다).
 pub fn set_versions(pairs: &[(&str, Option<String>)]) {
@@ -196,8 +215,13 @@ pub fn finish(code: i32, path: Option<&str>) -> i32 {
 pub fn status_object(code: i32, path: Option<&str>) -> Value {
     let total = TOTAL.load(Ordering::Relaxed);
     let failed = FAILED.load(Ordering::Relaxed);
-    let (kind, msg) = if code == 0 {
+    // 실행이 까닭을 직접 적어 두었고 그 종료코드와 짝이 맞으면 그것을 쓴다.
+    let explicit = STATUS.lock().ok().and_then(|st| st.clone())
+        .filter(|(k, _)| code != 0 && exit_of(k) == code);
+    let (kind, msg): (&str, String) = if code == 0 {
         ("success", String::new())
+    } else if let Some((k, m)) = explicit.as_ref() {
+        (k.as_str(), m.clone())
     } else if code == 1 && failed > 0 {
         // 결과 파일은 정상적으로 만들어졌다. 다만 사람이 볼 문서가 몇 건 있다.
         ("extract_failed", format!("{}건 중 {}건을 읽지 못했습니다", total, failed))
@@ -327,6 +351,26 @@ mod tests {
         assert!(with.contains("\"path\":\"D:/x\""));
         assert!(!error_json("bad_args", "인자 오류", None).contains("path"));
         assert!(!error_json("bad_args", "인자 오류", Some("")).contains("path"));
+    }
+
+    /// 실행이 적어 둔 까닭(set_status)이 종료코드 역추적보다 먼저다.
+    ///
+    /// exit 2 에는 model_load_failed·embed_failed 두 이름이 있다. 역추적만 하면
+    /// 언제나 앞의 것이 붙어, "0건 등록"이 "모델을 못 올렸다"로 보고됐다.
+    /// 종료코드와 짝이 안 맞는 까닭은 쓰지 않는다(code 와 exit 가 어긋나면 안 된다).
+    #[test]
+    fn 적어둔_까닭이_역추적보다_먼저다() {
+        set_status("embed_failed", "3건 중 한 건도 등록하지 못했습니다");
+        let v = status_object(2, None);
+        assert_eq!(v["error"]["code"], 3003);
+        assert_eq!(v["error"]["kind"], "embed_failed");
+        assert_eq!(v["error"]["message"], "3건 중 한 건도 등록하지 못했습니다");
+        // 종료코드가 다르면(1) 적어 둔 까닭을 쓰지 않는다.
+        let v1 = status_object(1, None);
+        assert_ne!(v1["error"]["kind"], "embed_failed");
+        // 성공은 언제나 success 다.
+        assert_eq!(status_object(0, None)["error"]["kind"], "success");
+        if let Ok(mut st) = STATUS.lock() { *st = None; }
     }
 
     /// 여러 줄 안내도 JSON 은 한 줄이어야 한다(부르는 쪽이 줄 단위로 읽는다).

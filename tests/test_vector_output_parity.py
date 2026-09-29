@@ -61,10 +61,14 @@ FIXTURE_HTML = """<!doctype html>
 #------------------------------------------------------------------
 def _run(engine, doc_dir, seeds, extra):
     cmd = [RS_EXE] if engine == "rust" else [sys.executable, "-m", "csoclassify"]
-    # Rust 는 모델 경로를 인자로, Python 은 환경변수로 받는다.
-    model = ["--model", MODEL_DIR] if engine == "rust" else []
+    # 모델 폴더는 두 판 모두 환경변수로 준다 — Rust 는 CSO_MODEL(폴더 그대로),
+    # Python 은 CSOCLASSIFY_MODELS_DIR(그 폴더의 부모). 예전에는 Rust 에 --model <경로> 를
+    # 넘겼는데, Rust 판은 --model 값을 통째로 무시하고 있어 exe 옆 모델을 조용히 썼다
+    # (Python 쪽 변수 이름도 CSOCLASSIFY_MODEL_DIR 로 틀려 무시됐다). 2026-09-29 부터 Rust 는
+    # --model 에 모델 별칭만 받으므로(경로는 1003), 실제로 먹는 길로 바꾼다.
+    model = []
     env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
-               PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
+               PYTHONIOENCODING="utf-8", CSO_MODEL=MODEL_DIR, CSOCLASSIFY_MODELS_DIR=os.path.dirname(MODEL_DIR))
     r = subprocess.run(
         cmd + ["--dir", str(doc_dir), "--cso-rules", POLICY,
                "--doc-rules", DOC_RULES,
@@ -108,7 +112,7 @@ def _fixture(tmp_path):
     # (실제로 처음 판이 그랬다. 수정을 되돌려 보고서야 알았다.)
     # 문서 자신의 벡터를 seed 로 주면 유사도 1.0 이라 2단계가 확실히 돈다.
     env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
-               PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
+               PYTHONIOENCODING="utf-8", CSO_MODEL=MODEL_DIR, CSOCLASSIFY_MODELS_DIR=os.path.dirname(MODEL_DIR))
     r = subprocess.run(
         [sys.executable, "-m", "csoclassify", "--dir", str(d),
          "--cso-rules", POLICY, "--doc-rules", DOC_RULES,
@@ -211,7 +215,7 @@ def test_인자를_주면_두_판이_같은_건수의_벡터를_싣는다(flag, 
 def test_전파_2차패스가_실행헤더를_문서로_세지_않는다(tmp_path):
     doc_dir, _seeds = _fixture(tmp_path)
     env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src"),
-               PYTHONIOENCODING="utf-8", CSOCLASSIFY_MODEL_DIR=MODEL_DIR)
+               PYTHONIOENCODING="utf-8", CSO_MODEL=MODEL_DIR, CSOCLASSIFY_MODELS_DIR=os.path.dirname(MODEL_DIR))
     pol = ["--cso-rules", POLICY, "--doc-rules", DOC_RULES]
     p1 = tmp_path / "p1.jsonl"
     # 1차 — 헤더 줄이 들어간 jsonl 을 만든다(--nosummary 를 주지 않아야 요약도 붙는다).
